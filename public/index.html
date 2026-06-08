@@ -2,25 +2,77 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Netlify API</title>
+  <title>Vocal Saga — LLM Proxy</title>
   <style>
-    body { font-family: monospace; max-width: 600px; margin: 40px auto; padding: 0 20px; }
-    code { background: #f4f4f4; padding: 2px 6px; border-radius: 3px; }
-    pre { background: #f4f4f4; padding: 12px; border-radius: 6px; overflow-x: auto; }
+    body { font-family: system-ui; max-width: 720px; margin: 40px auto; padding: 0 20px; color: #222; }
+    h2 { border-bottom: 2px solid #e0e0e0; padding-bottom: 6px; margin-top: 32px; }
+    code { background: #f4f4f4; padding: 2px 6px; border-radius: 3px; font-size: 0.9em; }
+    pre { background: #f4f4f4; padding: 14px; border-radius: 6px; overflow-x: auto; line-height: 1.5; }
+    table { border-collapse: collapse; width: 100%; margin: 12px 0; }
+    th, td { border: 1px solid #ddd; padding: 8px 12px; text-align: left; font-size: 0.9em; }
+    th { background: #f8f8f8; }
+    .note { background: #fff8e1; border-left: 4px solid #ffc107; padding: 10px 14px; margin: 14px 0; border-radius: 4px; font-size: 0.9em; }
   </style>
 </head>
 <body>
 
-  <p>A simple Express.js API running on Netlify Functions.</p>
-  <h2>Endpoints</h2>
-  <ul>
-    <li><code>GET /api/hello?name=YourName</code> — greet by name</li>
-    <li><code>POST /api/echo</code> — echo back JSON body</li>
-  </ul>
-  <h2>Try it</h2>
-  <pre>curl "/api/hello?name=Netlify"
-curl -X POST "/api/echo" \
-     -H "Content-Type: application/json" \
-     -d '{"hello":"world"}'</pre>
+  <h1>Vocal Saga</h1>
+  <p>OpenAI 兼容的 LLM 透明代理，将请求转发到 Cloudflare AI 或 DeepSeek。</p>
+
+  <h2>端点</h2>
+  <table>
+    <tr><th>方法</th><th>路径</th><th>说明</th></tr>
+    <tr><td><code>POST</code></td><td><code>/api/v1/chat/completions</code></td><td>Chat Completions（OpenAI 兼容）</td></tr>
+    <tr><td><code>GET</code></td><td><code>/api/v1/models</code></td><td>可用模型列表</td></tr>
+    <tr><td><code>GET</code></td><td><code>/api/hello?name=…</code></td><td>健康检查</td></tr>
+  </table>
+
+  <h2>后端路由规则</h2>
+  <p>根据请求中的 <code>model</code> 字段自动选择后端：</p>
+  <table>
+    <tr><th>模型名特征</th><th>后端</th><th>示例</th></tr>
+    <tr><td>包含 <code>/</code></td><td>Cloudflare AI</td><td><code>@cf/meta/llama-3.1-8b-instruct</code>、<code>deepseek/deepseek-v4-pro</code></td></tr>
+    <tr><td>以 <code>deepseek-</code> 开头</td><td>DeepSeek</td><td><code>deepseek-chat</code>、<code>deepseek-reasoner</code></td></tr>
+    <tr><td>其他（默认）</td><td>DeepSeek</td><td>—</td></tr>
+  </table>
+
+  <h2>使用示例</h2>
+  <pre># Cloudflare AI — deepseek-v4-pro
+curl -X POST "/api/v1/chat/completions" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "deepseek/deepseek-v4-pro",
+    "messages": [{"role": "user", "content": "Hello"}]
+  }'
+
+# DeepSeek 官方 — deepseek-chat
+curl -X POST "/api/v1/chat/completions" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "deepseek-chat",
+    "messages": [{"role": "user", "content": "Hello"}]
+  }'</pre>
+
+  <p>响应中会附带 <code>_backend</code> 字段，标识实际使用的后端（<code>"cloudflare"</code> 或 <code>"deepseek"</code>）。</p>
+
+  <h2>已知限制</h2>
+  <table>
+    <tr><th>限制</th><th>说明</th></tr>
+    <tr><td>无 CORS 头</td><td>浏览器跨域请求可能因缺少 CORS 头而失败。</td></tr>
+    <tr><td>模型列表硬编码</td><td><code>/models</code> 返回静态列表，不动态查询上游。</td></tr>
+    <tr><td>无速率限制</td><td>端点对外开放，无认证或频率控制。</td></tr>
+    <tr><td>仅 chat/completions</td><td>不支持 <code>/completions</code>、<code>/embeddings</code> 等其他 OpenAI 端点。</td></tr>
+    <tr><td>参数兼容性</td><td>某些 OpenAI 参数（如 <code>logprobs</code>）上游可能不支持，直接透传会导致 400 错误。</td></tr>
+  </table>
+
+  <h2>环境变量</h2>
+  <p>在 Netlify Dashboard 中配置以下环境变量：</p>
+  <table>
+    <tr><th>变量</th><th>说明</th><th>必填</th></tr>
+    <tr><td><code>CLOUDFLARE_ACCOUNT_ID</code></td><td>Cloudflare 账户 ID</td><td>使用 CF 模型时必填</td></tr>
+    <tr><td><code>CLOUDFLARE_API_TOKEN</code></td><td>Cloudflare API Token（需 Workers AI 权限）</td><td>使用 CF 模型时必填</td></tr>
+    <tr><td><code>DEEPSEEK_API_KEY</code></td><td>DeepSeek API Key</td><td>使用 DS 模型时必填</td></tr>
+  </table>
+
 </body>
 </html>
