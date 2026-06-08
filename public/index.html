@@ -58,7 +58,6 @@ curl -X POST "/api/v1/chat/completions" \
   <h2>已知限制</h2>
   <table>
     <tr><th>限制</th><th>说明</th></tr>
-    <tr><td>无 CORS 头</td><td>浏览器跨域请求可能因缺少 CORS 头而失败。</td></tr>
     <tr><td>模型列表硬编码</td><td><code>/models</code> 返回静态列表，不动态查询上游。</td></tr>
     <tr><td>无速率限制</td><td>端点对外开放，无认证或频率控制。</td></tr>
     <tr><td>仅 chat/completions</td><td>不支持 <code>/completions</code>、<code>/embeddings</code> 等其他 OpenAI 端点。</td></tr>
