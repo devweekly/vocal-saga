@@ -27,20 +27,47 @@ function resolveModel(model) {
   return { backend: 'deepseek', model: 'deepseek-v4-flash' }
 }
 
+// ── 认证 ────────────────────────────────────────────────
+const AUTH_KEY = process.env.AUTH_KEY || ''
+
+if (!AUTH_KEY || AUTH_KEY.length < 6) {
+  throw new Error('AUTH_KEY is required and must be at least 6 characters')
+}
+
+function checkAuth(req) {
+  return req?.headers?.get?.('authorization') === `Bearer ${AUTH_KEY}`
+    || req?.headers?.authorization === `Bearer ${AUTH_KEY}`
+}
+
 // ── OpenAI 兼容代理 ────────────────────────────────────
 // POST /api/v1/chat/completions
 app.post('/api/v1/chat/completions', async (req, res) => {
+  if (!checkAuth(req)) {
+    return res.status(401).json({ error: 'Unauthorized' })
+  }
+
+  const startedAt = Date.now()
   const { stream } = req.body || {}
   const resolved = resolveModel(req.body?.model)
   // 覆盖 model，确保上游收到正确模型名
   req.body = { ...req.body, model: resolved.model }
   const backend = resolved.backend
 
+  console.log(`[req] model=${resolved.model} backend=${backend} stream=${!!stream} msgs=${req.body.messages?.length ?? 0}`)
+
   // ── DeepSeek 特定优化 ──
   if (backend === 'deepseek') {
     // 默认禁用 thinking 模式（客户端可显式设置 thinking 覆盖）
     if (req.body.thinking === undefined) {
       req.body.thinking = { type: 'disabled' }
+    }
+    // 默认温度
+    if (req.body.temperature === undefined) {
+      req.body.temperature = 0.1
+    }
+    // 标识代理来源，方便 DeepSeek 侧区分流量
+    if (req.body.user_id === undefined && !req.body.user) {
+      req.body.user_id = 'vocal-saga'
     }
   }
 
@@ -73,13 +100,17 @@ app.post('/api/v1/chat/completions', async (req, res) => {
       body: JSON.stringify(req.body),
     })
 
+    const latency = Date.now() - startedAt
+
     if (!upstream.ok) {
       const errData = await upstream.json()
+      console.error(`[res] status=${upstream.status} latency=${latency}ms error=${JSON.stringify(errData)}`)
       return res.status(upstream.status).json(errData)
     }
 
     // ── 流式响应 ──
     if (stream && upstream.body) {
+      console.log(`[res] status=${upstream.status} latency=${latency}ms stream=started`)
       res.setHeader('Content-Type', 'text/event-stream')
       res.setHeader('Cache-Control', 'no-cache')
       res.setHeader('Connection', 'keep-alive')
@@ -98,15 +129,19 @@ app.post('/api/v1/chat/completions', async (req, res) => {
       } finally {
         reader.releaseLock()
         res.end()
+        console.log(`[res] stream=done total=${Date.now() - startedAt}ms`)
       }
       return
     }
 
     // ── 非流式响应 ──
     const data = await upstream.json()
+    const usage = data.usage
+    console.log(`[res] status=${upstream.status} latency=${latency}ms` +
+      (usage ? ` tokens_in=${usage.prompt_tokens} tokens_out=${usage.completion_tokens}` : ''))
     res.json({ ...data, _backend: backend })
   } catch (err) {
-    console.error('Proxy error:', err)
+    console.error(`[res] error="${err.message}" latency=${Date.now() - startedAt}ms`)
     res.status(502).json({ error: 'Upstream request failed', detail: err.message })
   }
 })

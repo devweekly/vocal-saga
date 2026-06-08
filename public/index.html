@@ -36,20 +36,25 @@
     <tr><td>其他（默认）</td><td>DeepSeek</td><td>自动使用 <code>deepseek-v4-flash</code></td></tr>
   </table>
 
+  <h2>认证</h2>
+  <p><code>/api/v1/chat/completions</code> 需要 <code>Authorization: Bearer &lt;key&gt;</code> 认证。</p>
+
   <h2>使用示例</h2>
-  <pre># Cloudflare AI — deepseek-v4-pro
+  <pre># Cloudflare AI — deepseek-v4-flash
 curl -X POST "/api/v1/chat/completions" \
+  -H "Authorization: Bearer $API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "deepseek/deepseek-v4-pro",
+    "model": "deepseek/deepseek-v4-flash",
     "messages": [{"role": "user", "content": "Hello"}]
   }'
 
-# DeepSeek 官方 — deepseek-v4-pro
+# DeepSeek 官方 — deepseek-v4-flash
 curl -X POST "/api/v1/chat/completions" \
+  -H "Authorization: Bearer $API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "deepseek-v4-pro",
+    "model": "deepseek-v4-flash",
     "messages": [{"role": "user", "content": "Hello"}]
   }'</pre>
 
@@ -59,7 +64,6 @@ curl -X POST "/api/v1/chat/completions" \
   <table>
     <tr><th>限制</th><th>说明</th></tr>
     <tr><td>模型列表硬编码</td><td><code>/models</code> 返回静态列表，不动态查询上游。</td></tr>
-    <tr><td>无速率限制</td><td>端点对外开放，无认证或频率控制。</td></tr>
     <tr><td>仅 chat/completions</td><td>不支持 <code>/completions</code>、<code>/embeddings</code> 等其他 OpenAI 端点。</td></tr>
     <tr><td>参数兼容性</td><td>某些 OpenAI 参数（如 <code>logprobs</code>）上游可能不支持，直接透传会导致 400 错误。</td></tr>
   </table>
