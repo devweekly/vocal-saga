@@ -27,7 +27,20 @@ const DS_MODELS = new Set(['deepseek-v4-flash', 'deepseek-v4-pro'])
 // 模型名包含 "/"                   → Cloudflare AI（如 @cf/meta/llama-3, deepseek/deepseek-v4-pro）
 // 模型名在 DS_MODELS 中            → DeepSeek
 // 其他                             → 默认 deepseek-v4-flash
-function resolveModel(model) {
+// 请求体中可传 "_backend" 显式指定后端（用于 nvidia/* 与 nvidia/*:free 这种重名场景）
+const BACKENDS = new Set(['deepseek', 'cloudflare', 'nvidia', 'openrouter'])
+
+function resolveModel(model, backendHint) {
+  if (backendHint) {
+    if (!BACKENDS.has(backendHint)) {
+      return { error: `unknown _backend: ${backendHint}` }
+    }
+    // 显式指定后端：DeepSeek 没传 model 时仍用默认；其他后端要求 model
+    if (backendHint === 'deepseek') {
+      return { backend: 'deepseek', model: DS_MODELS.has(model) ? model : 'deepseek-v4-flash' }
+    }
+    return { backend: backendHint, model }
+  }
   if (model && model.startsWith('nvidia/')) return { backend: 'nvidia',     model }
   if (model && model.includes(':'))        return { backend: 'openrouter', model }
   if (model && model.includes('/'))        return { backend: 'cloudflare', model }
@@ -55,8 +68,11 @@ app.post('/api/v1/chat/completions', async (req, res) => {
   }
 
   const startedAt = Date.now()
-  const { stream } = req.body || {}
-  const resolved = resolveModel(req.body?.model)
+  const { stream, _backend } = req.body || {}
+  const resolved = resolveModel(req.body?.model, _backend)
+  if (resolved.error) {
+    return res.status(400).json({ error: resolved.error })
+  }
   // 覆盖 model，确保上游收到正确模型名
   req.body = { ...req.body, model: resolved.model }
   const backend = resolved.backend
