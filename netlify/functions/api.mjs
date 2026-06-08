@@ -14,21 +14,35 @@ const DS_API_KEY    = process.env.DEEPSEEK_API_KEY
 const CF_BASE  = `https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}/ai`
 const DS_BASE  = 'https://api.deepseek.com'
 
+// ── 模型白名单 ──────────────────────────────────────────
+const DS_MODELS = new Set(['deepseek-v4-flash', 'deepseek-v4-pro'])
+
 // ── 后端选择 ────────────────────────────────────────────
 // 模型名包含 "/" → Cloudflare AI（如 @cf/meta/llama-3, deepseek/deepseek-v4-pro）
-// 模型名以 "deepseek-" 开头 → DeepSeek（如 deepseek-chat, deepseek-reasoner）
-function getBackend(model) {
-  if (model && model.includes('/')) return 'cloudflare'
-  if (model && model.startsWith('deepseek-')) return 'deepseek'
-  // 默认走 DeepSeek
-  return 'deepseek'
+// 模型名在 DS_MODELS 中 → DeepSeek
+// 其他 → 默认 deepseek-v4-flash
+function resolveModel(model) {
+  if (model && model.includes('/')) return { backend: 'cloudflare', model }
+  if (model && DS_MODELS.has(model)) return { backend: 'deepseek', model }
+  return { backend: 'deepseek', model: 'deepseek-v4-flash' }
 }
 
 // ── OpenAI 兼容代理 ────────────────────────────────────
 // POST /api/v1/chat/completions
 app.post('/api/v1/chat/completions', async (req, res) => {
-  const { model, stream } = req.body || {}
-  const backend = getBackend(model)
+  const { stream } = req.body || {}
+  const resolved = resolveModel(req.body?.model)
+  // 覆盖 model，确保上游收到正确模型名
+  req.body = { ...req.body, model: resolved.model }
+  const backend = resolved.backend
+
+  // ── DeepSeek 特定优化 ──
+  if (backend === 'deepseek') {
+    // 默认禁用 thinking 模式（客户端可显式设置 thinking 覆盖）
+    if (req.body.thinking === undefined) {
+      req.body.thinking = { type: 'disabled' }
+    }
+  }
 
   let targetUrl, headers
 
@@ -104,8 +118,8 @@ app.get('/api/v1/models', async (_req, res) => {
   // DeepSeek 模型
   if (DS_API_KEY) {
     models.push(
-      { id: 'deepseek-chat',     object: 'model', owned_by: 'deepseek' },
-      { id: 'deepseek-reasoner',  object: 'model', owned_by: 'deepseek' },
+      { id: 'deepseek-v4-flash', object: 'model', owned_by: 'deepseek' },
+      { id: 'deepseek-v4-pro',   object: 'model', owned_by: 'deepseek' },
     )
   }
 

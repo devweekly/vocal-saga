@@ -32,8 +32,8 @@
   <table>
     <tr><th>模型名特征</th><th>后端</th><th>示例</th></tr>
     <tr><td>包含 <code>/</code></td><td>Cloudflare AI</td><td><code>@cf/meta/llama-3.1-8b-instruct</code>、<code>deepseek/deepseek-v4-pro</code></td></tr>
-    <tr><td>以 <code>deepseek-</code> 开头</td><td>DeepSeek</td><td><code>deepseek-chat</code>、<code>deepseek-reasoner</code></td></tr>
-    <tr><td>其他（默认）</td><td>DeepSeek</td><td>—</td></tr>
+    <tr><td>以 <code>deepseek-</code> 开头（白名单）</td><td>DeepSeek</td><td><code>deepseek-v4-flash</code>、<code>deepseek-v4-pro</code></td></tr>
+    <tr><td>其他（默认）</td><td>DeepSeek</td><td>自动使用 <code>deepseek-v4-flash</code></td></tr>
   </table>
 
   <h2>使用示例</h2>
@@ -45,11 +45,11 @@ curl -X POST "/api/v1/chat/completions" \
     "messages": [{"role": "user", "content": "Hello"}]
   }'
 
-# DeepSeek 官方 — deepseek-chat
+# DeepSeek 官方 — deepseek-v4-pro
 curl -X POST "/api/v1/chat/completions" \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "deepseek-chat",
+    "model": "deepseek-v4-pro",
     "messages": [{"role": "user", "content": "Hello"}]
   }'</pre>
 
