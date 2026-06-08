@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Express API</title>
+  <title>Netlify API</title>
   <style>
     body { font-family: monospace; max-width: 600px; margin: 40px auto; padding: 0 20px; }
     code { background: #f4f4f4; padding: 2px 6px; border-radius: 3px; }
@@ -10,16 +10,16 @@
   </style>
 </head>
 <body>
-  <h1>Express API</h1>
+
   <p>A simple Express.js API running on Netlify Functions.</p>
   <h2>Endpoints</h2>
   <ul>
-    <li><code>GET /.netlify/functions/api/hello?name=YourName</code> — greet by name</li>
-    <li><code>POST /.netlify/functions/api/echo</code> — echo back JSON body</li>
+    <li><code>GET /api/hello?name=YourName</code> — greet by name</li>
+    <li><code>POST /api/echo</code> — echo back JSON body</li>
   </ul>
   <h2>Try it</h2>
-  <pre>curl "/.netlify/functions/api/hello?name=Netlify"
-curl -X POST "/.netlify/functions/api/echo" \
+  <pre>curl "/api/hello?name=Netlify"
+curl -X POST "/api/echo" \
      -H "Content-Type: application/json" \
      -d '{"hello":"world"}'</pre>
 </body>
