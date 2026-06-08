@@ -7,27 +7,31 @@ app.use(cors())
 app.use(express.json())
 
 // ── 环境变量 ────────────────────────────────────────────
-const CF_ACCOUNT_ID   = process.env.CLOUDFLARE_ACCOUNT_ID
-const CF_API_TOKEN    = process.env.CLOUDFLARE_API_TOKEN
-const DS_API_KEY      = process.env.DEEPSEEK_API_KEY
-const NVIDIA_API_KEY  = process.env.NVIDIA_API_KEY
+const CF_ACCOUNT_ID      = process.env.CLOUDFLARE_ACCOUNT_ID
+const CF_API_TOKEN       = process.env.CLOUDFLARE_API_TOKEN
+const DS_API_KEY         = process.env.DEEPSEEK_API_KEY
+const NVIDIA_API_KEY     = process.env.NVIDIA_API_KEY
+const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY
 
-const CF_BASE     = `https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}/ai`
-const DS_BASE     = 'https://api.deepseek.com'
-const NVIDIA_BASE = 'https://integrate.api.nvidia.com'
+const CF_BASE         = `https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}/ai`
+const DS_BASE         = 'https://api.deepseek.com'
+const NVIDIA_BASE     = 'https://integrate.api.nvidia.com'
+const OPENROUTER_BASE = 'https://openrouter.ai/api'
 
 // ── 模型白名单 ──────────────────────────────────────────
 const DS_MODELS = new Set(['deepseek-v4-flash', 'deepseek-v4-pro'])
 
 // ── 后端选择 ────────────────────────────────────────────
 // 模型名以 "nvidia/" 开头           → NVIDIA Build
+// 模型名包含 ":"（变体后缀如 :free） → OpenRouter（如 nex-agi/nex-n2-pro:free）
 // 模型名包含 "/"                   → Cloudflare AI（如 @cf/meta/llama-3, deepseek/deepseek-v4-pro）
 // 模型名在 DS_MODELS 中            → DeepSeek
 // 其他                             → 默认 deepseek-v4-flash
 function resolveModel(model) {
-  if (model && model.startsWith('nvidia/')) return { backend: 'nvidia', model }
+  if (model && model.startsWith('nvidia/')) return { backend: 'nvidia',     model }
+  if (model && model.includes(':'))        return { backend: 'openrouter', model }
   if (model && model.includes('/'))        return { backend: 'cloudflare', model }
-  if (model && DS_MODELS.has(model))       return { backend: 'deepseek', model }
+  if (model && DS_MODELS.has(model))       return { backend: 'deepseek',   model }
   return { backend: 'deepseek', model: 'deepseek-v4-flash' }
 }
 
@@ -56,6 +60,14 @@ app.post('/api/v1/chat/completions', async (req, res) => {
   // 覆盖 model，确保上游收到正确模型名
   req.body = { ...req.body, model: resolved.model }
   const backend = resolved.backend
+
+  // 非 DeepSeek 后端必须显式提供 model
+  if (backend !== 'deepseek' && !req.body.model) {
+    return res.status(400).json({
+      error: 'model is required for this backend',
+      backend,
+    })
+  }
 
   console.log(`[req] model=${resolved.model} backend=${backend} stream=${!!stream} msgs=${req.body.messages?.length ?? 0}`)
 
@@ -94,6 +106,15 @@ app.post('/api/v1/chat/completions', async (req, res) => {
     headers = {
       'Authorization': `Bearer ${NVIDIA_API_KEY}`,
       'Accept': 'application/json',
+      'Content-Type': 'application/json',
+    }
+  } else if (backend === 'openrouter') {
+    if (!OPENROUTER_API_KEY) {
+      return res.status(500).json({ error: 'OpenRouter not configured' })
+    }
+    targetUrl = `${OPENROUTER_BASE}/v1/chat/completions`
+    headers = {
+      'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
       'Content-Type': 'application/json',
     }
   } else {
