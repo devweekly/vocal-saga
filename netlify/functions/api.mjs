@@ -104,13 +104,13 @@ app.post('/api/v1/chat/completions', async (req, res) => {
 
     if (!upstream.ok) {
       const errData = await upstream.json()
-      console.error(`[res] status=${upstream.status} latency=${latency}ms error=${JSON.stringify(errData)}`)
+      console.error(`[resp] status=${upstream.status} latency=${latency}ms error=${JSON.stringify(errData)}`)
       return res.status(upstream.status).json(errData)
     }
 
     // ── 流式响应 ──
     if (stream && upstream.body) {
-      console.log(`[res] status=${upstream.status} latency=${latency}ms stream=started`)
+      console.log(`[resp] status=${upstream.status} latency=${latency}ms stream=started`)
       res.setHeader('Content-Type', 'text/event-stream')
       res.setHeader('Cache-Control', 'no-cache')
       res.setHeader('Connection', 'keep-alive')
@@ -129,7 +129,7 @@ app.post('/api/v1/chat/completions', async (req, res) => {
       } finally {
         reader.releaseLock()
         res.end()
-        console.log(`[res] stream=done total=${Date.now() - startedAt}ms`)
+        console.log(`[resp] stream=done total=${Date.now() - startedAt}ms`)
       }
       return
     }
@@ -137,11 +137,11 @@ app.post('/api/v1/chat/completions', async (req, res) => {
     // ── 非流式响应 ──
     const data = await upstream.json()
     const usage = data.usage
-    console.log(`[res] status=${upstream.status} latency=${latency}ms` +
+    console.log(`[resp] status=${upstream.status} latency=${latency}ms` +
       (usage ? ` tokens_in=${usage.prompt_tokens} tokens_out=${usage.completion_tokens}` : ''))
     res.json({ ...data, _backend: backend })
   } catch (err) {
-    console.error(`[res] error="${err.message}" latency=${Date.now() - startedAt}ms`)
+    console.error(`[resp] error="${err.message}" latency=${Date.now() - startedAt}ms`)
     res.status(502).json({ error: 'Upstream request failed', detail: err.message })
   }
 })
