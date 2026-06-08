@@ -1,0 +1,13 @@
+{
+  "name": "express-api",
+  "version": "1.0.0",
+  "description": "Simple Express.js API on Netlify Functions",
+  "type": "module",
+  "dependencies": {
+    "express": "^4.18.2",
+    "serverless-http": "^3.2.0"
+  },
+  "devDependencies": {
+    "@netlify/functions": "^2.6.0"
+  }
+}
