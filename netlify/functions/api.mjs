@@ -7,23 +7,27 @@ app.use(cors())
 app.use(express.json())
 
 // ── 环境变量 ────────────────────────────────────────────
-const CF_ACCOUNT_ID = process.env.CLOUDFLARE_ACCOUNT_ID
-const CF_API_TOKEN  = process.env.CLOUDFLARE_API_TOKEN
-const DS_API_KEY    = process.env.DEEPSEEK_API_KEY
+const CF_ACCOUNT_ID   = process.env.CLOUDFLARE_ACCOUNT_ID
+const CF_API_TOKEN    = process.env.CLOUDFLARE_API_TOKEN
+const DS_API_KEY      = process.env.DEEPSEEK_API_KEY
+const NVIDIA_API_KEY  = process.env.NVIDIA_API_KEY
 
-const CF_BASE  = `https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}/ai`
-const DS_BASE  = 'https://api.deepseek.com'
+const CF_BASE     = `https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}/ai`
+const DS_BASE     = 'https://api.deepseek.com'
+const NVIDIA_BASE = 'https://integrate.api.nvidia.com'
 
 // ── 模型白名单 ──────────────────────────────────────────
 const DS_MODELS = new Set(['deepseek-v4-flash', 'deepseek-v4-pro'])
 
 // ── 后端选择 ────────────────────────────────────────────
-// 模型名包含 "/" → Cloudflare AI（如 @cf/meta/llama-3, deepseek/deepseek-v4-pro）
-// 模型名在 DS_MODELS 中 → DeepSeek
-// 其他 → 默认 deepseek-v4-flash
+// 模型名以 "nvidia/" 开头           → NVIDIA Build
+// 模型名包含 "/"                   → Cloudflare AI（如 @cf/meta/llama-3, deepseek/deepseek-v4-pro）
+// 模型名在 DS_MODELS 中            → DeepSeek
+// 其他                             → 默认 deepseek-v4-flash
 function resolveModel(model) {
-  if (model && model.includes('/')) return { backend: 'cloudflare', model }
-  if (model && DS_MODELS.has(model)) return { backend: 'deepseek', model }
+  if (model && model.startsWith('nvidia/')) return { backend: 'nvidia', model }
+  if (model && model.includes('/'))        return { backend: 'cloudflare', model }
+  if (model && DS_MODELS.has(model))       return { backend: 'deepseek', model }
   return { backend: 'deepseek', model: 'deepseek-v4-flash' }
 }
 
@@ -80,6 +84,16 @@ app.post('/api/v1/chat/completions', async (req, res) => {
     targetUrl = `${CF_BASE}/v1/chat/completions`
     headers = {
       'Authorization': `Bearer ${CF_API_TOKEN}`,
+      'Content-Type': 'application/json',
+    }
+  } else if (backend === 'nvidia') {
+    if (!NVIDIA_API_KEY) {
+      return res.status(500).json({ error: 'NVIDIA Build not configured' })
+    }
+    targetUrl = `${NVIDIA_BASE}/v1/chat/completions`
+    headers = {
+      'Authorization': `Bearer ${NVIDIA_API_KEY}`,
+      'Accept': 'application/json',
       'Content-Type': 'application/json',
     }
   } else {
@@ -147,26 +161,14 @@ app.post('/api/v1/chat/completions', async (req, res) => {
 })
 
 // GET /api/v1/models
+// 只列出 DeepSeek 白名单中的模型（CF / NVIDIA 等后端模型由客户端直接提供）
 app.get('/api/v1/models', async (_req, res) => {
   const models = []
-
-  // DeepSeek 模型
   if (DS_API_KEY) {
-    models.push(
-      { id: 'deepseek-v4-flash', object: 'model', owned_by: 'deepseek' },
-      { id: 'deepseek-v4-pro',   object: 'model', owned_by: 'deepseek' },
-    )
+    for (const id of DS_MODELS) {
+      models.push({ id, object: 'model', owned_by: 'deepseek' })
+    }
   }
-
-  // Cloudflare AI 模型（可自行扩充）
-  if (CF_ACCOUNT_ID && CF_API_TOKEN) {
-    models.push(
-      { id: '@cf/meta/llama-3.1-8b-instruct',        object: 'model', owned_by: 'cloudflare' },
-      { id: '@cf/deepseek-ai/deepseek-r1-distill-qwen-32b', object: 'model', owned_by: 'cloudflare' },
-      { id: 'deepseek/deepseek-v4-pro',               object: 'model', owned_by: 'cloudflare' },
-    )
-  }
-
   res.json({ object: 'list', data: models })
 })
 
