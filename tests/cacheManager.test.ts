@@ -1,21 +1,15 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { CacheManager } from '../lib/translate/cacheManager';
-
-// @netlify/blobs 在 tests/setup.ts 已 mock
-// 通过 import * as blobs 拿到的就是 mock 工厂返回的 getStore 函数引用，
-// 借此可以让单测临时注入失败行为。
-import * as blobs from '@netlify/blobs';
+import { MapStorage, type StorageAdapter } from '../lib/storage';
 
 describe('CacheManager', () => {
+  let storage: MapStorage;
   let cache: CacheManager;
 
   beforeEach(() => {
-    // 清空所有 blob store（每个 store name 一个 Map）
-    const all = (globalThis as any).__blobStores as Record<string, Map<string, unknown>>;
-    if (all) {
-      for (const m of Object.values(all)) m.clear();
-    }
-    cache = new CacheManager('test:cache', 1000);
+    // 每个测试一个独立的 storage 实例，避免污染
+    storage = new MapStorage('test:cache-' + Math.random().toString(36).slice(2));
+    cache = new CacheManager('test:cache', 1000, storage);
   });
 
   // --- set and get ---
@@ -46,7 +40,7 @@ describe('CacheManager', () => {
   });
 
   it('uses default TTL when not specified', async () => {
-    const cache1 = new CacheManager('test:cache2', 100);
+    const cache1 = new CacheManager('test:cache2', 100, storage);
     await cache1.set('key1', 'value1');
     await new Promise((r) => setTimeout(r, 150));
     const result = await cache1.get<string>('key1');
@@ -117,8 +111,8 @@ describe('CacheManager', () => {
   // --- multiple instances ---
 
   it('isolates data between different cache instances', async () => {
-    const cache1 = new CacheManager('test:cache:a');
-    const cache2 = new CacheManager('test:cache:b');
+    const cache1 = new CacheManager('test:cache:a', undefined, storage);
+    const cache2 = new CacheManager('test:cache:b', undefined, storage);
 
     await cache1.set('key', 'valueA');
     await cache2.set('key', 'valueB');
@@ -129,60 +123,35 @@ describe('CacheManager', () => {
 
   // --- 持久层异常时不挂（仅 log warn） ---
 
-  it('falls back to memory cache when storage get fails', async () => {
-    await cache.set('key1', 'value1');
-
-    // 临时把 getStore 替换成抛异常的版本
-    const orig = (blobs as any).getStore;
-    (blobs as any).getStore = () => ({
+  function failingStorage(): StorageAdapter {
+    return {
       get: async () => { throw new Error('Storage unavailable'); },
       getJSON: async () => { throw new Error('Storage unavailable'); },
       set: async () => {},
       setJSON: async () => { throw new Error('Storage unavailable'); },
-      delete: async () => {},
-      list: async () => ({ blobs: [] }),
-    });
+      delete: async () => { throw new Error('Storage unavailable'); },
+      list: async () => [],
+    };
+  }
 
-    const result = await cache.get<string>('key1');
+  it('falls back to memory cache when storage get fails', async () => {
+    const c = new CacheManager('test:failget', 1000, failingStorage());
+    await c.set('key1', 'value1');
+    const result = await c.get<string>('key1');
     expect(result).toBe('value1');
-
-    (blobs as any).getStore = orig;
   });
 
   it('still writes to memory cache when storage set fails', async () => {
-    const orig = (blobs as any).getStore;
-    (blobs as any).getStore = () => ({
-      get: async () => null,
-      getJSON: async () => null,
-      set: async () => {},
-      setJSON: async () => { throw new Error('Storage write failed'); },
-      delete: async () => {},
-      list: async () => ({ blobs: [] }),
-    });
-
-    await cache.set('key1', 'value1');
-    const result = await cache.get<string>('key1');
+    const c = new CacheManager('test:failset', 1000, failingStorage());
+    await c.set('key1', 'value1');
+    const result = await c.get<string>('key1');
     expect(result).toBe('value1');
-
-    (blobs as any).getStore = orig;
   });
 
   it('handles remove when storage is unavailable', async () => {
-    await cache.set('key1', 'value1');
-
-    const orig = (blobs as any).getStore;
-    (blobs as any).getStore = () => ({
-      get: async () => { throw new Error('Storage unavailable'); },
-      getJSON: async () => { throw new Error('Storage unavailable'); },
-      set: async () => {},
-      setJSON: async () => {},
-      delete: async () => { throw new Error('Storage unavailable'); },
-      list: async () => ({ blobs: [] }),
-    });
-
-    await cache.remove('key1');
-    expect(await cache.get<string>('key1')).toBeNull();
-
-    (blobs as any).getStore = orig;
+    const c = new CacheManager('test:failremove', 1000, failingStorage());
+    await c.set('key1', 'value1');
+    await c.remove('key1');
+    expect(await c.get<string>('key1')).toBeNull();
   });
 });

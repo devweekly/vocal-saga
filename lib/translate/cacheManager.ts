@@ -1,18 +1,21 @@
 /**
- * Netlify Blobs 适配的 CacheManager。
+ * 缓存层（跨平台：Netlify Blobs / Cloudflare KV / 内存）。
  *
  * 与 fanyi-extension 的 @wxt-dev/storage 实现的区别：
  *   - WXT 版本：所有 key 存在同一个大对象下（O(N) 序列化）
- *   - Netlify Blobs 版本：每个 key 独立存储（O(1) 读写）
+ *   - 现在版本：每个 key 独立存储（O(1) 读写）
  *   - 公共 API（get / set / remove / clear / getStats）保持一致，
  *     translateApi.ts 等调用方无需改动
  *
  * 缓存层：
- *   - 进程内 Map（首次访问后命中率高时省一次 Blobs roundtrip）
- *   - Netlify Blobs（跨冷启动持久化）
+ *   - 进程内 Map（首次访问后命中率高时省一次持久层 roundtrip）
+ *   - 持久层（通过 default storage 注入，Netlify Blobs / Cloudflare KV / 内存）
+ *
+ * 命名空间：所有 cache key 共享一个 default storage，命名通过 `cache:{name}:{key}`
+ * 前缀区分，避免在云上配置多个 store / binding。
  */
 
-import { getStore } from '@netlify/blobs';
+import { getDefaultStorage, type StorageAdapter } from '../storage';
 
 export interface CacheEntry<T> {
   data: T;
@@ -22,16 +25,16 @@ export interface CacheEntry<T> {
 
 export class CacheManager {
   private memoryCache = new Map<string, CacheEntry<any>>();
-  private storeName: string;
-  private defaultTTL: number;
+  private storage: StorageAdapter;
+  private prefix: string;
 
-  constructor(storeName: string, defaultTTL = 24 * 60 * 60 * 1000) {
-    this.storeName = storeName;
-    this.defaultTTL = defaultTTL;
-  }
-
-  private getStore() {
-    return getStore({ name: this.storeName, consistency: 'strong' });
+  constructor(
+    private storeName: string,
+    private defaultTTL = 24 * 60 * 60 * 1000,
+    storage?: StorageAdapter,
+  ) {
+    this.storage = storage ?? getDefaultStorage();
+    this.prefix = `cache:${storeName}:`;
   }
 
   async get<T>(key: string): Promise<T | null> {
@@ -46,14 +49,14 @@ export class CacheManager {
 
     // 2) 持久层
     try {
-      const entry = await this.getStore().get(key, { type: 'json' }) as CacheEntry<T> | null;
+      const entry = await this.storage.getJSON<CacheEntry<T>>(this.prefix + key);
       if (entry) {
         if (!this.isExpired(entry)) {
           this.memoryCache.set(key, entry);
           return entry.data;
         }
         // 过期 → 顺手删
-        await this.getStore().delete(key).catch(() => {});
+        await this.storage.delete(this.prefix + key).catch(() => {});
       }
     } catch (err) {
       console.warn(`[CacheManager:${this.storeName}] get failed for ${key}:`, (err as Error).message);
@@ -72,7 +75,7 @@ export class CacheManager {
     this.memoryCache.set(key, entry);
 
     try {
-      await this.getStore().setJSON(key, entry);
+      await this.storage.setJSON(this.prefix + key, entry);
     } catch (err) {
       console.warn(`[CacheManager:${this.storeName}] set failed for ${key}:`, (err as Error).message);
     }
@@ -81,7 +84,7 @@ export class CacheManager {
   async remove(key: string): Promise<void> {
     this.memoryCache.delete(key);
     try {
-      await this.getStore().delete(key);
+      await this.storage.delete(this.prefix + key);
     } catch (err) {
       console.warn(`[CacheManager:${this.storeName}] remove failed for ${key}:`, (err as Error).message);
     }
@@ -90,8 +93,9 @@ export class CacheManager {
   async clear(): Promise<void> {
     this.memoryCache.clear();
     try {
-      const { blobs } = await this.getStore().list();
-      await Promise.all(blobs.map(({ key }) => this.getStore().delete(key)));
+      const allKeys = await this.storage.list();
+      const ours = allKeys.filter((k) => k.startsWith(this.prefix));
+      await Promise.all(ours.map((k) => this.storage.delete(k)));
     } catch (err) {
       console.warn(`[CacheManager:${this.storeName}] clear failed:`, (err as Error).message);
     }
@@ -100,8 +104,8 @@ export class CacheManager {
   async getStats(): Promise<{ memorySize: number; storageSize: number }> {
     let storageSize = 0;
     try {
-      const { blobs } = await this.getStore().list();
-      storageSize = blobs.length;
+      const allKeys = await this.storage.list();
+      storageSize = allKeys.filter((k) => k.startsWith(this.prefix)).length;
     } catch {
       // ignore
     }
@@ -117,5 +121,6 @@ export class CacheManager {
 }
 
 // 30 天默认 TTL（与 fanyi-extension 行为一致）
+// 单例依赖 setDefaultStorage() 在启动时被调用；test 时由 tests/setup.ts 注入 MapStorage
 export const analysisCache = new CacheManager('analysis', 30 * 24 * 60 * 60 * 1000);
 export const translationCache = new CacheManager('translations', 30 * 24 * 60 * 60 * 1000);

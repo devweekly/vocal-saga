@@ -4,7 +4,7 @@
     "module": "ESNext",
     "moduleResolution": "Bundler",
     "lib": ["ES2022", "DOM"],
-    "types": ["node"],
+    "types": ["node", "@cloudflare/workers-types"],
 
     "strict": true,
     "noImplicitAny": true,
@@ -33,7 +33,8 @@
   "include": [
     "lib/**/*.ts",
     "lib/**/*.d.ts",
-    "netlify/functions/**/*.ts"
+    "netlify/functions/**/*.ts",
+    "functions/**/*.ts"
   ],
   "exclude": [
     "node_modules",

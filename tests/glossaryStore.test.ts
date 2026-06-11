@@ -8,12 +8,12 @@ import {
   clearDocumentTerms,
   mergeForPrompt,
 } from '../lib/translate/glossaryStore';
+import { setDefaultStorage, MapStorage } from '../lib/storage';
 
 describe('glossaryStore', () => {
   beforeEach(() => {
-    // 重置 blob store 状态
-    const all = (globalThis as any).__blobStores as Record<string, Map<string, unknown>>;
-    if (all) for (const m of Object.values(all)) m.clear();
+    // 每个测试都注入全新的 default storage，避免污染
+    setDefaultStorage(new MapStorage('test:glossary-' + Math.random().toString(36).slice(2)));
   });
 
   it('getGlossary returns empty arrays when nothing stored', async () => {
