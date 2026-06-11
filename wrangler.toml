@@ -11,7 +11,7 @@ compatibility_flags = ["nodejs_compat"]
 # 也可直接把 $VAR 替换成实际 id 字符串。
 [[kv_namespaces]]
 binding = "VOCAL_SAGA_KV"
-id = "$VOCAL_SAGA_KV_ID"
+id = "KV999"
 preview_id = "$VOCAL_SAGA_KV_PREVIEW_ID"
 
 # ── Static assets（Workers Static Assets）─────────────────────
