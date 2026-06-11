@@ -26,16 +26,16 @@ export class MapStorage implements StorageAdapter {
     this.map = all[storeName]!;
   }
 
-  /** 清空指定 store（test 用） */
+  /** 清空指定 store（test 用）。原地 clear 已有 map，保留实例的引用一致性 */
   static reset(storeName: string = '_default'): void {
     const all = getAll();
-    all[storeName] = new Map();
+    all[storeName]?.clear();
   }
 
   /** 清空所有 store */
   static resetAll(): void {
     const all = getAll();
-    for (const k of Object.keys(all)) all[k] = new Map();
+    for (const m of Object.values(all)) m.clear();
   }
 
   async get(key: string): Promise<string | null> {

@@ -52,6 +52,26 @@ An OpenAI-compatible LLM proxy + translation API, deployable on **Netlify Functi
 - New platform? Add a new `lib/storage/<platform>.ts` adapter and a new shim in the platform's entry location. No changes needed in `lib/app.ts` or `lib/translate/`.
 - For Cloudflare, the `Env` type in the shim is the source of truth for bindings (`KVNamespace` etc.). Pass them into storage adapters; the app stays binding-free.
 
+## Testing Convention — **main functionality must ship with tests**
+
+This is a hard rule. **No new feature / route / module merges without accompanying tests** in `tests/`. 任何对"主要功能"的代码改动（路由处理、storage 适配、cache / glossary 业务逻辑、URL / DOM 抓取、双语展示、prompt 构造等）都必须在同一个 PR 里带可跑的 vitest 用例。
+
+适用范围（不完整清单）：
+- 新增的 Hono 路由（`lib/app.ts`）：auth 失败、query / body 校验、错误分支、success path 都要测。外部依赖（DeepSeek / fetch）用 `vi.mock` 隔离。
+- 新增的 storage 适配 / 默认注册表（`lib/storage/*`）：基本 CRUD、错误处理、跨实例共享 / 隔离。
+- 新增的 util / pipeline 阶段：边界值、异常路径、cache 命中 / miss。
+- 从 `fanyi-extension` 移植的核心逻辑（blockExtractor、chunkBuilder、cacheManager、glossaryExtractor、translationDisplay 等）：单测必须能直接复用参考 fanyi-extension 的 `__tests__` 用例。
+- `urlFetcher.fetchPage` 这类 I/O 模块：用本地 `http` 服务器起一个 stub，验证超时 / 重定向 / 错误码。
+
+不强制写单测的：
+- 纯类型 / 声明文件（`.d.ts`）。
+- 平台 shim 入口（`netlify/functions/api.mjs`、`src/worker.ts`）——部署路径靠集成测试。
+- 真调外部 LLM 的整链路 —— 那是 smoke / e2e 范畴。
+
+参考来源：
+- 本仓库 `tests/`（vitest，环境 jsdom，`tests/setup.ts` 注入 `MapStorage`）。
+- `/Users/saga/code-repos/fanyi-extension/src/__tests__/`：移植过来的代码对应的原始测试，可以直接抄结构（vi.mock 模式、`beforeEach` 清空 store、chunks 边界用例等）。
+
 ## Test / Build
 
 - `npm run build:lib` — compile `lib/` to `lib/dist/`.

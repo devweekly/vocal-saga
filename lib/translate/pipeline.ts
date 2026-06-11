@@ -222,6 +222,31 @@ export async function translateUrl(input: TranslateUrlInput): Promise<TranslateU
 
   // 序列化为 HTML（去掉 <script> 减少泄露）
   page.doc.querySelectorAll('script').forEach((s) => s.remove());
+
+  // 注入双语显示 CSS —— 只针对我们注入的 .fanyi-original / .fanyi-translation，
+  // 不覆盖原页面任何已有元素的样式（用 currentColor + 0 opacity，没有强制颜色）。
+  const head = page.doc.head;
+  if (head && !head.querySelector('#fanyi-bilingual-styles')) {
+    const style = page.doc.createElement('style');
+    style.id = 'fanyi-bilingual-styles';
+    style.textContent = [
+      '/* 双语对照样式 —— 仅作用于翻译注入的 span，不覆盖原页面 */',
+      '.fanyi-original { /* 原样保留，不动 */ }',
+      '.fanyi-translation {',
+      '  display: block;',
+      '  margin: 0.2em 0 0.4em 0;',
+      '  padding: 0.15em 0.6em;',
+      '  border-left: 3px solid currentColor;',
+      '  font-style: italic;',
+      '  opacity: 0.7;',
+      '  font-size: 0.95em;',
+      '  line-height: 1.4;',
+      '}',
+      '.fanyi-translated { /* 容器：仅加 class，不改原样式 */ }',
+    ].join('\n');
+    head.appendChild(style);
+  }
+
   const html = '<!doctype html>\n' + page.doc.documentElement.outerHTML;
 
   return {

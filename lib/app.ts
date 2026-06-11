@@ -47,13 +47,18 @@ function getAuthKey(c: Context): string {
 }
 
 // ── LLM 代理上游配置 ────────────────────────────────────────
-const CF_ACCOUNT_ID      = process.env.CLOUDFLARE_ACCOUNT_ID;
-const CF_API_TOKEN       = process.env.CLOUDFLARE_API_TOKEN;
-const DS_API_KEY         = process.env.DEEPSEEK_API_KEY;
-const NVIDIA_API_KEY     = process.env.NVIDIA_API_KEY;
-const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
+// 必须 lazy 读 process.env：CF Workers 启动期 wrangler 还没把 .dev.vars 注入
+// process.env（只在 fetch handler 的 env 参数里给），所以模块顶层 const 会读到空串。
+// src/worker.ts 的 injectEnv() 在首个请求时把 env → process.env 同步一次，之后
+// 这些 getter 就能拿到真值。和 AUTH_KEY 一样 per-request 拿，不要放回顶层 const。
+const CF_ACCOUNT_ID      = (): string => process.env.CLOUDFLARE_ACCOUNT_ID || '';
+const CF_API_TOKEN       = (): string => process.env.CLOUDFLARE_API_TOKEN || '';
+const DS_API_KEY         = (): string => process.env.DEEPSEEK_API_KEY || '';
+const NVIDIA_API_KEY     = (): string => process.env.NVIDIA_API_KEY || '';
+const OPENROUTER_API_KEY = (): string => process.env.OPENROUTER_API_KEY || '';
 
-const CF_BASE         = `https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}/ai`;
+// CF_BASE 也得是函数，因为依赖 CF_ACCOUNT_ID()（lazy 读 env）
+const CF_BASE         = (): string => `https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID()}/ai`;
 const DS_BASE         = 'https://api.deepseek.com';
 const NVIDIA_BASE     = 'https://integrate.api.nvidia.com';
 const OPENROUTER_BASE = 'https://openrouter.ai/api';
@@ -159,11 +164,11 @@ export function createApp(storage?: StorageAdapter): Hono {
       targetUrl = `${OPENROUTER_BASE}/v1/chat/completions`;
       headers = { 'Authorization': `Bearer ${OPENROUTER_API_KEY}`, 'Content-Type': 'application/json' };
     } else {
-      if (!DS_API_KEY) {
+      if (!DS_API_KEY()) {
         return c.json({ error: 'DeepSeek not configured' }, 500);
       }
       targetUrl = `${DS_BASE}/v1/chat/completions`;
-      headers = { 'Authorization': `Bearer ${DS_API_KEY}`, 'Content-Type': 'application/json' };
+      headers = { Authorization: `Bearer ${DS_API_KEY()}`, 'Content-Type': 'application/json' };
     }
 
     const startedAt = Date.now();
@@ -210,7 +215,7 @@ export function createApp(storage?: StorageAdapter): Hono {
   // ── GET /api/v1/models ────────────────────────────────
   app.get('/api/v1/models', (c) => {
     const models: any[] = [];
-    if (DS_API_KEY) {
+    if (DS_API_KEY()) {
       for (const id of DS_MODELS) {
         models.push({ id, object: 'model', owned_by: 'deepseek' });
       }
@@ -231,7 +236,7 @@ export function createApp(storage?: StorageAdapter): Hono {
     if (!text || typeof text !== 'string') {
       return c.json({ error: 'text is required' }, 400);
     }
-    if (!DS_API_KEY) {
+    if (!DS_API_KEY()) {
       return c.json({ error: 'DeepSeek not configured' }, 500);
     }
     console.log(`[translate/text] chars=${text.length} src=${source || 'auto'} tgt=${target || 'zh'}`);
@@ -240,7 +245,7 @@ export function createApp(storage?: StorageAdapter): Hono {
         text,
         source,
         target,
-        apiKey: DS_API_KEY,
+        apiKey: DS_API_KEY(),
         glossary,
       });
       console.log(`[translate/text] chunks=${result.chunks} duration=${result.duration_ms}ms`);
@@ -257,7 +262,7 @@ export function createApp(storage?: StorageAdapter): Hono {
     if (!url || typeof url !== 'string') {
       return c.json({ error: 'url is required' }, 400);
     }
-    if (!DS_API_KEY) {
+    if (!DS_API_KEY()) {
       return c.json({ error: 'DeepSeek not configured' }, 500);
     }
     console.log(`[translate/url] url=${url} src=${source || 'auto'} tgt=${target || 'zh'} mode=${mode || 'bilingual'}`);
@@ -267,13 +272,83 @@ export function createApp(storage?: StorageAdapter): Hono {
         source,
         target,
         mode,
-        apiKey: DS_API_KEY,
+        apiKey: DS_API_KEY(),
         glossary,
       });
       console.log(`[translate/url] blocks=${result.blocks} chunks=${result.chunks} duration=${result.duration_ms}ms`);
       return c.json(result);
     } catch (err) {
       console.error('[translate/url] error:', err);
+      return c.json({ error: (err as Error).message }, 500);
+    }
+  });
+
+  /**
+   * GET /api/translate/url?url=<TARGET>&source=auto&target=zh&mode=bilingual
+   *
+   * 直接把目标 URL 抓下来 + 翻译 + 双语回填，返回渲染好的 HTML。
+   * 浏览器访问即可看到双语对照页（保留原页面所有样式，仅在翻译处加 .fanyi-translation span）。
+   *
+   * Query params:
+   *   - url: 必填，目标 http(s) URL
+   *   - source / target: ISO 代码，默认 auto / zh
+   *   - mode: bilingual（默认，原+译）| target（仅译）
+   *   - glossary: 暂未支持（POST 版本有），需要时再加
+   *
+   * Auth: 仍走 Authorization header（checkAuth）。浏览器原生 GET 无法带 header，
+   *       需要在 DevTools/扩展/curl 注入。auth-from-query 故意不开（会进 access log）。
+   */
+  app.get('/api/translate/url', async (c) => {
+    if (!checkAuth(c)) return c.json({ error: 'Unauthorized' }, 401);
+
+    const url = c.req.query('url');
+    const source = c.req.query('source');
+    const target = c.req.query('target') || 'zh';
+    const mode = c.req.query('mode') || 'bilingual';
+
+    if (!url) {
+      return c.json({ error: 'url query param is required' }, 400);
+    }
+    let parsed: URL;
+    try {
+      parsed = new URL(url);
+    } catch {
+      return c.json({ error: 'url is not a valid URL' }, 400);
+    }
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+      return c.json({ error: 'url must be http or https' }, 400);
+    }
+    if (mode !== 'bilingual' && mode !== 'target') {
+      return c.json({ error: 'mode must be bilingual or target' }, 400);
+    }
+    if (!DS_API_KEY()) {
+      return c.json({ error: 'DeepSeek not configured' }, 500);
+    }
+
+    console.log(`[translate/url-page] url=${url} src=${source || 'auto'} tgt=${target} mode=${mode}`);
+    try {
+      const result = await translateUrl({
+        url,
+        source,
+        target,
+        mode: mode as 'bilingual' | 'target',
+        apiKey: DS_API_KEY(),
+      });
+      console.log(`[translate/url-page] blocks=${result.blocks} chunks=${result.chunks} duration=${result.duration_ms}ms`);
+      return new Response(result.html, {
+        status: 200,
+        headers: {
+          'Content-Type': 'text/html; charset=utf-8',
+          // 翻译结果比原页面更"耐用"，给个 1h 客户端缓存
+          'Cache-Control': 'public, max-age=3600',
+          // 暴露给浏览器方便看耗时 / 命中情况
+          'X-Translate-Blocks': String(result.blocks),
+          'X-Translate-Chunks': String(result.chunks),
+          'X-Translate-Duration-Ms': String(result.duration_ms),
+        },
+      });
+    } catch (err) {
+      console.error('[translate/url-page] error:', err);
       return c.json({ error: (err as Error).message }, 500);
     }
   });
