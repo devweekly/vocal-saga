@@ -5,8 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "netlify dev",
-    "dev:cf": "wrangler pages dev ./public",
-    "deploy:cf": "npm run build:lib && wrangler pages deploy ./public --project-name vocal-saga",
+    "dev:cf": "npm run build:lib && wrangler dev",
+    "deploy:cf": "npm run build:lib && wrangler deploy",
     "kv:create": "wrangler kv namespace create VOCAL_SAGA_KV",
     "kv:create:preview": "wrangler kv namespace create VOCAL_SAGA_KV --preview",
     "build": "npm run build:lib",
