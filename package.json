@@ -1,6 +1,6 @@
 {
-  "name": "saga-api",
-  "version": "0.3.0",
+  "name": "translation-api",
+  "version": "0.3.1",
   "description": "OpenAI-compatible LLM proxy + translation service on Netlify Functions",
   "type": "module",
   "scripts": {
