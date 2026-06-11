@@ -68,15 +68,13 @@ CF Workers deployment uses `wrangler.toml` for config + `src/worker.ts` as the W
 ### One-time setup
 
 ```bash
-# 1. 创建生产 KV
+# 1. 创建生产 KV（id 写进 .dev.vars / CI secret）
 npx wrangler kv namespace create VOCAL_SAGA_KV
-# 2. 创建预览 KV（本地 dev 用）
-npx wrangler kv namespace create VOCAL_SAGA_KV --preview
-# 3. 把两个 id 写进 .dev.vars
+# 2. 把 id 写进 .dev.vars
 cp .dev.vars.example .dev.vars
 # 编辑 .dev.vars，填入 id 和本地所需 secret
-# 4. 本地跑：npm run dev:cf
-# 5. 首次部署：npm run deploy:cf
+# 3. 本地跑：npm run dev:cf  （wrangler 自动用 miniflare 模拟 KV）
+# 4. 首次部署：npm run deploy:cf
 ```
 
 ### CI / 持续部署
@@ -86,7 +84,6 @@ GitHub Actions 之类的 CI 上，把以下变量写到 secret（与 `.dev.vars`
 - `CLOUDFLARE_API_TOKEN`（Account → Workers Scripts:Edit 权限）
 - `CLOUDFLARE_ACCOUNT_ID`
 - `VOCAL_SAGA_KV_ID`（生产 KV id）
-- `VOCAL_SAGA_KV_PREVIEW_ID`（预览 KV id）
 - `DEEPSEEK_API_KEY`、`NVIDIA_API_KEY`、`OPENROUTER_API_KEY`、`AUTH_KEY`
 
 CF Dashboard 也要为生产环境配同样 secret（`wrangler secret put NAME` 一次性设）：

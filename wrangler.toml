@@ -5,14 +5,13 @@ compatibility_flags = ["nodejs_compat"]
 
 # ── KV namespace（对应 lib/storage 的 default storage）─────────
 # 一次性创建：
-#   wrangler kv namespace create VOCAL_SAGA_KV            # 生产
-#   wrangler kv namespace create VOCAL_SAGA_KV --preview  # 本地 dev
+#   wrangler kv namespace create VOCAL_SAGA_KV
 # 把返回的 id 注入环境变量（本地写 .dev.vars，CI 用 secret）。
 # 也可直接把 $VAR 替换成实际 id 字符串。
+# 本地 dev 不指定 preview_id，wrangler 自动用内置 miniflare。
 [[kv_namespaces]]
 binding = "VOCAL_SAGA_KV"
-id = "KV999"
-preview_id = "$VOCAL_SAGA_KV_PREVIEW_ID"
+id = "$VOCAL_SAGA_KV_ID"
 
 # ── Static assets（Workers Static Assets）─────────────────────
 # 部署时把 ./public 上传到 Cloudflare，运行时通过 env.ASSETS.fetch 取。
