@@ -1,6 +1,7 @@
 import express from 'express'
 import serverless from 'serverless-http'
 import cors from 'cors'
+import { translateText, translateUrl } from '../../lib/dist/translate/pipeline.js'
 
 const app = express()
 app.use(cors())
@@ -213,6 +214,68 @@ app.get('/api/v1/models', async (_req, res) => {
 app.get('/api/hello', (req, res) => {
   const name = req.query.name || 'world'
   res.json({ message: `Hello, ${name}!`, timestamp: new Date().toISOString() })
+})
+
+// ── 翻译代理（个人用，调 DeepSeek） ────────────────────
+//
+// POST /api/translate/text
+//   body: { text, source?, target?, glossary? }
+//   resp: { translations: [{id,text}], chunks, duration_ms }
+//
+// POST /api/translate/url
+//   body: { url, source?, target?, mode?, glossary? }
+//   resp: { url, finalUrl, html, blocks, chunks, duration_ms }
+app.post('/api/translate/text', async (req, res) => {
+  if (!checkAuth(req)) return res.status(401).json({ error: 'Unauthorized' })
+  const { text, source, target, glossary } = req.body || {}
+  if (!text || typeof text !== 'string') {
+    return res.status(400).json({ error: 'text is required' })
+  }
+  if (!DS_API_KEY) {
+    return res.status(500).json({ error: 'DeepSeek not configured' })
+  }
+  console.log(`[translate/text] chars=${text.length} src=${source || 'auto'} tgt=${target || 'zh'}`)
+  try {
+    const result = await translateText({
+      text,
+      source,
+      target,
+      apiKey: DS_API_KEY,
+      glossary,
+    })
+    console.log(`[translate/text] chunks=${result.chunks} duration=${result.duration_ms}ms`)
+    res.json(result)
+  } catch (err) {
+    console.error('[translate/text] error:', err)
+    res.status(500).json({ error: err.message })
+  }
+})
+
+app.post('/api/translate/url', async (req, res) => {
+  if (!checkAuth(req)) return res.status(401).json({ error: 'Unauthorized' })
+  const { url, source, target, mode, glossary } = req.body || {}
+  if (!url || typeof url !== 'string') {
+    return res.status(400).json({ error: 'url is required' })
+  }
+  if (!DS_API_KEY) {
+    return res.status(500).json({ error: 'DeepSeek not configured' })
+  }
+  console.log(`[translate/url] url=${url} src=${source || 'auto'} tgt=${target || 'zh'} mode=${mode || 'bilingual'}`)
+  try {
+    const result = await translateUrl({
+      url,
+      source,
+      target,
+      mode,
+      apiKey: DS_API_KEY,
+      glossary,
+    })
+    console.log(`[translate/url] blocks=${result.blocks} chunks=${result.chunks} duration=${result.duration_ms}ms`)
+    res.json(result)
+  } catch (err) {
+    console.error('[translate/url] error:', err)
+    res.status(500).json({ error: err.message })
+  }
 })
 
 // 404 fallback

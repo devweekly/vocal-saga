@@ -1,0 +1,12 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "outDir": "./lib/dist",
+    "rootDir": "./lib",
+    "noEmit": false,
+    "declaration": false,
+    "sourceMap": false
+  },
+  "include": ["lib/**/*.ts"],
+  "exclude": ["node_modules", "lib/dist", "fanyi-extension"]
+}

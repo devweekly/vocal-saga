@@ -1,10 +1,12 @@
 [build]
-  command = "npm install"
+  command = "npm install && npm run build:lib"
   publish = "public"
 
 [functions]
   node_bundler = "esbuild"
   external_node_modules = ["express"]
+  # 允许函数 import ./lib/dist 下的 .js 文件
+  included_files = ["lib/dist/**"]
 
 [[redirects]]
   force = true
