@@ -25,15 +25,26 @@ export interface CacheEntry<T> {
 
 export class CacheManager {
   private memoryCache = new Map<string, CacheEntry<any>>();
-  private storage: StorageAdapter;
+  private _storage: StorageAdapter | null = null;
   private prefix: string;
+  /**
+   * 延迟到首次访问再解析 storage。原因：CF Workers/Pages 在 isolate 启动时
+   * 就会 eager 加载模块（早于首个请求），而 platform shim 里的 setDefaultStorage
+   * 要等 `env` 可用才能跑（要么 lazy 单例，要么 per-request 桥接）。
+   * 同步调 getDefaultStorage() 会抛 "Default storage not configured"。
+   * 通过 getter + 缓存，第一次 get/set 时才解析。
+   */
+  private get storage(): StorageAdapter {
+    if (!this._storage) this._storage = getDefaultStorage();
+    return this._storage;
+  }
 
   constructor(
     private storeName: string,
     private defaultTTL = 24 * 60 * 60 * 1000,
     storage?: StorageAdapter,
   ) {
-    this.storage = storage ?? getDefaultStorage();
+    this._storage = storage ?? null;
     this.prefix = `cache:${storeName}:`;
   }
 

@@ -5,7 +5,10 @@
   "type": "module",
   "scripts": {
     "dev": "netlify dev",
-    "dev:cf": "wrangler pages dev ./public --binding VOCAL_SAGA_KV=<KV_NAMESPACE_ID> --port 8888",
+    "dev:cf": "wrangler pages dev ./public",
+    "deploy:cf": "npm run build:lib && wrangler pages deploy ./public --project-name vocal-saga",
+    "kv:create": "wrangler kv namespace create VOCAL_SAGA_KV",
+    "kv:create:preview": "wrangler kv namespace create VOCAL_SAGA_KV --preview",
     "build": "npm run build:lib",
     "build:lib": "tsc -p tsconfig.lib.json",
     "compile": "tsc --noEmit",

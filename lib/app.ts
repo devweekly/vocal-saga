@@ -20,10 +20,30 @@ import {
 } from './translate/glossaryStore';
 import { setDefaultStorage, type StorageAdapter } from './storage';
 
-const AUTH_KEY = process.env.AUTH_KEY || '';
+/**
+ * 读取 env 的统一入口：
+ *   - CF Pages：bindings 通过 `c.env` 进来（Hono 第二参数）
+ *   - Netlify / 本地：Lambda / Node 把 env 写到 process.env
+ * 都检查一遍，c.env 优先。这样 lib/app.ts 不用关心平台 shim 的注入方式。
+ */
+function env(c: Context, key: string): string | undefined {
+  const fromBinding = (c.env as Record<string, string | undefined> | undefined)?.[key];
+  if (fromBinding) return fromBinding;
+  return process.env[key];
+}
 
-if (!AUTH_KEY || AUTH_KEY.length < 6) {
-  throw new Error('AUTH_KEY is required and must be at least 6 characters');
+/**
+ * 实际请求处理时再读 AUTH_KEY，不在模块加载时校验：
+ *   - CF Pages 模块在 isolate 启动期 eager 加载，shim 的 env 绑定
+ *     要等请求来才可用，模块顶层就 process.env 读不到。
+ *   - 改成"首次请求时 warn 但不 throw"，等调用方需要鉴权时再校验。
+ */
+function getAuthKey(c: Context): string {
+  const k = env(c, 'AUTH_KEY') || '';
+  if (!k || k.length < 6) {
+    throw new Error('AUTH_KEY is required and must be at least 6 characters');
+  }
+  return k;
 }
 
 // ── LLM 代理上游配置 ────────────────────────────────────────
@@ -59,8 +79,14 @@ function resolveModel(model: string | undefined, backendHint: string | undefined
 }
 
 function checkAuth(c: Context): boolean {
+  let expected: string;
+  try {
+    expected = getAuthKey(c);
+  } catch {
+    return false;
+  }
   const bearer = (c.req.header('authorization') || '').replace(/^Bearer\s+/i, '');
-  return bearer === AUTH_KEY;
+  return bearer === expected;
 }
 
 // ── extractor 懒加载 ────────────────────────────────────────

@@ -11,9 +11,17 @@
  *   - fetch + 注入 HTML 字符串，而非拿 document
  *   - jsdom 不执行 <script>（resourceLoader: 'usable' 仍会请求外链，
  *     这里禁掉，节省冷启动 + 避免 timeout）
+ *
+ * 为什么 dynamic import：
+ *   - jsdom 拉进来旧版 undici，里面引用 `MessagePort` 全局，Workers / Pages
+ *     运行时没有这个符号，模块加载就 ReferenceError。
+ *   - 所以在 top-level 用 `import type` 只拿类型，运行时再 `await import('jsdom')`。
+ *   - 副作用：URL 翻译端点在 CF 上会运行时失败（其他端点：聊天、术语表、
+ *     缓存都不受影响，因为不需要 jsdom）。
+ *   - Netlify / 本地开发照常工作。
  */
 
-import { JSDOM, VirtualConsole } from 'jsdom';
+import type { JSDOM, VirtualConsole } from 'jsdom';
 
 export interface FetchedPage {
   url: string;
@@ -52,6 +60,11 @@ export async function fetchPage(
   }
 
   const html = await response.text();
+
+  // dynamic import：见文件头注释，CF Workers/Pages 上 jsdom 拉不到
+  // （旧 undici 引用 MessagePort 全局），运行时再 import 以隔离失败。
+  const jsdomModule: typeof import('jsdom') = await import('jsdom');
+  const { JSDOM, VirtualConsole } = jsdomModule;
 
   // VirtualConsole: 把 jsdom 的 console.* 桥接到 Node 进程 console，
   // 方便看到 site JS 跑出来的 console.log。

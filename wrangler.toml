@@ -3,13 +3,27 @@ compatibility_date = "2024-09-23"
 pages_build_output_dir = "./public"
 compatibility_flags = ["nodejs_compat"]
 
-# KV namespace：对应 lib/storage 的 default storage
-# 部署前用 `wrangler kv namespace create VOCAL_SAGA_KV` 建一个，把 id 填到下面
+# ── KV namespace（对应 lib/storage 的 default storage）─────────
+# 一次性创建：
+#   wrangler kv namespace create VOCAL_SAGA_KV            # 生产
+#   wrangler kv namespace create VOCAL_SAGA_KV --preview  # 本地 dev
+# 把返回的 id 注入环境变量（本地写 .dev.vars，CI 用 secret）。
+# 也可直接把 $VAR 替换成实际 id 字符串。
 [[kv_namespaces]]
 binding = "VOCAL_SAGA_KV"
-id = "REPLACE_WITH_REAL_KV_ID"
+id = "$VOCAL_SAGA_KV_ID"
+preview_id = "$VOCAL_SAGA_KV_PREVIEW_ID"
 
-# 本地开发用 miniflare 持久化（可选）
-# [[kv_namespaces]]
-# binding = "VOCAL_SAGA_KV"
-# preview_id = "REPLACE_WITH_PREVIEW_KV_ID"
+# ── 公开环境变量（随代码入仓）────────────────────────────────
+# 这些不是秘密，可写进 [vars] 块随仓库分发。
+# 真要保密请删掉，改用 `wrangler pages secret put NAME` 设。
+# [vars]
+# CLOUDFLARE_ACCOUNT_ID = ""
+
+# ── 秘密环境变量（不进仓，必须用 secret 命令注入）──────────
+# DEEPSEEK_API_KEY
+# CLOUDFLARE_API_TOKEN
+# NVIDIA_API_KEY
+# OPENROUTER_API_KEY
+# AUTH_KEY
+# 设：wrangler pages secret put DEEPSEEK_API_KEY
