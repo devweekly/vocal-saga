@@ -9,8 +9,21 @@
  */
 import { JSDOM } from 'jsdom';
 
-// 把 jsdom 注入 Node 全局，让 blockExtractor 内的 `Document` 引用有效
-const dom = new JSDOM('<html><body></body></html>');
+const testHtml = `
+  <html><body>
+    <article>
+      <h1>Hello World</h1>
+      <p>This is a short paragraph that should be picked up by the extractor.</p>
+      <p>Another paragraph with enough length to pass the MIN_TEXT_LENGTH check.</p>
+      <h2>A subsection</h2>
+      <p>Yet another paragraph to test that multiple blocks get extracted correctly.</p>
+    </article>
+  </body></html>
+`;
+
+// 把 jsdom 注入 Node 全局，让 blockExtractor 内的 `document` 引用有效
+// （原 fanyi-extension 假设全局只有一个 document，这是浏览器单文档模型）
+const dom = new JSDOM(testHtml);
 globalThis.window = dom.window;
 globalThis.document = dom.window.document;
 globalThis.Document = dom.window.Document;
@@ -31,18 +44,6 @@ async function main() {
   console.log('=== Smoke test: vocal-saga translation lib ===\n');
 
   // 1. extractBlocks
-  const html = `
-    <html><body>
-      <article>
-        <h1>Hello World</h1>
-        <p>This is a short paragraph that should be picked up by the extractor.</p>
-        <p>Another paragraph with enough length to pass the MIN_TEXT_LENGTH check.</p>
-        <h2>A subsection</h2>
-        <p>Yet another paragraph to test that multiple blocks get extracted correctly.</p>
-      </article>
-    </body></html>
-  `;
-  const dom = new JSDOM(html);
   const blocks = extractBlocks(dom.window.document);
   console.log(`[1] extractBlocks → ${blocks.length} blocks`);
   for (const b of blocks) {
@@ -69,7 +70,7 @@ async function main() {
 
   // 4. cacheManager in-memory layer
   await translationCache.set('test:key', { foo: 'bar' }, 60_000);
-  const got = await translationCache.get<{ foo: string }>('test:key');
+  const got = await translationCache.get('test:key');
   console.log(`[4] translationCache.set/get → ${JSON.stringify(got)}`);
   if (got?.foo !== 'bar') throw new Error('cache roundtrip failed');
 
