@@ -7,6 +7,6 @@
     "declaration": false,
     "sourceMap": false
   },
-  "include": ["lib/**/*.ts"],
+  "include": ["lib/**/*.ts", "lib/**/*.d.ts"],
   "exclude": ["node_modules", "lib/dist", "fanyi-extension"]
 }

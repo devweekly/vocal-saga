@@ -27,6 +27,22 @@
     <tr><td><code>GET</code></td><td><code>/api/hello?name=…</code></td><td>健康检查</td></tr>
   </table>
 
+  <h2>页面</h2>
+  <p><a href="/translate">/translate</a> — 翻译前端（粘贴文本 / 抓 URL，术语表管理）</p>
+
+  <h2>翻译 API</h2>
+  <table>
+    <tr><th>方法</th><th>路径</th><th>说明</th></tr>
+    <tr><td><code>POST</code></td><td><code>/api/translate/text</code></td><td>翻译纯文本</td></tr>
+    <tr><td><code>POST</code></td><td><code>/api/translate/url</code></td><td>抓取并翻译 URL 内容</td></tr>
+    <tr><td><code>GET</code></td><td><code>/api/glossary</code></td><td>读取术语表</td></tr>
+    <tr><td><code>POST</code></td><td><code>/api/glossary</code></td><td>追加 user_terms</td></tr>
+    <tr><td><code>DELETE</code></td><td><code>/api/glossary/:term</code></td><td>删除指定 user_term</td></tr>
+    <tr><td><code>POST</code></td><td><code>/api/glossary/extract</code></td><td>从文本抽取 document_terms（?merge=true 合并到 user）</td></tr>
+    <tr><td><code>PUT</code></td><td><code>/api/glossary/document</code></td><td>显式设置 document_terms</td></tr>
+    <tr><td><code>DELETE</code></td><td><code>/api/glossary/document</code></td><td>清空 document_terms</td></tr>
+  </table>
+
   <h2>后端路由规则</h2>
   <p>根据请求中的 <code>model</code> 字段自动选择后端：</p>
   <table>

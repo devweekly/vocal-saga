@@ -32,6 +32,7 @@
   },
   "include": [
     "lib/**/*.ts",
+    "lib/**/*.d.ts",
     "netlify/functions/**/*.ts"
   ],
   "exclude": [

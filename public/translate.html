@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Vocal Saga — 翻译</title>
+  <style>
+    :root { --fg: #1a1a1a; --muted: #666; --bg: #fafafa; --border: #ddd; --accent: #0066cc; --err: #c00; }
+    body { font-family: -apple-system, BlinkMacSystemFont, system-ui, sans-serif; max-width: 900px; margin: 32px auto; padding: 0 16px; color: var(--fg); background: var(--bg); }
+    h1 { font-size: 1.5em; margin: 0 0 8px; }
+    h2 { font-size: 1.1em; margin: 24px 0 8px; border-bottom: 1px solid var(--border); padding-bottom: 4px; }
+    .row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+    label { font-size: 0.9em; color: var(--muted); }
+    input, select, textarea, button { font: inherit; padding: 6px 10px; border: 1px solid var(--border); border-radius: 4px; background: #fff; }
+    input[type="text"], input[type="password"] { width: 220px; }
+    textarea { width: 100%; min-height: 180px; resize: vertical; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.9em; }
+    button { cursor: pointer; }
+    button:hover { background: #f0f0f0; }
+    button.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+    button.primary:hover { background: #0052a3; }
+    .tabs { display: flex; border-bottom: 1px solid var(--border); margin-bottom: 12px; }
+    .tab { padding: 8px 16px; cursor: pointer; border: 1px solid transparent; border-bottom: none; border-radius: 4px 4px 0 0; color: var(--muted); }
+    .tab.active { background: #fff; border-color: var(--border); color: var(--fg); font-weight: 500; margin-bottom: -1px; }
+    .panel { display: none; }
+    .panel.active { display: block; }
+    .terms { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; min-height: 32px; }
+    .term { background: #e7f0fa; border: 1px solid #b5d3ed; border-radius: 12px; padding: 2px 10px; font-size: 0.85em; display: inline-flex; align-items: center; gap: 4px; }
+    .term button { background: none; border: none; cursor: pointer; color: var(--muted); padding: 0 2px; font-size: 1em; line-height: 1; }
+    .term button:hover { color: var(--err); background: none; }
+    .term.user { background: #e8f5e9; border-color: #a5d6a7; }
+    .term.doc { background: #fff3e0; border-color: #ffcc80; }
+    .output { background: #fff; border: 1px solid var(--border); border-radius: 4px; padding: 12px; white-space: pre-wrap; word-break: break-word; min-height: 60px; }
+    .meta { color: var(--muted); font-size: 0.85em; margin-top: 6px; }
+    .err { color: var(--err); }
+    .hint { color: var(--muted); font-size: 0.85em; margin-top: 4px; }
+  </style>
+</head>
+<body>
+
+<h1>翻译</h1>
+
+<h2>认证 & 目标语言</h2>
+<div class="row">
+  <label>Bearer Token: <input type="password" id="auth" placeholder="AUTH_KEY"></label>
+  <label>源: <select id="source"><option value="auto">auto</option><option value="en">en</option><option value="zh">zh</option><option value="ja">ja</option></select></label>
+  <label>目标: <select id="target"><option value="zh">zh</option><option value="en">en</option><option value="ja">ja</option></select></label>
+</div>
+
+<h2>术语表</h2>
+<div class="row">
+  <input type="text" id="newTerm" placeholder="新术语…" style="width: 180px">
+  <button id="addTerm">+ 加入 user_terms</button>
+  <button id="extractTerms">从文本抽取 document_terms</button>
+  <button id="refreshTerms">刷新</button>
+</div>
+<div class="hint">
+  <span class="term user" style="opacity:0.7">user</span>
+  手动维护 · 持久保留
+  &nbsp;&nbsp;
+  <span class="term doc" style="opacity:0.7">doc</span>
+  从上次抽取的文本中推导
+</div>
+<div class="terms" id="terms"></div>
+
+<h2>输入</h2>
+<div class="tabs">
+  <div class="tab active" data-tab="text">文本</div>
+  <div class="tab" data-tab="url">URL</div>
+</div>
+<div class="panel active" data-panel="text">
+  <textarea id="inputText" placeholder="粘贴要翻译的文本…"></textarea>
+</div>
+<div class="panel" data-panel="url">
+  <input type="text" id="inputUrl" placeholder="https://example.com/article" style="width: 100%; margin-bottom: 8px">
+  <div class="row">
+    <label>模式: <select id="urlMode">
+      <option value="bilingual">bilingual</option>
+      <option value="replace">replace</option>
+    </select></label>
+  </div>
+  <div class="hint">返回的 html 字段为完整 HTML，可单独查看 blocks 数组。</div>
+</div>
+
+<div class="row" style="margin-top: 12px">
+  <button class="primary" id="translate">翻译</button>
+  <span class="meta" id="meta"></span>
+</div>
+
+<h2>输出</h2>
+<div class="output" id="output">(无输出)</div>
+<div class="meta" id="outMeta"></div>
+
+<script>
+  const $ = (id) => document.getElementById(id);
+  const auth = $('auth');
+  const source = $('source');
+  const target = $('target');
+  const inputText = $('inputText');
+  const inputUrl = $('inputUrl');
+  const urlMode = $('urlMode');
+  const termsEl = $('terms');
+  const newTerm = $('newTerm');
+  const output = $('output');
+  const meta = $('meta');
+  const outMeta = $('outMeta');
+
+  // 持久化 token
+  auth.value = localStorage.getItem('vocal-saga-auth') || '';
+  auth.addEventListener('change', () => localStorage.setItem('vocal-saga-auth', auth.value));
+
+  // tabs
+  document.querySelectorAll('.tab').forEach((t) => {
+    t.addEventListener('click', () => {
+      document.querySelectorAll('.tab').forEach((x) => x.classList.toggle('active', x === t));
+      document.querySelectorAll('.panel').forEach((p) => p.classList.toggle('active', p.dataset.panel === t.dataset.tab));
+    });
+  });
+
+  function authHeaders() {
+    return { 'Content-Type': 'application/json', 'Authorization': `Bearer ${auth.value}` };
+  }
+  async function api(path, opts = {}) {
+    const r = await fetch(path, { ...opts, headers: { ...authHeaders(), ...(opts.headers || {}) } });
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(data.error || `${r.status} ${r.statusText}`);
+    return data;
+  }
+
+  // 渲染术语
+  function renderTerms(g) {
+    termsEl.innerHTML = '';
+    const all = [
+      ...g.user_terms.map((t) => ({ t, k: 'user' })),
+      ...g.document_terms.map((t) => ({ t, k: 'doc' })),
+    ];
+    for (const { t, k } of all) {
+      const el = document.createElement('span');
+      el.className = `term ${k}`;
+      el.innerHTML = `${t} <button title="删除" data-t="${encodeURIComponent(t)}" data-k="${k}">×</button>`;
+      termsEl.appendChild(el);
+    }
+    termsEl.querySelectorAll('button[data-t]').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        const term = decodeURIComponent(btn.dataset.t);
+        const k = btn.dataset.k;
+        try {
+          if (k === 'user') {
+            await api(`/api/glossary/${encodeURIComponent(term)}`, { method: 'DELETE' });
+          } else {
+            // document term: 从当前集合中过滤
+            const g = await api('/api/glossary');
+            const next = g.document_terms.filter((x) => x !== term);
+            await api('/api/glossary/document', { method: 'PUT', body: JSON.stringify({ terms: next }) });
+          }
+          await loadTerms();
+        } catch (e) { alert('删除失败: ' + e.message); }
+      });
+    });
+  }
+
+  async function loadTerms() {
+    try {
+      const g = await api('/api/glossary');
+      renderTerms(g);
+    } catch (e) {
+      termsEl.innerHTML = `<span class="err">术语加载失败: ${e.message}</span>`;
+    }
+  }
+
+  $('addTerm').addEventListener('click', async () => {
+    const t = newTerm.value.trim();
+    if (!t) return;
+    try {
+      await api('/api/glossary', { method: 'POST', body: JSON.stringify({ terms: [t] }) });
+      newTerm.value = '';
+      await loadTerms();
+    } catch (e) { alert('添加失败: ' + e.message); }
+  });
+
+  $('refreshTerms').addEventListener('click', loadTerms);
+
+  $('extractTerms').addEventListener('click', async () => {
+    const text = inputText.value.trim();
+    if (!text) { alert('先在「文本」标签里粘点内容'); return; }
+    try {
+      await api('/api/glossary/extract?merge=true', { method: 'POST', body: JSON.stringify({ text }) });
+      await loadTerms();
+    } catch (e) { alert('抽取失败: ' + e.message); }
+  });
+
+  // 翻译
+  $('translate').addEventListener('click', async () => {
+    meta.textContent = '翻译中…';
+    output.textContent = '(处理中…)';
+    outMeta.textContent = '';
+    const t0 = Date.now();
+    const activeTab = document.querySelector('.tab.active').dataset.tab;
+    const glossary = (() => {
+      try {
+        // 从 UI 中读出所有 term，传给后端（避免后端再去读 blob）
+        const terms = Array.from(termsEl.querySelectorAll('.term'))
+          .map((el) => el.firstChild.textContent.trim());
+        return Array.from(new Set(terms));
+      } catch { return undefined; }
+    })();
+    try {
+      if (activeTab === 'text') {
+        const r = await api('/api/translate/text', {
+          method: 'POST',
+          body: JSON.stringify({
+            text: inputText.value,
+            source: source.value,
+            target: target.value,
+            glossary,
+          }),
+        });
+        const txt = (r.translations || []).map((t) => t.text).join('\n');
+        output.textContent = txt || '(空)';
+        outMeta.textContent = `chunks=${r.chunks} duration=${r.duration_ms}ms elapsed=${Date.now() - t0}ms`;
+      } else {
+        const r = await api('/api/translate/url', {
+          method: 'POST',
+          body: JSON.stringify({
+            url: inputUrl.value,
+            source: source.value,
+            target: target.value,
+            mode: urlMode.value,
+            glossary,
+          }),
+        });
+        output.textContent = r.html || '(空)';
+        outMeta.textContent = `blocks=${r.blocks} chunks=${r.chunks} duration=${r.duration_ms}ms elapsed=${Date.now() - t0}ms`;
+      }
+      meta.textContent = '完成';
+    } catch (e) {
+      output.textContent = '';
+      outMeta.innerHTML = `<span class="err">${e.message}</span>`;
+      meta.textContent = '失败';
+    }
+  });
+
+  // 初始
+  loadTerms();
+</script>
+
+</body>
+</html>

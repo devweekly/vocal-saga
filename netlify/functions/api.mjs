@@ -2,6 +2,14 @@ import express from 'express'
 import serverless from 'serverless-http'
 import cors from 'cors'
 import { translateText, translateUrl } from '../../lib/dist/translate/pipeline.js'
+import {
+  getGlossary,
+  addUserTerms,
+  removeUserTerm,
+  clearUserTerms,
+  setDocumentTerms,
+  clearDocumentTerms,
+} from '../../lib/dist/translate/glossaryStore.js'
 
 const app = express()
 app.use(cors())
@@ -274,6 +282,126 @@ app.post('/api/translate/url', async (req, res) => {
     res.json(result)
   } catch (err) {
     console.error('[translate/url] error:', err)
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// ── 术语表管理（Netlify Blobs 持久化） ───────────────────
+//
+// GET    /api/glossary              → { user_terms: [], document_terms: [] }
+// POST   /api/glossary              → body: { terms: ["React", "API"] } 追加到 user_terms
+// DELETE /api/glossary              → 清空 user_terms
+// DELETE /api/glossary/:term        → 删除指定 user_term
+// POST   /api/glossary/extract      → body: { text }  用 glossaryExtractor 抽 document_terms
+//                                       可选 ?merge=true 追加而不是覆盖
+// PUT    /api/glossary/document     → body: { terms: [...] } 显式设置 document_terms
+// DELETE /api/glossary/document     → 清空 document_terms
+app.get('/api/glossary', async (req, res) => {
+  if (!checkAuth(req)) return res.status(401).json({ error: 'Unauthorized' })
+  try {
+    const g = await getGlossary()
+    res.json(g)
+  } catch (err) {
+    console.error('[glossary] get error:', err)
+    res.status(500).json({ error: err.message })
+  }
+})
+
+app.post('/api/glossary', async (req, res) => {
+  if (!checkAuth(req)) return res.status(401).json({ error: 'Unauthorized' })
+  const terms = req.body?.terms
+  if (!Array.isArray(terms) || terms.some((t) => typeof t !== 'string')) {
+    return res.status(400).json({ error: 'terms: string[] required' })
+  }
+  try {
+    const g = await addUserTerms(terms)
+    res.json(g)
+  } catch (err) {
+    console.error('[glossary] add error:', err)
+    res.status(500).json({ error: err.message })
+  }
+})
+
+app.delete('/api/glossary', async (req, res) => {
+  if (!checkAuth(req)) return res.status(401).json({ error: 'Unauthorized' })
+  try {
+    const g = await clearUserTerms()
+    res.json(g)
+  } catch (err) {
+    console.error('[glossary] clear error:', err)
+    res.status(500).json({ error: err.message })
+  }
+})
+
+app.delete('/api/glossary/:term', async (req, res) => {
+  if (!checkAuth(req)) return res.status(401).json({ error: 'Unauthorized' })
+  const { term } = req.params
+  try {
+    const g = await removeUserTerm(decodeURIComponent(term))
+    res.json(g)
+  } catch (err) {
+    console.error('[glossary] remove error:', err)
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// 动态 import 避免循环依赖 / 加载时延
+let _extractGlossary = null
+async function getExtractor() {
+  if (!_extractGlossary) {
+    const mod = await import('../../lib/dist/translate/glossaryExtractor.js')
+    _extractGlossary = mod.extractGlossaryLocal
+  }
+  return _extractGlossary
+}
+
+app.post('/api/glossary/extract', async (req, res) => {
+  if (!checkAuth(req)) return res.status(401).json({ error: 'Unauthorized' })
+  const { text } = req.body || {}
+  if (!text || typeof text !== 'string') {
+    return res.status(400).json({ error: 'text is required' })
+  }
+  try {
+    const extract = await getExtractor()
+    const result = extract(text)
+    const merge = req.query.merge === 'true'
+    if (merge) {
+      const g = await addUserTerms(result.document_terms)
+      console.log(`[glossary/extract] text=${text.length}ch → ${result.document_terms.length} terms (merged)`)
+      res.json(g)
+    } else {
+      const g = await setDocumentTerms(result.document_terms)
+      console.log(`[glossary/extract] text=${text.length}ch → ${result.document_terms.length} terms`)
+      res.json(g)
+    }
+  } catch (err) {
+    console.error('[glossary/extract] error:', err)
+    res.status(500).json({ error: err.message })
+  }
+})
+
+app.put('/api/glossary/document', async (req, res) => {
+  if (!checkAuth(req)) return res.status(401).json({ error: 'Unauthorized' })
+  const terms = req.body?.terms
+  if (!Array.isArray(terms) || terms.some((t) => typeof t !== 'string')) {
+    return res.status(400).json({ error: 'terms: string[] required' })
+  }
+  try {
+    const g = await setDocumentTerms(terms)
+    res.json(g)
+  } catch (err) {
+    console.error('[glossary/document] put error:', err)
+    res.status(500).json({ error: err.message })
+  }
+})
+
+app.delete('/api/glossary/document', async (req, res) => {
+  if (!checkAuth(req)) return res.status(401).json({ error: 'Unauthorized' })
+  try {
+    const g = await clearDocumentTerms()
+    res.json(g)
+  } catch (err) {
+    console.error('[glossary/document] clear error:', err)
     res.status(500).json({ error: err.message })
   }
 })
