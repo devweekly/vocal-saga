@@ -215,8 +215,10 @@ export async function translateUrl(input: TranslateUrlInput): Promise<TranslateU
     const translated = translations.get(block.id);
     if (!translated) continue;
     const el = page.doc.querySelector(`[data-fanyi-block-id="${block.id}"]`);
-    if (el && el instanceof page.doc.defaultView!.HTMLElement) {
-      applyBlockTranslation(el, translated, mode);
+    // linkedom 的节点 instanceof jsdom.Element = false，统一用 nodeType 判别；
+    // 这里任何 data-fanyi-block-id 节点都是 grabNode 出来的 Element，可信。
+    if (el && (el as Node).nodeType === 1) {
+      applyBlockTranslation(el as unknown as HTMLElement, translated, mode);
     }
   }
 

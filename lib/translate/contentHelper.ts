@@ -114,7 +114,9 @@ export function prepareDocument(root: Document | Element): {
   fullText: string;
 } {
   // 优先使用文章容器，减少 TreeWalker 遍历范围
-  const effectiveRoot = root instanceof Document ? findArticleRoot(root) : root;
+  // rootNode 是 Document 时找主文章容器 (article / main / [role=main])；
+  // 否则直接用 rootNode (linkedom / jsdom 的 Document 是不同 class，不能 instanceof)
+  const effectiveRoot = root.nodeType === 9 ? findArticleRoot(root as Document) : root;
   const blocks = extractBlocks(effectiveRoot);
 
   if (blocks.length === 0) {

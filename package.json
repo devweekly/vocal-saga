@@ -1,6 +1,6 @@
 {
   "name": "translation-api",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "description": "OpenAI-compatible LLM proxy + translation service on Netlify Functions",
   "type": "module",
   "scripts": {
@@ -20,7 +20,8 @@
     "cheerio": "^1.2.0",
     "compromise": "^14.15.1",
     "hono": "^4.12.25",
-    "jsdom": "^29.1.1"
+    "jsdom": "^29.1.1",
+    "linkedom": "^0.18.12"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20260611.1",

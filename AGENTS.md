@@ -42,7 +42,8 @@ An OpenAI-compatible LLM proxy + translation API, deployable on **Netlify Functi
 - **Key namespacing** — multiple modules share one storage instance via prefixes (`glossary:user_terms`, `cache:analysis:`, etc.). No need to configure multiple KV bindings or Netlify stores.
 - **Cross-platform env reads** — `lib/app.ts` uses `env(c, key)` helper that checks `c.env` (CF bindings) first, falls back to `process.env` (Netlify Lambda / Node). The CF shim also has `injectEnv()` to sync bindings into `process.env` for any module-level reads. No AUTH_KEY validation at module load — it happens per-request.
 - **Lazy `getDefaultStorage()`** — `CacheManager` uses a getter that resolves the default storage on first access. Required because CF Workers modules are evaluated eagerly at isolate start, before any platform shim can call `setDefaultStorage()`.
-- **Lazy `import('jsdom')`** — `urlFetcher.ts` uses dynamic import because jsdom pulls in an old `undici` that references `MessagePort` (not defined in Workers). With dynamic import, only the URL translation path pays this cost; the rest of the API (chat, models, glossary) works on CF. Trade-off: **URL translation is Netlify-only by design** — CF callers get a 500 with a clear upstream error. Migrating to `linkedom` (Workers-friendly DOM) would close the gap; not done here.
+- **lazy `import('linkedom')`** 静态导入 — `urlFetcher.ts` 用 linkedom 解析 HTML，**所有平台都用**。原本是 jsdom 动态导入，但 jsdom 拉进旧版 undici，里面引用 `MessagePort` 全局，Cloudflare Workers 没这个全局就 500。linkedom 是纯 JS DOM，CF / Netlify / Node 都能跑，零依赖成本。
+- **跨平台 DOM 判别**：walker / rules / pipeline 里**全部用 `nodeType === N` 而非 `instanceof Text/Element`**。vitest 单测用 jsdom、CF 跑用 linkedom，两个 DOM 实现的 Text/Element 是不同 class，`instanceof` 判别会全错；`nodeType` 是 W3C 标准 int，跨实现一致。
 - **Platform shims are tiny**:
   - Netlify: `import { handle } from 'hono/aws-lambda'; import { createApp, NetlifyBlobsStorage } from '../../lib/dist/index.js'; export const handler = handle(createApp(new NetlifyBlobsStorage('main')))`
   - Cloudflare Workers: `src/worker.ts` exports `default { fetch(request, env) { if (url.pathname.startsWith('/api/')) return getApp(env).fetch(request, env); return env.ASSETS.fetch(request) } }`
@@ -77,7 +78,8 @@ This is a hard rule. **No new feature / route / module merges without accompanyi
 - 真调外部 LLM 的整链路 —— 那是 smoke / e2e 范畴。
 
 参考来源：
-- 本仓库 `tests/`（vitest，环境 jsdom，`tests/setup.ts` 注入 `MapStorage`）。
+- 本仓库 `tests/`（vitest，环境 jsdom，`tests/setup.ts` 注入 `MapStorage`）。**walker / rules / pipeline 的 DOM 判别用 `nodeType`**，所以这些单测用 jsdom 跑也覆盖生产 linkedom 路径。
+- `tests/translateUrlEndToEnd.test.ts` 是唯一一个真打通整条链路的 E2E：起本地 HTTP server → linkedom 解析 → walker 抽块 → mock DeepSeek → 序列化双语 HTML，专门覆盖 CF 实际生产路径。
 - `/Users/saga/code-repos/fanyi-extension/src/__tests__/`：移植过来的代码对应的原始测试，可以直接抄结构（vi.mock 模式、`beforeEach` 清空 store、chunks 边界用例等）。
 
 ## Test / Build

@@ -152,20 +152,24 @@ export function isElementHidden(el: Element): boolean {
   if (el.getAttribute('aria-hidden') === 'true') return true;
 
   // Cheap: inline style
-  if (el instanceof HTMLElement) {
-    const s = el.style;
-    if (s.display === 'none' || s.visibility === 'hidden') return true;
+  // linkedom 的 Element 没有 getAttribute('hidden')/style 的运行时保护，
+  // 但 nodeType 一定是 ELEMENT_NODE (=1)，这里用 nodeType 判别跨平台
+  if (el.nodeType === 1) {
+    const s = (el as unknown as { style?: { display: string; visibility: string } }).style;
+    if (s && (s.display === 'none' || s.visibility === 'hidden')) return true;
   }
 
   // 兜底: getComputedStyle (会触发 layout, 谨慎使用)
-  if (el instanceof HTMLElement) {
+  if (el.nodeType === 1) {
     try {
-      const computed = window.getComputedStyle(el);
-      if (computed.display === 'none' || computed.visibility === 'hidden') {
+      // linkedom 不实现 layout，getComputedStyle 调了会 throw 或返回空串，
+      // catch 兜底即可（不可见判断已经在前面的 inline style 路径上完成）
+      const computed = typeof window !== 'undefined' ? window.getComputedStyle(el) : null;
+      if (computed && (computed.display === 'none' || computed.visibility === 'hidden')) {
         return true;
       }
     } catch {
-      // jsdom 等无 layout 环境, 静默忽略
+      // jsdom / linkedom 等无 layout 环境, 静默忽略
     }
   }
 

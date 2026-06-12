@@ -36,8 +36,8 @@ export function extractBlocks(rootNode: Node): TextBlock[] {
   const seenTexts = new Set<string>();
 
   const startNode =
-    rootNode instanceof Document
-      ? rootNode.body || rootNode.documentElement
+    rootNode.nodeType === 9 /* DOCUMENT_NODE */
+      ? (rootNode as Document).body || (rootNode as Document).documentElement
       : rootNode;
   if (!startNode) {
     console.warn('[BlockExtractor] No valid start node found');

@@ -1,10 +1,14 @@
 /**
- * blockExtractor TreeWalker
+ * blockExtractor 遍历器
  *
  * 核心遍历逻辑:
- *   1. createTreeWalker + acceptNode 决定每个节点的 FILTER_* 状态
+ *   1. 递归 walk + acceptNode 决定每个节点的 FILTER_* 状态
  *   2. FILTER_ACCEPT 节点进 grabNode() 评估是否可作为翻译块
  *   3. 已拒绝的祖先进 WeakSet 缓存,后代 O(1) 查表拒绝,避免回溯父链
+ *
+ * 历史：原本走 `document.createTreeWalker`，jsdom 支持但 linkedom 的 TreeWalker
+ * 没有 acceptNode 回调，只能按 whatToShow mask 平铺。改成手写递归后
+ * jsdom / linkedom / 真浏览器都能跑，逻辑也更直观。
  *
  * 同时处理 Shadow DOM (Reddit <shreddit-post> 等 web component 文本)。
  */
@@ -35,6 +39,25 @@ import type { TextBlock } from './types';
 const DIRECT_SET_CSS_SELECTOR = Array.from(DIRECT_SET).join(',');
 
 // =============================================================================
+// FILTER_* 常量（linkedom 的 NodeFilter 类只导出了 SHOW_*，没有 FILTER_*）
+// 这里按 W3C 规范手写：1 = ACCEPT, 2 = SKIP, 3 = REJECT。
+// =============================================================================
+const FILTER_ACCEPT = 1;
+const FILTER_SKIP = 2;
+const FILTER_REJECT = 3;
+
+// =============================================================================
+// NodeType 数值常量
+//
+// 不直接 `instanceof Text / Element` 判别，因为：
+//   - vitest 单测用 jsdom、CF 跑用 linkedom，二者的 Text/Element 是不同 class，
+//     linkedom 的节点 `instanceof jsdom.Element === false`，会导致整棵遍历被错判为 SKIP。
+//   - `nodeType` 是 W3C DOM 标准的 int 属性，所有实现都给一致的值，跨平台安全。
+// =============================================================================
+const TEXT_NODE_TYPE = 3;
+const ELEMENT_NODE_TYPE = 1;
+
+// =============================================================================
 // grabNode: 把已 ACCEPT 的节点评估为"翻译块"或"非块"
 // =============================================================================
 
@@ -44,10 +67,10 @@ const DIRECT_SET_CSS_SELECTOR = Array.from(DIRECT_SET).join(',');
  * 节点已被 walker 接受,不代表它一定能作为翻译块 (e.g. 空 <p>)。
  */
 function grabNode(node: Node): Element | false {
-  if (!node || node instanceof Text) return false;
-  if (!(node instanceof Element)) return false;
+  if (!node || node.nodeType === TEXT_NODE_TYPE) return false;
+  if (node.nodeType !== ELEMENT_NODE_TYPE) return false;
 
-  const el = node;
+  const el = node as Element;
   const tag = el.tagName.toLowerCase();
 
   // 1) 块级元素 (DIRECT_SET): 若子树还有 DIRECT_SET 元素,自身不算
@@ -98,53 +121,53 @@ function acceptWalkerNode(
   rejectedCache: WeakSet<Element>
 ): number {
   // 文本节点: 仅当父被拒时连坐拒绝;否则接受让 grabNode 评估
-  if (node instanceof Text) {
+  if (node.nodeType === TEXT_NODE_TYPE) {
     if (node.parentElement && rejectedCache.has(node.parentElement)) {
-      return NodeFilter.FILTER_REJECT;
+      return FILTER_REJECT;
     }
-    return NodeFilter.FILTER_ACCEPT;
+    return FILTER_ACCEPT;
   }
 
-  if (!(node instanceof Element)) {
-    return NodeFilter.FILTER_SKIP;
+  if (node.nodeType !== ELEMENT_NODE_TYPE) {
+    return FILTER_SKIP;
   }
 
-  const el = node;
+  const el = node as Element;
   const tag = el.tagName.toLowerCase();
 
   // 0) 父已被拒 → 整棵连坐拒绝 (O(1) 查表,避免向上回溯)
   if (el.parentElement && rejectedCache.has(el.parentElement)) {
     rejectedCache.add(el);
     counters.rejected++;
-    return NodeFilter.FILTER_REJECT;
+    return FILTER_REJECT;
   }
 
   // 1) 硬性拒绝条件 (整棵子树拒绝,无例外)
   if (isNonHTMLNamespace(el)) {
     rejectedCache.add(el);
     counters.rejected++;
-    return NodeFilter.FILTER_REJECT;
+    return FILTER_REJECT;
   }
   if (SKIP_SET.has(tag) || hasTranslateBlockClass(el) || isContentEditable(el)) {
     rejectedCache.add(el);
     counters.rejected++;
-    return NodeFilter.FILTER_REJECT;
+    return FILTER_REJECT;
   }
   if (isElementHidden(el)) {
     rejectedCache.add(el);
     counters.rejected++;
-    return NodeFilter.FILTER_REJECT;
+    return FILTER_REJECT;
   }
   if (shouldSkipByClass(el) || shouldSkipBySiteRules(el)) {
     rejectedCache.add(el);
     counters.rejected++;
-    return NodeFilter.FILTER_REJECT;
+    return FILTER_REJECT;
   }
   if (isMetadataClass(el)) {
     // 文章元数据 (作者 / 日期 / 分类) 整棵子树拒绝
     rejectedCache.add(el);
     counters.rejected++;
-    return NodeFilter.FILTER_REJECT;
+    return FILTER_REJECT;
   }
 
   // 2) <header> 特殊处理: 文章 header vs 页面 chrome
@@ -154,18 +177,18 @@ function acceptWalkerNode(
     const hasHeading = el.querySelector('h1, h2, h3, h4, h5, h6') !== null;
     if (hasHeading) {
       counters.skipped++;
-      return NodeFilter.FILTER_SKIP;
+      return FILTER_SKIP;
     }
     rejectedCache.add(el);
     counters.skipped++;
-    return NodeFilter.FILTER_REJECT;
+    return FILTER_REJECT;
   }
 
   // 3) 其他语义噪声 (footer / aside / nav): 整棵拒绝
   if (SEMANTIC_SKIP_TAGS.has(tag)) {
     rejectedCache.add(el);
     counters.skipped++;
-    return NodeFilter.FILTER_REJECT;
+    return FILTER_REJECT;
   }
 
   // 4) DIRECT_SET 元素: 自身评估, 若子树还有 DIRECT_SET 则跳过 (让子块独立抓)
@@ -173,14 +196,14 @@ function acceptWalkerNode(
     const hasDirectSetDescendant = el.querySelector(DIRECT_SET_CSS_SELECTOR) !== null;
     if (hasDirectSetDescendant) {
       counters.skipped++;
-      return NodeFilter.FILTER_SKIP;
+      return FILTER_SKIP;
     }
     if (isValidText(el.textContent)) {
       counters.accepted++;
-      return NodeFilter.FILTER_ACCEPT;
+      return FILTER_ACCEPT;
     }
     counters.skipped++;
-    return NodeFilter.FILTER_SKIP;
+    return FILTER_SKIP;
   }
 
   // 5) 其他容器: 看子节点结构决定
@@ -189,16 +212,16 @@ function acceptWalkerNode(
 
   if (!hasOnlyInlineChildren) {
     counters.skipped++;
-    return NodeFilter.FILTER_SKIP;
+    return FILTER_SKIP;
   }
   if (hasDirectText || hasNonEmptyElement) {
     if (isValidText(el.textContent)) {
       counters.accepted++;
-      return NodeFilter.FILTER_ACCEPT;
+      return FILTER_ACCEPT;
     }
   }
   counters.skipped++;
-  return NodeFilter.FILTER_SKIP;
+  return FILTER_SKIP;
 }
 
 // =============================================================================
@@ -208,6 +231,9 @@ function acceptWalkerNode(
 /**
  * 从 startNode 出发, 收集所有翻译块到 blocks。
  * 同时跨 Shadow DOM 边界 (Reddit <shreddit-post> 等)。
+ *
+ * 实现：手写递归 walk，逻辑等价于 createTreeWalker 的 whatToShow=SHOW_ALL
+ * + acceptNode callback，但 jsdom / linkedom / 浏览器都能跑。
  */
 export function collectBlocks(
   startNode: Node,
@@ -220,44 +246,10 @@ export function collectBlocks(
   // 随 DOM GC, 无内存泄漏。
   const rejectedCache = new WeakSet<Element>();
 
-  const walker = document.createTreeWalker(
-    startNode,
-    NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT,
-    {
-      acceptNode: (node) => acceptWalkerNode(node, counters, rejectedCache),
-    }
-  );
-
-  let currentNode: Node | null;
-  while ((currentNode = walker.nextNode()) !== null) {
-    const translateNode = grabNode(currentNode);
-    if (!translateNode) continue;
-
-    const text = translateNode.textContent?.trim();
-    if (!text) continue;
-
-    // 去重: 同样的段落出现在多个 callout (e.g. HBR summary box + body) 只取一个。
-    // 节省 API 调用 + 避免堆叠相同译文。
-    if (seenTexts.has(text)) {
-      counters.skipped++;
-      continue;
-    }
-    seenTexts.add(text);
-
-    const id = `b${++blockIdRef.value}`;
-    if (translateNode instanceof HTMLElement) {
-      translateNode.dataset.fanyiBlockId = id;
-    }
-    blocks.push({
-      id,
-      xpath: getXPath(translateNode),
-      tag: translateNode.tagName.toLowerCase(),
-      text,
-      context: {
-        headingPath: getHeadingPath(translateNode),
-        position: blockIdRef.value,
-      },
-    });
+  // startNode 自身不被 visit（与 TreeWalker 行为一致：root 是位置，不是节点），
+  // 第一个 visit 的是它的 childNodes。
+  for (const child of Array.from(startNode.childNodes)) {
+    walkNode(child, blocks, blockIdRef, seenTexts, counters, rejectedCache);
   }
 
   // TreeWalker 不跨 shadow root 边界, 手动遍历 open shadow roots。
@@ -267,8 +259,66 @@ export function collectBlocks(
 }
 
 /**
+ * 递归 visit 单个节点：
+ *   - FILTER_REJECT → 整棵子树跳过
+ *   - FILTER_ACCEPT → grabNode() 评估，合格就 push
+ *   - FILTER_SKIP   → 不 grab，继续 recurse 子节点
+ */
+function walkNode(
+  node: Node,
+  blocks: TextBlock[],
+  blockIdRef: { value: number },
+  seenTexts: Set<string>,
+  counters: WalkerCounters,
+  rejectedCache: WeakSet<Element>
+): void {
+  const verdict = acceptWalkerNode(node, counters, rejectedCache);
+  if (verdict === FILTER_REJECT) return;
+
+  if (verdict === FILTER_ACCEPT) {
+    const translateNode = grabNode(node);
+    if (translateNode) {
+      const text = translateNode.textContent?.trim();
+      if (text) {
+        // 去重: 同样的段落出现在多个 callout (e.g. HBR summary box + body) 只取一个。
+        // 节省 API 调用 + 避免堆叠相同译文。
+        if (seenTexts.has(text)) {
+          counters.skipped++;
+        } else {
+          seenTexts.add(text);
+          const id = `b${++blockIdRef.value}`;
+          // dataset 写入：linkedom 支持；jsdom 支持；旧浏览器不支持
+          // （dataset 是 ES2015 起的标准，所有目标环境都满足）
+          try {
+            (translateNode as unknown as { dataset: Record<string, string> }).dataset.fanyiBlockId = id;
+          } catch {
+            /* ignore */
+          }
+          blocks.push({
+            id,
+            xpath: getXPath(translateNode),
+            tag: translateNode.tagName.toLowerCase(),
+            text,
+            context: {
+              headingPath: getHeadingPath(translateNode),
+              position: blockIdRef.value,
+            },
+          });
+        }
+      }
+    }
+  }
+
+  // ACCEPT 和 SKIP 都要继续 recurse 子节点（TreeWalker 行为一致）
+  for (const child of Array.from(node.childNodes)) {
+    walkNode(child, blocks, blockIdRef, seenTexts, counters, rejectedCache);
+  }
+}
+
+/**
  * 递归遍历 host 元素的 open shadow root。
- * 用宽松的 walker (FILTER_ACCEPT) 拿到 host 自身, 检查 shadowRoot。
+ * linkedom / jsdom 都不实现 shadow DOM 真渲染，这段主要兼容真浏览器场景
+ * （Reddit <shreddit-post> 等 web component 文本）。
  */
 function collectFromShadowHosts(
   root: Node,
@@ -276,19 +326,36 @@ function collectFromShadowHosts(
   blockIdRef: { value: number },
   seenTexts: Set<string>
 ): void {
-  const treeWalker = document.createTreeWalker(
-    root,
-    NodeFilter.SHOW_ELEMENT,
-    { acceptNode: () => NodeFilter.FILTER_ACCEPT }
-  );
+  for (const child of Array.from(root.childNodes)) {
+    walkForShadow(child, blocks, blockIdRef, seenTexts);
+  }
+}
 
-  let currentNode: Node | null;
-  while ((currentNode = treeWalker.nextNode()) !== null) {
-    if (!(currentNode instanceof Element)) continue;
-    const shadow = currentNode.shadowRoot;
+/** shadow-host 巡检专用：找到所有 Element，看是否有 open shadowRoot。 */
+function walkForShadow(
+  node: Node,
+  blocks: TextBlock[],
+  blockIdRef: { value: number },
+  seenTexts: Set<string>
+): void {
+  if (node.nodeType === ELEMENT_NODE_TYPE) {
+    const shadow = (node as unknown as { shadowRoot?: { mode: string } | null }).shadowRoot;
     if (shadow && shadow.mode === 'open') {
-      collectBlocks(shadow, blocks, blockIdRef, seenTexts);
+      // 递归进 shadowRoot（不是 host 本身，host 的 light DOM 已经被 collectBlocks
+      // 处理过了；这里只看 shadow tree 里的内容）
+      const shadowCounters = collectBlocks(
+        shadow as unknown as Node,
+        blocks,
+        blockIdRef,
+        seenTexts
+      );
+      void shadowCounters;
+      // shadow 内部的节点不再继续（避免重复处理）
+      return;
     }
+  }
+  for (const child of Array.from(node.childNodes)) {
+    walkForShadow(child, blocks, blockIdRef, seenTexts);
   }
 }
 
@@ -299,10 +366,10 @@ function collectFromShadowHosts(
 /** 生成元素 XPath, 用于回退查找 (data attr 优先)。 */
 export function getXPath(node: Node): string {
   if (node.nodeType === Node.DOCUMENT_NODE) return '';
-  if (!(node instanceof Element)) return '';
+  if (node.nodeType !== ELEMENT_NODE_TYPE) return '';
 
   const parts: string[] = [];
-  let current: Element | null = node;
+  let current: Element | null = node as Element;
   while (current && current.nodeType === Node.ELEMENT_NODE) {
     let index = 1;
     let sibling: Element | null = current.previousElementSibling;
