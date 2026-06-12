@@ -284,13 +284,26 @@ export function createApp(storage?: StorageAdapter): Hono {
 
     console.log(`[translate/url-page] url=${url} src=${source || 'auto'} tgt=${target} mode=${mode}`);
     try {
-      const result = await translateUrl({
-        url,
-        source,
-        target,
-        mode: mode as 'bilingual' | 'target',
-        apiKey: DS_API_KEY(),
-      });
+      // 各阶段超时：
+      //   - fetchPage:      15s（urlFetcher.ts 硬编码）
+      //   - 每次 DeepSeek: 15s（deepseek.ts DEEPSEEK_TIMEOUT_MS）
+      //   - 整条 pipeline: 28s（以下 Promise.race）
+      // CF Workers 免费/付费计划都是 30s 壁钟上限，留 2s 给 response.send。
+      const OVERALL_TIMEOUT_MS = 28_000;
+      const result = await Promise.race([
+        translateUrl({
+          url,
+          source,
+          target,
+          mode: mode as 'bilingual' | 'target',
+          apiKey: DS_API_KEY(),
+        }),
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error(
+            `翻译超时 (${OVERALL_TIMEOUT_MS / 1000}s)，文章过长或上游 LLM 响应慢，请稍后重试`
+          )), OVERALL_TIMEOUT_MS)
+        ),
+      ]);
       console.log(`[translate/url-page] blocks=${result.blocks} chunks=${result.chunks} duration=${result.duration_ms}ms`);
       return new Response(result.html, {
         status: 200,
@@ -306,7 +319,9 @@ export function createApp(storage?: StorageAdapter): Hono {
       });
     } catch (err) {
       console.error('[translate/url-page] error:', err);
-      return c.json({ error: (err as Error).message }, 500);
+      const message = (err as Error).message;
+      // 超时返回 504，其余 500
+      return c.json({ error: message }, message.includes('超时') ? 504 : 500);
     }
   });
 

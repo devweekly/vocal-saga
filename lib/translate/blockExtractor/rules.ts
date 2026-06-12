@@ -325,11 +325,11 @@ export function classifyChildren(el: Element): ChildClassification {
   let hasOnlyInlineChildren = true;
 
   for (const child of Array.from(el.childNodes)) {
-    if (child.nodeType === Node.TEXT_NODE && child.textContent?.trim()) {
+    if (child.nodeType === 3 && child.textContent?.trim()) {
       hasDirectText = true;
       continue;
     }
-    if (child.nodeType !== Node.ELEMENT_NODE) continue;
+    if (child.nodeType !== 1) continue;
 
     const childEl = child as Element;
     if (childEl.textContent?.trim()) {

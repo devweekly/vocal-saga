@@ -53,6 +53,7 @@ const FILTER_REJECT = 3;
 // =============================================================================
 const TEXT_NODE_TYPE = 3;
 const ELEMENT_NODE_TYPE = 1;
+const DOCUMENT_NODE_TYPE = 9;
 
 // =============================================================================
 // grabNode：把 walker 节点转成可翻译的 Element
@@ -367,12 +368,12 @@ function walkForShadow(
 
 /** 生成元素 XPath, 用于回退查找 (data attr 优先)。 */
 export function getXPath(node: Node): string {
-  if (node.nodeType === Node.DOCUMENT_NODE) return '';
+  if (node.nodeType === DOCUMENT_NODE_TYPE) return '';
   if (node.nodeType !== ELEMENT_NODE_TYPE) return '';
 
   const parts: string[] = [];
   let current: Element | null = node as Element;
-  while (current && current.nodeType === Node.ELEMENT_NODE) {
+  while (current && current.nodeType === ELEMENT_NODE_TYPE) {
     let index = 1;
     let sibling: Element | null = current.previousElementSibling;
     while (sibling) {

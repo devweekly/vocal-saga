@@ -133,6 +133,8 @@ function buildTranslationBody(
   };
 }
 
+const DEEPSEEK_TIMEOUT_MS = 15_000;
+
 async function callApi(
   apiKey: string,
   body: string
@@ -142,6 +144,7 @@ async function callApi(
       method: 'POST',
       headers: buildHeaders(apiKey),
       body,
+      signal: AbortSignal.timeout(DEEPSEEK_TIMEOUT_MS),
     });
 
     console.log('[DeepSeek] Response status:', response.status);
@@ -189,10 +192,18 @@ async function callApi(
     }
 
     return content;
-  } catch (error) {
-    if (error instanceof TypeError && error.message.includes('fetch')) {
-      console.error('[DeepSeek] Fetch error - possible network/CORS issue:', error);
-      throw new Error(`网络请求失败: ${error.message}\n\n可能原因:\n1. 网络连接问题\n2. Firefox 扩展权限不足\n3. 被防火墙/代理拦截`);
+  } catch (error: unknown) {
+    if (error instanceof Error) {
+      const isAbort = error.name === 'AbortError' ||
+        (error.cause instanceof Error && error.cause.name === 'AbortError');
+      if (isAbort) {
+        console.error(`[DeepSeek] Request timed out after ${DEEPSEEK_TIMEOUT_MS}ms`);
+        throw new Error(`DeepSeek API 请求超时 (${DEEPSEEK_TIMEOUT_MS / 1000}s)，请稍后重试`);
+      }
+      if (error.message.includes('fetch') || error.message.includes('network')) {
+        console.error('[DeepSeek] Fetch error:', error);
+        throw new Error(`网络请求失败: ${error.message}`);
+      }
     }
     throw error;
   }
