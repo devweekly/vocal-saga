@@ -17,7 +17,7 @@ describe('prepareDocument', () => {
       <footer>Footer content</footer>
     `;
 
-    const { blocks, fullText } = prepareDocument(document);
+    const { blocks, fullText } = prepareDocument(document, "https://example.com/test");
 
     // 应该只提取 article 内的内容
     expect(fullText).toContain('Article Title');
@@ -38,7 +38,7 @@ describe('prepareDocument', () => {
       <aside>Sidebar</aside>
     `;
 
-    const { fullText } = prepareDocument(document);
+    const { fullText } = prepareDocument(document, "https://example.com/test");
 
     expect(fullText).toContain('Main Content');
     expect(fullText).toContain('Main paragraph');
@@ -55,7 +55,7 @@ describe('prepareDocument', () => {
       </main>
     `;
 
-    const { fullText } = prepareDocument(document);
+    const { fullText } = prepareDocument(document, "https://example.com/test");
 
     expect(fullText).toContain('Main Element Content');
     expect(fullText).not.toContain('Header');
@@ -69,7 +69,7 @@ describe('prepareDocument', () => {
       </div>
     `;
 
-    const { fullText } = prepareDocument(document);
+    const { fullText } = prepareDocument(document, "https://example.com/test");
 
     expect(fullText).toContain('Class Article');
     expect(fullText).toContain('Content here');
@@ -83,7 +83,7 @@ describe('prepareDocument', () => {
       </div>
     `;
 
-    const { fullText } = prepareDocument(document);
+    const { fullText } = prepareDocument(document, "https://example.com/test");
 
     expect(fullText).toContain('Plain Page');
     expect(fullText).toContain('Some content');
@@ -99,7 +99,7 @@ describe('prepareDocument', () => {
       </article>
     `;
 
-    const { fullText } = prepareDocument(document);
+    const { fullText } = prepareDocument(document, "https://example.com/test");
 
     // article 优先级更高，应该只提取 article 内容
     expect(fullText).toContain('Article content');
@@ -130,7 +130,7 @@ describe('prepareDocument', () => {
       </article>
     `;
 
-    const { fullText } = prepareDocument(document);
+    const { fullText } = prepareDocument(document, "https://example.com/test");
 
     expect(fullText).toContain('Page wrapper title (should be translated)');
     expect(fullText).toContain('Real article body paragraph one');
@@ -154,7 +154,7 @@ describe('prepareDocument', () => {
       </article>
     `;
 
-    const { fullText } = prepareDocument(document);
+    const { fullText } = prepareDocument(document, "https://example.com/test");
 
     expect(fullText).toContain('Real article heading');
     expect(fullText).toContain('Real article body paragraph one');
@@ -168,7 +168,7 @@ describe('prepareDocument', () => {
     `;
 
     const customRoot = document.getElementById('custom-root')!;
-    const { fullText } = prepareDocument(customRoot);
+    const { fullText } = prepareDocument(customRoot, "https://example.com/test");
 
     expect(fullText).toContain('Custom root content');
   });
@@ -176,6 +176,6 @@ describe('prepareDocument', () => {
   it('should throw when no translatable content found', () => {
     document.body.innerHTML = '<div></div>';
 
-    expect(() => prepareDocument(document)).toThrow('No translatable content found');
+    expect(() => prepareDocument(document, "https://example.com/test")).toThrow('No translatable content found');
   });
 });

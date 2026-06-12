@@ -25,14 +25,18 @@ export function applyBlockTranslation(
   node.classList.add('fanyi-translated');
   node.dataset.originalText = originalText;
 
+  // 用 node.ownerDocument 而不是全局 document，兼容 Cloudflare Workers / linkedom
+  const doc = node.ownerDocument;
+  if (!doc) return;
+
   // Move existing children into .fanyi-original so they survive translation.
-  const originalSpan = document.createElement('span');
+  const originalSpan = doc.createElement('span');
   originalSpan.className = 'fanyi-original';
   while (node.firstChild) {
     originalSpan.appendChild(node.firstChild);
   }
 
-  const translationSpan = document.createElement('span');
+  const translationSpan = doc.createElement('span');
   translationSpan.className = 'fanyi-translation';
   translationSpan.textContent = translatedText;
 

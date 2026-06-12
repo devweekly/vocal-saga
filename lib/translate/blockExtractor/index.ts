@@ -27,9 +27,10 @@ export type { TextBlock };
 /**
  * 从 rootNode 出发抽取所有翻译块。
  * @param rootNode Document 或 DocumentFragment
+ * @param pageUrl 当前页面 URL，用于站点规则匹配（不再读 window.location.href）
  * @returns 顺序的 TextBlock 数组
  */
-export function extractBlocks(rootNode: Node): TextBlock[] {
+export function extractBlocks(rootNode: Node, pageUrl: string): TextBlock[] {
   const blocks: TextBlock[] = [];
   const blockIdRef = { value: 0 };
   // 跨段落去重: 同一文本多次出现只取第一个 (HBR summary callout 模式)。
@@ -44,7 +45,7 @@ export function extractBlocks(rootNode: Node): TextBlock[] {
     return [];
   }
 
-  collectBlocks(startNode, blocks, blockIdRef, seenTexts);
+  collectBlocks(startNode, blocks, blockIdRef, seenTexts, pageUrl);
   return blocks;
 }
 

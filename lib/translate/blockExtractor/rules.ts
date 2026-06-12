@@ -32,15 +32,23 @@ import {
 let cachedRule: SiteRule | null = null;
 let cachedUrl: string | null = null;
 
-function getSiteRule(): SiteRule | null {
-  const currentUrl = window.location.href;
-  if (cachedUrl === currentUrl) {
+function getSiteRule(pageUrl: string): SiteRule | null {
+  if (cachedUrl === pageUrl) {
     return cachedRule;
   }
-  const matched = matchSiteRule(currentUrl);
-  cachedUrl = currentUrl;
+  const matched = matchSiteRule(pageUrl);
+  cachedUrl = pageUrl;
   cachedRule = matched?.siteRule || null;
+  if (cachedRule) {
+    console.log(`[getSiteRule] matched rule for ${pageUrl.slice(0, 120)} with ${cachedRule.skipSelectors?.length ?? 0} skipSelectors`);
+  }
   return cachedRule;
+}
+
+/** 测试用：清空站点规则缓存 */
+export function clearSiteRuleCache(): void {
+  cachedRule = null;
+  cachedUrl = null;
 }
 
 // =============================================================================
@@ -114,8 +122,8 @@ export function isMetadataClass(el: Element): boolean {
  * 站点特殊规则 (src/rules/): 命中后整棵子树拒绝。
  * 通过 CSS selector 匹配,允许站点级更复杂的命中 (e.g. 复合选择器)。
  */
-export function shouldSkipBySiteRules(el: Element): boolean {
-  const rule = getSiteRule();
+export function shouldSkipBySiteRules(el: Element, pageUrl: string): boolean {
+  const rule = getSiteRule(pageUrl);
   if (!rule?.skipSelectors) return false;
 
   for (const selector of rule.skipSelectors) {
@@ -202,7 +210,10 @@ export function isNonHTMLNamespace(el: Element): boolean {
  *   - 不是 Sentry / Webpack 元组列表
  *   - 不匹配站点规则的 skipTextPatterns
  */
-export function isValidText(text: string | undefined | null): boolean {
+export function isValidText(
+  text: string | undefined | null,
+  pageUrl?: string
+): boolean {
   if (!text) return false;
 
   const trimmed = text.trim();
@@ -225,13 +236,15 @@ export function isValidText(text: string | undefined | null): boolean {
   if (PATTERNS.BASE64.test(trimmed)) return false;
 
   // 站点特殊文本规则 (e.g. Reddit 的 Sentry chunk 列表)
-  const rule = getSiteRule();
-  if (rule?.skipTextPatterns) {
-    for (const pattern of rule.skipTextPatterns) {
-      try {
-        if (new RegExp(pattern, 'i').test(trimmed)) return false;
-      } catch {
-        // 无效正则静默忽略,不 crash 整个 extraction
+  if (pageUrl) {
+    const rule = getSiteRule(pageUrl);
+    if (rule?.skipTextPatterns) {
+      for (const pattern of rule.skipTextPatterns) {
+        try {
+          if (new RegExp(pattern, 'i').test(trimmed)) return false;
+        } catch {
+          // 无效正则静默忽略,不 crash 整个 extraction
+        }
       }
     }
   }

@@ -48,28 +48,23 @@ const FILTER_REJECT = 3;
 
 // =============================================================================
 // NodeType 数值常量
-//
-// 不直接 `instanceof Text / Element` 判别，因为：
-//   - vitest 单测用 jsdom、CF 跑用 linkedom，二者的 Text/Element 是不同 class，
-//     linkedom 的节点 `instanceof jsdom.Element === false`，会导致整棵遍历被错判为 SKIP。
-//   - `nodeType` 是 W3C DOM 标准的 int 属性，所有实现都给一致的值，跨平台安全。
+// linkedom 和 jsdom 的 Text/Element 是不同的 class，instanceof 跨实现不工作。
+// nodeType 是 W3C 标准 int，所有 DOM 实现一致。
 // =============================================================================
 const TEXT_NODE_TYPE = 3;
 const ELEMENT_NODE_TYPE = 1;
 
 // =============================================================================
-// grabNode: 把已 ACCEPT 的节点评估为"翻译块"或"非块"
+// grabNode：把 walker 节点转成可翻译的 Element
 // =============================================================================
 
 /**
- * 是否值得作为翻译块返回。
- * 与 walker 的 acceptNode 不同: 这里做更细的内容检查 (text 有效性、子树结构)。
- * 节点已被 walker 接受,不代表它一定能作为翻译块 (e.g. 空 <p>)。
+ * 从 walker 节点抓取可翻译的 Element。
+ * 文本节点 → 找父 block-level 元素；Element → 自身。
  */
-function grabNode(node: Node): Element | false {
+function grabNode(node: Node, pageUrl: string): Element | false {
   if (!node || node.nodeType === TEXT_NODE_TYPE) return false;
   if (node.nodeType !== ELEMENT_NODE_TYPE) return false;
-
   const el = node as Element;
   const tag = el.tagName.toLowerCase();
 
@@ -78,13 +73,13 @@ function grabNode(node: Node): Element | false {
   if (DIRECT_SET.has(tag)) {
     const hasDirectSetDescendant = el.querySelector(DIRECT_SET_CSS_SELECTOR) !== null;
     if (hasDirectSetDescendant) return false;
-    return isValidText(el.textContent) ? el : false;
+    return isValidText(el.textContent, pageUrl) ? el : false;
   }
 
   // 2) 内联元素: 在 article 内且无块级父 → 单独抓; 否则跳过
   if (INLINE_SET.has(tag)) {
     if (isInsideArticle(el) && !hasBlockLevelParent(el)) {
-      return isValidText(el.textContent) ? el : false;
+      return isValidText(el.textContent, pageUrl) ? el : false;
     }
     return false;
   }
@@ -93,32 +88,35 @@ function grabNode(node: Node): Element | false {
   const { hasDirectText, hasNonInlineChild } = classifyChildren(el);
   if (hasNonInlineChild) return false; // 容器,子树会被独立处理
   if (hasDirectText) {
-    return isValidText(el.textContent) ? el : false;
+    return isValidText(el.textContent, pageUrl) ? el : false;
   }
   return false;
 }
 
 // =============================================================================
-// acceptNode: walker 的过滤回调
+// acceptWalkerNode：决定单个节点的 FILTER_* 状态
 // =============================================================================
 
 /**
- * TreeWalker 的 acceptNode: 决定 FILTER_ACCEPT / FILTER_SKIP / FILTER_REJECT。
+ * 手写 acceptNode 回调：决定 node 的 FILTER_* 状态。
  *
- * 状态机核心:
- *   - FILTER_REJECT = 跳过自身 + 整棵子树
- *   - FILTER_SKIP   = 跳过自身, 走子树
- *   - FILTER_ACCEPT = 自身进 grabNode, 不走子树
+ * 逻辑分层（从最快到最慢）:
+ *   0) 父已被拒 → O(1) 直接 REJECT
+ *   1) 硬性拒绝 (命名空间 / skip tag / hidden / metadata / site rules)
+ *   2) <header> 含标题 → SKIP（走子树），不含 → REJECT
+ *   3) 语义噪声 (footer/nav/aside) → REJECT
+ *   4) DIRECT_SET → 子树有 DIRECT_SET descendant → SKIP，否则 ACCEPT
+ *   5) 其他容器 → 按子节点结构决定 SKIP / ACCEPT
  *
- * 性能优化:
- *   1. rejectedCache (WeakSet) 缓存所有被 REJECT 的元素,后代 O(1) 拒绝
- *   2. 早返回: 便宜的检查放前面 (parent rejected, SKIP_SET)
- *   3. 隐藏/命名空间检查一旦失败立即入 cache
+ * 为什么 inline 元素（INLINE_SET）在这里不处理：
+ *   grabNode() 会把它们转成 block-level 父元素或自身；acceptNode 阶段
+ *   只管"是否允许 walker 继续"，不负责翻译粒度。
  */
 function acceptWalkerNode(
   node: Node,
   counters: WalkerCounters,
-  rejectedCache: WeakSet<Element>
+  rejectedCache: WeakSet<Element>,
+  pageUrl: string
 ): number {
   // 文本节点: 仅当父被拒时连坐拒绝;否则接受让 grabNode 评估
   if (node.nodeType === TEXT_NODE_TYPE) {
@@ -158,7 +156,7 @@ function acceptWalkerNode(
     counters.rejected++;
     return FILTER_REJECT;
   }
-  if (shouldSkipByClass(el) || shouldSkipBySiteRules(el)) {
+  if (shouldSkipByClass(el) || shouldSkipBySiteRules(el, pageUrl)) {
     rejectedCache.add(el);
     counters.rejected++;
     return FILTER_REJECT;
@@ -239,7 +237,8 @@ export function collectBlocks(
   startNode: Node,
   blocks: TextBlock[],
   blockIdRef: { value: number },
-  seenTexts: Set<string>
+  seenTexts: Set<string>,
+  pageUrl: string
 ): WalkerCounters {
   const counters = { rejected: 0, skipped: 0, accepted: 0 };
   // Per-walker WeakSet: 被 REJECT 的元素入表, 后代 O(1) 查表。
@@ -249,11 +248,11 @@ export function collectBlocks(
   // startNode 自身不被 visit（与 TreeWalker 行为一致：root 是位置，不是节点），
   // 第一个 visit 的是它的 childNodes。
   for (const child of Array.from(startNode.childNodes)) {
-    walkNode(child, blocks, blockIdRef, seenTexts, counters, rejectedCache);
+    walkNode(child, blocks, blockIdRef, seenTexts, counters, rejectedCache, pageUrl);
   }
 
   // TreeWalker 不跨 shadow root 边界, 手动遍历 open shadow roots。
-  collectFromShadowHosts(startNode, blocks, blockIdRef, seenTexts);
+  collectFromShadowHosts(startNode, blocks, blockIdRef, seenTexts, pageUrl);
 
   return counters;
 }
@@ -270,13 +269,14 @@ function walkNode(
   blockIdRef: { value: number },
   seenTexts: Set<string>,
   counters: WalkerCounters,
-  rejectedCache: WeakSet<Element>
+  rejectedCache: WeakSet<Element>,
+  pageUrl: string
 ): void {
-  const verdict = acceptWalkerNode(node, counters, rejectedCache);
+  const verdict = acceptWalkerNode(node, counters, rejectedCache, pageUrl);
   if (verdict === FILTER_REJECT) return;
 
   if (verdict === FILTER_ACCEPT) {
-    const translateNode = grabNode(node);
+    const translateNode = grabNode(node, pageUrl);
     if (translateNode) {
       const text = translateNode.textContent?.trim();
       if (text) {
@@ -311,23 +311,23 @@ function walkNode(
 
   // ACCEPT 和 SKIP 都要继续 recurse 子节点（TreeWalker 行为一致）
   for (const child of Array.from(node.childNodes)) {
-    walkNode(child, blocks, blockIdRef, seenTexts, counters, rejectedCache);
+    walkNode(child, blocks, blockIdRef, seenTexts, counters, rejectedCache, pageUrl);
   }
 }
 
-/**
- * 递归遍历 host 元素的 open shadow root。
- * linkedom / jsdom 都不实现 shadow DOM 真渲染，这段主要兼容真浏览器场景
- * （Reddit <shreddit-post> 等 web component 文本）。
- */
+// =============================================================================
+// Shadow DOM 处理
+// =============================================================================
+
 function collectFromShadowHosts(
   root: Node,
   blocks: TextBlock[],
   blockIdRef: { value: number },
-  seenTexts: Set<string>
+  seenTexts: Set<string>,
+  pageUrl: string
 ): void {
   for (const child of Array.from(root.childNodes)) {
-    walkForShadow(child, blocks, blockIdRef, seenTexts);
+    walkForShadow(child, blocks, blockIdRef, seenTexts, pageUrl);
   }
 }
 
@@ -336,7 +336,8 @@ function walkForShadow(
   node: Node,
   blocks: TextBlock[],
   blockIdRef: { value: number },
-  seenTexts: Set<string>
+  seenTexts: Set<string>,
+  pageUrl: string
 ): void {
   if (node.nodeType === ELEMENT_NODE_TYPE) {
     const shadow = (node as unknown as { shadowRoot?: { mode: string } | null }).shadowRoot;
@@ -347,7 +348,8 @@ function walkForShadow(
         shadow as unknown as Node,
         blocks,
         blockIdRef,
-        seenTexts
+        seenTexts,
+        pageUrl
       );
       void shadowCounters;
       // shadow 内部的节点不再继续（避免重复处理）
@@ -355,7 +357,7 @@ function walkForShadow(
     }
   }
   for (const child of Array.from(node.childNodes)) {
-    walkForShadow(child, blocks, blockIdRef, seenTexts);
+    walkForShadow(child, blocks, blockIdRef, seenTexts, pageUrl);
   }
 }
 
@@ -377,14 +379,16 @@ export function getXPath(node: Node): string {
       if (sibling.tagName === current.tagName) index++;
       sibling = sibling.previousElementSibling;
     }
-    parts.unshift(`${current.tagName.toLowerCase()}[${index}]`);
+
+    const tag = current.tagName.toLowerCase();
+    parts.unshift(`${tag}[${index}]`);
     current = current.parentElement;
   }
   return '/' + parts.join('/');
 }
 
-/** 收集元素之前所有 h1-h6 标题, 用于 context.headingPath。 */
-function getHeadingPath(block: Element): string[] {
+/** 获取元素的前置 heading 路径（兄弟/祖先链上最近的 h1-h6 文本列表）。 */
+export function getHeadingPath(block: Element): string[] {
   const headings: string[] = [];
   let current: Element | null = block;
   while (current) {
@@ -402,14 +406,14 @@ function findPreviousHeading(element: Element): Element | null {
     // 兄弟节点倒序遍历
     while (current.previousSibling) {
       current = current.previousSibling;
-      if (current.nodeType === Node.ELEMENT_NODE) {
+      if (current.nodeType === ELEMENT_NODE_TYPE) {
         const el = current as Element;
         if (isHeading(el)) return el;
         const found = findLastHeadingInSubtree(el);
         if (found) return found;
       }
     }
-    current = current.parentElement;
+    current = (current as Element).parentElement;
   }
   return null;
 }

@@ -108,7 +108,10 @@ function findArticleRoot(doc: Document): Element {
   return doc.body || doc.documentElement;
 }
 
-export function prepareDocument(root: Document | Element): {
+export function prepareDocument(
+  root: Document | Element,
+  pageUrl: string
+): {
   blocks: TextBlock[];
   chunks: Chunk[];
   fullText: string;
@@ -117,7 +120,7 @@ export function prepareDocument(root: Document | Element): {
   // rootNode 是 Document 时找主文章容器 (article / main / [role=main])；
   // 否则直接用 rootNode (linkedom / jsdom 的 Document 是不同 class，不能 instanceof)
   const effectiveRoot = root.nodeType === 9 ? findArticleRoot(root as Document) : root;
-  const blocks = extractBlocks(effectiveRoot);
+  const blocks = extractBlocks(effectiveRoot, pageUrl);
 
   if (blocks.length === 0) {
     throw new Error('No translatable content found');

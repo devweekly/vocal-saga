@@ -79,8 +79,6 @@ export async function fetchPage(
     /* ignore */
   }
 
-  injectGlobalWindow(document);
-
   return {
     url,
     finalUrl,
@@ -88,19 +86,4 @@ export async function fetchPage(
     html,
     status: response.status,
   };
-}
-
-/**
- * 把 linkedom 解析出来的 document / window 挂到 globalThis，
- * 让 blockExtractor 里 `window.location.href` 这类残留引用能拿到值。
- *
- * 只在 Node 下生效 —— Workers / V8 isolate 里跳过，避免污染 isolate。
- */
-function injectGlobalWindow(document: Document): void {
-  // 判定 Node：vitest + wrangler dev / wrangler deploy 都不算 Node
-  if (typeof (globalThis as { process?: { versions?: { node?: string } } }).process?.versions?.node === 'string') {
-    const g = globalThis as Record<string, unknown>;
-    g.window = (document as unknown as { defaultView?: unknown }).defaultView;
-    g.document = document;
-  }
 }

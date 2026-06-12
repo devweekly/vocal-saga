@@ -39,6 +39,13 @@ let server: http.Server;
 let baseUrl: string;
 
 beforeAll(async () => {
+  // 模拟 Cloudflare Workers 环境：linkedom 解析 HTML 后 injectGlobalWindow 仅在
+  // Node 模式下注入 globalThis.window。CF Workers 没有 Node 全局，window 永远
+  // undefined，必须保证 walker / rules / pipeline 在这种情况下也不 throw。
+  delete (globalThis as { window?: unknown }).window;
+  delete (globalThis as { document?: unknown }).document;
+  delete (globalThis as { HTMLElement?: unknown }).HTMLElement;
+
   server = http.createServer((_req, res) => {
     res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
     res.end(`<!doctype html>
@@ -80,5 +87,19 @@ describe('translateUrl — end-to-end with linkedom', () => {
     expect(result.html).toContain('fanyi-bilingual-styles');
     expect(result.blocks).toBeGreaterThan(0);
     expect(result.chunks).toBeGreaterThan(0);
+  }, 10_000);
+
+  it('does not throw when window is undefined (CF Workers env)', async () => {
+    // 这条用例专门防回归：在没有 globalThis.window 的环境（CF Workers / 严格
+    // 隔离的 node）下走完整条链路，验证 getSiteRule 等所有"读 window"路径
+    // 都有兜底，不会再 "Cannot read properties of undefined (reading 'href')"。
+    const savedWindow = (globalThis as { window?: unknown }).window;
+    delete (globalThis as { window?: unknown }).window;
+    try {
+      const result = await translateUrl({ url: `${baseUrl}/`, apiKey: 'sk-test-dummy' });
+      expect(result.html).toContain('Graph abstractions at Netflix');
+    } finally {
+      if (savedWindow !== undefined) (globalThis as { window: unknown }).window = savedWindow;
+    }
   }, 10_000);
 });

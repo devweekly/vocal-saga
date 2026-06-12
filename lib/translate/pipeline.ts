@@ -195,9 +195,9 @@ export async function translateUrl(input: TranslateUrlInput): Promise<TranslateU
   const mode = input.mode || 'bilingual';
 
   const page = await fetchPage(input.url);
-  console.log(`[Pipeline] Fetched ${input.url} (${page.status}, ${page.html.length} bytes)`);
+  console.log(`[Pipeline] Fetched ${input.url} → ${page.finalUrl} (${page.status}, ${page.html.length} bytes)`);
 
-  const { blocks, chunks } = prepareDocument(page.doc);
+  const { blocks, chunks } = prepareDocument(page.doc, page.finalUrl);
   console.log(`[Pipeline] Extracted ${blocks.length} blocks → ${chunks.length} chunks`);
 
   const service = new DeepSeekTranslationService(input.apiKey);

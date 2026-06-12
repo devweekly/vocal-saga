@@ -8,6 +8,12 @@ vi.mock('../lib/translate/rules', () => ({
 }));
 
 import { matchSiteRule } from '../lib/translate/rules';
+import { clearSiteRuleCache } from '../lib/translate/blockExtractor/rules';
+
+// 每个测试前清空站点规则缓存，避免测试间状态污染
+beforeEach(() => {
+  clearSiteRuleCache();
+});
 
 function setupHTML(html: string): Document {
   document.body.innerHTML = html;
@@ -27,7 +33,7 @@ describe('extractBlocks - Basic Extraction', () => {
       </div>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     expect(blocks).toHaveLength(2);
     expect(blocks[0].text).toBe('Hello world this is a test paragraph.');
     expect(blocks[0].tag).toBe('p');
@@ -43,7 +49,7 @@ describe('extractBlocks - Basic Extraction', () => {
       </article>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     expect(blocks).toHaveLength(3);
     expect(blocks[0].tag).toBe('h1');
     expect(blocks[1].tag).toBe('h2');
@@ -58,7 +64,7 @@ describe('extractBlocks - Basic Extraction', () => {
       </ul>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     expect(blocks).toHaveLength(2);
     expect(blocks[0].tag).toBe('li');
     expect(blocks[1].tag).toBe('li');
@@ -69,7 +75,7 @@ describe('extractBlocks - Basic Extraction', () => {
       <blockquote>This is a quoted passage with sufficient text length for extraction.</blockquote>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     expect(blocks).toHaveLength(1);
     expect(blocks[0].tag).toBe('blockquote');
   });
@@ -82,7 +88,7 @@ describe('extractBlocks - Basic Extraction', () => {
       </dl>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     expect(blocks).toHaveLength(1);
     expect(blocks[0].tag).toBe('dd');
   });
@@ -98,7 +104,7 @@ describe('extractBlocks - Inline Elements', () => {
       <p><span>Text inside span</span> and more text outside.</p>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     expect(blocks).toHaveLength(1);
     expect(blocks[0].tag).toBe('p');
     expect(blocks[0].text).toBe('Text inside span and more text outside.');
@@ -109,7 +115,7 @@ describe('extractBlocks - Inline Elements', () => {
       <p>See <a href="/page">Understanding the Difference Between Embedding Layers</a> for details.</p>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     expect(blocks).toHaveLength(1);
     expect(blocks[0].tag).toBe('p');
     expect(blocks[0].text).toContain('Understanding the Difference Between Embedding Layers');
@@ -124,7 +130,7 @@ describe('extractBlocks - Inline Elements', () => {
       </p>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     expect(blocks).toHaveLength(1);
     expect(blocks[0].tag).toBe('p');
     expect(blocks[0].text.replace(/\s+/g, ' ')).toBe('First span text. Link text here. Bold text too.');
@@ -135,7 +141,7 @@ describe('extractBlocks - Inline Elements', () => {
       <p>This is <em>emphasized</em> and <strong>strong</strong> text in a paragraph.</p>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     expect(blocks).toHaveLength(1);
     expect(blocks[0].text).toBe('This is emphasized and strong text in a paragraph.');
   });
@@ -149,7 +155,7 @@ describe('extractBlocks - Inline Elements', () => {
       </div>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     const inlineTags = blocks.filter(b => ['span', 'strong', 'em'].includes(b.tag));
     expect(inlineTags).toHaveLength(0);
   });
@@ -159,7 +165,7 @@ describe('extractBlocks - Inline Elements', () => {
       <p><span><strong><em>Nested inline content with enough text.</em></strong></span></p>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     expect(blocks).toHaveLength(1);
     expect(blocks[0].tag).toBe('p');
   });
@@ -176,7 +182,7 @@ describe('extractBlocks - Skip Elements', () => {
       <p>Normal paragraph content here.</p>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     expect(blocks).toHaveLength(1);
     expect(blocks[0].text).toBe('Normal paragraph content here.');
   });
@@ -187,7 +193,7 @@ describe('extractBlocks - Skip Elements', () => {
       <p>Normal paragraph content here.</p>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     expect(blocks).toHaveLength(1);
   });
 
@@ -198,7 +204,7 @@ describe('extractBlocks - Skip Elements', () => {
       <p>Normal paragraph content here.</p>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     expect(blocks).toHaveLength(1);
     expect(blocks[0].tag).toBe('p');
   });
@@ -210,7 +216,7 @@ describe('extractBlocks - Skip Elements', () => {
       <p>Normal paragraph content here.</p>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     expect(blocks).toHaveLength(1);
     expect(blocks[0].text).toBe('Normal paragraph content here.');
   });
@@ -224,7 +230,7 @@ describe('extractBlocks - Skip Elements', () => {
       </select>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     const texts = blocks.map((b) => b.text);
     expect(texts).toContain('Submit button text content');
     expect(texts).toContain('First option text content');
@@ -237,7 +243,7 @@ describe('extractBlocks - Skip Elements', () => {
       <p>Normal paragraph content here.</p>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     expect(blocks).toHaveLength(1);
   });
 
@@ -248,7 +254,7 @@ describe('extractBlocks - Skip Elements', () => {
       <footer><p>Footer paragraph content here.</p></footer>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     const footerBlocks = blocks.filter(b =>
       b.text.includes('Footer') || b.text.includes('Header')
     );
@@ -263,7 +269,7 @@ describe('extractBlocks - Skip Elements', () => {
       <main><p>Main article paragraph content here.</p></main>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     const sidebarBlocks = blocks.filter(b =>
       b.text.includes('Navigation') || b.text.includes('Sidebar')
     );
@@ -283,7 +289,7 @@ describe('extractBlocks - Class-based Skipping', () => {
       <main><p>Main article paragraph content here.</p></main>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     expect(blocks).toHaveLength(1);
     expect(blocks[0].text).toBe('Main article paragraph content here.');
   });
@@ -294,7 +300,7 @@ describe('extractBlocks - Class-based Skipping', () => {
       <article><p>Article paragraph content here.</p></article>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     const footerBlocks = blocks.filter(b => b.text.includes('Footer'));
     expect(footerBlocks).toHaveLength(0);
   });
@@ -305,7 +311,7 @@ describe('extractBlocks - Class-based Skipping', () => {
       <article><p>Article paragraph content here.</p></article>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     const adBlocks = blocks.filter(b => b.text.includes('Ad'));
     expect(adBlocks).toHaveLength(0);
   });
@@ -316,7 +322,7 @@ describe('extractBlocks - Class-based Skipping', () => {
       <article><p>Article paragraph content here.</p></article>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     expect(blocks).toHaveLength(1);
   });
 
@@ -326,7 +332,7 @@ describe('extractBlocks - Class-based Skipping', () => {
       <article><p>Article paragraph content here.</p></article>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     const cookieBlocks = blocks.filter(b => b.text.includes('cookies'));
     expect(cookieBlocks).toHaveLength(0);
   });
@@ -340,7 +346,7 @@ describe('extractBlocks - Class-based Skipping', () => {
       </article>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     const sidebarBlocks = blocks.filter(b => b.text.includes('Sidebar'));
     expect(sidebarBlocks).toHaveLength(0);
     const footerBlocks = blocks.filter(b => b.text.includes('Footer'));
@@ -355,7 +361,7 @@ describe('extractBlocks - Class-based Skipping', () => {
       <p>This should be translated normally.</p>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     const noTranslateBlocks = blocks.filter(b => b.text.includes('notranslate'));
     expect(noTranslateBlocks).toHaveLength(0);
   });
@@ -382,7 +388,7 @@ describe('extractBlocks - Complex Structures', () => {
       </article>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     const headings = blocks.filter(b => b.tag.startsWith('h'));
     expect(headings).toHaveLength(1);
     expect(headings[0].text).toContain('Reusing KV Tensors');
@@ -399,7 +405,7 @@ describe('extractBlocks - Complex Structures', () => {
       </article>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     expect(blocks).toHaveLength(1);
     expect(blocks[0].text).toBe('Deeply nested paragraph content here.');
   });
@@ -412,7 +418,7 @@ describe('extractBlocks - Complex Structures', () => {
       </figure>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     expect(blocks).toHaveLength(1);
     expect(blocks[0].tag).toBe('figcaption');
   });
@@ -429,7 +435,7 @@ describe('extractBlocks - Complex Structures', () => {
       </article>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     expect(blocks).toHaveLength(4);
     expect(blocks[0].tag).toBe('p');
     expect(blocks[1].tag).toBe('li');
@@ -447,7 +453,7 @@ describe('extractBlocks - Complex Structures', () => {
       </dl>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     expect(blocks).toHaveLength(2);
     expect(blocks[0].tag).toBe('dd');
     expect(blocks[1].tag).toBe('dd');
@@ -465,7 +471,7 @@ describe('extractBlocks - Text Length Filtering', () => {
       <p>This is a longer paragraph with enough text content.</p>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     expect(blocks).toHaveLength(1);
     expect(blocks[0].text).toContain('longer paragraph');
   });
@@ -477,7 +483,7 @@ describe('extractBlocks - Text Length Filtering', () => {
       <p>Normal length paragraph here.</p>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     expect(blocks).toHaveLength(1);
     expect(blocks[0].text).toBe('Normal length paragraph here.');
   });
@@ -487,7 +493,7 @@ describe('extractBlocks - Text Length Filtering', () => {
       <p>abc</p>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     expect(blocks).toHaveLength(1);
   });
 });
@@ -510,7 +516,7 @@ describe('extractBlocks - SPA Content (Twitter/X)', () => {
       </div>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     const tweetBlocks = blocks.filter(b => b.text.includes('tweet'));
     expect(tweetBlocks).toHaveLength(1);
     expect(tweetBlocks[0].tag).toBe('span');
@@ -526,7 +532,7 @@ describe('extractBlocks - SPA Content (Twitter/X)', () => {
       </article>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     expect(blocks.length).toBeGreaterThanOrEqual(2);
   });
 
@@ -542,7 +548,7 @@ describe('extractBlocks - SPA Content (Twitter/X)', () => {
       </article>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     const sidebarBlocks = blocks.filter(b => b.text.includes('sidebar'));
     expect(sidebarBlocks).toHaveLength(0);
     const articleBlocks = blocks.filter(b => b.text.includes('article content'));
@@ -560,7 +566,7 @@ describe('extractBlocks - SPA Content (Twitter/X)', () => {
       </article>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     const divBlocks = blocks.filter(b => b.tag === 'div' && b.text.includes('div with enough text'));
     expect(divBlocks.length).toBeGreaterThanOrEqual(1);
   });
@@ -584,7 +590,7 @@ describe('extractBlocks - SPA Content (Twitter/X)', () => {
       </div>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     const tweetBlocks = blocks.filter(b => b.text.includes('Full tweet text'));
     expect(tweetBlocks).toHaveLength(1);
   });
@@ -601,7 +607,7 @@ describe('extractBlocks - Content Editable', () => {
       <p>Non-editable paragraph content here.</p>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     const editableBlocks = blocks.filter(b => b.text.includes('Editable'));
     expect(editableBlocks).toHaveLength(0);
   });
@@ -640,7 +646,7 @@ describe('extractBlocks - Real-world Scenarios', () => {
       </body>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     const blockTexts = blocks.map(b => b.text);
 
     // Should NOT include nav/sidebar/footer content
@@ -673,7 +679,7 @@ describe('extractBlocks - Real-world Scenarios', () => {
       </div>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     const blockTexts = blocks.map(b => b.text);
 
     // Should include article content
@@ -711,7 +717,7 @@ describe('extractBlocks - Real-world Scenarios', () => {
       </body>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     const blockTexts = blocks.map(b => b.text);
 
     // Should include article content
@@ -754,7 +760,7 @@ describe('extractBlocks - Real-world Scenarios', () => {
       </div>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     console.log('Extracted blocks:', blocks.map(b => ({ tag: b.tag, text: b.text })));
     
     expect(blocks.length).toBeGreaterThanOrEqual(3);
@@ -780,7 +786,7 @@ describe('extractBlocks - XPath Generation', () => {
       </article>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     expect(blocks).toHaveLength(3);
 
     for (const block of blocks) {
@@ -798,7 +804,7 @@ describe('extractBlocks - XPath Generation', () => {
       </article>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     const xpaths = blocks.map(b => b.xpath);
     const uniqueXpaths = new Set(xpaths);
     expect(uniqueXpaths.size).toBe(blocks.length);
@@ -819,7 +825,7 @@ describe('extractBlocks - Heading Context', () => {
       </article>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     const paragraph = blocks.find(b => b.tag === 'p');
     expect(paragraph).toBeTruthy();
     expect(paragraph!.context).toBeTruthy();
@@ -840,7 +846,7 @@ describe('findBlockNode', () => {
       </article>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     expect(blocks).toHaveLength(1);
 
     const node = findBlockNode(blocks[0], document);
@@ -861,7 +867,7 @@ describe('extractBlocks - Paragraph with Inline Elements', () => {
       </article>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     const pBlocks = blocks.filter(b => b.tag === 'p');
     
     // 应该只提取一个段落块，而不是多个块
@@ -876,7 +882,7 @@ describe('extractBlocks - Paragraph with Inline Elements', () => {
       </article>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     
     // 不应该有单独的 <b> 或 <a> 块
     const inlineBlocks = blocks.filter(b => ['b', 'strong', 'a', 'span'].includes(b.tag));
@@ -895,7 +901,7 @@ describe('extractBlocks - Paragraph with Inline Elements', () => {
       </article>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     const pBlocks = blocks.filter(b => b.tag === 'p');
     
     expect(pBlocks).toHaveLength(1);
@@ -929,7 +935,7 @@ describe('extractBlocks - Google Blog Alternating Translation Issue', () => {
       </article>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     const pBlocks = blocks.filter(b => b.tag === 'p');
     const h3Blocks = blocks.filter(b => b.tag === 'h3');
     
@@ -966,7 +972,7 @@ describe('extractBlocks - Google Blog Alternating Translation Issue', () => {
       </article>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     const pBlocks = blocks.filter(b => b.tag === 'p');
     
     // 应该提取所有 6 个段落，不管是否包含 <b> 或 <a> 标签
@@ -994,7 +1000,7 @@ describe('extractBlocks - Google Blog Alternating Translation Issue', () => {
       </article>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     const pBlocks = blocks.filter(b => b.tag === 'p');
     
     expect(pBlocks).toHaveLength(3);
@@ -1022,7 +1028,7 @@ describe('extractBlocks - Google Blog Alternating Translation Issue', () => {
       </article>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     const pBlocks = blocks.filter(b => b.tag === 'p');
     
     // 应该提取所有 4 个段落
@@ -1049,7 +1055,7 @@ describe('extractBlocks - Google Blog Alternating Translation Issue', () => {
       </article>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     const pBlocks = blocks.filter(b => b.tag === 'p');
     
     expect(pBlocks).toHaveLength(4);
@@ -1076,7 +1082,7 @@ describe('extractBlocks - Google Blog Alternating Translation Issue', () => {
       </article>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     const pBlocks = blocks.filter(b => b.tag === 'p');
     
     expect(pBlocks).toHaveLength(3);
@@ -1106,7 +1112,7 @@ describe('extractBlocks - Google Blog Alternating Translation Issue', () => {
     // Exact minified format from blog.google — no whitespace between tags
     setupHTML(`<article><div class="rich-text"><h3>Section</h3><p><b>1.</b> First paragraph with bold lead-in has enough text length.</p><p><b>2.</b> Second paragraph also starts with bold and has enough text.</p><p><b>3.</b> Third paragraph follows the same bold pattern with enough text.</p><p><b>4.</b> Fourth paragraph here still following the bold pattern text.</p><p><b>5.</b> Fifth paragraph maintains the alternating bold start pattern.</p><p><b>6.</b> Sixth and final paragraph using the bold start pattern text.</p></div></article>`);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     const pBlocks = blocks.filter(b => b.tag === 'p');
 
     // ALL 6 paragraphs must be extracted, not just every other one
@@ -1156,7 +1162,7 @@ describe('extractBlocks - Google Blog Alternating Translation Issue', () => {
       </article>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     const pBlocks = blocks.filter(b => b.tag === 'p');
 
     // All 9 paragraphs across all sections must be extracted (including drop-cap intro)
@@ -1202,7 +1208,7 @@ describe('extractBlocks - Google Blog Alternating Translation Issue (Real Struct
       </article>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     const pBlocks = blocks.filter(b => b.tag === 'p');
     const h3Blocks = blocks.filter(b => b.tag === 'h3');
     
@@ -1292,7 +1298,7 @@ describe('extractBlocks - Substack Article Structure (sample2.html)', () => {
       </div>`;
 
     setupHTML(html);
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
 
     const h3Blocks = blocks.filter(b => b.tag === 'h3');
     const pBlocks = blocks.filter(b => b.tag === 'p');
@@ -1340,7 +1346,7 @@ describe('extractBlocks - Substack Article Structure (sample2.html)', () => {
 
     setupHTML(html);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     const subtitleBlock = blocks.find(b => b.tag === 'h3');
     expect(subtitleBlock).toBeTruthy();
 
@@ -1393,7 +1399,7 @@ describe('extractBlocks - Substack Article Structure (sample2.html)', () => {
 
     setupHTML(html);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     const subtitleBlock = blocks.find(b => b.tag === 'h3' && b.text.includes('From Gemma 4'));
     expect(subtitleBlock).toBeTruthy();
 
@@ -1416,7 +1422,7 @@ describe('extractBlocks - Substack Article Structure (sample2.html)', () => {
       </article>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     const texts = blocks.map(b => b.text);
 
     const targetText = 'Do not trust analysis written in the issue.';
@@ -1436,7 +1442,7 @@ describe('extractBlocks - Substack Article Structure (sample2.html)', () => {
       </article>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     const blockTexts = blocks.map(b => b.text);
 
     expect(blockTexts).toContain('First paragraph inside blockquote.');
@@ -1458,7 +1464,7 @@ describe('extractBlocks - Substack Article Structure (sample2.html)', () => {
       </article>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     const blockTexts = blocks.map(b => b.text);
 
     expect(blockTexts).toContain('A simple blockquote without any nested block elements.');
@@ -1479,7 +1485,7 @@ describe('extractBlocks - MathML/SVG namespace filtering', () => {
       </article>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     const mathBlocks = blocks.filter(b => b.tag === 'math');
     expect(mathBlocks).toHaveLength(0);
 
@@ -1512,7 +1518,7 @@ describe('extractBlocks - MathML/SVG namespace filtering', () => {
       </article>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     const mathBlocks = blocks.filter(b => b.tag === 'math');
     expect(mathBlocks).toHaveLength(0);
 
@@ -1535,7 +1541,7 @@ describe('extractBlocks - MathML/SVG namespace filtering', () => {
       </article>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     const svgBlocks = blocks.filter(b => b.tag === 'svg');
     expect(svgBlocks).toHaveLength(0);
 
@@ -1570,7 +1576,7 @@ describe('extractBlocks - MathML/SVG namespace filtering', () => {
       </article>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
 
     const mathBlocks = blocks.filter(b => b.tag === 'math');
     expect(mathBlocks).toHaveLength(0);
@@ -1596,7 +1602,7 @@ describe('extractBlocks - MathML/SVG namespace filtering', () => {
       </article>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     const svgBlocks = blocks.filter(b => b.tag === 'svg');
     expect(svgBlocks).toHaveLength(0);
 
@@ -1625,7 +1631,7 @@ describe('extractBlocks - Nested lists', () => {
       </article>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     const liBlocks = blocks.filter(b => b.tag === 'li');
     expect(liBlocks.length).toBeGreaterThanOrEqual(4);
   });
@@ -1645,7 +1651,7 @@ describe('extractBlocks - Nested lists', () => {
       </article>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     const liBlocks = blocks.filter(b => b.tag === 'li');
     expect(liBlocks.length).toBeGreaterThanOrEqual(4);
   });
@@ -1673,7 +1679,7 @@ describe('extractBlocks - Tables', () => {
       </article>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     const pBlocks = blocks.filter(b => b.tag === 'p');
     expect(pBlocks).toHaveLength(2);
     expect(pBlocks[0].text).toBe('Below is a comparison table showing the results.');
@@ -1692,7 +1698,7 @@ describe('extractBlocks - Tables', () => {
       </article>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     const captionBlocks = blocks.filter(b => b.tag === 'caption');
     expect(captionBlocks).toHaveLength(0);
     const cellBlocks = blocks.filter(b => b.tag === 'td' || b.tag === 'th');
@@ -1717,7 +1723,7 @@ describe('extractBlocks - Details/Summary elements', () => {
       </article>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     const pBlocks = blocks.filter(b => b.tag === 'p');
     expect(pBlocks.length).toBeGreaterThanOrEqual(1);
   });
@@ -1736,7 +1742,7 @@ describe('extractBlocks - Reference/citation patterns', () => {
       </article>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     const supBlocks = blocks.filter(b => b.tag === 'sup');
     expect(supBlocks).toHaveLength(0);
 
@@ -1758,7 +1764,7 @@ describe('extractBlocks - Reference/citation patterns', () => {
       </div>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     const blockTexts = blocks.map(b => b.text);
     expect(blockTexts.some(t => t.includes('Reference one'))).toBe(false);
     expect(blockTexts.some(t => t.includes('Reference two'))).toBe(false);
@@ -1782,7 +1788,7 @@ describe('extractBlocks - Duplicate text dedup (HBR summary callout)', () => {
       </article>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     const occurrences = blocks.filter(b => b.text === shared).length;
     expect(occurrences).toBe(1);
     // The unique paragraph is still extracted.
@@ -1812,7 +1818,7 @@ describe('extractBlocks - HBR article layout (h3 inside content div, p following
       </article>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     expect(blocks.some(b => b.tag === 'h3' && b.text === 'Efficiencies')).toBe(true);
     expect(blocks.some(b => b.tag === 'p' && b.text.startsWith('Many individuals'))).toBe(true);
   });
@@ -1838,7 +1844,7 @@ describe('extractBlocks - Deeply nested structures', () => {
       </article>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     expect(blocks.length).toBeGreaterThanOrEqual(1);
     expect(blocks.some(b => b.text.includes('Deeply nested paragraph'))).toBe(true);
   });
@@ -1858,7 +1864,7 @@ describe('extractBlocks - Deeply nested structures', () => {
       </article>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     const pBlocks = blocks.filter(b => b.tag === 'p');
     expect(pBlocks).toHaveLength(3);
   });
@@ -1892,7 +1898,7 @@ describe('extractBlocks - Mixed real-world article', () => {
       </article>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
 
     const h1Blocks = blocks.filter(b => b.tag === 'h1');
     const h2Blocks = blocks.filter(b => b.tag === 'h2');
@@ -1928,7 +1934,7 @@ describe('extractBlocks - Mixed real-world article', () => {
       </article>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     const figcaptionBlocks = blocks.filter(b => b.tag === 'figcaption');
     expect(figcaptionBlocks).toHaveLength(2);
     expect(figcaptionBlocks.some(b => b.text.includes('Figure 1'))).toBe(true);
@@ -1969,7 +1975,7 @@ describe('extractBlocks - Site Rule Skip Selectors', () => {
       </article>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     const texts = blocks.map(b => b.text);
 
     expect(texts).toContain('This paragraph should be extracted normally.');
@@ -1996,7 +2002,7 @@ describe('extractBlocks - Site Rule Skip Selectors', () => {
       </article>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     const texts = blocks.map(b => b.text);
 
     expect(texts.some(t => t.includes('sidebar content'))).toBe(false);
@@ -2027,7 +2033,7 @@ describe('extractBlocks - Site Rule Skip Selectors', () => {
       </article>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     const texts = blocks.map(b => b.text);
 
     expect(texts.some(t => t.includes('User comment'))).toBe(false);
@@ -2059,7 +2065,7 @@ describe('extractBlocks - Site Rule Skip Selectors', () => {
       </div>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     const texts = blocks.map(b => b.text);
 
     expect(texts.some(t => t.includes('Header content'))).toBe(false);
@@ -2078,7 +2084,7 @@ describe('extractBlocks - Site Rule Skip Selectors', () => {
       </article>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     expect(blocks.length).toBe(2);
   });
 
@@ -2097,7 +2103,7 @@ describe('extractBlocks - Site Rule Skip Selectors', () => {
       </article>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     expect(blocks.length).toBe(2);
   });
 });
@@ -2116,7 +2122,7 @@ describe('extractBlocks - Whitespace and empty elements', () => {
       </article>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     const pBlocks = blocks.filter(b => b.tag === 'p');
     expect(pBlocks).toHaveLength(1);
     expect(pBlocks[0].text).toBe('Valid paragraph with enough text content here.');
@@ -2132,7 +2138,7 @@ describe('extractBlocks - Whitespace and empty elements', () => {
       </article>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     expect(blocks.length).toBe(1);
     expect(blocks[0].tag).toBe('p');
   });
@@ -2146,7 +2152,7 @@ describe('extractBlocks - Whitespace and empty elements', () => {
       </article>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     const pBlocks = blocks.filter(b => b.tag === 'p');
     expect(pBlocks).toHaveLength(1);
   });
@@ -2165,7 +2171,7 @@ describe('extractBlocks - Malformed or unusual HTML', () => {
       </article>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     expect(blocks.length).toBeGreaterThanOrEqual(1);
     expect(blocks.some(b => b.tag === 'p')).toBe(true);
   });
@@ -2178,7 +2184,7 @@ describe('extractBlocks - Malformed or unusual HTML', () => {
       </article>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     expect(blocks.length).toBeGreaterThanOrEqual(1);
   });
 
@@ -2192,7 +2198,7 @@ describe('extractBlocks - Malformed or unusual HTML', () => {
       </article>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     const pBlocks = blocks.filter(b => b.tag === 'p');
     expect(pBlocks).toHaveLength(2);
 
@@ -2219,7 +2225,7 @@ describe('extractBlocks - Hidden and non-visible content', () => {
       </article>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     expect(blocks.some(b => b.text.includes('Visible paragraph'))).toBe(true);
     expect(blocks.some(b => b.text.includes('Hidden paragraph'))).toBe(false);
   });
@@ -2234,7 +2240,7 @@ describe('extractBlocks - Hidden and non-visible content', () => {
       </article>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     expect(blocks.some(b => b.text.includes('Normal visible'))).toBe(true);
     expect(blocks.some(b => b.text.includes('aria-hidden'))).toBe(false);
   });
@@ -2249,7 +2255,7 @@ describe('extractBlocks - Hidden and non-visible content', () => {
       </article>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     expect(blocks.some(b => b.text.includes('Hidden by visibility'))).toBe(false);
   });
 
@@ -2263,7 +2269,7 @@ describe('extractBlocks - Hidden and non-visible content', () => {
       </article>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     expect(blocks.some(b => b.text.includes('Hidden attribute'))).toBe(false);
   });
 
@@ -2279,7 +2285,7 @@ describe('extractBlocks - Hidden and non-visible content', () => {
       </article>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     expect(blocks.some(b => b.text.includes('Deeply nested hidden'))).toBe(false);
   });
 });
@@ -2308,7 +2314,7 @@ describe('extractBlocks - Cookie Consent and Privacy', () => {
       </div>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     const blockTexts = blocks.map(b => b.text);
 
     expect(blockTexts.some(t => t.includes('taboola'))).toBe(false);
@@ -2332,7 +2338,7 @@ describe('extractBlocks - Cookie Consent and Privacy', () => {
       </div>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     const blockTexts = blocks.map(b => b.text);
 
     expect(blockTexts.some(t => t.includes('Cookie Settings'))).toBe(false);
@@ -2350,7 +2356,7 @@ describe('extractBlocks - Cookie Consent and Privacy', () => {
       </article>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     const blockTexts = blocks.map(b => b.text);
 
     expect(blockTexts.some(t => t.includes('use cookies'))).toBe(false);
@@ -2372,7 +2378,7 @@ describe('extractBlocks - Cookie Consent and Privacy', () => {
       </article>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     const blockTexts = blocks.map(b => b.text);
 
     expect(blockTexts.some(t => t.includes('Privacy Choices'))).toBe(false);
@@ -2398,7 +2404,7 @@ describe('extractBlocks - Cookie Consent and Privacy', () => {
       </article>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     const blockTexts = blocks.map(b => b.text);
 
     expect(blockTexts.some(t => t.includes('Privacy Policy'))).toBe(false);
@@ -2426,7 +2432,7 @@ describe('extractBlocks - Cookie Consent libraries (cc-*)', () => {
       </article>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     const blockTexts = blocks.map(b => b.text);
 
     expect(blockTexts.some(t => t.includes('best experience'))).toBe(false);
@@ -2446,7 +2452,7 @@ describe('extractBlocks - Cookie Consent libraries (cc-*)', () => {
       </article>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     const blockTexts = blocks.map(b => b.text);
 
     expect(blockTexts.some(t => t.includes('floating banner'))).toBe(false);
@@ -2478,7 +2484,7 @@ describe('extractBlocks - CMP platforms (ConsentManager, Klaro)', () => {
       </article>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     const blockTexts = blocks.map(b => b.text);
 
     expect(blockTexts.some(t => t.includes('We use cookies'))).toBe(false);
@@ -2500,7 +2506,7 @@ describe('extractBlocks - CMP platforms (ConsentManager, Klaro)', () => {
       </article>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     const blockTexts = blocks.map(b => b.text);
 
     expect(blockTexts.some(t => t.includes('accept cookies'))).toBe(false);
@@ -2526,7 +2532,7 @@ describe('extractBlocks - WordPress GDPR/Cookie plugins', () => {
       </article>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     const blockTexts = blocks.map(b => b.text);
 
     expect(blockTexts.some(t => t.includes('Borlabs Cookie'))).toBe(false);
@@ -2545,7 +2551,7 @@ describe('extractBlocks - WordPress GDPR/Cookie plugins', () => {
       </article>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     const blockTexts = blocks.map(b => b.text);
 
     expect(blockTexts.some(t => t.includes('functional cookies'))).toBe(false);
@@ -2562,7 +2568,7 @@ describe('extractBlocks - WordPress GDPR/Cookie plugins', () => {
       </article>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     const blockTexts = blocks.map(b => b.text);
 
     expect(blockTexts.some(t => t.includes('browsing experience'))).toBe(false);
@@ -2588,7 +2594,7 @@ describe('extractBlocks - WordPress GDPR/Cookie plugins', () => {
       </article>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     const blockTexts = blocks.map(b => b.text);
 
     expect(blockTexts.some(t => t.includes('improve your experience'))).toBe(false);
@@ -2606,7 +2612,7 @@ describe('extractBlocks - WordPress GDPR/Cookie plugins', () => {
       </article>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     const blockTexts = blocks.map(b => b.text);
 
     expect(blockTexts.some(t => t.includes('Notification bar'))).toBe(false);
@@ -2638,7 +2644,7 @@ describe('extractBlocks - Regional regulation and multilingual class names', () 
       </article>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     const blockTexts = blocks.map(b => b.text);
 
     expect(blockTexts.some(t => t.includes('personal information'))).toBe(false);
@@ -2661,7 +2667,7 @@ describe('extractBlocks - Regional regulation and multilingual class names', () 
       </article>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     const blockTexts = blocks.map(b => b.text);
 
     expect(blockTexts.some(t => t.includes('Verbesserung'))).toBe(false);
@@ -2688,7 +2694,7 @@ describe('extractBlocks - Regional regulation and multilingual class names', () 
       </article>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     const blockTexts = blocks.map(b => b.text);
 
     expect(blockTexts.some(t => t.includes('danych osobowych'))).toBe(false);
@@ -2723,7 +2729,7 @@ describe('extractBlocks - Generic cookie/consent variants', () => {
       </article>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     const blockTexts = blocks.map(b => b.text);
 
     expect(blockTexts.some(t => t.includes('GDPR compliance'))).toBe(false);
@@ -2752,7 +2758,7 @@ describe('extractBlocks - Generic cookie/consent variants', () => {
       </article>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     const blockTexts = blocks.map(b => b.text);
 
     expect(blockTexts.some(t => t.includes('Data protection'))).toBe(false);
@@ -2784,7 +2790,7 @@ describe('extractBlocks - Generic cookie/consent variants', () => {
       </article>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     const blockTexts = blocks.map(b => b.text);
 
     expect(blockTexts.some(t => t.includes('Cookie disclaimer'))).toBe(false);
@@ -2814,7 +2820,7 @@ describe('extractBlocks - Generic cookie/consent variants', () => {
       </article>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     const blockTexts = blocks.map(b => b.text);
 
     expect(blockTexts.some(t => t.includes('managing multiple'))).toBe(false);
@@ -2846,7 +2852,7 @@ describe('extractBlocks - Generic cookie/consent variants', () => {
       </article>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     const blockTexts = blocks.map(b => b.text);
 
     expect(blockTexts.some(t => t.includes('Data privacy'))).toBe(false);
@@ -2879,7 +2885,7 @@ describe('extractBlocks - Generic cookie/consent variants', () => {
       </article>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     const blockTexts = blocks.map(b => b.text);
 
     expect(blockTexts.some(t => t.includes('Popup style'))).toBe(false);
@@ -2912,7 +2918,7 @@ describe('extractBlocks - Generic cookie/consent variants', () => {
       </article>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     const blockTexts = blocks.map(b => b.text);
 
     expect(blockTexts.some(t => t.includes('Advanced cookie'))).toBe(false);
@@ -2948,7 +2954,7 @@ describe('extractBlocks - Generic cookie/consent variants', () => {
       </article>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     const blockTexts = blocks.map(b => b.text);
 
     expect(blockTexts.some(t => t.includes('Simple cookie'))).toBe(false);
@@ -2978,7 +2984,7 @@ describe('extractBlocks - Google Ad placements', () => {
       </article>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     const blockTexts = blocks.map(b => b.text);
 
     expect(blockTexts.some(t => t.includes('Advertisement content'))).toBe(false);
@@ -3003,7 +3009,7 @@ describe('extractBlocks - Google Ad placements', () => {
       </article>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     const blockTexts = blocks.map(b => b.text);
 
     expect(blockTexts.some(t => t.includes('DoubleClick'))).toBe(false);
@@ -3028,7 +3034,7 @@ describe('extractBlocks - Google Ad placements', () => {
       </article>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     const blockTexts = blocks.map(b => b.text);
 
     expect(blockTexts.some(t => t.includes('Ezoic platform'))).toBe(false);
@@ -3061,7 +3067,7 @@ describe('extractBlocks - Native ad widgets (Taboola, Outbrain, MGID, RevContent
       </article>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     const blockTexts = blocks.map(b => b.text);
 
     expect(blockTexts.some(t => t.includes('sponsored stories'))).toBe(false);
@@ -3084,7 +3090,7 @@ describe('extractBlocks - Native ad widgets (Taboola, Outbrain, MGID, RevContent
       </article>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     const blockTexts = blocks.map(b => b.text);
 
     expect(blockTexts.some(t => t.includes('native advertising'))).toBe(false);
@@ -3107,7 +3113,7 @@ describe('extractBlocks - Native ad widgets (Taboola, Outbrain, MGID, RevContent
       </article>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     const blockTexts = blocks.map(b => b.text);
 
     expect(blockTexts.some(t => t.includes('RevContent'))).toBe(false);
@@ -3131,7 +3137,7 @@ describe('extractBlocks - Native ad widgets (Taboola, Outbrain, MGID, RevContent
       </article>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     const blockTexts = blocks.map(b => b.text);
 
     expect(blockTexts.some(t => t.includes('Native advertisement'))).toBe(false);
@@ -3165,7 +3171,7 @@ describe('extractBlocks - Ad formats and placements', () => {
       </article>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     const blockTexts = blocks.map(b => b.text);
 
     expect(blockTexts.some(t => t.includes('leaderboard advertisement'))).toBe(false);
@@ -3191,7 +3197,7 @@ describe('extractBlocks - Ad formats and placements', () => {
       </article>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     const blockTexts = blocks.map(b => b.text);
 
     expect(blockTexts.some(t => t.includes('header area'))).toBe(false);
@@ -3217,7 +3223,7 @@ describe('extractBlocks - Ad formats and placements', () => {
       </article>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     const blockTexts = blocks.map(b => b.text);
 
     expect(blockTexts.some(t => t.includes('inserted between'))).toBe(false);
@@ -3256,7 +3262,7 @@ describe('extractBlocks - Ad formats and placements', () => {
       </article>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     const blockTexts = blocks.map(b => b.text);
 
     expect(blockTexts.some(t => t.includes('Wrapper container'))).toBe(false);
@@ -3296,7 +3302,7 @@ describe('extractBlocks - Ad formats and placements', () => {
       </article>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     const blockTexts = blocks.map(b => b.text);
 
     expect(blockTexts.some(t => t.includes('Advertisement label'))).toBe(false);
@@ -3334,7 +3340,7 @@ describe('extractBlocks - Sponsored, promoted and commercial content', () => {
       </article>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     const blockTexts = blocks.map(b => b.text);
 
     expect(blockTexts.some(t => t.includes('sponsored content from'))).toBe(false);
@@ -3362,7 +3368,7 @@ describe('extractBlocks - Sponsored, promoted and commercial content', () => {
       </article>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     const blockTexts = blocks.map(b => b.text);
 
     expect(blockTexts.some(t => t.includes('Promoted content'))).toBe(false);
@@ -3390,7 +3396,7 @@ describe('extractBlocks - Sponsored, promoted and commercial content', () => {
       </article>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     const blockTexts = blocks.map(b => b.text);
 
     expect(blockTexts.some(t => t.includes('Affiliate marketing'))).toBe(false);
@@ -3415,7 +3421,7 @@ describe('extractBlocks - Sponsored, promoted and commercial content', () => {
       </article>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     const blockTexts = blocks.map(b => b.text);
 
     expect(blockTexts.some(t => t.includes('Generic sponsored'))).toBe(false);
@@ -3446,7 +3452,7 @@ describe('extractBlocks - Sponsored, promoted and commercial content', () => {
       </article>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     const blockTexts = blocks.map(b => b.text);
 
     expect(blockTexts.some(t => t.includes('Generic ad division'))).toBe(false);
@@ -3470,7 +3476,7 @@ describe('extractBlocks - Large documents', () => {
 
     setupHTML(`<article>${paragraphs}</article>`);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     const pBlocks = blocks.filter(b => b.tag === 'p');
     expect(pBlocks).toHaveLength(50);
   });
@@ -3485,7 +3491,7 @@ describe('extractBlocks - Large documents', () => {
       </article>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     expect(blocks).toHaveLength(1);
     expect(blocks[0].text).toBe('Normal paragraph with enough text content here.');
   });
@@ -3548,7 +3554,7 @@ describe('extractBlocks - WordPress/TNS style page (sample4.html)', () => {
       </div>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     const blockTexts = blocks.map(b => b.text);
 
     expect(blockTexts).not.toContain('AI and Machine Learning');
@@ -3583,7 +3589,7 @@ describe('extractBlocks - WordPress/TNS style page (sample4.html)', () => {
       </article>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     const blockTexts = blocks.map(b => b.text);
 
     expect(blockTexts).not.toContain('TRENDING STORIES');
@@ -3634,7 +3640,7 @@ describe('extractBlocks - WordPress/TNS style page (sample4.html)', () => {
       </footer>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     const blockTexts = blocks.map(b => b.text);
 
     expect(blockTexts.some(t => t.includes('The New Stack'))).toBe(false);
@@ -3674,7 +3680,7 @@ describe('extractBlocks - WordPress/TNS style page (sample4.html)', () => {
       </div>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     const blockTexts = blocks.map(b => b.text);
 
     expect(blockTexts.some(t => t.includes('Artificial Intelligence'))).toBe(false);
@@ -3698,7 +3704,7 @@ describe('extractBlocks - WordPress/TNS style page (sample4.html)', () => {
       </div>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     const blockTexts = blocks.map(b => b.text);
 
     expect(blockTexts.some(t => t.includes('Footer paragraph'))).toBe(false);
@@ -3724,7 +3730,7 @@ describe('extractBlocks - Adjacent inline elements in article', () => {
       </article>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     const spanBlocks = blocks.filter(b => b.tag === 'span');
     expect(spanBlocks).toHaveLength(3);
   });
@@ -3738,7 +3744,7 @@ describe('extractBlocks - Adjacent inline elements in article', () => {
       </article>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     const divBlocks = blocks.filter(b => b.tag === 'div');
     expect(divBlocks.length).toBeGreaterThanOrEqual(1);
   });
@@ -3760,7 +3766,7 @@ describe('extractBlocks - Search forms', () => {
       </article>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     const blockTexts = blocks.map(b => b.text);
 
     expect(blockTexts.some(t => t.includes('Search'))).toBe(false);
@@ -3783,7 +3789,7 @@ describe('extractBlocks - Search forms', () => {
       </article>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     const blockTexts = blocks.map(b => b.text);
 
     expect(blockTexts.some(t => t.includes('Search bar'))).toBe(false);
@@ -3811,7 +3817,7 @@ describe('extractBlocks - Login and authentication', () => {
       </article>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     const blockTexts = blocks.map(b => b.text);
 
     expect(blockTexts.some(t => t.includes('Sign In'))).toBe(false);
@@ -3837,7 +3843,7 @@ describe('extractBlocks - Login and authentication', () => {
       </article>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     const blockTexts = blocks.map(b => b.text);
 
     expect(blockTexts.some(t => t.includes('Welcome back'))).toBe(false);
@@ -3866,7 +3872,7 @@ describe('extractBlocks - Login and authentication', () => {
       </article>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     const blockTexts = blocks.map(b => b.text);
 
     expect(blockTexts.some(t => t.includes('Authentication form'))).toBe(false);
@@ -3894,7 +3900,7 @@ describe('extractBlocks - Newsletter subscription', () => {
       </article>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     const blockTexts = blocks.map(b => b.text);
 
     expect(blockTexts.some(t => t.includes('Subscribe to our newsletter'))).toBe(false);
@@ -3917,7 +3923,7 @@ describe('extractBlocks - Newsletter subscription', () => {
       </article>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     const blockTexts = blocks.map(b => b.text);
 
     expect(blockTexts.some(t => t.includes('email updates'))).toBe(false);
@@ -3943,7 +3949,7 @@ describe('extractBlocks - Pagination', () => {
       </article>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     const blockTexts = blocks.map(b => b.text);
 
     expect(blockTexts.some(t => t.includes('Page 1'))).toBe(false);
@@ -3963,7 +3969,7 @@ describe('extractBlocks - Pagination', () => {
       </article>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     const blockTexts = blocks.map(b => b.text);
 
     expect(blockTexts.some(t => t.includes('Previous'))).toBe(false);
@@ -3995,7 +4001,7 @@ describe('extractBlocks - Table of Contents', () => {
       </article>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     const blockTexts = blocks.map(b => b.text);
 
     expect(blockTexts.some(t => t.includes('Table of Contents'))).toBe(false);
@@ -4024,7 +4030,7 @@ describe('extractBlocks - Language switchers', () => {
       </article>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     const blockTexts = blocks.map(b => b.text);
 
     expect(blockTexts.some(t => t.includes('English'))).toBe(false);
@@ -4055,7 +4061,7 @@ describe('extractBlocks - Tags and taxonomy', () => {
       </article>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     const blockTexts = blocks.map(b => b.text);
 
     expect(blockTexts.some(t => t.includes('Artificial Intelligence'))).toBe(false);
@@ -4086,7 +4092,7 @@ describe('extractBlocks - Captcha', () => {
       </article>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     const blockTexts = blocks.map(b => b.text);
 
     expect(blockTexts.some(t => t.includes('verify you are not'))).toBe(false);
@@ -4116,7 +4122,7 @@ describe('extractBlocks - Site header and branding', () => {
       </article>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     const blockTexts = blocks.map(b => b.text);
 
     expect(blockTexts.some(t => t.includes('Breaking news'))).toBe(false);
@@ -4145,7 +4151,7 @@ describe('extractBlocks - Rating, polling and voting widgets', () => {
       </article>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     const blockTexts = blocks.map(b => b.text);
 
     expect(blockTexts.some(t => t.includes('out of 5 stars'))).toBe(false);
@@ -4170,7 +4176,7 @@ describe('extractBlocks - Rating, polling and voting widgets', () => {
       </article>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     const blockTexts = blocks.map(b => b.text);
 
     expect(blockTexts.some(t => t.includes('favorite programming language'))).toBe(false);
@@ -4200,7 +4206,7 @@ describe('extractBlocks - Article <header> with h1/h2 (aleksagordic style)', () 
       </article>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     const tagList = blocks.map(b => b.tag);
     const texts = blocks.map(b => b.text);
 
@@ -4224,7 +4230,7 @@ describe('extractBlocks - Article <header> with h1/h2 (aleksagordic style)', () 
       </main>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     const texts = blocks.map(b => b.text);
 
     // nav links 不应该被翻译
@@ -4244,7 +4250,7 @@ describe('extractBlocks - Article <header> with h1/h2 (aleksagordic style)', () 
       </article>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     const tagList = blocks.map(b => b.tag);
     const texts = blocks.map(b => b.text);
 
@@ -4274,7 +4280,7 @@ describe('extractBlocks - Metadata class skipping (author/date/category)', () =>
       </article>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     const texts = blocks.map(b => b.text);
 
     expect(texts.some(t => t.includes('By John Doe'))).toBe(false);
@@ -4292,7 +4298,7 @@ describe('extractBlocks - Metadata class skipping (author/date/category)', () =>
       </div>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     const texts = blocks.map(b => b.text);
 
     expect(texts).toContain('First paragraph of article body here.');
@@ -4312,7 +4318,7 @@ describe('extractBlocks - Metadata class skipping (author/date/category)', () =>
       </article>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     const texts = blocks.map(b => b.text);
 
     expect(texts).toContain('Real article content for the reader here.');
@@ -4329,7 +4335,7 @@ describe('extractBlocks - Metadata class skipping (author/date/category)', () =>
       </div>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     const texts = blocks.map(b => b.text);
 
     expect(texts).toContain('Content block that is just metadata-ish but real prose.');
@@ -4343,7 +4349,7 @@ describe('extractBlocks - Metadata class skipping (author/date/category)', () =>
       </section>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     const texts = blocks.map(b => b.text);
 
     expect(texts).toContain('Discussion of authorship in modern publishing here.');
@@ -4357,7 +4363,7 @@ describe('extractBlocks - Metadata class skipping (author/date/category)', () =>
       </article>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     const texts = blocks.map(b => b.text);
 
     expect(texts).toContain('Real prose content body for translation testing.');
@@ -4383,7 +4389,7 @@ describe('extractBlocks - Exit intent and welcome popups', () => {
       </article>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     const blockTexts = blocks.map(b => b.text);
 
     expect(blockTexts.some(t => t.includes('Before you leave'))).toBe(false);
@@ -4410,7 +4416,7 @@ describe('extractBlocks - Print-only elements', () => {
       </article>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     const blockTexts = blocks.map(b => b.text);
 
     expect(blockTexts.some(t => t.includes('printed version'))).toBe(false);
@@ -4440,7 +4446,7 @@ describe('extractBlocks - Fortune website structure', () => {
       </div>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     console.log('Fortune test blocks:', blocks.map(b => ({ tag: b.tag, text: b.text.substring(0, 50) })));
     expect(blocks.length).toBeGreaterThanOrEqual(3);
     expect(blocks.some(b => b.text.includes('chief operating officer sat down'))).toBe(true);
@@ -4453,7 +4459,7 @@ describe('extractBlocks - Fortune website structure', () => {
       </article>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     console.log('Simple h1 test blocks:', blocks.map(b => ({ tag: b.tag, text: b.text })));
     expect(blocks.length).toBeGreaterThanOrEqual(1);
     expect(blocks.some(b => b.tag === 'h1')).toBe(true);
@@ -4474,7 +4480,7 @@ describe('extractBlocks - Fortune website structure', () => {
       </article>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     expect(blocks.length).toBeGreaterThanOrEqual(3);
     expect(blocks.some(b => b.text.includes('Main article content'))).toBe(true);
     expect(blocks.some(b => b.text.includes('Another important paragraph'))).toBe(true);
@@ -4503,7 +4509,7 @@ describe('extractBlocks - Fortune website structure', () => {
         </div>
       `;
       
-      const blocks = extractBlocks(document);
+      const blocks = extractBlocks(document, "https://example.com/test");
       expect(blocks.length, `${testCase.description} should find blocks`).toBeGreaterThanOrEqual(1);
     }
   });
@@ -4542,7 +4548,7 @@ describe('extractBlocks - Fortune website structure', () => {
       </div>
     `;
     
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     console.log('Nested article test blocks found:', blocks.length, blocks);
     expect(blocks.length).toBeGreaterThanOrEqual(1);
     expect(blocks.some(b => b.text.includes('Uber'))).toBe(true);
@@ -4575,7 +4581,7 @@ describe('extractBlocks - Fortune website structure', () => {
       </div>
     `;
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     const blockTexts = blocks.map(b => b.text);
 
     expect(blockTexts.some(t => t.includes('AI-forward in Silicon Valley'))).toBe(true);
@@ -4596,7 +4602,7 @@ describe('extractBlocks - Fortune website structure', () => {
       </div>
     `;
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     expect(blocks.length).toBeGreaterThanOrEqual(1);
     expect(blocks.some(b => b.text.includes('must be translated'))).toBe(true);
   });
@@ -4629,7 +4635,7 @@ describe('extractBlocks - Fortune website structure', () => {
       </article>
     `;
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     const blockTexts = blocks.map(b => b.text);
 
     expect(blocks.some(b => b.text.includes('We introduce workflow compilation'))).toBe(true);
@@ -4655,7 +4661,7 @@ describe('extractBlocks - Hidden Elements', () => {
         <p>Visible paragraph content here.</p>
       </article>
     `);
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     const hiddenBlocks = blocks.filter(b => b.text.includes('hidden'));
     expect(hiddenBlocks).toHaveLength(0);
     expect(blocks).toHaveLength(1);
@@ -4668,7 +4674,7 @@ describe('extractBlocks - Hidden Elements', () => {
         <p>Visible paragraph content here.</p>
       </article>
     `);
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     expect(blocks).toHaveLength(1);
     expect(blocks[0].text).toContain('Visible');
   });
@@ -4680,7 +4686,7 @@ describe('extractBlocks - Hidden Elements', () => {
         <p>Visible paragraph content here.</p>
       </article>
     `);
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     const hiddenBlocks = blocks.filter(b => b.text.includes('display none'));
     expect(hiddenBlocks).toHaveLength(0);
     expect(blocks).toHaveLength(1);
@@ -4693,7 +4699,7 @@ describe('extractBlocks - Hidden Elements', () => {
         <p>Visible paragraph content here.</p>
       </article>
     `);
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     const hiddenBlocks = blocks.filter(b => b.text.includes('visibility hidden'));
     expect(hiddenBlocks).toHaveLength(0);
     expect(blocks).toHaveLength(1);
@@ -4708,7 +4714,7 @@ describe('extractBlocks - Hidden Elements', () => {
         <p>Visible paragraph content here.</p>
       </article>
     `);
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     expect(blocks).toHaveLength(1);
     expect(blocks[0].text).toContain('Visible');
   });
@@ -4722,7 +4728,7 @@ describe('extractBlocks - Hidden Elements', () => {
         <p>Visible paragraph content here.</p>
       </article>
     `);
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     expect(blocks).toHaveLength(1);
     expect(blocks[0].text).toContain('Visible');
   });
@@ -4736,7 +4742,7 @@ describe('extractBlocks - Hidden Elements', () => {
         <p>Visible paragraph content here.</p>
       </article>
     `);
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     expect(blocks).toHaveLength(1);
     expect(blocks[0].text).toContain('Visible');
   });
@@ -4753,7 +4759,7 @@ describe('extractBlocks - Hidden Elements', () => {
         <p>Visible paragraph content here.</p>
       </article>
     `);
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     // CSS class-based hiding is not detected by walker-level checks
     const cssBlocks = blocks.filter(b => b.text.includes('Hidden by CSS'));
     // but it IS caught by shouldSkipByClass since 'hidden' is not in SKIP_CLASS_PATTERNS
@@ -4778,7 +4784,7 @@ describe('extractBlocks - Article Container Detection', () => {
         <div><p>Non-article paragraph content here.</p></div>
       </div>
     `);
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     expect(blocks.length).toBeGreaterThanOrEqual(1);
   });
 
@@ -4790,7 +4796,7 @@ describe('extractBlocks - Article Container Detection', () => {
         </div>
       </div>
     `);
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     const articleBlocks = blocks.filter(b => b.text.includes('Inline text'));
     expect(articleBlocks.length).toBeGreaterThanOrEqual(1);
   });
@@ -4803,7 +4809,7 @@ describe('extractBlocks - Article Container Detection', () => {
         </div>
       </div>
     `);
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     expect(blocks.length).toBeGreaterThanOrEqual(1);
   });
 
@@ -4843,7 +4849,7 @@ describe('extractBlocks - Inline signup/newsletter (generic noise)', () => {
       </article>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     const blockTexts = blocks.map(b => b.text);
 
     expect(blockTexts).toContain('Real article body content that should be translated.');
@@ -4870,7 +4876,7 @@ describe('extractBlocks - Inline signup/newsletter (generic noise)', () => {
       </article>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     const blockTexts = blocks.map(b => b.text);
     expect(blockTexts).toContain('Article body content here.');
     expect(blockTexts.some(t => t.includes('premium content access'))).toBe(false);
@@ -4900,7 +4906,7 @@ describe('extractBlocks - Inline signup/newsletter (generic noise)', () => {
       </article>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     const blockTexts = blocks.map(b => b.text);
     expect(blockTexts).toContain('Real article paragraph text content here.');
     expect(blockTexts).toContain('Another article paragraph after the form here.');
@@ -4934,7 +4940,7 @@ describe('extractBlocks - Read-more / recommended articles (generic noise)', () 
       </article>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     const blockTexts = blocks.map(b => b.text);
     expect(blockTexts).toContain('Article body content that should be translated.');
     expect(blockTexts.some(t => t.includes('Continue reading'))).toBe(false);
@@ -4963,7 +4969,7 @@ describe('extractBlocks - Read-more / recommended articles (generic noise)', () 
       </article>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     const blockTexts = blocks.map(b => b.text);
     expect(blockTexts).toContain('Main article body text for translation testing here.');
     expect(blockTexts.some(t => t.includes('Read More in Technology'))).toBe(false);
@@ -4999,7 +5005,7 @@ describe('extractBlocks - Inline article carousels (generic noise)', () => {
       </article>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     const blockTexts = blocks.map(b => b.text);
     expect(blockTexts).toContain('Real article paragraph before the carousel.');
     expect(blockTexts).toContain('Article body paragraph inside body container.');
@@ -5027,7 +5033,7 @@ describe('extractBlocks - Inline article carousels (generic noise)', () => {
       </article>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     const blockTexts = blocks.map(b => b.text);
     expect(blockTexts).toContain('Body paragraph between carousels for testing.');
     expect(blockTexts.some(t => t.includes('multiple related stories'))).toBe(false);
@@ -5061,7 +5067,7 @@ describe('extractBlocks - Post-article wrapper noise (generic)', () => {
       </article>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     const blockTexts = blocks.map(b => b.text);
     expect(blockTexts).toContain('Last paragraph of the real article body here.');
     expect(blockTexts.some(t => t.includes('related investigations'))).toBe(false);
@@ -5093,7 +5099,7 @@ describe('extractBlocks - Hybrid ad wrapper noise (generic)', () => {
       </article>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     const blockTexts = blocks.map(b => b.text);
     expect(blockTexts).toContain('Real article body text before the ad slot here.');
     expect(blockTexts).toContain('Real article body text after the ad slots here.');
@@ -5129,7 +5135,7 @@ describe('extractBlocks - Printed branding noise (generic)', () => {
       </article>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     const blockTexts = blocks.map(b => b.text);
     expect(blockTexts).toContain('Article Title That Must Be Translated');
     expect(blockTexts).toContain('Article body content that is the real translatable text here.');
@@ -5202,7 +5208,7 @@ describe('extractBlocks - Bankingdive-style article regression', () => {
       </article>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     const blockTexts = blocks.map(b => b.text);
 
     // 1. 标题 + 副标题必须保留（即使 h1 在 .article-body 外）
@@ -5306,7 +5312,7 @@ describe('blockExtractor - seenTexts dedup (HBR summary callout regression)', ()
       </article>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     const matching = blocks.filter((b) => b.text === duplicateText);
     expect(matching).toHaveLength(1);
   });
@@ -5319,7 +5325,7 @@ describe('blockExtractor - seenTexts dedup (HBR summary callout regression)', ()
       </article>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     expect(blocks.length).toBe(2);
   });
 });
@@ -5340,7 +5346,7 @@ describe('blockExtractor - SVG / MathML namespace rejection', () => {
       </div>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     const texts = blocks.map((b) => b.text);
 
     expect(texts).toContain('Real paragraph text content here for translation.');
@@ -5387,7 +5393,7 @@ describe('blockExtractor - data-fanyi-block-id tag on extracted nodes', () => {
       </article>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     expect(blocks.length).toBe(2);
 
     for (const block of blocks) {
@@ -5404,7 +5410,7 @@ describe('blockExtractor - data-fanyi-block-id tag on extracted nodes', () => {
       </article>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     const node = findBlockNode(blocks[0], document);
     expect(node).not.toBeNull();
     expect((node as Element)?.textContent?.trim()).toBe(blocks[0].text);
@@ -5419,7 +5425,7 @@ describe('blockExtractor - data-fanyi-block-id tag on extracted nodes', () => {
       </article>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     const map = buildNodeMap(blocks, document);
 
     expect(map.size).toBe(blocks.length);
@@ -5451,7 +5457,7 @@ describe('blockExtractor - MDN coverage: SEMANTIC_SKIP_TAGS additions', () => {
       </article>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     const texts = blocks.map((b) => b.text);
     expect(texts).toContain('Real article paragraph text for translation testing.');
     expect(texts.some((t) => t.includes('dialog body text'))).toBe(false);
@@ -5468,7 +5474,7 @@ describe('blockExtractor - MDN coverage: SEMANTIC_SKIP_TAGS additions', () => {
       </article>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     const texts = blocks.map((b) => b.text);
     expect(texts).toContain('Real article paragraph text for translation testing.');
     expect(texts.some((t) => t.includes('Search the website'))).toBe(false);
@@ -5484,7 +5490,7 @@ describe('blockExtractor - MDN coverage: SEMANTIC_SKIP_TAGS additions', () => {
       </article>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     const texts = blocks.map((b) => b.text);
     expect(texts).toContain('Real article paragraph text for translation testing.');
     expect(texts.some((t) => t.includes('Contact: John Doe'))).toBe(false);
@@ -5508,7 +5514,7 @@ describe('blockExtractor - MDN coverage: SKIP_SET additions (media / embed)', ()
       </article>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     const texts = blocks.map((b) => b.text);
     expect(texts).toContain('Real article paragraph text for translation testing.');
     expect(texts.some((t) => t.includes('Your browser does not support video'))).toBe(false);
@@ -5525,7 +5531,7 @@ describe('blockExtractor - MDN coverage: SKIP_SET additions (media / embed)', ()
       </article>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     const texts = blocks.map((b) => b.text);
     expect(texts).toContain('Real article paragraph text for translation testing.');
     expect(texts.some((t) => t.includes('fallback text inside object'))).toBe(false);
@@ -5541,7 +5547,7 @@ describe('blockExtractor - MDN coverage: SKIP_SET additions (media / embed)', ()
       </article>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     const texts = blocks.map((b) => b.text);
     expect(texts).toContain('Real article paragraph text for translation testing.');
     expect(texts.some((t) => t.includes('Template ghost text'))).toBe(false);
@@ -5564,7 +5570,7 @@ describe('blockExtractor - MDN coverage: <hgroup> allows inner headings', () => 
       </article>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     const texts = blocks.map((b) => b.text);
     expect(texts).toContain('Article Main Title Text For Translation');
     expect(texts).toContain('Subtitle of the article goes here today');
@@ -5584,7 +5590,7 @@ describe('blockExtractor - MDN coverage: demarcating edits inline', () => {
       </article>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     expect(blocks.length).toBe(1);
     expect(blocks[0].text).toContain('twenty dollars');
     expect(blocks[0].text).toContain('ten dollars');
@@ -5607,7 +5613,7 @@ describe('blockExtractor - MDN coverage: code preservation (regression)', () => 
       </article>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     expect(blocks.length).toBe(3);
     for (const block of blocks) {
       // 不应单独抓 kbd/var/samp, 应作为整段 paragraph
@@ -5624,7 +5630,7 @@ describe('blockExtractor - MDN coverage: code preservation (regression)', () => 
       </article>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     const texts = blocks.map((b) => b.text);
     // pre 整段不应被抓
     expect(texts.some((t) => t.includes('function foo()'))).toBe(false);
@@ -5656,7 +5662,7 @@ describe('blockExtractor - MDN coverage: data tables not translated (regression)
       </article>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     const texts = blocks.map((b) => b.text);
     expect(texts).toContain('Real article paragraph text for translation testing.');
     // 表格内容应被拒绝
@@ -5681,7 +5687,7 @@ describe('blockExtractor - MDN coverage: form text is translatable (regression)'
       </form>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     const texts = blocks.map((b) => b.text);
     expect(texts.some((t) => t.includes('Personal information'))).toBe(true);
     expect(texts.some((t) => t.includes('Email address field label'))).toBe(true);
@@ -5697,7 +5703,7 @@ describe('blockExtractor - MDN coverage: form text is translatable (regression)'
       </select>
     `);
 
-    const blocks = extractBlocks(document);
+    const blocks = extractBlocks(document, "https://example.com/test");
     const texts = blocks.map((b) => b.text);
     expect(texts.some((t) => t.includes('Choose a programming language'))).toBe(true);
     expect(texts.some((t) => t.includes('JavaScript option label'))).toBe(true);
