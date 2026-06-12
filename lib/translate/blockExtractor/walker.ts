@@ -256,8 +256,6 @@ export function collectBlocks(
   // TreeWalker 不跨 shadow root 边界, 手动遍历 open shadow roots。
   collectFromShadowHosts(startNode, blocks, blockIdRef, seenTexts, pageUrl);
 
-  console.log(`[PERF]   collectBlocks ${Math.round((performance.now() - t0) * 1000)}µs (rejected=${counters.rejected} skipped=${counters.skipped} accepted=${counters.accepted})`);
-
   return counters;
 }
 

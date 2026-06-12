@@ -74,7 +74,6 @@ export function buildRetryChunk(
     0,
   );
   const jsonContent = JSON.stringify(retryBlocks.map((b) => ({ id: b.id, text: b.text })));
-  console.log(`[PERF]   buildRetryChunk(${missingIds.length} missing, ${retryBlocks.length} blocks) ${Math.round((performance.now() - t0) * 1000)}µs`);
   return {
     id: `${parentChunk.id}_retry`,
     blocks: retryBlocks,

@@ -147,8 +147,6 @@ async function callApi(
       signal: AbortSignal.timeout(DEEPSEEK_TIMEOUT_MS),
     });
 
-    console.log('[DeepSeek] Response status:', response.status);
-
     const responseText = await response.text().catch(() => '');
 
     if (!response.ok) {
