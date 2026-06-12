@@ -243,16 +243,6 @@ export function createApp(storage?: StorageAdapter): Hono {
   });
 
   /**
-   * 简写域名 → 完整域名映射。
-   * /s/medium/xxx  → https://www.medium.com/xxx
-   * /s/reddit/xxx   → https://www.reddit.com/xxx
-   */
-  const SHORTHAND_DOMAINS: Record<string, string> = {
-    medium: 'www.medium.com',
-    reddit: 'www.reddit.com',
-  };
-
-  /**
    * 公共翻译 handler，供 /translate/* 和 /s/* 使用。
    */
   async function handleTranslateRequest(c: any, rawPath: string) {
@@ -322,11 +312,10 @@ export function createApp(storage?: StorageAdapter): Hono {
   }
 
   /**
-   * 把 /s/<shorthand>/<path> 转成完整 URL，回退到 /translate 行为。
+   * 把 /s/<domain-or-shorthand>/<path> 转成完整 URL。
    * 规则：
-   *   - /s/medium/xxx/article       → https://www.medium.com/xxx/article
-   *   - /s/reddit/xxx               → https://www.reddit.com/xxx
-   *   - /s/example.com/xxx          → https://example.com/xxx（无简写则当域名用）
+   *   - 单单词无点号 → www.<word>.com（如 /s/medium/article → https://www.medium.com/article）
+   *   - 含点号则当完整域名用（如 /s/example.com/xxx → https://example.com/xxx）
    */
   app.get('/s/*', async (c) => {
     const raw = decodeURIComponent(c.req.path.slice('/s/'.length));
@@ -338,16 +327,10 @@ export function createApp(storage?: StorageAdapter): Hono {
     const firstSeg = slashIdx < 0 ? raw : raw.slice(0, slashIdx);
     const rest = slashIdx < 0 ? '' : raw.slice(slashIdx + 1);
 
-    // 检查是否为简写域名
-    const fullDomain = SHORTHAND_DOMAINS[firstSeg.toLowerCase()];
-    if (fullDomain) {
-      // /s/medium/article  → https://www.medium.com/article
-      const resolved = rest ? `https://${fullDomain}/${rest}` : `https://${fullDomain}`;
-      return handleTranslateRequest(c, resolved);
-    }
+    // 单单词无点号 → 自动补成 www.<word>.com
+    const host = firstSeg.includes('.') ? firstSeg : `www.${firstSeg}.com`;
 
-    // 无简写：把 firstSeg 当域名 / IP 用，补回 scheme
-    const resolved = rest ? `https://${firstSeg}/${rest}` : `https://${firstSeg}`;
+    const resolved = rest ? `https://${host}/${rest}` : `https://${host}`;
     return handleTranslateRequest(c, resolved);
   });
 
