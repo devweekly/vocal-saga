@@ -7,7 +7,7 @@
  * Hono 在 Workers 上零开销直接跑，在 Node 端通过 hono/aws-lambda 适配。
  */
 
-import { Hono, type Context } from 'hono';
+import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { translateText, translateUrl } from './translate/pipeline';
 import {
@@ -19,32 +19,15 @@ import {
   clearDocumentTerms,
 } from './translate/glossaryStore';
 import { setDefaultStorage, type StorageAdapter } from './storage';
-
-/**
- * 读取 env 的统一入口：
- *   - CF Pages：bindings 通过 `c.env` 进来（Hono 第二参数）
- *   - Netlify / 本地：Lambda / Node 把 env 写到 process.env
- * 都检查一遍，c.env 优先。这样 lib/app.ts 不用关心平台 shim 的注入方式。
- */
-function env(c: Context, key: string): string | undefined {
-  const fromBinding = (c.env as Record<string, string | undefined> | undefined)?.[key];
-  if (fromBinding) return fromBinding;
-  return process.env[key];
-}
+import { requireAuth } from './auth';
 
 /**
  * 实际请求处理时再读 AUTH_KEY，不在模块加载时校验：
- *   - CF Pages 模块在 isolate 启动期 eager 加载，shim 的 env 绑定
+ *   - CF Workers 模块在 isolate 启动期 eager 加载，shim 的 env 绑定
  *     要等请求来才可用，模块顶层就 process.env 读不到。
  *   - 改成"首次请求时 warn 但不 throw"，等调用方需要鉴权时再校验。
+ * 鉴权逻辑封装在 lib/auth.ts 的 `requireAuth` middleware，路由直接挂上即可。
  */
-function getAuthKey(c: Context): string {
-  const k = env(c, 'AUTH_KEY') || '';
-  if (!k || k.length < 6) {
-    throw new Error('AUTH_KEY is required and must be at least 6 characters');
-  }
-  return k;
-}
 
 // ── LLM 代理上游配置 ────────────────────────────────────────
 // 必须 lazy 读 process.env：CF Workers 启动期 wrangler 还没把 .dev.vars 注入
@@ -83,17 +66,6 @@ function resolveModel(model: string | undefined, backendHint: string | undefined
   return { backend: 'deepseek', model: 'deepseek-v4-flash' };
 }
 
-function checkAuth(c: Context): boolean {
-  let expected: string;
-  try {
-    expected = getAuthKey(c);
-  } catch {
-    return false;
-  }
-  const bearer = (c.req.header('authorization') || '').replace(/^Bearer\s+/i, '');
-  return bearer === expected;
-}
-
 // ── extractor 懒加载 ────────────────────────────────────────
 type Extractor = (text: string) => { document_terms: string[] };
 let _extractGlossary: Extractor | null = null;
@@ -113,8 +85,7 @@ export function createApp(storage?: StorageAdapter): Hono {
   app.use('*', cors());
 
   // ── POST /api/v1/chat/completions ─────────────────────
-  app.post('/api/v1/chat/completions', async (c) => {
-    if (!checkAuth(c)) return c.json({ error: 'Unauthorized' }, 401);
+  app.post('/api/v1/chat/completions', requireAuth, async (c) => {
 
     const body = await c.req.json().catch(() => ({} as any));
     const { stream, _backend } = body;
@@ -231,7 +202,6 @@ export function createApp(storage?: StorageAdapter): Hono {
 
   // ── 翻译代理 ──────────────────────────────────────────
   app.post('/api/translate/text', async (c) => {
-    if (!checkAuth(c)) return c.json({ error: 'Unauthorized' }, 401);
     const { text, source, target, glossary } = await c.req.json().catch(() => ({} as any));
     if (!text || typeof text !== 'string') {
       return c.json({ error: 'text is required' }, 400);
@@ -342,7 +312,6 @@ export function createApp(storage?: StorageAdapter): Hono {
 
   // ── 术语表管理（持久层由 setDefaultStorage 注入） ─────
   app.get('/api/glossary', async (c) => {
-    if (!checkAuth(c)) return c.json({ error: 'Unauthorized' }, 401);
     try {
       return c.json(await getGlossary());
     } catch (err) {
@@ -352,7 +321,6 @@ export function createApp(storage?: StorageAdapter): Hono {
   });
 
   app.post('/api/glossary', async (c) => {
-    if (!checkAuth(c)) return c.json({ error: 'Unauthorized' }, 401);
     const body = await c.req.json().catch(() => ({} as any));
     const terms = body?.terms;
     if (!Array.isArray(terms) || terms.some((t: unknown) => typeof t !== 'string')) {
@@ -367,7 +335,6 @@ export function createApp(storage?: StorageAdapter): Hono {
   });
 
   app.delete('/api/glossary', async (c) => {
-    if (!checkAuth(c)) return c.json({ error: 'Unauthorized' }, 401);
     try {
       return c.json(await clearUserTerms());
     } catch (err) {
@@ -376,8 +343,7 @@ export function createApp(storage?: StorageAdapter): Hono {
     }
   });
 
-  app.delete('/api/glossary/:term', async (c) => {
-    if (!checkAuth(c)) return c.json({ error: 'Unauthorized' }, 401);
+  app.delete('/api/glossary/:term', requireAuth, async (c) => {
     const term = decodeURIComponent(c.req.param('term'));
     try {
       return c.json(await removeUserTerm(term));
@@ -388,7 +354,6 @@ export function createApp(storage?: StorageAdapter): Hono {
   });
 
   app.post('/api/glossary/extract', async (c) => {
-    if (!checkAuth(c)) return c.json({ error: 'Unauthorized' }, 401);
     const { text } = await c.req.json().catch(() => ({} as any));
     if (!text || typeof text !== 'string') {
       return c.json({ error: 'text is required' }, 400);
@@ -413,7 +378,6 @@ export function createApp(storage?: StorageAdapter): Hono {
   });
 
   app.put('/api/glossary/document', async (c) => {
-    if (!checkAuth(c)) return c.json({ error: 'Unauthorized' }, 401);
     const body = await c.req.json().catch(() => ({} as any));
     const terms = body?.terms;
     if (!Array.isArray(terms) || terms.some((t: unknown) => typeof t !== 'string')) {
@@ -427,8 +391,7 @@ export function createApp(storage?: StorageAdapter): Hono {
     }
   });
 
-  app.delete('/api/glossary/document', async (c) => {
-    if (!checkAuth(c)) return c.json({ error: 'Unauthorized' }, 401);
+  app.delete('/api/glossary/document', requireAuth, async (c) => {
     try {
       return c.json(await clearDocumentTerms());
     } catch (err) {

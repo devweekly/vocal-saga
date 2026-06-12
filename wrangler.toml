@@ -3,6 +3,19 @@ main = "src/worker.ts"
 compatibility_date = "2024-09-23"
 compatibility_flags = ["nodejs_compat"]
 
+# ── Observability ────────────────────────────────────────────
+# 开启 Workers Logs（默认 console.log 进 Tail 看不到，这里显式打开）：
+#   - logs.enabled: 全量 stdout/stderr 走 Workers Logs
+#   - logs.invocation_logs: 每次 invocation 记一行汇总（status / duration / region）
+#   - traces: 留空对象 = 默认 head-based 采样（10%），需要可显式 sampling_rate
+# 部署后在 CF Dashboard → Workers → vocal-saga → Logs / Traces 里看。
+# 本地 `wrangler dev` 不受影响（dev mode 总是 tail 到本地终端）。
+[observability]
+[observability.logs]
+enabled = true
+invocation_logs = true
+[observability.traces]
+
 # ── KV namespace（对应 lib/storage 的 default storage）─────────
 # 复用先前部署的同名 namespace（创建时的 binding 是 KV999，id 不变）。
 # 需要换 namespace 时再 wrangler kv namespace create VOCAL_SAGA_KV，

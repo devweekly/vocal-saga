@@ -1,5 +1,11 @@
 # AGENTS.md
 
+原则1：重要的功能添加修改，必须要有相应的测试用例。
+
+原则2：没有用的功能直接删掉，不要做fallback design。
+
+原则3：添加足够的中文代码注释。
+
 ## Project Architecture
 
 An OpenAI-compatible LLM proxy + translation API, deployable on **Netlify Functions** or **Cloudflare Pages**. Built on **Hono** (edge-first, no Node-only deps). The Hono app is platform-agnostic; each platform provides a thin shim entry that wires up a platform-specific storage backend.
@@ -48,9 +54,11 @@ An OpenAI-compatible LLM proxy + translation API, deployable on **Netlify Functi
 ## Coding Conventions
 
 - Add new routes in `lib/app.ts` using Hono syntax (`app.get/post/put/delete`). Always respond with `c.json(...)` or `return new Response(...)` for streams. Use `c.req.json()` for body, `c.req.query()` for query, `c.req.param()` for path params, `c.req.header()` for headers.
+- **Auth via middleware**：需要鉴权的路由统一挂 `requireAuth`（来自 `lib/auth.ts`），不要在 handler 里再写 `if (!checkAuth(c))`。新加鉴权策略（admin / rate limit / IP allowlist）就在 `lib/auth.ts` 里再加 `factory.createMiddleware(...)`，路由挂上即可。
 - For persistent state, use `getDefaultStorage().getJSON/setJSON(...)` with a module-specific key prefix — never call platform-specific SDKs from `lib/`.
 - New platform? Add a new `lib/storage/<platform>.ts` adapter and a new shim in the platform's entry location. No changes needed in `lib/app.ts` or `lib/translate/`.
 - For Cloudflare, the `Env` type in the shim is the source of truth for bindings (`KVNamespace` etc.). Pass them into storage adapters; the app stays binding-free.
+- **Don't write "controllers"**：直接在 `app.get('/path', handler)` 里写 handler，不要先 `const handler = (c) => {...}` 再 `app.get('/path', handler)`。这样 path param 的类型才能被 Hono 推断。真的要拆函数，用 `factory.createHandlers(mw, handler)`。
 
 ## Testing Convention — **main functionality must ship with tests**
 
@@ -96,6 +104,18 @@ cp .dev.vars.example .dev.vars
 # 3. 本地跑：npm run dev:cf  （wrangler 自动用 miniflare 模拟 KV）
 # 4. 首次部署：npm run deploy:cf
 ```
+
+### Observability
+
+`wrangler.toml` 顶部已开 `[observability]`：
+
+- `logs.enabled = true` — 所有 `console.log` / `console.error` 走 **Workers Logs**
+  （默认只走 tail，开启后才进 CF Dashboard 的 Logs 页）
+- `logs.invocation_logs = true` — 每次 request 一行汇总（status / duration / region / event）
+- `[observability.traces]` 留空 = 默认 head-based 采样（~10%）
+
+查看位置：CF Dashboard → Workers & Pages → vocal-saga → **Logs** / **Traces** tab。
+`wrangler dev` 本地不受影响（dev mode 总是 tail 到本地终端）。
 
 ### CI / 持续部署
 

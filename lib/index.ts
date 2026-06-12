@@ -5,6 +5,7 @@
  * `createApp` 和 storage adapters。
  */
 export { createApp } from './app';
+export { requireAuth, factory } from './auth';
 export {
   NetlifyBlobsStorage,
   CloudflareKVStorage,
