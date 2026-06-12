@@ -1,7 +1,6 @@
 import { translationCache } from './cacheManager';
 
 export async function getCachedTranslation(cacheKey: string): Promise<Map<string, string> | null> {
-  const t0 = performance.now();
   const raw = await translationCache.get<Record<string, string>>(cacheKey);
   if (!raw) {
     return null;
@@ -16,7 +15,6 @@ export async function getCachedTranslation(cacheKey: string): Promise<Map<string
 }
 
 export async function cacheTranslation(cacheKey: string, data: Map<string, string>) {
-  const t0 = performance.now();
   // Convert Map to plain object for storage compatibility
   const obj: Record<string, string> = {};
   for (const [key, value] of data.entries()) {
@@ -26,7 +24,6 @@ export async function cacheTranslation(cacheKey: string, data: Map<string, strin
 }
 
 export function processTranslationResult(jsonResult: string): Map<string, string> {
-  const t0 = performance.now();
   const parsed = JSON.parse(jsonResult);
   const translations = parsed.translations || parsed;
   const result = new Map<string, string>();

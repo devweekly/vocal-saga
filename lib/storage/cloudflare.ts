@@ -32,7 +32,13 @@ export class CloudflareKVStorage implements StorageAdapter {
   }
 
   async list(): Promise<string[]> {
-    const result = await this.kv.list();
-    return result.keys.map((k: { name: string }) => k.name);
+    const keys: string[] = [];
+    let cursor: string | undefined;
+    do {
+      const result = await this.kv.list({ cursor });
+      keys.push(...result.keys.map((k: { name: string }) => k.name));
+      cursor = result.list_complete ? undefined : result.cursor;
+    } while (cursor);
+    return keys;
   }
 }

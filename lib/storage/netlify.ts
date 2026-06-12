@@ -8,10 +8,15 @@ import { getStore } from '@netlify/blobs';
 import type { StorageAdapter } from './types';
 
 export class NetlifyBlobsStorage implements StorageAdapter {
+  private store: ReturnType<typeof getStore> | null = null;
+
   constructor(private readonly storeName: string) {}
 
   private getStore() {
-    return getStore({ name: this.storeName, consistency: 'strong' });
+    if (!this.store) {
+      this.store = getStore({ name: this.storeName, consistency: 'strong' });
+    }
+    return this.store;
   }
 
   async get(key: string): Promise<string | null> {
@@ -45,7 +50,10 @@ export class NetlifyBlobsStorage implements StorageAdapter {
   }
 
   async list(): Promise<string[]> {
-    const { blobs } = await this.getStore().list();
-    return blobs.map((b: { key: string }) => b.key);
+    const keys: string[] = [];
+    for await (const result of this.getStore().list({ paginate: true })) {
+      keys.push(...result.blobs.map((b: { key: string }) => b.key));
+    }
+    return keys;
   }
 }

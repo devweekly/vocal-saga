@@ -3,7 +3,7 @@
  *
  * glossaryStore 在模块顶层 mock，不影响其他 test file（vitest 文件级隔离）。
  */
-import { describe, it, expect, beforeAll, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeAll, beforeEach, afterEach, vi } from 'vitest';
 
 vi.mock('../lib/translate/pipeline', () => ({
   translateUrl: vi.fn(),
@@ -98,6 +98,88 @@ describe('GET /api/v1/models', () => {
     } finally {
       process.env.DEEPSEEK_API_KEY = saved;
     }
+  });
+});
+
+// ─── POST /api/v1/chat/completions ───────────────────────────
+describe('POST /api/v1/chat/completions backend config', () => {
+  const originalFetch = globalThis.fetch;
+
+  beforeEach(() => {
+    process.env.CLOUDFLARE_ACCOUNT_ID = 'cf-account';
+    process.env.CLOUDFLARE_API_TOKEN = 'cf-token';
+    process.env.NVIDIA_API_KEY = 'nv-token';
+    process.env.OPENROUTER_API_KEY = 'or-token';
+    globalThis.fetch = vi.fn(async () => new Response(JSON.stringify({
+      id: 'chatcmpl-test',
+      choices: [{ message: { content: 'ok' } }],
+    }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    })) as any;
+  });
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+    delete process.env.CLOUDFLARE_ACCOUNT_ID;
+    delete process.env.CLOUDFLARE_API_TOKEN;
+    delete process.env.NVIDIA_API_KEY;
+    delete process.env.OPENROUTER_API_KEY;
+  });
+
+  function chatReq(body: Record<string, unknown>): Request {
+    return req('/api/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: 'Bearer test-auth-key-123456',
+      },
+      body: JSON.stringify({
+        messages: [{ role: 'user', content: 'hello' }],
+        ...body,
+      }),
+    });
+  }
+
+  it('uses Cloudflare account id and API token values', async () => {
+    const app = buildApp();
+    const res = await app.request(chatReq({ _backend: 'cloudflare', model: '@cf/meta/llama' }));
+    expect(res.status).toBe(200);
+
+    expect(globalThis.fetch).toHaveBeenCalledOnce();
+    const [url, init] = (globalThis.fetch as any).mock.calls[0];
+    expect(url).toBe('https://api.cloudflare.com/client/v4/accounts/cf-account/ai/v1/chat/completions');
+    expect(init.headers.Authorization).toBe('Bearer cf-token');
+  });
+
+  it('uses NVIDIA API key value', async () => {
+    const app = buildApp();
+    const res = await app.request(chatReq({ _backend: 'nvidia', model: 'nvidia/test-model' }));
+    expect(res.status).toBe(200);
+
+    const [url, init] = (globalThis.fetch as any).mock.calls[0];
+    expect(url).toBe('https://integrate.api.nvidia.com/v1/chat/completions');
+    expect(init.headers.Authorization).toBe('Bearer nv-token');
+  });
+
+  it('uses OpenRouter API key value', async () => {
+    const app = buildApp();
+    const res = await app.request(chatReq({ _backend: 'openrouter', model: 'openai/gpt-oss:free' }));
+    expect(res.status).toBe(200);
+
+    const [url, init] = (globalThis.fetch as any).mock.calls[0];
+    expect(url).toBe('https://openrouter.ai/api/v1/chat/completions');
+    expect(init.headers.Authorization).toBe('Bearer or-token');
+  });
+
+  it('returns 500 and skips fetch when NVIDIA key is missing', async () => {
+    delete process.env.NVIDIA_API_KEY;
+    const app = buildApp();
+    const res = await app.request(chatReq({ _backend: 'nvidia', model: 'nvidia/test-model' }));
+    expect(res.status).toBe(500);
+    expect(globalThis.fetch).not.toHaveBeenCalled();
+    const body: any = await res.json();
+    expect(body.error).toMatch(/NVIDIA Build not configured/);
   });
 });
 

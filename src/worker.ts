@@ -31,6 +31,7 @@ interface Env {
 
 // ── 单例：app 复用（同一 isolate 共享模块作用域） ──
 let _app: Hono | null = null;
+let _envInjected = false;
 
 function getApp(env: Env): Hono {
   if (_app) return _app;
@@ -46,11 +47,13 @@ function getApp(env: Env): Hono {
  *   - 只在缺失时设置，避免覆盖 CI 注入
  */
 function injectEnv(env: Env): void {
+  if (_envInjected) return;
   for (const [k, v] of Object.entries(env)) {
     if (typeof v === 'string' && !process.env[k]) {
       process.env[k] = v;
     }
   }
+  _envInjected = true;
 }
 
 export default {

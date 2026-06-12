@@ -49,6 +49,8 @@ function getSiteRule(pageUrl: string): SiteRule | null {
 export function clearSiteRuleCache(): void {
   cachedRule = null;
   cachedUrl = null;
+  cachedSkipTextRegexps = [];
+  cachedSkipTextRegexpsUrl = null;
 }
 
 // =============================================================================
@@ -85,11 +87,7 @@ function matchesSkipClass(token: string, pattern: string): boolean {
  * 是否因 class 命中 SKIP_CLASS_PATTERNS 而应跳过 (整棵子树拒绝)。
  * 跨站通用: 广告 / cookie / 推荐 / 弹窗 / 导航 等。
  */
-let _skipClassSumMs = 0;
-let _skipClassCount = 0;
-
 export function shouldSkipByClass(el: Element): boolean {
-  const t0 = performance.now();
   let result = false;
   const tokens = tokenizeClass(el);
   if (tokens.length > 0) {
@@ -104,15 +102,12 @@ export function shouldSkipByClass(el: Element): boolean {
     }
   }
 
-  _skipClassSumMs += performance.now() - t0;
-  _skipClassCount++;
   return result;
 }
 
 /** 测试用：重置 shouldSkipByClass 统计 */
 export function resetSkipClassPerf(): void {
-  _skipClassSumMs = 0;
-  _skipClassCount = 0;
+  // 兼容旧测试 API：运行时不再维护性能计数，避免热路径额外开销。
 }
 
 /**
@@ -169,12 +164,8 @@ export function shouldSkipBySiteRules(el: Element, pageUrl: string): boolean {
  *      的元素跳过 computed style 查), 见 _elementVisibilityMemo。
  */
 const _elementVisibilityMemo = new WeakSet<Element>();
-let _hiddenSumMs = 0;
-let _hiddenCount = 0;
 
 export function isElementHidden(el: Element): boolean {
-  const t0 = performance.now();
-
   // 已确认可见的, 不再查 (避免在子树中重复 layout)
   if (_elementVisibilityMemo.has(el)) return false;
 
@@ -207,8 +198,6 @@ export function isElementHidden(el: Element): boolean {
   // 标记可见, 后续子孙中的同元素 (e.g. 多个 walker visit 同一节点) 跳过
   _elementVisibilityMemo.add(el);
 
-  _hiddenSumMs += performance.now() - t0;
-  _hiddenCount++;
   return false;
 }
 
@@ -236,15 +225,33 @@ export function isNonHTMLNamespace(el: Element): boolean {
  *   - 不是 Sentry / Webpack 元组列表
  *   - 不匹配站点规则的 skipTextPatterns
  */
-let _isValidTextSumMs = 0;
-let _isValidTextCount = 0;
+let cachedSkipTextRegexps: RegExp[] = [];
+let cachedSkipTextRegexpsUrl: string | null = null;
+
+function getSkipTextRegexps(pageUrl: string): RegExp[] {
+  if (cachedSkipTextRegexpsUrl === pageUrl) {
+    return cachedSkipTextRegexps;
+  }
+
+  const rule = getSiteRule(pageUrl);
+  cachedSkipTextRegexpsUrl = pageUrl;
+  cachedSkipTextRegexps = [];
+  if (!rule?.skipTextPatterns) return cachedSkipTextRegexps;
+
+  for (const pattern of rule.skipTextPatterns) {
+    try {
+      cachedSkipTextRegexps.push(new RegExp(pattern, 'i'));
+    } catch {
+      console.warn(`[rules] invalid skipTextPatterns regex ignored: ${pattern}`);
+    }
+  }
+  return cachedSkipTextRegexps;
+}
 
 export function isValidText(
   text: string | undefined | null,
   pageUrl?: string
 ): boolean {
-  const t0 = performance.now();
-
   if (!text) return false;
 
   const trimmed = text.trim();
@@ -268,27 +275,17 @@ export function isValidText(
 
   // 站点特殊文本规则 (e.g. Reddit 的 Sentry chunk 列表)
   if (pageUrl) {
-    const rule = getSiteRule(pageUrl);
-    if (rule?.skipTextPatterns) {
-      for (const pattern of rule.skipTextPatterns) {
-        try {
-          if (new RegExp(pattern, 'i').test(trimmed)) return false;
-        } catch {
-          // 无效正则静默忽略,不 crash 整个 extraction
-        }
-      }
+    for (const pattern of getSkipTextRegexps(pageUrl)) {
+      if (pattern.test(trimmed)) return false;
     }
   }
 
-  _isValidTextSumMs += performance.now() - t0;
-  _isValidTextCount++;
   return true;
 }
 
 /** 测试用：重置 isValidText 统计 */
 export function resetValidTextPerf(): void {
-  _isValidTextSumMs = 0;
-  _isValidTextCount = 0;
+  // 兼容旧测试 API：运行时不再维护性能计数，避免热路径额外开销。
 }
 
 // =============================================================================
@@ -358,17 +355,13 @@ export interface ChildClassification {
  *   - hasNonInlineChild=true → 容器,跳过 (子树会被独立处理)
  *   - 都没有 → 空容器,跳过
  */
-let _classifySumMs = 0;
-let _classifyCount = 0;
-
 export function classifyChildren(el: Element): ChildClassification {
-  const t0 = performance.now();
-
   let hasDirectText = false;
   let hasNonEmptyElement = false;
   let hasOnlyInlineChildren = true;
 
-  for (const child of Array.from(el.childNodes)) {
+  for (let i = 0; i < el.childNodes.length; i++) {
+    const child = el.childNodes[i];
     if (child.nodeType === 3 && child.textContent?.trim()) {
       hasDirectText = true;
       continue;
@@ -385,8 +378,6 @@ export function classifyChildren(el: Element): ChildClassification {
     }
   }
 
-  _classifySumMs += performance.now() - t0;
-  _classifyCount++;
   return {
     hasDirectText,
     hasNonInlineChild: !hasOnlyInlineChildren,
@@ -397,8 +388,7 @@ export function classifyChildren(el: Element): ChildClassification {
 
 /** 测试用：重置 classifyChildren 统计 */
 export function resetClassifyPerf(): void {
-  _classifySumMs = 0;
-  _classifyCount = 0;
+  // 兼容旧测试 API：运行时不再维护性能计数，避免热路径额外开销。
 }
 
 // =============================================================================

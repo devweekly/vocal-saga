@@ -249,7 +249,8 @@ export function collectBlocks(
 
   // startNode 自身不被 visit（与 TreeWalker 行为一致：root 是位置，不是节点），
   // 第一个 visit 的是它的 childNodes。
-  for (const child of Array.from(startNode.childNodes)) {
+  for (let i = 0; i < startNode.childNodes.length; i++) {
+    const child = startNode.childNodes[i];
     walkNode(child, blocks, blockIdRef, seenTexts, counters, rejectedCache, pageUrl);
   }
 
@@ -312,7 +313,8 @@ function walkNode(
   }
 
   // ACCEPT 和 SKIP 都要继续 recurse 子节点（TreeWalker 行为一致）
-  for (const child of Array.from(node.childNodes)) {
+  for (let i = 0; i < node.childNodes.length; i++) {
+    const child = node.childNodes[i];
     walkNode(child, blocks, blockIdRef, seenTexts, counters, rejectedCache, pageUrl);
   }
 }
@@ -328,7 +330,8 @@ function collectFromShadowHosts(
   seenTexts: Set<string>,
   pageUrl: string
 ): void {
-  for (const child of Array.from(root.childNodes)) {
+  for (let i = 0; i < root.childNodes.length; i++) {
+    const child = root.childNodes[i];
     walkForShadow(child, blocks, blockIdRef, seenTexts, pageUrl);
   }
 }
@@ -358,7 +361,8 @@ function walkForShadow(
       return;
     }
   }
-  for (const child of Array.from(node.childNodes)) {
+  for (let i = 0; i < node.childNodes.length; i++) {
+    const child = node.childNodes[i];
     walkForShadow(child, blocks, blockIdRef, seenTexts, pageUrl);
   }
 }
@@ -372,7 +376,6 @@ export function getXPath(node: Node): string {
   if (node.nodeType === DOCUMENT_NODE_TYPE) return '';
   if (node.nodeType !== ELEMENT_NODE_TYPE) return '';
 
-  const t0 = performance.now();
   const parts: string[] = [];
   let current: Element | null = node as Element;
   while (current && current.nodeType === ELEMENT_NODE_TYPE) {
@@ -393,7 +396,6 @@ export function getXPath(node: Node): string {
 
 /** 获取元素的前置 heading 路径（兄弟/祖先链上最近的 h1-h6 文本列表）。 */
 export function getHeadingPath(block: Element): string[] {
-  const t0 = performance.now();
   const headings: string[] = [];
   let current: Element | null = block;
   while (current) {
@@ -424,7 +426,8 @@ function findPreviousHeading(element: Element): Element | null {
 }
 
 function findLastHeadingInSubtree(element: Element): Element | null {
-  for (const child of Array.from(element.children).reverse()) {
+  for (let i = element.children.length - 1; i >= 0; i--) {
+    const child = element.children[i];
     if (isHeading(child)) return child;
     const found = findLastHeadingInSubtree(child);
     if (found) return found;

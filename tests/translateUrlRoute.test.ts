@@ -170,6 +170,24 @@ describe('GET /translate/<target> — validation', () => {
     const body = (await res.json()) as { error: string };
     expect(body.error).toBe('upstream boom');
   });
+
+  it('returns translated HTML without waiting for D1 history write', async () => {
+    const run = vi.fn(() => new Promise(() => {}));
+    const bind = vi.fn(() => ({ run }));
+    const prepare = vi.fn(() => ({ bind }));
+    const app = buildApp();
+
+    const res = await Promise.race([
+      app.fetch(req('/translate/example.com'), { DB999: { prepare } } as any),
+      new Promise<Response>((_, reject) => setTimeout(() => reject(new Error('response waited for D1')), 50)),
+    ]);
+
+    expect(res.status).toBe(200);
+    expect(await res.text()).toContain('ok');
+    expect(prepare).toHaveBeenCalledOnce();
+    expect(bind).toHaveBeenCalledOnce();
+    expect(run).toHaveBeenCalledOnce();
+  });
 });
 
 describe('legacy /api/translate/url — fully removed', () => {

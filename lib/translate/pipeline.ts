@@ -252,21 +252,23 @@ export async function translateUrl(input: TranslateUrlInput): Promise<TranslateU
     /* concurrency */ 6
   );
 
-  // 回填：jsdom 写回原 Document（保留所有 children，只 wrap 一个 .fanyi-translation）
+  // 回填：先把 block id 映射到元素，避免每个 block 都全树 querySelector 一次。
   const { applyBlockTranslation } = await import('./translationDisplay');
+  const blockElements = new Map<string, Element>();
+  page.doc.querySelectorAll('[data-fanyi-block-id]').forEach((el) => {
+    const id = el.getAttribute('data-fanyi-block-id');
+    if (id) blockElements.set(id, el);
+  });
   for (const block of blocks) {
     const translated = translations.get(block.id);
     if (!translated) continue;
-    const el = page.doc.querySelector(`[data-fanyi-block-id="${block.id}"]`);
+    const el = blockElements.get(block.id);
     // linkedom 的节点 instanceof jsdom.Element = false，统一用 nodeType 判别；
     // 这里任何 data-fanyi-block-id 节点都是 grabNode 出来的 Element，可信。
     if (el && (el as Node).nodeType === 1) {
       applyBlockTranslation(el as unknown as HTMLElement, translated, mode);
     }
   }
-
-  // 序列化为 HTML（去掉 <script> 减少泄露）
-  page.doc.querySelectorAll('script').forEach((s) => s.remove());
 
   // 把相对 URL 转绝对 URL（先注入的 style 里没有 URL，安全放在最后一步做）
   const baseUrl = page.finalUrl.replace(/\/?$/, '/');
@@ -279,11 +281,19 @@ export async function translateUrl(input: TranslateUrlInput): Promise<TranslateU
     el.setAttribute(attr, new URL(val, baseUrl).href);
   };
   const URL_ATTRS = ['src', 'href', 'data-src', 'poster'];
-  page.doc.querySelectorAll('img, source, video, audio, iframe, embed, a, link, [data-src]').forEach((el) => {
+
+  // 序列化前只扫一次 DOM：删除 script、归一化普通 URL 和 srcset。
+  page.doc.querySelectorAll('*').forEach((el) => {
+    const tag = el.tagName.toLowerCase();
+    if (tag === 'script') {
+      el.remove();
+      return;
+    }
+
     for (const attr of URL_ATTRS) resolveAttr(el, attr);
-  });
-  // srcset 特殊处理：逗号分隔的多个 URL
-  page.doc.querySelectorAll('img, source').forEach((el) => {
+    if (tag !== 'img' && tag !== 'source') return;
+
+    // srcset 特殊处理：逗号分隔的多个 URL
     const val = el.getAttribute('srcset');
     if (!val) return;
     const resolved = val.split(',').map((part) => {

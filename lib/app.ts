@@ -154,29 +154,34 @@ export function createApp(storage?: StorageAdapter): Hono {
     let targetUrl: string, headers: Record<string, string>;
 
     if (backend === 'cloudflare') {
-      if (!CF_ACCOUNT_ID || !CF_API_TOKEN) {
+      const accountId = CF_ACCOUNT_ID();
+      const apiToken = CF_API_TOKEN();
+      if (!accountId || !apiToken) {
         return c.json({ error: 'Cloudflare AI not configured' }, 500);
       }
-      targetUrl = `${CF_BASE}/v1/chat/completions`;
-      headers = { 'Authorization': `Bearer ${CF_API_TOKEN}`, 'Content-Type': 'application/json' };
+      targetUrl = `${CF_BASE()}/v1/chat/completions`;
+      headers = { 'Authorization': `Bearer ${apiToken}`, 'Content-Type': 'application/json' };
     } else if (backend === 'nvidia') {
-      if (!NVIDIA_API_KEY) {
+      const apiKey = NVIDIA_API_KEY();
+      if (!apiKey) {
         return c.json({ error: 'NVIDIA Build not configured' }, 500);
       }
       targetUrl = `${NVIDIA_BASE}/v1/chat/completions`;
-      headers = { 'Authorization': `Bearer ${NVIDIA_API_KEY}`, 'Accept': 'application/json', 'Content-Type': 'application/json' };
+      headers = { 'Authorization': `Bearer ${apiKey}`, 'Accept': 'application/json', 'Content-Type': 'application/json' };
     } else if (backend === 'openrouter') {
-      if (!OPENROUTER_API_KEY) {
+      const apiKey = OPENROUTER_API_KEY();
+      if (!apiKey) {
         return c.json({ error: 'OpenRouter not configured' }, 500);
       }
       targetUrl = `${OPENROUTER_BASE}/v1/chat/completions`;
-      headers = { 'Authorization': `Bearer ${OPENROUTER_API_KEY}`, 'Content-Type': 'application/json' };
+      headers = { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' };
     } else {
-      if (!DS_API_KEY()) {
+      const apiKey = DS_API_KEY();
+      if (!apiKey) {
         return c.json({ error: 'DeepSeek not configured' }, 500);
       }
       targetUrl = `${DS_BASE}/v1/chat/completions`;
-      headers = { Authorization: `Bearer ${DS_API_KEY()}`, 'Content-Type': 'application/json' };
+      headers = { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' };
     }
 
     const startedAt = Date.now();
@@ -248,11 +253,12 @@ export function createApp(storage?: StorageAdapter): Hono {
     }
     console.log(`[translate/text] chars=${text.length} src=${source || 'en'} tgt=${target || 'zh'}`);
     try {
+      const apiKey = DS_API_KEY();
       const result = await translateText({
         text,
         source,
         target,
-        apiKey: DS_API_KEY(),
+        apiKey,
         glossary,
       });
       console.log(`[translate/text] chunks=${result.chunks} duration=${result.duration_ms}ms`);
@@ -301,6 +307,7 @@ export function createApp(storage?: StorageAdapter): Hono {
 
     console.log(`[translate/url-page] url=${url} src=${source || 'en'} tgt=${target} mode=${mode}`);
     try {
+      const apiKey = DS_API_KEY();
       // CF Workers HTTP 请求无 wall-clock 限制，只需每调用 DeepSeek
       // 的 15s timeout（deepseek.ts DEEPSEEK_TIMEOUT_MS）防 hung promise。
       // 见 https://developers.cloudflare.com/workers/platform/limits/#duration
@@ -309,21 +316,19 @@ export function createApp(storage?: StorageAdapter): Hono {
         source,
         target,
         mode: mode as 'bilingual' | 'target',
-        apiKey: DS_API_KEY(),
+        apiKey,
       });
       console.log(`[translate/url-page] blocks=${result.blocks} chunks=${result.chunks} duration=${result.duration_ms}ms`);
       // 缓存翻译结果，供 / 路由展示
       lastTranslatedHtml = result.html;
-      // 写入 D1（await 确保写入完成，D1 延迟 ~1-5ms 可忽略）
+      // 写入 D1 是历史记录的 best-effort 操作；不阻塞当前翻译 HTML 返回。
       const db = (c.env as any)?.DB999;
       if (db) {
-        try {
-          await db.prepare(
-            'INSERT INTO translations (url, source_lang, target_lang, html) VALUES (?, ?, ?, ?)'
-          ).bind(url, source || 'en', target, result.html).run();
-        } catch (e) {
+        db.prepare(
+          'INSERT INTO translations (url, source_lang, target_lang, html) VALUES (?, ?, ?, ?)'
+        ).bind(url, source || 'en', target, result.html).run().catch((e: unknown) => {
           console.error('[D1] save error:', e);
-        }
+        });
       }
       return new Response(result.html, {
         status: 200,
