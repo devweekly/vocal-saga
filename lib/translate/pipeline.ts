@@ -292,6 +292,33 @@ export async function translateUrl(input: TranslateUrlInput): Promise<TranslateU
   const tSer = performance.now();
   page.doc.querySelectorAll('script').forEach((s) => s.remove());
 
+  // 把相对 URL 转绝对 URL（先注入的 style 里没有 URL，安全放在最后一步做）
+  const baseUrl = page.finalUrl.replace(/\/?$/, '/');
+  const resolveAttr = (el: Element, attr: string) => {
+    const val = el.getAttribute(attr);
+    if (!val) return;
+    // data:/blob:/# 开头、// 开头、http/https 开头 → 已是绝对，跳过
+    if (/^(data:|blob:|#|https?:\/\/|\/\/)/i.test(val)) return;
+    if (/^\/\//.test(val)) { el.setAttribute(attr, 'https:' + val); return; }
+    el.setAttribute(attr, new URL(val, baseUrl).href);
+  };
+  const URL_ATTRS = ['src', 'href', 'data-src', 'poster'];
+  page.doc.querySelectorAll('img, source, video, audio, iframe, embed, a, link, [data-src]').forEach((el) => {
+    for (const attr of URL_ATTRS) resolveAttr(el, attr);
+  });
+  // srcset 特殊处理：逗号分隔的多个 URL
+  page.doc.querySelectorAll('img, source').forEach((el) => {
+    const val = el.getAttribute('srcset');
+    if (!val) return;
+    const resolved = val.split(',').map((part) => {
+      const [url, ...desc] = part.trim().split(/\s+/);
+      if (!url || /^(data:|blob:|#|https?:\/\/|\/\/)/i.test(url)) return part;
+      const resolvedUrl = url.startsWith('//') ? 'https:' + url : new URL(url, baseUrl).href;
+      return [resolvedUrl, ...desc].join(' ');
+    }).join(', ');
+    el.setAttribute('srcset', resolved);
+  });
+
   // 注入双语显示 CSS —— 只针对我们注入的 .fanyi-original / .fanyi-translation，
   // 不覆盖原页面任何已有元素的样式（用 currentColor + 0 opacity，没有强制颜色）。
   const head = page.doc.head;
