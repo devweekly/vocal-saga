@@ -73,14 +73,44 @@ async function translateChunksWithRetry(
   chunks: ReturnType<typeof buildChunks>,
   sourceLang: string,
   targetLang: string,
-  glossary?: Glossary
+  glossary?: Glossary,
+  /**
+   * 并行 chunk 数。
+   *   - translateText（小文本，单 chunk）→ 1
+   *   - translateUrl（多 chunk，30s CF 壁钟上限）→ 2
+   * 增大 concurrency 会降低 DeepSeek KV cache 命中率，但减少 wall-clock 总耗时。
+   * 不要超过 5，否则容易触发 DeepSeek 429 rate limit。
+   */
+  concurrency = 1
 ): Promise<Map<string, string>> {
   const finalTranslations = new Map<string, string>();
+  if (chunks.length === 0) return finalTranslations;
 
-  for (const chunk of chunks) {
+  // 临时提高队列并发，让 worker 池能同时发出多个请求
+  globalQueue.setConcurrency(concurrency);
+
+  let nextIdx = 0;
+
+  async function worker(): Promise<void> {
+    while (nextIdx < chunks.length) {
+      const idx = nextIdx++;
+      const chunk = chunks[idx];
+
+      try {
+        await processOneChunk(chunk);
+      } catch (err) {
+        // 让第一个失败的 chunk 传播到外层
+        throw err;
+      }
+    }
+  }
+
+  async function processOneChunk(
+    chunk: ReturnType<typeof buildChunks>[number]
+  ): Promise<void> {
     const result = await translateChunk(service, chunk, sourceLang, targetLang, glossary);
 
-    // 缺失检测
+    // 缺失检测 + 重试
     const inputIds = chunk.blocks.map((b) => b.id);
     const outputIds = Array.from(result.keys());
     const missingIds = diffMissingIds(inputIds, outputIds);
@@ -112,6 +142,17 @@ async function translateChunksWithRetry(
     for (const [id, text] of result) {
       finalTranslations.set(id, text);
     }
+  }
+
+  try {
+    const pool = Array.from(
+      { length: Math.min(concurrency, chunks.length) },
+      () => worker()
+    );
+    await Promise.all(pool);
+  } finally {
+    // 恢复串行（保后续请求的 KV cache 命中）
+    globalQueue.setConcurrency(1);
   }
 
   return finalTranslations;
@@ -201,12 +242,14 @@ export async function translateUrl(input: TranslateUrlInput): Promise<TranslateU
   console.log(`[Pipeline] Extracted ${blocks.length} blocks → ${chunks.length} chunks`);
 
   const service = new DeepSeekTranslationService(input.apiKey);
+  // URL 翻译有 30s CF 壁钟上限，并行 2 个 chunk 确保能跑完
   const translations = await translateChunksWithRetry(
     service,
     chunks,
     sourceLang,
     targetLang,
-    input.glossary
+    input.glossary,
+    /* concurrency */ 2
   );
 
   // 回填：jsdom 写回原 Document（保留所有 children，只 wrap 一个 .fanyi-translation）
