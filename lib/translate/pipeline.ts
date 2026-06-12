@@ -88,9 +88,9 @@ async function translateChunksWithRetry(
   /**
    * 并行 chunk 数。
    *   - translateText（小文本，单 chunk）→ 1
-   *   - translateUrl（多 chunk，30s CF 壁钟上限）→ 2
-   * 增大 concurrency 会降低 DeepSeek KV cache 命中率，但减少 wall-clock 总耗时。
-   * 不要超过 5，否则容易触发 DeepSeek 429 rate limit。
+   *   - translateUrl → 6（CF Workers 同时建立连接上限 6，全并发）
+   * CF Workers 限制同时最多 6 个 fetch 等待 response headers，这里设 6 刚好打满。
+   * 超过 6 会排队等，不会报错。
    */
   concurrency = 1
 ): Promise<Map<string, string>> {
@@ -264,7 +264,7 @@ export async function translateUrl(input: TranslateUrlInput): Promise<TranslateU
     sourceLang,
     targetLang,
     input.glossary,
-    /* concurrency */ 2
+    /* concurrency */ 6
   );
   logCost('translateChunks', tTrans);
 
