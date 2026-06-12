@@ -189,7 +189,7 @@ export interface TranslateTextResult {
 
 export async function translateText(input: TranslateTextInput): Promise<TranslateTextResult> {
   const start = Date.now();
-  const sourceLang = input.source || 'auto';
+  const sourceLang = input.source || 'en';
   const targetLang = input.target || 'zh';
 
   if (!input.text.trim()) {
@@ -242,7 +242,7 @@ export interface TranslateUrlResult {
 
 export async function translateUrl(input: TranslateUrlInput): Promise<TranslateUrlResult> {
   const start = Date.now();
-  const sourceLang = input.source || 'auto';
+  const sourceLang = input.source || 'en';
   const targetLang = input.target || 'zh';
   const mode = input.mode || 'bilingual';
 

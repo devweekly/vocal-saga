@@ -100,6 +100,27 @@ export function createApp(storage?: StorageAdapter): Hono {
     return c.redirect('/help', 302);
   });
 
+  // ── GET /<id> — 从 D1 取出第 N 次翻译结果展示 ────────
+  app.get('/:id', async (c) => {
+    const id = c.req.param('id');
+    if (!/^\d+$/.test(id)) return c.notFound();
+    const db = (c.env as any)?.DB999;
+    if (!db) return c.json({ error: 'D1 not available' }, 500);
+    try {
+      const row: any = await db.prepare(
+        'SELECT html FROM translations WHERE id = ?'
+      ).bind(Number(id)).first();
+      if (!row) return c.json({ error: 'translation not found' }, 404);
+      return new Response(row.html, {
+        status: 200,
+        headers: { 'Content-Type': 'text/html; charset=utf-8' },
+      });
+    } catch (e) {
+      console.error('[D1] fetch error:', e);
+      return c.json({ error: (e as Error).message }, 500);
+    }
+  });
+
   // ── POST /api/v1/chat/completions ─────────────────────
   app.post('/api/v1/chat/completions', requireAuth, async (c) => {
 
@@ -225,7 +246,7 @@ export function createApp(storage?: StorageAdapter): Hono {
     if (!DS_API_KEY()) {
       return c.json({ error: 'DeepSeek not configured' }, 500);
     }
-    console.log(`[translate/text] chars=${text.length} src=${source || 'auto'} tgt=${target || 'zh'}`);
+    console.log(`[translate/text] chars=${text.length} src=${source || 'en'} tgt=${target || 'zh'}`);
     try {
       const result = await translateText({
         text,
@@ -278,7 +299,7 @@ export function createApp(storage?: StorageAdapter): Hono {
       return c.json({ error: 'DeepSeek not configured' }, 500);
     }
 
-    console.log(`[translate/url-page] url=${url} src=${source || 'auto'} tgt=${target} mode=${mode}`);
+    console.log(`[translate/url-page] url=${url} src=${source || 'en'} tgt=${target} mode=${mode}`);
     try {
       // CF Workers HTTP 请求无 wall-clock 限制，只需每调用 DeepSeek
       // 的 15s timeout（deepseek.ts DEEPSEEK_TIMEOUT_MS）防 hung promise。
@@ -293,6 +314,17 @@ export function createApp(storage?: StorageAdapter): Hono {
       console.log(`[translate/url-page] blocks=${result.blocks} chunks=${result.chunks} duration=${result.duration_ms}ms`);
       // 缓存翻译结果，供 / 路由展示
       lastTranslatedHtml = result.html;
+      // 写入 D1（await 确保写入完成，D1 延迟 ~1-5ms 可忽略）
+      const db = (c.env as any)?.DB999;
+      if (db) {
+        try {
+          await db.prepare(
+            'INSERT INTO translations (url, source_lang, target_lang, html) VALUES (?, ?, ?, ?)'
+          ).bind(url, source || 'en', target, result.html).run();
+        } catch (e) {
+          console.error('[D1] save error:', e);
+        }
+      }
       return new Response(result.html, {
         status: 200,
         headers: {

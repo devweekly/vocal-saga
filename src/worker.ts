@@ -12,6 +12,7 @@
  *   - /translate/<target-without-scheme>  → Hono（抓取 + 翻译，公开）
  *   - /s/*                                → Hono（简写域名入口）
  *   - /                                   → Hono（上一次翻译结果）
+ *   - /<id> （纯数字）                    → Hono（从 D1 取第 N 次翻译结果）
  *   - 其他（含 /help, /translate, /translate.html）→ env.ASSETS.fetch
  *
  * 静态文件匹配不到的路径才会进入 Worker。
@@ -56,12 +57,13 @@ export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
 
-    // 动态路由：API + URL 翻译入口 + 首页都进 Hono
+    // 动态路由：API + URL 翻译入口 + 首页 + D1 编号都进 Hono
     const isApi = url.pathname.startsWith('/api/');
     const isTranslateDyn = url.pathname.startsWith('/translate/');
     const isShortcut = url.pathname.startsWith('/s/');
     const isRoot = url.pathname === '/';
-    if (isApi || isTranslateDyn || isShortcut || isRoot) {
+    const isNumericId = /^\/\d+$/.test(url.pathname);
+    if (isApi || isTranslateDyn || isShortcut || isRoot || isNumericId) {
       injectEnv(env);
       return getApp(env).fetch(request, env);
     }
