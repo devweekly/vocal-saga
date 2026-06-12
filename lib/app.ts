@@ -256,67 +256,54 @@ export function createApp(storage?: StorageAdapter): Hono {
     }
   });
 
-  app.post('/api/translate/url', async (c) => {
-    if (!checkAuth(c)) return c.json({ error: 'Unauthorized' }, 401);
-    const { url, source, target, mode, glossary } = await c.req.json().catch(() => ({} as any));
-    if (!url || typeof url !== 'string') {
-      return c.json({ error: 'url is required' }, 400);
-    }
-    if (!DS_API_KEY()) {
-      return c.json({ error: 'DeepSeek not configured' }, 500);
-    }
-    console.log(`[translate/url] url=${url} src=${source || 'auto'} tgt=${target || 'zh'} mode=${mode || 'bilingual'}`);
-    try {
-      const result = await translateUrl({
-        url,
-        source,
-        target,
-        mode,
-        apiKey: DS_API_KEY(),
-        glossary,
-      });
-      console.log(`[translate/url] blocks=${result.blocks} chunks=${result.chunks} duration=${result.duration_ms}ms`);
-      return c.json(result);
-    } catch (err) {
-      console.error('[translate/url] error:', err);
-      return c.json({ error: (err as Error).message }, 500);
-    }
-  });
-
   /**
-   * GET /api/translate/url?url=<TARGET>&source=auto&target=zh&mode=bilingual
+   * GET /translate/<target-without-scheme>
    *
-   * 直接把目标 URL 抓下来 + 翻译 + 双语回填，返回渲染好的 HTML。
-   * 浏览器访问即可看到双语对照页（保留原页面所有样式，仅在翻译处加 .fanyi-translation span）。
+   * 浏览器直访入口：把目标 URL 抓下来 + 翻译 + 双语回填，返回渲染好的 HTML。
+   * 路径里的 `target` 是去掉 `https://` 后的剩余部分（如 `example.com/foo`），
+   * 浏览器地址栏直接拼就能用，不需要带 Authorization header。
    *
-   * Query params:
-   *   - url: 必填，目标 http(s) URL
+   * 重构后的路径格式（取代旧的 /api/translate/url?url=...）：
+   *   - /translate/example.com              → https://example.com
+   *   - /translate/example.com/foo/bar      → https://example.com/foo/bar
+   *   - /translate/https%3A%2F%2Fx.com%2Fy  → https://x.com/y （含 scheme 的 URL 自动剥）
+   *
+   * Query params（可选）：
    *   - source / target: ISO 代码，默认 auto / zh
-   *   - mode: bilingual（默认，原+译）| target（仅译）
-   *   - glossary: 暂未支持（POST 版本有），需要时再加
+   *   - mode: bilingual（默认）| target（仅译）
    *
-   * Auth: 仍走 Authorization header（checkAuth）。浏览器原生 GET 无法带 header，
-   *       需要在 DevTools/扩展/curl 注入。auth-from-query 故意不开（会进 access log）。
+   * Auth: 故意不校验。原因：浏览器直访是核心使用场景，Authorization header
+   *       没法在地址栏导航时附带。这个端点等同于「公开代理」，信任部署在
+   *       自己域上、需要谨慎开放（建议加 Cloudflare Access / WAF 限流）。
    */
-  app.get('/api/translate/url', async (c) => {
-    if (!checkAuth(c)) return c.json({ error: 'Unauthorized' }, 401);
+  app.get('/translate/*', async (c) => {
+    // c.req.path = '/translate/<rest>'；rest 可能是 URL 编码的（%2F、%3A 等）
+    const raw = decodeURIComponent(c.req.path.slice('/translate/'.length));
 
-    const url = c.req.query('url');
+    if (!raw) {
+      return c.json({ error: 'target url is required in path' }, 400);
+    }
+
+    // 剥 scheme（兼容用户传过来时含/不含 https:// 的两种写法）
+    const stripped = raw.replace(/^https?:\/\//i, '');
+    if (!stripped) {
+      return c.json({ error: 'target url is empty after stripping scheme' }, 400);
+    }
+    const url = `https://${stripped}`;
+
     const source = c.req.query('source');
     const target = c.req.query('target') || 'zh';
     const mode = c.req.query('mode') || 'bilingual';
 
-    if (!url) {
-      return c.json({ error: 'url query param is required' }, 400);
-    }
     let parsed: URL;
     try {
       parsed = new URL(url);
     } catch {
       return c.json({ error: 'url is not a valid URL' }, 400);
     }
-    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-      return c.json({ error: 'url must be http or https' }, 400);
+    if (parsed.protocol !== 'https:') {
+      // 强制 https（用户输入 http:// 也强制升 https，避免明文抓取）
+      return c.json({ error: 'url must be https' }, 400);
     }
     if (mode !== 'bilingual' && mode !== 'target') {
       return c.json({ error: 'mode must be bilingual or target' }, 400);

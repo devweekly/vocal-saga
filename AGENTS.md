@@ -115,9 +115,14 @@ wrangler secret put AUTH_KEY
 
 ### URL 路由规则
 
-| Path                 | 流向                                                                |
-|----------------------|---------------------------------------------------------------------|
-| `/api/*`             | `src/worker.ts` → Hono                                              |
-| `/`, `/translate`    | `[assets] binding` → `public/index.html` / `public/translate.html`  |
-| `/translate.html`    | `[assets]` 自动 307 → `/translate`（CF 默认剥 `.html` 扩展名）       |
-| `/*`（其他）         | `[assets]`，命中文件就发，否则 404                                  |
+| Path                          | 流向                                                                |
+|-------------------------------|---------------------------------------------------------------------|
+| `/api/*`                      | `src/worker.ts` → Hono（需 `Authorization: Bearer`）               |
+| `/translate/<target-no-scheme>` | `src/worker.ts` → Hono（公开；抓取 + 翻译 + 双语 HTML）           |
+| `/`, `/translate`             | `[assets] binding` → `public/index.html` / `public/translate.html`  |
+| `/translate.html`             | `[assets]` 自动 307 → `/translate`（CF 默认剥 `.html` 扩展名）       |
+| `/*`（其他）                  | `[assets]`，命中文件就发，否则 404                                  |
+
+> `/translate/<target-no-scheme>`：target 是去掉 `https://` 后的 URL 剩余部分
+> （如 `example.com/foo`）。浏览器地址栏直接拼就能用，不需要 auth header。
+> server 剥 scheme（如果用户传了）后补回 `https://` 再抓取。

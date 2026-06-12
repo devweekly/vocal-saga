@@ -13,6 +13,14 @@ included_files = ["lib/dist/**"]
   status = 200
   to = "/.netlify/functions/api/:splat"
 
+# 浏览器直访入口：/translate/<target-without-scheme> → 函数
+# （裸 /translate 仍由下方规则 301 到 /translate.html，UI 页面）
+[[redirects]]
+  force = true
+  from = "/translate/*"
+  status = 200
+  to = "/.netlify/functions/api/:splat"
+
 [[redirects]]
   from = "/translate"
   to = "/translate.html"

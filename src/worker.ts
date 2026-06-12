@@ -8,8 +8,9 @@
  *     默认会自动去掉 .html 扩展名：访问 /translate 和 /translate.html 等价。
  *
  * 路由分配：
- *   - /api/*              → Hono
- *   - 其他                → env.ASSETS.fetch（命中文件就发，命中不了 404）
+ *   - /api/*                              → Hono
+ *   - /translate/<target-without-scheme>  → Hono（抓取 + 翻译，公开）
+ *   - 其他（含 /, /translate, /translate.html）→ env.ASSETS.fetch
  *
  * 静态文件匹配不到的路径才会进入 Worker。
  */
@@ -53,14 +54,18 @@ export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
 
-    // API：交给 Hono
-    if (url.pathname.startsWith('/api/')) {
+    // 动态路由：API + URL 翻译入口都进 Hono
+    const isApi = url.pathname.startsWith('/api/');
+    // /translate/<anything-non-empty> 走 Hono（抓取 + 翻译）
+    const isTranslateDyn = url.pathname.startsWith('/translate/');
+    if (isApi || isTranslateDyn) {
       injectEnv(env);
       return getApp(env).fetch(request, env);
     }
 
     // 其他路径（含 /, /translate, /translate.html, 任何不存在的路径）
     // 交给 Assets binding：命中文件就发，命中不了就 404。
+    // 裸 /translate / /translate/ 走 public/translate.html
     return env.ASSETS.fetch(request);
   },
 };
