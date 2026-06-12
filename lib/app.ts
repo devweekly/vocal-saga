@@ -84,6 +84,22 @@ export function createApp(storage?: StorageAdapter): Hono {
   const app = new Hono();
   app.use('*', cors());
 
+  // ── 上一次翻译的结果缓存（瞬态，仅当前 isolate 内） ──
+  // 每次 /translate/* 或 /s/* 成功后写入，/ 路由读取并展示。
+  let lastTranslatedHtml: string | null = null;
+
+  // ── GET / — 展示上一次翻译的页面 ──────────────────────
+  app.get('/', (c) => {
+    if (lastTranslatedHtml) {
+      return new Response(lastTranslatedHtml, {
+        status: 200,
+        headers: { 'Content-Type': 'text/html; charset=utf-8' },
+      });
+    }
+    // 还没有任何翻译记录，跳转到帮助页面
+    return c.redirect('/help', 302);
+  });
+
   // ── POST /api/v1/chat/completions ─────────────────────
   app.post('/api/v1/chat/completions', requireAuth, async (c) => {
 
@@ -227,35 +243,25 @@ export function createApp(storage?: StorageAdapter): Hono {
   });
 
   /**
-   * GET /translate/<target-without-scheme>
-   *
-   * 浏览器直访入口：把目标 URL 抓下来 + 翻译 + 双语回填，返回渲染好的 HTML。
-   * 路径里的 `target` 是去掉 `https://` 后的剩余部分（如 `example.com/foo`），
-   * 浏览器地址栏直接拼就能用，不需要带 Authorization header。
-   *
-   * 重构后的路径格式（取代旧的 /api/translate/url?url=...）：
-   *   - /translate/example.com              → https://example.com
-   *   - /translate/example.com/foo/bar      → https://example.com/foo/bar
-   *   - /translate/https%3A%2F%2Fx.com%2Fy  → https://x.com/y （含 scheme 的 URL 自动剥）
-   *
-   * Query params（可选）：
-   *   - source / target: ISO 代码，默认 auto / zh
-   *   - mode: bilingual（默认）| target（仅译）
-   *
-   * Auth: 故意不校验。原因：浏览器直访是核心使用场景，Authorization header
-   *       没法在地址栏导航时附带。这个端点等同于「公开代理」，信任部署在
-   *       自己域上、需要谨慎开放（建议加 Cloudflare Access / WAF 限流）。
+   * 简写域名 → 完整域名映射。
+   * /s/medium/xxx  → https://www.medium.com/xxx
+   * /s/reddit/xxx   → https://www.reddit.com/xxx
    */
-  app.get('/translate/*', async (c) => {
-    // c.req.path = '/translate/<rest>'；rest 可能是 URL 编码的（%2F、%3A 等）
-    const raw = decodeURIComponent(c.req.path.slice('/translate/'.length));
+  const SHORTHAND_DOMAINS: Record<string, string> = {
+    medium: 'www.medium.com',
+    reddit: 'www.reddit.com',
+  };
 
-    if (!raw) {
+  /**
+   * 公共翻译 handler，供 /translate/* 和 /s/* 使用。
+   */
+  async function handleTranslateRequest(c: any, rawPath: string) {
+    if (!rawPath) {
       return c.json({ error: 'target url is required in path' }, 400);
     }
 
     // 剥 scheme（兼容用户传过来时含/不含 https:// 的两种写法）
-    const stripped = raw.replace(/^https?:\/\//i, '');
+    const stripped = rawPath.replace(/^https?:\/\//i, '');
     if (!stripped) {
       return c.json({ error: 'target url is empty after stripping scheme' }, 400);
     }
@@ -295,6 +301,8 @@ export function createApp(storage?: StorageAdapter): Hono {
         apiKey: DS_API_KEY(),
       });
       console.log(`[translate/url-page] blocks=${result.blocks} chunks=${result.chunks} duration=${result.duration_ms}ms`);
+      // 缓存翻译结果，供 / 路由展示
+      lastTranslatedHtml = result.html;
       return new Response(result.html, {
         status: 200,
         headers: {
@@ -311,6 +319,61 @@ export function createApp(storage?: StorageAdapter): Hono {
       console.error('[translate/url-page] error:', err);
       return c.json({ error: (err as Error).message }, 500);
     }
+  }
+
+  /**
+   * 把 /s/<shorthand>/<path> 转成完整 URL，回退到 /translate 行为。
+   * 规则：
+   *   - /s/medium/xxx/article       → https://www.medium.com/xxx/article
+   *   - /s/reddit/xxx               → https://www.reddit.com/xxx
+   *   - /s/example.com/xxx          → https://example.com/xxx（无简写则当域名用）
+   */
+  app.get('/s/*', async (c) => {
+    const raw = decodeURIComponent(c.req.path.slice('/s/'.length));
+    if (!raw) {
+      return c.json({ error: 'target is required after /s/' }, 400);
+    }
+
+    const slashIdx = raw.indexOf('/');
+    const firstSeg = slashIdx < 0 ? raw : raw.slice(0, slashIdx);
+    const rest = slashIdx < 0 ? '' : raw.slice(slashIdx + 1);
+
+    // 检查是否为简写域名
+    const fullDomain = SHORTHAND_DOMAINS[firstSeg.toLowerCase()];
+    if (fullDomain) {
+      // /s/medium/article  → https://www.medium.com/article
+      const resolved = rest ? `https://${fullDomain}/${rest}` : `https://${fullDomain}`;
+      return handleTranslateRequest(c, resolved);
+    }
+
+    // 无简写：把 firstSeg 当域名 / IP 用，补回 scheme
+    const resolved = rest ? `https://${firstSeg}/${rest}` : `https://${firstSeg}`;
+    return handleTranslateRequest(c, resolved);
+  });
+
+  /**
+   * GET /translate/<target-without-scheme>
+   *
+   * 浏览器直访入口：把目标 URL 抓下来 + 翻译 + 双语回填，返回渲染好的 HTML。
+   * 路径里的 `target` 是去掉 `https://` 后的剩余部分（如 `example.com/foo`），
+   * 浏览器地址栏直接拼就能用，不需要带 Authorization header。
+   *
+   * 路径格式：
+   *   - /translate/example.com              → https://example.com
+   *   - /translate/example.com/foo/bar      → https://example.com/foo/bar
+   *   - /translate/https%3A%2F%2Fx.com%2Fy  → https://x.com/y （含 scheme 的 URL 自动剥）
+   *
+   * Query params（可选）：
+   *   - source / target: ISO 代码，默认 auto / zh
+   *   - mode: bilingual（默认）| target（仅译）
+   *
+   * Auth: 故意不校验。原因：浏览器直访是核心使用场景，Authorization header
+   *       没法在地址栏导航时附带。这个端点等同于「公开代理」，信任部署在
+   *       自己域上、需要谨慎开放（建议加 Cloudflare Access / WAF 限流）。
+   */
+  app.get('/translate/*', (c) => {
+    const raw = decodeURIComponent(c.req.path.slice('/translate/'.length));
+    return handleTranslateRequest(c, raw);
   });
 
   // ── 术语表管理（持久层由 setDefaultStorage 注入） ─────
