@@ -249,13 +249,14 @@ export function collectBlocks(
 
   // startNode 自身不被 visit（与 TreeWalker 行为一致：root 是位置，不是节点），
   // 第一个 visit 的是它的 childNodes。
-  for (let i = 0; i < startNode.childNodes.length; i++) {
-    const child = startNode.childNodes[i];
+  for (const child of Array.from(startNode.childNodes)) {
     walkNode(child, blocks, blockIdRef, seenTexts, counters, rejectedCache, pageUrl);
   }
 
   // TreeWalker 不跨 shadow root 边界, 手动遍历 open shadow roots。
   collectFromShadowHosts(startNode, blocks, blockIdRef, seenTexts, pageUrl);
+
+  console.log(`[PERF]   collectBlocks ${Math.round((performance.now() - t0) * 1000)}µs (rejected=${counters.rejected} skipped=${counters.skipped} accepted=${counters.accepted})`);
 
   return counters;
 }
@@ -313,8 +314,7 @@ function walkNode(
   }
 
   // ACCEPT 和 SKIP 都要继续 recurse 子节点（TreeWalker 行为一致）
-  for (let i = 0; i < node.childNodes.length; i++) {
-    const child = node.childNodes[i];
+  for (const child of Array.from(node.childNodes)) {
     walkNode(child, blocks, blockIdRef, seenTexts, counters, rejectedCache, pageUrl);
   }
 }
@@ -330,8 +330,7 @@ function collectFromShadowHosts(
   seenTexts: Set<string>,
   pageUrl: string
 ): void {
-  for (let i = 0; i < root.childNodes.length; i++) {
-    const child = root.childNodes[i];
+  for (const child of Array.from(root.childNodes)) {
     walkForShadow(child, blocks, blockIdRef, seenTexts, pageUrl);
   }
 }
@@ -361,8 +360,7 @@ function walkForShadow(
       return;
     }
   }
-  for (let i = 0; i < node.childNodes.length; i++) {
-    const child = node.childNodes[i];
+  for (const child of Array.from(node.childNodes)) {
     walkForShadow(child, blocks, blockIdRef, seenTexts, pageUrl);
   }
 }
@@ -376,6 +374,7 @@ export function getXPath(node: Node): string {
   if (node.nodeType === DOCUMENT_NODE_TYPE) return '';
   if (node.nodeType !== ELEMENT_NODE_TYPE) return '';
 
+  const t0 = performance.now();
   const parts: string[] = [];
   let current: Element | null = node as Element;
   while (current && current.nodeType === ELEMENT_NODE_TYPE) {
@@ -396,6 +395,7 @@ export function getXPath(node: Node): string {
 
 /** 获取元素的前置 heading 路径（兄弟/祖先链上最近的 h1-h6 文本列表）。 */
 export function getHeadingPath(block: Element): string[] {
+  const t0 = performance.now();
   const headings: string[] = [];
   let current: Element | null = block;
   while (current) {
@@ -426,8 +426,7 @@ function findPreviousHeading(element: Element): Element | null {
 }
 
 function findLastHeadingInSubtree(element: Element): Element | null {
-  for (let i = element.children.length - 1; i >= 0; i--) {
-    const child = element.children[i];
+  for (const child of Array.from(element.children).reverse()) {
     if (isHeading(child)) return child;
     const found = findLastHeadingInSubtree(child);
     if (found) return found;

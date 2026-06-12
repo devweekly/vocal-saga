@@ -17,8 +17,6 @@ export function applyBlockTranslation(
   translatedText: string,
   mode: TranslationMode
 ): void {
-  const t0 = performance.now();
-
   if (node.classList.contains('fanyi-translated')) {
     return;
   }
@@ -48,8 +46,6 @@ export function applyBlockTranslation(
 
   node.appendChild(originalSpan);
   node.appendChild(translationSpan);
-
-  // 单次 < 0.05ms，逐条打只会刷 0.0；汇总在 caller（pipeline.ts querySelectorTotal + applyTranslations）处。
 }
 
 export function restoreBlock(node: HTMLElement): void {

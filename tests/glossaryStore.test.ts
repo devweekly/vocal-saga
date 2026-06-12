@@ -10,15 +10,6 @@ import {
 } from '../lib/translate/glossaryStore';
 import { setDefaultStorage, MapStorage } from '../lib/storage';
 
-class CountingStorage extends MapStorage {
-  getJSONCount = 0;
-
-  async getJSON<T = unknown>(key: string): Promise<T | null> {
-    this.getJSONCount++;
-    return super.getJSON<T>(key);
-  }
-}
-
 describe('glossaryStore', () => {
   beforeEach(() => {
     // 每个测试都注入全新的 default storage，避免污染
@@ -85,18 +76,5 @@ describe('glossaryStore', () => {
   it('mergeForPrompt combines + dedupes + sorts', () => {
     const g = { user_terms: ['B', 'A'], document_terms: ['C', 'A'] };
     expect(mergeForPrompt(g)).toEqual(['A', 'B', 'C']);
-  });
-
-  it('mutation returns updated glossary without rereading both term lists', async () => {
-    const storage = new CountingStorage('test:glossary-count');
-    setDefaultStorage(storage);
-    await setDocumentTerms(['Doc']);
-    storage.getJSONCount = 0;
-
-    const g = await addUserTerms(['React']);
-
-    expect(g).toEqual({ user_terms: ['React'], document_terms: ['Doc'] });
-    // addUserTerms 只需读 user_terms 合并，再读 document_terms 组装返回值。
-    expect(storage.getJSONCount).toBe(2);
   });
 });

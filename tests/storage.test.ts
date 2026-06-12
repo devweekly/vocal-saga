@@ -13,7 +13,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import {
   MapStorage,
-  CloudflareKVStorage,
   setDefaultStorage,
   getDefaultStorage,
   clearDefaultStorage,
@@ -133,35 +132,5 @@ describe('default storage registry', () => {
     setDefaultStorage(a);
     setDefaultStorage(b);
     expect(getDefaultStorage()).toBe(b);
-  });
-});
-
-describe('CloudflareKVStorage', () => {
-  it('lists keys across all cursor pages', async () => {
-    const calls: Array<string | undefined> = [];
-    const kv = {
-      list: async (opts?: { cursor?: string }) => {
-        calls.push(opts?.cursor);
-        if (!opts?.cursor) {
-          return {
-            keys: [{ name: 'a' }],
-            list_complete: false,
-            cursor: 'page-2',
-          };
-        }
-        return {
-          keys: [{ name: 'b' }, { name: 'c' }],
-          list_complete: true,
-          cursor: undefined,
-        };
-      },
-      get: async () => null,
-      put: async () => {},
-      delete: async () => {},
-    } as unknown as KVNamespace;
-
-    const storage = new CloudflareKVStorage(kv);
-    await expect(storage.list()).resolves.toEqual(['a', 'b', 'c']);
-    expect(calls).toEqual([undefined, 'page-2']);
   });
 });

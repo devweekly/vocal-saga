@@ -43,7 +43,6 @@ export class CacheManager {
     private storeName: string,
     private defaultTTL = 24 * 60 * 60 * 1000,
     storage?: StorageAdapter,
-    private maxMemoryEntries = 500,
   ) {
     this._storage = storage ?? null;
     this.prefix = `cache:${storeName}:`;
@@ -53,7 +52,6 @@ export class CacheManager {
     // 1) 内存层
     const memoryEntry = this.memoryCache.get(key);
     if (memoryEntry && !this.isExpired(memoryEntry)) {
-      this.touchMemoryEntry(key, memoryEntry);
       return memoryEntry.data as T;
     }
     if (memoryEntry) {
@@ -65,7 +63,7 @@ export class CacheManager {
       const entry = await this.storage.getJSON<CacheEntry<T>>(this.prefix + key);
       if (entry) {
         if (!this.isExpired(entry)) {
-          this.setMemoryEntry(key, entry);
+          this.memoryCache.set(key, entry);
           return entry.data;
         }
         // 过期 → 顺手删
@@ -85,7 +83,7 @@ export class CacheManager {
       ttl: ttl ?? this.defaultTTL,
     };
 
-    this.setMemoryEntry(key, entry);
+    this.memoryCache.set(key, entry);
 
     try {
       await this.storage.setJSON(this.prefix + key, entry);
@@ -108,11 +106,7 @@ export class CacheManager {
     try {
       const allKeys = await this.storage.list();
       const ours = allKeys.filter((k) => k.startsWith(this.prefix));
-      const batchSize = 10;
-      for (let i = 0; i < ours.length; i += batchSize) {
-        const batch = ours.slice(i, i + batchSize);
-        await Promise.all(batch.map((k) => this.storage.delete(k)));
-      }
+      await Promise.all(ours.map((k) => this.storage.delete(k)));
     } catch (err) {
       console.warn(`[CacheManager:${this.storeName}] clear failed:`, (err as Error).message);
     }
@@ -134,20 +128,6 @@ export class CacheManager {
 
   private isExpired(entry: CacheEntry<any>): boolean {
     return Date.now() - entry.timestamp > entry.ttl;
-  }
-
-  private touchMemoryEntry(key: string, entry: CacheEntry<any>): void {
-    this.memoryCache.delete(key);
-    this.memoryCache.set(key, entry);
-  }
-
-  private setMemoryEntry(key: string, entry: CacheEntry<any>): void {
-    this.memoryCache.set(key, entry);
-    while (this.memoryCache.size > this.maxMemoryEntries) {
-      const oldestKey = this.memoryCache.keys().next().value as string | undefined;
-      if (oldestKey === undefined) break;
-      this.memoryCache.delete(oldestKey);
-    }
   }
 }
 

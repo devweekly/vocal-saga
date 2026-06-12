@@ -10,10 +10,7 @@
  * 路由分配：
  *   - /api/*                              → Hono
  *   - /translate/<target-without-scheme>  → Hono（抓取 + 翻译，公开）
- *   - /s/*                                → Hono（简写域名入口）
- *   - /                                   → Hono（上一次翻译结果）
- *   - /<id> （纯数字）                    → Hono（从 D1 取第 N 次翻译结果）
- *   - 其他（含 /help, /translate, /translate.html）→ env.ASSETS.fetch
+ *   - 其他（含 /, /translate, /translate.html）→ env.ASSETS.fetch
  *
  * 静态文件匹配不到的路径才会进入 Worker。
  */
@@ -31,7 +28,6 @@ interface Env {
 
 // ── 单例：app 复用（同一 isolate 共享模块作用域） ──
 let _app: Hono | null = null;
-let _envInjected = false;
 
 function getApp(env: Env): Hono {
   if (_app) return _app;
@@ -47,31 +43,28 @@ function getApp(env: Env): Hono {
  *   - 只在缺失时设置，避免覆盖 CI 注入
  */
 function injectEnv(env: Env): void {
-  if (_envInjected) return;
   for (const [k, v] of Object.entries(env)) {
     if (typeof v === 'string' && !process.env[k]) {
       process.env[k] = v;
     }
   }
-  _envInjected = true;
 }
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
 
-    // 动态路由：API + URL 翻译入口 + 首页 + D1 编号都进 Hono
+    // 动态路由：API + URL 翻译入口都进 Hono
     const isApi = url.pathname.startsWith('/api/');
+    // /translate/<anything-non-empty> 走 Hono（抓取 + 翻译）
     const isTranslateDyn = url.pathname.startsWith('/translate/');
-    const isShortcut = url.pathname.startsWith('/s/');
-    const isRoot = url.pathname === '/';
-    const isNumericId = /^\/\d+$/.test(url.pathname);
-    if (isApi || isTranslateDyn || isShortcut || isRoot || isNumericId) {
+    if (isApi || isTranslateDyn) {
       injectEnv(env);
       return getApp(env).fetch(request, env);
     }
 
-    // 剩下的路径交给 Assets binding：命中文件就发，命中不了就 404。
+    // 其他路径（含 /, /translate, /translate.html, 任何不存在的路径）
+    // 交给 Assets binding：命中文件就发，命中不了就 404。
     // 裸 /translate / /translate/ 走 public/translate.html
     return env.ASSETS.fetch(request);
   },

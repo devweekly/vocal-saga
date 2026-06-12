@@ -49,8 +49,6 @@ function getSiteRule(pageUrl: string): SiteRule | null {
 export function clearSiteRuleCache(): void {
   cachedRule = null;
   cachedUrl = null;
-  cachedSkipTextRegexps = [];
-  cachedSkipTextRegexpsUrl = null;
 }
 
 // =============================================================================
@@ -88,26 +86,14 @@ function matchesSkipClass(token: string, pattern: string): boolean {
  * 跨站通用: 广告 / cookie / 推荐 / 弹窗 / 导航 等。
  */
 export function shouldSkipByClass(el: Element): boolean {
-  let result = false;
   const tokens = tokenizeClass(el);
-  if (tokens.length > 0) {
-    for (const token of tokens) {
-      for (const pattern of SKIP_CLASS_PATTERNS) {
-        if (matchesSkipClass(token, pattern)) {
-          result = true;
-          break;
-        }
-      }
-      if (result) break;
+  if (tokens.length === 0) return false;
+  for (const token of tokens) {
+    for (const pattern of SKIP_CLASS_PATTERNS) {
+      if (matchesSkipClass(token, pattern)) return true;
     }
   }
-
-  return result;
-}
-
-/** 测试用：重置 shouldSkipByClass 统计 */
-export function resetSkipClassPerf(): void {
-  // 兼容旧测试 API：运行时不再维护性能计数，避免热路径额外开销。
+  return false;
 }
 
 /**
@@ -197,7 +183,6 @@ export function isElementHidden(el: Element): boolean {
 
   // 标记可见, 后续子孙中的同元素 (e.g. 多个 walker visit 同一节点) 跳过
   _elementVisibilityMemo.add(el);
-
   return false;
 }
 
@@ -225,29 +210,6 @@ export function isNonHTMLNamespace(el: Element): boolean {
  *   - 不是 Sentry / Webpack 元组列表
  *   - 不匹配站点规则的 skipTextPatterns
  */
-let cachedSkipTextRegexps: RegExp[] = [];
-let cachedSkipTextRegexpsUrl: string | null = null;
-
-function getSkipTextRegexps(pageUrl: string): RegExp[] {
-  if (cachedSkipTextRegexpsUrl === pageUrl) {
-    return cachedSkipTextRegexps;
-  }
-
-  const rule = getSiteRule(pageUrl);
-  cachedSkipTextRegexpsUrl = pageUrl;
-  cachedSkipTextRegexps = [];
-  if (!rule?.skipTextPatterns) return cachedSkipTextRegexps;
-
-  for (const pattern of rule.skipTextPatterns) {
-    try {
-      cachedSkipTextRegexps.push(new RegExp(pattern, 'i'));
-    } catch {
-      console.warn(`[rules] invalid skipTextPatterns regex ignored: ${pattern}`);
-    }
-  }
-  return cachedSkipTextRegexps;
-}
-
 export function isValidText(
   text: string | undefined | null,
   pageUrl?: string
@@ -275,17 +237,19 @@ export function isValidText(
 
   // 站点特殊文本规则 (e.g. Reddit 的 Sentry chunk 列表)
   if (pageUrl) {
-    for (const pattern of getSkipTextRegexps(pageUrl)) {
-      if (pattern.test(trimmed)) return false;
+    const rule = getSiteRule(pageUrl);
+    if (rule?.skipTextPatterns) {
+      for (const pattern of rule.skipTextPatterns) {
+        try {
+          if (new RegExp(pattern, 'i').test(trimmed)) return false;
+        } catch {
+          // 无效正则静默忽略,不 crash 整个 extraction
+        }
+      }
     }
   }
 
   return true;
-}
-
-/** 测试用：重置 isValidText 统计 */
-export function resetValidTextPerf(): void {
-  // 兼容旧测试 API：运行时不再维护性能计数，避免热路径额外开销。
 }
 
 // =============================================================================
@@ -360,8 +324,7 @@ export function classifyChildren(el: Element): ChildClassification {
   let hasNonEmptyElement = false;
   let hasOnlyInlineChildren = true;
 
-  for (let i = 0; i < el.childNodes.length; i++) {
-    const child = el.childNodes[i];
+  for (const child of Array.from(el.childNodes)) {
     if (child.nodeType === 3 && child.textContent?.trim()) {
       hasDirectText = true;
       continue;
@@ -384,11 +347,6 @@ export function classifyChildren(el: Element): ChildClassification {
     hasNonEmptyElement,
     hasOnlyInlineChildren,
   };
-}
-
-/** 测试用：重置 classifyChildren 统计 */
-export function resetClassifyPerf(): void {
-  // 兼容旧测试 API：运行时不再维护性能计数，避免热路径额外开销。
 }
 
 // =============================================================================

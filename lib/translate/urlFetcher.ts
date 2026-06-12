@@ -60,12 +60,10 @@ export async function fetchPage(
     throw new Error(`fetch ${url} failed: HTTP ${response.status}`);
   }
 
-  const tText = performance.now();
   const html = await response.text();
 
   // linkedom 没有 `url` 选项 —— 自己手动设置 baseURI（影响 a.href 解析）。
   // parseHTML 返回的是 Window-like 对象的 defaultView；.document 拿 Document。
-  const tParse = performance.now();
   const { document } = parseHTML(html) as unknown as {
     document: Document;
   };

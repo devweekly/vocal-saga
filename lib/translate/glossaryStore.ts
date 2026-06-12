@@ -25,18 +25,14 @@ async function loadTerms(key: string): Promise<string[]> {
 }
 
 async function saveTerms(key: string, terms: string[]): Promise<void> {
-  const unique = normalizeTerms(terms);
+  // 去重 + 排序（保稳定）
+  const unique = Array.from(new Set(terms.map((t) => t.trim()).filter(Boolean))).sort();
   try {
     await getDefaultStorage().setJSON(key, unique);
   } catch (err) {
     console.warn(`[glossaryStore] save ${key} failed:`, (err as Error).message);
     throw err;
   }
-}
-
-// 去重 + 排序（保稳定），保存和 API 返回共用同一套规整逻辑。
-function normalizeTerms(terms: string[]): string[] {
-  return Array.from(new Set(terms.map((t) => t.trim()).filter(Boolean))).sort();
 }
 
 export interface Glossary {
@@ -54,32 +50,31 @@ export async function getGlossary(): Promise<Glossary> {
 
 export async function addUserTerms(terms: string[]): Promise<Glossary> {
   const existing = await loadTerms(USER_TERMS_KEY);
-  const merged = normalizeTerms([...existing, ...terms]);
+  const merged = Array.from(new Set([...existing, ...terms.map((t) => t.trim()).filter(Boolean)]));
   await saveTerms(USER_TERMS_KEY, merged);
-  return { user_terms: merged, document_terms: await loadTerms(DOC_TERMS_KEY) };
+  return getGlossary();
 }
 
 export async function removeUserTerm(term: string): Promise<Glossary> {
   const existing = await loadTerms(USER_TERMS_KEY);
-  const filtered = normalizeTerms(existing.filter((t) => t.toLowerCase() !== term.toLowerCase()));
+  const filtered = existing.filter((t) => t.toLowerCase() !== term.toLowerCase());
   await saveTerms(USER_TERMS_KEY, filtered);
-  return { user_terms: filtered, document_terms: await loadTerms(DOC_TERMS_KEY) };
+  return getGlossary();
 }
 
 export async function clearUserTerms(): Promise<Glossary> {
   await saveTerms(USER_TERMS_KEY, []);
-  return { user_terms: [], document_terms: await loadTerms(DOC_TERMS_KEY) };
+  return getGlossary();
 }
 
 export async function setDocumentTerms(terms: string[]): Promise<Glossary> {
-  const document_terms = normalizeTerms(terms);
-  await saveTerms(DOC_TERMS_KEY, document_terms);
-  return { user_terms: await loadTerms(USER_TERMS_KEY), document_terms };
+  await saveTerms(DOC_TERMS_KEY, terms);
+  return getGlossary();
 }
 
 export async function clearDocumentTerms(): Promise<Glossary> {
   await saveTerms(DOC_TERMS_KEY, []);
-  return { user_terms: await loadTerms(USER_TERMS_KEY), document_terms: [] };
+  return getGlossary();
 }
 
 /**

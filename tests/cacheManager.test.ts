@@ -154,43 +154,4 @@ describe('CacheManager', () => {
     await c.remove('key1');
     expect(await c.get<string>('key1')).toBeNull();
   });
-
-  it('evicts the least recently used memory entry when over limit', async () => {
-    const c = new CacheManager('test:lru', 1000, storage, 2);
-    await c.set('a', 'A');
-    await c.set('b', 'B');
-    expect(await c.get<string>('a')).toBe('A'); // 刷新 a，b 变成最旧
-    await c.set('c', 'C');
-
-    const stats = await c.getStats();
-    expect(stats.memorySize).toBe(2);
-    expect(await c.get<string>('a')).toBe('A');
-    expect(await c.get<string>('c')).toBe('C');
-    // b 被内存淘汰后仍可从持久层读回。
-    expect(await c.get<string>('b')).toBe('B');
-  });
-
-  it('deletes storage keys in bounded batches when clearing', async () => {
-    let runningDeletes = 0;
-    let maxRunningDeletes = 0;
-    const keys = Array.from({ length: 25 }, (_, i) => `cache:test:batched:k${i}`);
-    const slowStorage: StorageAdapter = {
-      get: async () => null,
-      getJSON: async () => null,
-      set: async () => {},
-      setJSON: async () => {},
-      list: async () => keys,
-      delete: async () => {
-        runningDeletes++;
-        maxRunningDeletes = Math.max(maxRunningDeletes, runningDeletes);
-        await new Promise((r) => setTimeout(r, 5));
-        runningDeletes--;
-      },
-    };
-
-    const c = new CacheManager('test:batched', 1000, slowStorage);
-    await c.clear();
-
-    expect(maxRunningDeletes).toBeLessThanOrEqual(10);
-  });
 });
