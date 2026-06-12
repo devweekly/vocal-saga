@@ -1,4 +1,4 @@
-name = "vocal-saga"
+name = "ss"
 main = "src/worker.ts"
 compatibility_date = "2026-05-26"
 compatibility_flags = ["nodejs_compat_v2"]
@@ -8,7 +8,7 @@ compatibility_flags = ["nodejs_compat_v2"]
 #   - logs.enabled: 全量 stdout/stderr 走 Workers Logs
 #   - logs.invocation_logs: 每次 invocation 记一行汇总（status / duration / region）
 #   - traces: 留空对象 = 默认 head-based 采样（10%），需要可显式 sampling_rate
-# 部署后在 CF Dashboard → Workers → vocal-saga.dal.workers.dev → Logs / Traces 里看。
+# 部署后在 CF Dashboard → Workers → ss.dal.workers.dev → Logs / Traces 里看。
 # 本地 `wrangler dev` 不受影响（dev mode 总是 tail 到本地终端）。
 [observability]
 [observability.logs]
