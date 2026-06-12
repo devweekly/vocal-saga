@@ -107,7 +107,7 @@ export function shouldSkipByClass(el: Element): boolean {
   _skipClassSumMs += performance.now() - t0;
   _skipClassCount++;
   if (_skipClassCount > 0 && _skipClassCount % 100 === 0) {
-    console.log(`[PERF]   shouldSkipByClass x${_skipClassCount} cum ${_skipClassSumMs.toFixed(1)}ms`);
+    console.log(`[PERF]   shouldSkipByClass x${_skipClassCount} cum ${Math.round(_skipClassSumMs * 1000)}µs`);
   }
 
   return result;
@@ -214,7 +214,7 @@ export function isElementHidden(el: Element): boolean {
   _hiddenSumMs += performance.now() - t0;
   _hiddenCount++;
   if (_hiddenCount > 0 && _hiddenCount % 100 === 0) {
-    console.log(`[PERF]   isElementHidden x${_hiddenCount} cum ${_hiddenSumMs.toFixed(1)}ms`);
+    console.log(`[PERF]   isElementHidden x${_hiddenCount} cum ${Math.round(_hiddenSumMs * 1000)}µs`);
   }
 
   return false;
@@ -291,7 +291,7 @@ export function isValidText(
   _isValidTextSumMs += performance.now() - t0;
   _isValidTextCount++;
   if (_isValidTextCount > 0 && _isValidTextCount % 100 === 0) {
-    console.log(`[PERF]   isValidText x${_isValidTextCount} cum ${_isValidTextSumMs.toFixed(1)}ms`);
+    console.log(`[PERF]   isValidText x${_isValidTextCount} cum ${Math.round(_isValidTextSumMs * 1000)}µs`);
   }
 
   return true;
@@ -400,7 +400,7 @@ export function classifyChildren(el: Element): ChildClassification {
   _classifySumMs += performance.now() - t0;
   _classifyCount++;
   if (_classifyCount > 0 && _classifyCount % 100 === 0) {
-    console.log(`[PERF]   classifyChildren x${_classifyCount} cum ${_classifySumMs.toFixed(1)}ms`);
+    console.log(`[PERF]   classifyChildren x${_classifyCount} cum ${Math.round(_classifySumMs * 1000)}µs`);
   }
 
   return {

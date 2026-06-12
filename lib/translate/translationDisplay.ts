@@ -49,8 +49,7 @@ export function applyBlockTranslation(
   node.appendChild(originalSpan);
   node.appendChild(translationSpan);
 
-  const id = node.getAttribute('data-fanyi-block-id') || '?';
-  console.log(`[PERF]   applyBlockTranslation(${id}) ${(performance.now() - t0).toFixed(1)}ms`);
+  // 单次 < 0.05ms，逐条打只会刷 0.0；汇总在 caller（pipeline.ts querySelectorTotal + applyTranslations）处。
 }
 
 export function restoreBlock(node: HTMLElement): void {

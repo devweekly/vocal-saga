@@ -35,7 +35,7 @@ import { fetchPage } from './urlFetcher';
 // =============================================================================
 
 function logCost(label: string, startMs: number): void {
-  console.log(`[PERF] ${label} ${(performance.now() - startMs).toFixed(1)}ms`);
+  console.log(`[PERF] ${label} ${Math.round((performance.now() - startMs) * 1000)}µs`);
 }
 
 // =============================================================================
@@ -284,7 +284,7 @@ export async function translateUrl(input: TranslateUrlInput): Promise<TranslateU
       applyBlockTranslation(el as unknown as HTMLElement, translated, mode);
     }
   }
-  console.log(`[PERF] querySelectorTotal ${queryMs.toFixed(1)}ms`); // 仅 querySelector 累计耗时
+  console.log(`[PERF] querySelectorTotal ${Math.round(queryMs * 1000)}µs`); // 仅 querySelector 累计耗时
   const tApplyEnd = performance.now();
   logCost('applyTranslations', tApply);   // 含 applyBlockTranslation + querySelector
 
@@ -320,7 +320,8 @@ export async function translateUrl(input: TranslateUrlInput): Promise<TranslateU
   logCost('serializeHTML', tSer);
 
   const logDuration = performance.now() - tFetch;
-  console.log(`[PERF] total ${logDuration.toFixed(1)}ms (fetch=${(tPrep - tFetch).toFixed(0)}ms, prep=${(tTrans - tPrep).toFixed(0)}ms, trans=${(tApply - tTrans).toFixed(0)}ms, apply=${(tApplyEnd - tApply).toFixed(0)}ms, ser=${(performance.now() - tSer).toFixed(0)}ms, querySel=${queryMs.toFixed(1)}ms)`);
+  function us(v: number): string { return `${Math.round(v * 1000)}µs`; }
+  console.log(`[PERF] total ${us(logDuration)} fetch=${us(tPrep - tFetch)} prep=${us(tTrans - tPrep)} trans=${us(tApply - tTrans)} apply=${us(tApplyEnd - tApply)} ser=${us(performance.now() - tSer)} querySel=${us(queryMs)}`);
 
   return {
     url: input.url,

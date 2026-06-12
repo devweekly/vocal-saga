@@ -4,7 +4,7 @@ export async function getCachedTranslation(cacheKey: string): Promise<Map<string
   const t0 = performance.now();
   const raw = await translationCache.get<Record<string, string>>(cacheKey);
   if (!raw) {
-    console.log(`[PERF]   getCachedTransaction(miss) ${(performance.now() - t0).toFixed(1)}ms`);
+    console.log(`[PERF]   getCachedTransaction(miss) ${Math.round((performance.now() - t0) * 1000)}µs`);
     return null;
   }
   
@@ -13,7 +13,7 @@ export async function getCachedTranslation(cacheKey: string): Promise<Map<string
   for (const [key, value] of Object.entries(raw)) {
     map.set(key, value);
   }
-  console.log(`[PERF]   getCachedTransaction(hit,${map.size}) ${(performance.now() - t0).toFixed(1)}ms`);
+  console.log(`[PERF]   getCachedTransaction(hit,${map.size}) ${Math.round((performance.now() - t0) * 1000)}µs`);
   return map;
 }
 
@@ -25,7 +25,7 @@ export async function cacheTranslation(cacheKey: string, data: Map<string, strin
     obj[key] = value;
   }
   await translationCache.set(cacheKey, obj, 7 * 24 * 60 * 60 * 1000);
-  console.log(`[PERF]   cacheTranslation(${cacheKey.substring(0, 30)}...,${Object.keys(obj).length} entries) ${(performance.now() - t0).toFixed(1)}ms`);
+  console.log(`[PERF]   cacheTranslation(${cacheKey.substring(0, 30)}...,${Object.keys(obj).length} entries) ${Math.round((performance.now() - t0) * 1000)}µs`);
 }
 
 export function processTranslationResult(jsonResult: string): Map<string, string> {
@@ -49,7 +49,7 @@ export function processTranslationResult(jsonResult: string): Map<string, string
     if (translated === null) continue;
     result.set(item.id, translated);
   }
-  console.log(`[PERF]   processTranslationResult(${result.size} blocks) ${(performance.now() - t0).toFixed(1)}ms`);
+  console.log(`[PERF]   processTranslationResult(${result.size} blocks) ${Math.round((performance.now() - t0) * 1000)}µs`);
   return result;
 }
 

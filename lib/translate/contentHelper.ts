@@ -123,11 +123,11 @@ export function prepareDocument(
   // 否则直接用 rootNode (linkedom / jsdom 的 Document 是不同 class，不能 instanceof)
   const tRoot = performance.now();
   const effectiveRoot = root.nodeType === 9 ? findArticleRoot(root as Document) : root;
-  console.log(`[PERF]   findArticleRoot ${(performance.now() - tRoot).toFixed(1)}ms`);
+  console.log(`[PERF]   findArticleRoot ${Math.round((performance.now() - tRoot) * 1000)}µs`);
 
   const tExtract = performance.now();
   const blocks = extractBlocks(effectiveRoot, pageUrl);
-  console.log(`[PERF]   extractBlocks ${(performance.now() - tExtract).toFixed(1)}ms (${blocks.length} blocks)`);
+  console.log(`[PERF]   extractBlocks ${Math.round((performance.now() - tExtract) * 1000)}µs (${blocks.length} blocks)`);
 
   if (blocks.length === 0) {
     throw new Error('No translatable content found');
@@ -137,9 +137,9 @@ export function prepareDocument(
 
   const tChunks = performance.now();
   const chunks = buildChunks(blocks);
-  console.log(`[PERF]   buildChunks ${(performance.now() - tChunks).toFixed(1)}ms (${chunks.length} chunks)`);
+  console.log(`[PERF]   buildChunks ${Math.round((performance.now() - tChunks) * 1000)}µs (${chunks.length} chunks)`);
 
-  console.log(`[PERF]   prepareDocument total ${(performance.now() - t0).toFixed(1)}ms`);
+  console.log(`[PERF]   prepareDocument total ${Math.round((performance.now() - t0) * 1000)}µs`);
 
   return { blocks, chunks, fullText };
 }

@@ -256,7 +256,7 @@ export function collectBlocks(
   // TreeWalker 不跨 shadow root 边界, 手动遍历 open shadow roots。
   collectFromShadowHosts(startNode, blocks, blockIdRef, seenTexts, pageUrl);
 
-  console.log(`[PERF]   collectBlocks ${(performance.now() - t0).toFixed(1)}ms (rejected=${counters.rejected} skipped=${counters.skipped} accepted=${counters.accepted})`);
+  console.log(`[PERF]   collectBlocks ${Math.round((performance.now() - t0) * 1000)}µs (rejected=${counters.rejected} skipped=${counters.skipped} accepted=${counters.accepted})`);
 
   return counters;
 }
@@ -389,10 +389,7 @@ export function getXPath(node: Node): string {
     parts.unshift(`${tag}[${index}]`);
     current = current.parentElement;
   }
-  const cost = performance.now() - t0;
-  if (cost > 1) {
-    console.log(`[PERF]   getXPath(${parts.join('/')}) ${cost.toFixed(1)}ms`);
-  }
+  // 单次 < 0.1ms 不单独打，collectBlocks 已汇总总耗时。
   return '/' + parts.join('/');
 }
 
@@ -406,10 +403,6 @@ export function getHeadingPath(block: Element): string[] {
     if (!prev) break;
     headings.unshift(prev.textContent?.trim() || '');
     current = prev;
-  }
-  const cost = performance.now() - t0;
-  if (cost > 1) {
-    console.log(`[PERF]   getHeadingPath(${headings.length} headings) ${cost.toFixed(1)}ms`);
   }
   return headings;
 }
