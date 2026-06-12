@@ -6,5 +6,6 @@ CREATE TABLE IF NOT EXISTS translations (
   source_lang TEXT DEFAULT 'en',
   target_lang TEXT DEFAULT 'zh',
   html TEXT NOT NULL,
-  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE(url, source_lang, target_lang)
 ) STRICT;

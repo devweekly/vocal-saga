@@ -88,15 +88,34 @@ export function createApp(storage?: StorageAdapter): Hono {
   // 每次 /translate/* 或 /s/* 成功后写入，/ 路由读取并展示。
   let lastTranslatedHtml: string | null = null;
 
-  // ── GET / — 展示上一次翻译的页面 ──────────────────────
-  app.get('/', (c) => {
+  // ── GET / — 展示最新一次翻译结果 ──────────────────────
+  app.get('/', async (c) => {
+    // 1) 内存快速路径（同一 isolate 内刚翻译过）
     if (lastTranslatedHtml) {
       return new Response(lastTranslatedHtml, {
         status: 200,
         headers: { 'Content-Type': 'text/html; charset=utf-8' },
       });
     }
-    // 还没有任何翻译记录，跳转到帮助页面
+    // 2) D1 持久化：取最新记录
+    const db = (c.env as any)?.DB999;
+    if (db) {
+      try {
+        const row: any = await db.prepare(
+          'SELECT html FROM translations ORDER BY id DESC LIMIT 1'
+        ).first();
+        if (row) {
+          lastTranslatedHtml = row.html;
+          return new Response(row.html, {
+            status: 200,
+            headers: { 'Content-Type': 'text/html; charset=utf-8' },
+          });
+        }
+      } catch (e) {
+        console.error('[D1] latest fetch error:', e);
+      }
+    }
+    // 3) 没有任何翻译记录，跳转到帮助页面
     return c.redirect('/help', 302);
   });
 
@@ -154,23 +173,23 @@ export function createApp(storage?: StorageAdapter): Hono {
     let targetUrl: string, headers: Record<string, string>;
 
     if (backend === 'cloudflare') {
-      if (!CF_ACCOUNT_ID || !CF_API_TOKEN) {
+      if (!CF_ACCOUNT_ID() || !CF_API_TOKEN()) {
         return c.json({ error: 'Cloudflare AI not configured' }, 500);
       }
-      targetUrl = `${CF_BASE}/v1/chat/completions`;
-      headers = { 'Authorization': `Bearer ${CF_API_TOKEN}`, 'Content-Type': 'application/json' };
+      targetUrl = `${CF_BASE()}/v1/chat/completions`;
+      headers = { 'Authorization': `Bearer ${CF_API_TOKEN()}`, 'Content-Type': 'application/json' };
     } else if (backend === 'nvidia') {
-      if (!NVIDIA_API_KEY) {
+      if (!NVIDIA_API_KEY()) {
         return c.json({ error: 'NVIDIA Build not configured' }, 500);
       }
       targetUrl = `${NVIDIA_BASE}/v1/chat/completions`;
-      headers = { 'Authorization': `Bearer ${NVIDIA_API_KEY}`, 'Accept': 'application/json', 'Content-Type': 'application/json' };
+      headers = { 'Authorization': `Bearer ${NVIDIA_API_KEY()}`, 'Accept': 'application/json', 'Content-Type': 'application/json' };
     } else if (backend === 'openrouter') {
-      if (!OPENROUTER_API_KEY) {
+      if (!OPENROUTER_API_KEY()) {
         return c.json({ error: 'OpenRouter not configured' }, 500);
       }
       targetUrl = `${OPENROUTER_BASE}/v1/chat/completions`;
-      headers = { 'Authorization': `Bearer ${OPENROUTER_API_KEY}`, 'Content-Type': 'application/json' };
+      headers = { 'Authorization': `Bearer ${OPENROUTER_API_KEY()}`, 'Content-Type': 'application/json' };
     } else {
       if (!DS_API_KEY()) {
         return c.json({ error: 'DeepSeek not configured' }, 500);
@@ -300,6 +319,33 @@ export function createApp(storage?: StorageAdapter): Hono {
     }
 
     console.log(`[translate/url-page] url=${url} src=${source || 'en'} tgt=${target} mode=${mode}`);
+
+    // ── D1 去重：同 URL+source+target 已存在则直接返回 ──
+    const db = (c.env as any)?.DB999;
+    const sourceStored = source || 'en';
+    if (db) {
+      try {
+        const existing: any = await db.prepare(
+          'SELECT html FROM translations WHERE url = ? AND source_lang = ? AND target_lang = ? LIMIT 1'
+        ).bind(url, sourceStored, target).first();
+        if (existing) {
+          console.log(`[translate/url-page] D1 cache hit for ${url}`);
+          lastTranslatedHtml = existing.html;
+          return new Response(existing.html, {
+            status: 200,
+            headers: {
+              'Content-Type': 'text/html; charset=utf-8',
+              'Cache-Control': 'public, max-age=3600',
+              'X-Translate-Source': 'd1-cache',
+            },
+          });
+        }
+      } catch (e) {
+        console.error('[D1] lookup error:', e);
+        // 查询失败不阻塞翻译，继续走正常流程
+      }
+    }
+
     try {
       // CF Workers HTTP 请求无 wall-clock 限制，只需每调用 DeepSeek
       // 的 15s timeout（deepseek.ts DEEPSEEK_TIMEOUT_MS）防 hung promise。
@@ -314,13 +360,12 @@ export function createApp(storage?: StorageAdapter): Hono {
       console.log(`[translate/url-page] blocks=${result.blocks} chunks=${result.chunks} duration=${result.duration_ms}ms`);
       // 缓存翻译结果，供 / 路由展示
       lastTranslatedHtml = result.html;
-      // 写入 D1（await 确保写入完成，D1 延迟 ~1-5ms 可忽略）
-      const db = (c.env as any)?.DB999;
+      // 写入 D1（同一 URL+source+target 再次请求时直接读，不再翻译）
       if (db) {
         try {
           await db.prepare(
-            'INSERT INTO translations (url, source_lang, target_lang, html) VALUES (?, ?, ?, ?)'
-          ).bind(url, source || 'en', target, result.html).run();
+            'INSERT OR IGNORE INTO translations (url, source_lang, target_lang, html) VALUES (?, ?, ?, ?)'
+          ).bind(url, sourceStored, target, result.html).run();
         } catch (e) {
           console.error('[D1] save error:', e);
         }
