@@ -85,15 +85,38 @@ function matchesSkipClass(token: string, pattern: string): boolean {
  * 是否因 class 命中 SKIP_CLASS_PATTERNS 而应跳过 (整棵子树拒绝)。
  * 跨站通用: 广告 / cookie / 推荐 / 弹窗 / 导航 等。
  */
+let _skipClassSumMs = 0;
+let _skipClassCount = 0;
+
 export function shouldSkipByClass(el: Element): boolean {
+  const t0 = performance.now();
+  let result = false;
   const tokens = tokenizeClass(el);
-  if (tokens.length === 0) return false;
-  for (const token of tokens) {
-    for (const pattern of SKIP_CLASS_PATTERNS) {
-      if (matchesSkipClass(token, pattern)) return true;
+  if (tokens.length > 0) {
+    for (const token of tokens) {
+      for (const pattern of SKIP_CLASS_PATTERNS) {
+        if (matchesSkipClass(token, pattern)) {
+          result = true;
+          break;
+        }
+      }
+      if (result) break;
     }
   }
-  return false;
+
+  _skipClassSumMs += performance.now() - t0;
+  _skipClassCount++;
+  if (_skipClassCount > 0 && _skipClassCount % 100 === 0) {
+    console.log(`[PERF]   shouldSkipByClass x${_skipClassCount} cum ${_skipClassSumMs.toFixed(1)}ms`);
+  }
+
+  return result;
+}
+
+/** 测试用：重置 shouldSkipByClass 统计 */
+export function resetSkipClassPerf(): void {
+  _skipClassSumMs = 0;
+  _skipClassCount = 0;
 }
 
 /**
@@ -150,8 +173,12 @@ export function shouldSkipBySiteRules(el: Element, pageUrl: string): boolean {
  *      的元素跳过 computed style 查), 见 _elementVisibilityMemo。
  */
 const _elementVisibilityMemo = new WeakSet<Element>();
+let _hiddenSumMs = 0;
+let _hiddenCount = 0;
 
 export function isElementHidden(el: Element): boolean {
+  const t0 = performance.now();
+
   // 已确认可见的, 不再查 (避免在子树中重复 layout)
   if (_elementVisibilityMemo.has(el)) return false;
 
@@ -183,6 +210,13 @@ export function isElementHidden(el: Element): boolean {
 
   // 标记可见, 后续子孙中的同元素 (e.g. 多个 walker visit 同一节点) 跳过
   _elementVisibilityMemo.add(el);
+
+  _hiddenSumMs += performance.now() - t0;
+  _hiddenCount++;
+  if (_hiddenCount > 0 && _hiddenCount % 100 === 0) {
+    console.log(`[PERF]   isElementHidden x${_hiddenCount} cum ${_hiddenSumMs.toFixed(1)}ms`);
+  }
+
   return false;
 }
 
@@ -210,10 +244,15 @@ export function isNonHTMLNamespace(el: Element): boolean {
  *   - 不是 Sentry / Webpack 元组列表
  *   - 不匹配站点规则的 skipTextPatterns
  */
+let _isValidTextSumMs = 0;
+let _isValidTextCount = 0;
+
 export function isValidText(
   text: string | undefined | null,
   pageUrl?: string
 ): boolean {
+  const t0 = performance.now();
+
   if (!text) return false;
 
   const trimmed = text.trim();
@@ -249,7 +288,19 @@ export function isValidText(
     }
   }
 
+  _isValidTextSumMs += performance.now() - t0;
+  _isValidTextCount++;
+  if (_isValidTextCount > 0 && _isValidTextCount % 100 === 0) {
+    console.log(`[PERF]   isValidText x${_isValidTextCount} cum ${_isValidTextSumMs.toFixed(1)}ms`);
+  }
+
   return true;
+}
+
+/** 测试用：重置 isValidText 统计 */
+export function resetValidTextPerf(): void {
+  _isValidTextSumMs = 0;
+  _isValidTextCount = 0;
 }
 
 // =============================================================================
@@ -319,7 +370,12 @@ export interface ChildClassification {
  *   - hasNonInlineChild=true → 容器,跳过 (子树会被独立处理)
  *   - 都没有 → 空容器,跳过
  */
+let _classifySumMs = 0;
+let _classifyCount = 0;
+
 export function classifyChildren(el: Element): ChildClassification {
+  const t0 = performance.now();
+
   let hasDirectText = false;
   let hasNonEmptyElement = false;
   let hasOnlyInlineChildren = true;
@@ -341,12 +397,24 @@ export function classifyChildren(el: Element): ChildClassification {
     }
   }
 
+  _classifySumMs += performance.now() - t0;
+  _classifyCount++;
+  if (_classifyCount > 0 && _classifyCount % 100 === 0) {
+    console.log(`[PERF]   classifyChildren x${_classifyCount} cum ${_classifySumMs.toFixed(1)}ms`);
+  }
+
   return {
     hasDirectText,
     hasNonInlineChild: !hasOnlyInlineChildren,
     hasNonEmptyElement,
     hasOnlyInlineChildren,
   };
+}
+
+/** 测试用：重置 classifyChildren 统计 */
+export function resetClassifyPerf(): void {
+  _classifySumMs = 0;
+  _classifyCount = 0;
 }
 
 // =============================================================================

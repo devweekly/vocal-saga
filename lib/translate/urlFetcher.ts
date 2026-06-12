@@ -60,13 +60,17 @@ export async function fetchPage(
     throw new Error(`fetch ${url} failed: HTTP ${response.status}`);
   }
 
+  const tText = performance.now();
   const html = await response.text();
+  console.log(`[PERF]   response.text ${(performance.now() - tText).toFixed(1)}ms (${html.length} bytes)`);
 
   // linkedom 没有 `url` 选项 —— 自己手动设置 baseURI（影响 a.href 解析）。
   // parseHTML 返回的是 Window-like 对象的 defaultView；.document 拿 Document。
+  const tParse = performance.now();
   const { document } = parseHTML(html) as unknown as {
     document: Document;
   };
+  console.log(`[PERF]   parseHTML ${(performance.now() - tParse).toFixed(1)}ms`);
   // finalUrl = 跟随重定向后的真实地址（response.url 在 fetch API 里就是这个）
   const finalUrl = response.url || url;
   try {

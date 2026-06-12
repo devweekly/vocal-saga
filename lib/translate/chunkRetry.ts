@@ -67,15 +67,18 @@ export function buildRetryChunk(
   parentChunk: Chunk,
   missingIds: string[],
 ): Chunk {
+  const t0 = performance.now();
   const retryBlocks = pickMissingBlocks(parentChunk.blocks, missingIds);
   const estimatedTokens = retryBlocks.reduce(
     (sum, b) => sum + Math.ceil(b.text.length / 4),
     0,
   );
+  const jsonContent = JSON.stringify(retryBlocks.map((b) => ({ id: b.id, text: b.text })));
+  console.log(`[PERF]   buildRetryChunk(${missingIds.length} missing, ${retryBlocks.length} blocks) ${(performance.now() - t0).toFixed(1)}ms`);
   return {
     id: `${parentChunk.id}_retry`,
     blocks: retryBlocks,
-    jsonContent: JSON.stringify(retryBlocks.map((b) => ({ id: b.id, text: b.text }))),
+    jsonContent,
     estimatedTokens,
   };
 }

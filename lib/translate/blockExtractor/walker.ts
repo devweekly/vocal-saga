@@ -241,6 +241,7 @@ export function collectBlocks(
   seenTexts: Set<string>,
   pageUrl: string
 ): WalkerCounters {
+  const t0 = performance.now();
   const counters = { rejected: 0, skipped: 0, accepted: 0 };
   // Per-walker WeakSet: 被 REJECT 的元素入表, 后代 O(1) 查表。
   // 随 DOM GC, 无内存泄漏。
@@ -254,6 +255,8 @@ export function collectBlocks(
 
   // TreeWalker 不跨 shadow root 边界, 手动遍历 open shadow roots。
   collectFromShadowHosts(startNode, blocks, blockIdRef, seenTexts, pageUrl);
+
+  console.log(`[PERF]   collectBlocks ${(performance.now() - t0).toFixed(1)}ms (rejected=${counters.rejected} skipped=${counters.skipped} accepted=${counters.accepted})`);
 
   return counters;
 }
@@ -371,6 +374,7 @@ export function getXPath(node: Node): string {
   if (node.nodeType === DOCUMENT_NODE_TYPE) return '';
   if (node.nodeType !== ELEMENT_NODE_TYPE) return '';
 
+  const t0 = performance.now();
   const parts: string[] = [];
   let current: Element | null = node as Element;
   while (current && current.nodeType === ELEMENT_NODE_TYPE) {
@@ -385,11 +389,16 @@ export function getXPath(node: Node): string {
     parts.unshift(`${tag}[${index}]`);
     current = current.parentElement;
   }
+  const cost = performance.now() - t0;
+  if (cost > 1) {
+    console.log(`[PERF]   getXPath(${parts.join('/')}) ${cost.toFixed(1)}ms`);
+  }
   return '/' + parts.join('/');
 }
 
 /** 获取元素的前置 heading 路径（兄弟/祖先链上最近的 h1-h6 文本列表）。 */
 export function getHeadingPath(block: Element): string[] {
+  const t0 = performance.now();
   const headings: string[] = [];
   let current: Element | null = block;
   while (current) {
@@ -397,6 +406,10 @@ export function getHeadingPath(block: Element): string[] {
     if (!prev) break;
     headings.unshift(prev.textContent?.trim() || '');
     current = prev;
+  }
+  const cost = performance.now() - t0;
+  if (cost > 1) {
+    console.log(`[PERF]   getHeadingPath(${headings.length} headings) ${cost.toFixed(1)}ms`);
   }
   return headings;
 }

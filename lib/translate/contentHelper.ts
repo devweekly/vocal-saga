@@ -116,18 +116,30 @@ export function prepareDocument(
   chunks: Chunk[];
   fullText: string;
 } {
+  const t0 = performance.now();
+
   // 优先使用文章容器，减少 TreeWalker 遍历范围
   // rootNode 是 Document 时找主文章容器 (article / main / [role=main])；
   // 否则直接用 rootNode (linkedom / jsdom 的 Document 是不同 class，不能 instanceof)
+  const tRoot = performance.now();
   const effectiveRoot = root.nodeType === 9 ? findArticleRoot(root as Document) : root;
+  console.log(`[PERF]   findArticleRoot ${(performance.now() - tRoot).toFixed(1)}ms`);
+
+  const tExtract = performance.now();
   const blocks = extractBlocks(effectiveRoot, pageUrl);
+  console.log(`[PERF]   extractBlocks ${(performance.now() - tExtract).toFixed(1)}ms (${blocks.length} blocks)`);
 
   if (blocks.length === 0) {
     throw new Error('No translatable content found');
   }
 
   const fullText = blocks.map((b) => b.text).join('\n\n');
+
+  const tChunks = performance.now();
   const chunks = buildChunks(blocks);
+  console.log(`[PERF]   buildChunks ${(performance.now() - tChunks).toFixed(1)}ms (${chunks.length} chunks)`);
+
+  console.log(`[PERF]   prepareDocument total ${(performance.now() - t0).toFixed(1)}ms`);
 
   return { blocks, chunks, fullText };
 }

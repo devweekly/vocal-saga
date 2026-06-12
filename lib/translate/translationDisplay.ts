@@ -17,6 +17,8 @@ export function applyBlockTranslation(
   translatedText: string,
   mode: TranslationMode
 ): void {
+  const t0 = performance.now();
+
   if (node.classList.contains('fanyi-translated')) {
     return;
   }
@@ -46,6 +48,9 @@ export function applyBlockTranslation(
 
   node.appendChild(originalSpan);
   node.appendChild(translationSpan);
+
+  const id = node.getAttribute('data-fanyi-block-id') || '?';
+  console.log(`[PERF]   applyBlockTranslation(${id}) ${(performance.now() - t0).toFixed(1)}ms`);
 }
 
 export function restoreBlock(node: HTMLElement): void {
