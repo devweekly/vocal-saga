@@ -52,23 +52,40 @@ function req(path: string, authKey = 'test-auth-key-123456'): Request {
   return new Request(`http://test${path}`, { headers });
 }
 
-describe('GET /force/<target> — requires auth', () => {
-  it('401 without Authorization header', async () => {
+describe('GET /force/<target> — no auth required', () => {
+  it('200 without Authorization header', async () => {
     const app = buildApp();
     const res = await app.request(new Request('http://test/force/example.com'));
-    expect(res.status).toBe(401);
+    expect(res.status).toBe(200);
   });
 
-  it('401 with wrong auth key', async () => {
-    const app = buildApp();
-    const res = await app.request(req('/force/example.com', 'wrong-key'));
-    expect(res.status).toBe(401);
-  });
-
-  it('200 with valid auth key', async () => {
+  it('200 with auth key', async () => {
     const app = buildApp();
     const res = await app.request(req('/force/example.com'));
     expect(res.status).toBe(200);
+  });
+});
+
+describe('GET /force/<target> — rate limiting', () => {
+  it('429 on second request within 1 minute', async () => {
+    const app = buildApp();
+    // 第一次请求成功
+    const res1 = await app.request(new Request('http://test/force/example.com'));
+    expect(res1.status).toBe(200);
+    // 第二次请求被限流
+    const res2 = await app.request(new Request('http://test/force/example.com'));
+    expect(res2.status).toBe(429);
+    const body = await res2.json() as { error: string };
+    expect(body.error).toMatch(/Rate limit/);
+  });
+
+  it('429 response includes retry-after info', async () => {
+    const app = buildApp();
+    await app.request(new Request('http://test/force/other.com'));
+    const res = await app.request(new Request('http://test/force/other.com'));
+    expect(res.status).toBe(429);
+    const body = await res.json() as { error: string };
+    expect(body.error).toMatch(/Retry after \d+s/);
   });
 });
 
