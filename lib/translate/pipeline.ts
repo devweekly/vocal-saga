@@ -290,9 +290,7 @@ export async function translateUrl(input: TranslateUrlInput): Promise<TranslateU
   const tApplyEnd = performance.now();
   logCost('applyTranslations', tApply);   // 含 applyBlockTranslation + querySelectorAll
 
-  // 序列化为 HTML（去掉 <script> 减少泄露）
   const tSer = performance.now();
-  page.doc.querySelectorAll('script').forEach((s) => s.remove());
 
   // 把相对 URL 转绝对 URL（先注入的 style 里没有 URL，安全放在最后一步做）
   const baseUrl = page.finalUrl.replace(/\/?$/, '/');

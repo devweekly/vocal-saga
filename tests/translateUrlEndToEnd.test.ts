@@ -81,8 +81,8 @@ describe('translateUrl — end-to-end with linkedom', () => {
     expect(result.html).toContain('[zh]');
     // 双语回填：原始段落应被 .fanyi-translation 包裹
     expect(result.html).toContain('fanyi-translation');
-    // script 标签已被移除
-    expect(result.html).not.toContain('alert(');
+    // script 全部保留（页面 CSS 变量依赖内联 JS）
+    expect(result.html).toContain('<script>alert');
     // 注入了双语显示用的 style
     expect(result.html).toContain('fanyi-bilingual-styles');
     expect(result.blocks).toBeGreaterThan(0);
