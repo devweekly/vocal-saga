@@ -1,18 +1,23 @@
 /**
  * Cloudflare Workers 入口。
  *
+ * 路由策略：所有请求先经 Hono，Hono 返回 404 时再交给 ASSETS 兜底（静态文件）。
  * 和 Pages Functions (`functions/api/[[path]].ts`) 的差别：
  *   - Pages 用 `export const onRequest`，Workers 用 `export default { fetch }`
- *   - 静态文件走 [assets] binding，路径匹配的（如 /index.html, /translate.html）
- *     由 Cloudflare edge 直接返回，不进 Worker。
- *     默认会自动去掉 .html 扩展名：访问 /translate 和 /translate.html 等价。
+ *   - 静态文件通过 env.ASSETS.fetch 获取，而非 Cloudflare edge 直接返回
+ *     （因为 Hono 需要处理 /, /:id, /s/*, /translate/* 等动态路由）
  *
- * 路由分配：
- *   - /api/*                              → Hono
+ * 路由分配（由 Hono 内部处理）：
+ *   - /api/*                              → Hono（需 Authorization header）
  *   - /translate/<target-without-scheme>  → Hono（抓取 + 翻译，公开）
- *   - 其他（含 /, /translate, /translate.html）→ env.ASSETS.fetch
+ *   - /s/<shorthand>                      → Hono（简写域名入口）
+ *   - /                                   → Hono（最新翻译结果）
+ *   - /<id> （纯数字）                    → Hono（从 D1 取第 N 次翻译结果）
+ *   - 其他（含 /help, /translate.html）  → Hono 404 → ASSETS fetch
  *
- * 静态文件匹配不到的路径才会进入 Worker。
+ * 为什么不让 Cloudflare edge 直接返回静态文件：
+ *   wrangler dev 的 [assets] 实现不能保证所有动态路由（/、/:id、/s/*）
+ *   正确落到 Worker；统一走 Hono 后按 404 fallback 最可靠。
  */
 
 /// <reference types="@cloudflare/workers-types" />
@@ -42,30 +47,27 @@ function getApp(env: Env): Hono {
  *   - 只复制字符串值（KV / ASSETS binding 这种对象不复制）
  *   - 只在缺失时设置，避免覆盖 CI 注入
  */
+let _envInjected = false;
+
 function injectEnv(env: Env): void {
+  if (_envInjected) return;
   for (const [k, v] of Object.entries(env)) {
     if (typeof v === 'string' && !process.env[k]) {
       process.env[k] = v;
     }
   }
+  _envInjected = true;
 }
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
-    const url = new URL(request.url);
-
-    // 动态路由：API + URL 翻译入口都进 Hono
-    const isApi = url.pathname.startsWith('/api/');
-    // /translate/<anything-non-empty> 走 Hono（抓取 + 翻译）
-    const isTranslateDyn = url.pathname.startsWith('/translate/');
-    if (isApi || isTranslateDyn) {
-      injectEnv(env);
-      return getApp(env).fetch(request, env);
+    injectEnv(env);
+    const app = getApp(env);
+    const res = await app.fetch(request, env);
+    // Hono 返回 404 时回退到 ASSETS 静态文件
+    if (res.status === 404 && env.ASSETS) {
+      return env.ASSETS.fetch(request);
     }
-
-    // 其他路径（含 /, /translate, /translate.html, 任何不存在的路径）
-    // 交给 Assets binding：命中文件就发，命中不了就 404。
-    // 裸 /translate / /translate/ 走 public/translate.html
-    return env.ASSETS.fetch(request);
+    return res;
   },
 };
