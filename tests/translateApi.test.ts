@@ -18,6 +18,7 @@ vi.mock('../lib/translate/cacheManager', () => ({
 import {
   processTranslationResult,
   logUnchangedBlocks,
+  processTranslationWithCheck,
   getCachedTranslation,
   cacheTranslation,
   clearAllCache,
@@ -293,5 +294,100 @@ describe('clearAllCache', () => {
   it('throws if cache clear fails', async () => {
     mockCache.clear.mockRejectedValueOnce(new Error('Storage error'));
     await expect(clearAllCache()).rejects.toThrow('Storage error');
+  });
+});
+
+describe('processTranslationWithCheck', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('parses JSON and returns Map without originalBlocks', () => {
+    const json = JSON.stringify({
+      translations: [
+        { id: 'b1', translated_text: '你好' },
+        { id: 'b2', translated_text: '世界' },
+      ],
+    });
+    const result = processTranslationWithCheck(json);
+    expect(result.get('b1')).toBe('你好');
+    expect(result.get('b2')).toBe('世界');
+  });
+
+  it('parses JSON and returns Map with originalBlocks', () => {
+    const json = JSON.stringify({
+      translations: [
+        { id: 'b1', translated_text: '你好' },
+        { id: 'b2', translated_text: '世界' },
+      ],
+    });
+    const original = [
+      { id: 'b1', text: 'hello' },
+      { id: 'b2', text: 'world' },
+    ];
+    const result = processTranslationWithCheck(json, original);
+    expect(result.get('b1')).toBe('你好');
+    expect(result.get('b2')).toBe('世界');
+  });
+
+  it('warns when a block came back unchanged', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const json = JSON.stringify({ translations: [{ id: 'b1', translated_text: 'hello' }] });
+    const original = [{ id: 'b1', text: 'hello' }];
+    processTranslationWithCheck(json, original);
+    expect(warn).toHaveBeenCalled();
+    const allArgs = warn.mock.calls.flat().map(String).join(' | ');
+    expect(allArgs).toContain('b1');
+    warn.mockRestore();
+  });
+
+  it('errors when every block came back unchanged', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const json = JSON.stringify({
+      translations: [
+        { id: 'b1', translated_text: 'hello' },
+        { id: 'b2', translated_text: 'world' },
+      ],
+    });
+    const original = [
+      { id: 'b1', text: 'hello' },
+      { id: 'b2', text: 'world' },
+    ];
+    processTranslationWithCheck(json, original);
+    expect(err).toHaveBeenCalled();
+    expect(String(err.mock.calls[0]?.[0])).toMatch(/ALL/);
+    warn.mockRestore();
+    err.mockRestore();
+  });
+
+  it('warns when response is missing blocks from the input', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const json = JSON.stringify({ translations: [{ id: 'b1', translated_text: '你好' }] });
+    const original = [
+      { id: 'b1', text: 'hello' },
+      { id: 'b2', text: 'world' },
+    ];
+    processTranslationWithCheck(json, original);
+    const allArgs = warn.mock.calls.flat().map(String).join(' | ');
+    expect(allArgs).toMatch(/missing/);
+    warn.mockRestore();
+  });
+
+  it('accepts text field as fallback', () => {
+    const json = JSON.stringify({
+      translations: [
+        { id: 'b1', text: '你好' },
+        { id: 'b2', text: '世界' },
+      ],
+    });
+    const result = processTranslationWithCheck(json);
+    expect(result.size).toBe(2);
+    expect(result.get('b1')).toBe('你好');
+    expect(result.get('b2')).toBe('世界');
+  });
+
+  it('throws on invalid JSON', () => {
+    expect(() => processTranslationWithCheck('not json')).toThrow();
   });
 });

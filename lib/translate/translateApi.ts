@@ -128,6 +128,94 @@ export function logUnchangedBlocks(
   return rawJson;
 }
 
+/**
+ * 组合函数：一次 JSON.parse 完成 processTranslationResult + logUnchangedBlocks。
+ * 避免同一 rawJson 被 parse 两次（原流程：deepseek.ts logUnchangedBlocks → pipeline.ts processTranslationResult）。
+ *
+ * @param jsonResult  LLM 返回的原始 JSON 字符串
+ * @param originalBlocks  原始输入 blocks（可选，传了就做 unchanged 检测）
+ * @returns Map<id, translatedText>
+ */
+export function processTranslationWithCheck(
+  jsonResult: string,
+  originalBlocks?: Array<{ id: string; text: string }>
+): Map<string, string> {
+  const parsed = JSON.parse(jsonResult);
+  const translations = parsed.translations || parsed;
+  const result = new Map<string, string>();
+
+  // 用于 unchanged 检测
+  const byId = originalBlocks ? new Map(originalBlocks.map((b) => [b.id, b.text])) : null;
+  const seenIds = new Set<string>();
+  let unchanged = 0;
+  let extraIds = 0;
+
+  for (const item of translations) {
+    if (typeof item?.id !== 'string') continue;
+    const translated =
+      typeof item.translated_text === 'string'
+        ? item.translated_text
+        : typeof item.text === 'string'
+        ? item.text
+        : typeof item.translation === 'string'
+        ? item.translation
+        : null;
+    if (translated === null) continue;
+    result.set(item.id, translated);
+
+    // unchanged 检测
+    if (byId) {
+      seenIds.add(item.id);
+      const original = byId.get(item.id);
+      if (original === undefined) {
+        extraIds++;
+        continue;
+      }
+      if (translated === original) {
+        unchanged++;
+        console.warn(
+          '[TranslateApi] Block',
+          item.id,
+          'came back unchanged (LLM refused / no-op). Original:',
+          original.substring(0, 80)
+        );
+      }
+    }
+  }
+
+  // 输出 unchanged 统计
+  if (byId && originalBlocks) {
+    const inputMissing = originalBlocks.length - seenIds.size;
+    const totalMissing = extraIds + inputMissing;
+    const total = originalBlocks.length;
+    if (total > 0 && unchanged === translations.length) {
+      console.error(
+        '[TranslateApi] ALL',
+        translations.length,
+        'translated blocks came back unchanged — prompt may be too weak or content was filtered'
+      );
+    } else if (totalMissing > 0) {
+      console.warn(
+        '[TranslateApi]',
+        totalMissing,
+        'blocks missing from response (input had',
+        total,
+        'blocks)'
+      );
+    } else if (unchanged > 0) {
+      console.warn(
+        '[TranslateApi]',
+        unchanged,
+        '/',
+        translations.length,
+        'blocks returned unchanged'
+      );
+    }
+  }
+
+  return result;
+}
+
 export async function clearAllCache(): Promise<void> {
   await translationCache.clear();
 }

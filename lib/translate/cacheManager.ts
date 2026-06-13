@@ -27,6 +27,8 @@ export class CacheManager {
   private memoryCache = new Map<string, CacheEntry<any>>();
   private _storage: StorageAdapter | null = null;
   private prefix: string;
+  /** 内存缓存最大条目数，超过时淘汰最早插入的 20% */
+  private readonly maxMemoryEntries: number;
   /**
    * 延迟到首次访问再解析 storage。原因：CF Workers/Pages 在 isolate 启动时
    * 就会 eager 加载模块（早于首个请求），而 platform shim 里的 setDefaultStorage
@@ -43,9 +45,11 @@ export class CacheManager {
     private storeName: string,
     private defaultTTL = 24 * 60 * 60 * 1000,
     storage?: StorageAdapter,
+    maxMemoryEntries = 500,
   ) {
     this._storage = storage ?? null;
     this.prefix = `cache:${storeName}:`;
+    this.maxMemoryEntries = maxMemoryEntries;
   }
 
   async get<T>(key: string): Promise<T | null> {
@@ -84,6 +88,7 @@ export class CacheManager {
     };
 
     this.memoryCache.set(key, entry);
+    this.evictIfNeeded();
 
     try {
       await this.storage.setJSON(this.prefix + key, entry);
@@ -128,6 +133,18 @@ export class CacheManager {
 
   private isExpired(entry: CacheEntry<any>): boolean {
     return Date.now() - entry.timestamp > entry.ttl;
+  }
+
+  /** 超过 maxMemoryEntries 时淘汰最早插入的 20%（Map 保持插入顺序） */
+  private evictIfNeeded(): void {
+    if (this.memoryCache.size <= this.maxMemoryEntries) return;
+    const toDelete = Math.ceil(this.maxMemoryEntries * 0.2);
+    let deleted = 0;
+    for (const key of this.memoryCache.keys()) {
+      if (deleted >= toDelete) break;
+      this.memoryCache.delete(key);
+      deleted++;
+    }
   }
 }
 

@@ -23,7 +23,7 @@ import { globalQueue } from './translationQueue';
 import {
   cacheTranslation,
   getCachedTranslation,
-  processTranslationResult,
+  processTranslationWithCheck,
 } from './translateApi';
 import { generateTranslationCacheKey } from './cacheKey';
 import { DeepSeekTranslationService } from './service/deepseek';
@@ -69,7 +69,8 @@ async function translateChunk(
   );
   logCost(`Chunk ${chunk.id} translate`, tChunk);
 
-  const result = processTranslationResult(raw);
+  // 一次 parse 完成 result 提取 + unchanged 检测（原流程 parse 两次）
+  const result = processTranslationWithCheck(raw, chunk.blocks.map((b) => ({ id: b.id, text: b.text })));
 
   // 3) 缓存（仅首次）
   if (!isRetry) {
@@ -268,25 +269,26 @@ export async function translateUrl(input: TranslateUrlInput): Promise<TranslateU
   );
   logCost('translateChunks', tTrans);
 
-  // 回填：jsdom 写回原 Document（保留所有 children，只 wrap 一个 .fanyi-translation）
+  // 回填：一次性 querySelectorAll 建 Map → O(1) 查找（原实现 O(blocks × N)）
   const tApply = performance.now();
   const { applyBlockTranslation } = await import('./translationDisplay');
-  let queryMs = 0;
+  const blockMap = new Map<string, Element>();
+  page.doc.querySelectorAll('[data-fanyi-block-id]').forEach((el) => {
+    const id = el.getAttribute('data-fanyi-block-id');
+    if (id) blockMap.set(id, el);
+  });
   for (const block of blocks) {
     const translated = translations.get(block.id);
     if (!translated) continue;
-    const tQ = performance.now();
-    const el = page.doc.querySelector(`[data-fanyi-block-id="${block.id}"]`);
-    queryMs += performance.now() - tQ;
+    const el = blockMap.get(block.id);
     // linkedom 的节点 instanceof jsdom.Element = false，统一用 nodeType 判别；
     // 这里任何 data-fanyi-block-id 节点都是 grabNode 出来的 Element，可信。
     if (el && (el as Node).nodeType === 1) {
       applyBlockTranslation(el as unknown as HTMLElement, translated, mode);
     }
   }
-  console.log(`[PERF] querySelectorTotal ${Math.round(queryMs * 1000)}µs`); // 仅 querySelector 累计耗时
   const tApplyEnd = performance.now();
-  logCost('applyTranslations', tApply);   // 含 applyBlockTranslation + querySelector
+  logCost('applyTranslations', tApply);   // 含 applyBlockTranslation + querySelectorAll
 
   // 序列化为 HTML（去掉 <script> 减少泄露）
   const tSer = performance.now();
@@ -348,7 +350,7 @@ export async function translateUrl(input: TranslateUrlInput): Promise<TranslateU
 
   const logDuration = performance.now() - tFetch;
   function us(v: number): string { return `${Math.round(v * 1000)}µs`; }
-  console.log(`[PERF] total ${us(logDuration)} fetch=${us(tPrep - tFetch)} prep=${us(tTrans - tPrep)} trans=${us(tApply - tTrans)} apply=${us(tApplyEnd - tApply)} ser=${us(performance.now() - tSer)} querySel=${us(queryMs)}`);
+  console.log(`[PERF] total ${us(logDuration)} fetch=${us(tPrep - tFetch)} prep=${us(tTrans - tPrep)} trans=${us(tApply - tTrans)} apply=${us(tApplyEnd - tApply)} ser=${us(performance.now() - tSer)}`);
 
   return {
     url: input.url,

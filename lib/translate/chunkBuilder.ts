@@ -11,8 +11,27 @@ const MAX_INPUT_TOKENS = 500000;
 const TARGET_TOKENS = 800;
 const WARMUP_TARGET_TOKENS = 400;
 
+/**
+ * 估算 token 数：CJK 字符约 0.5 tokens/char，拉丁文约 0.25 tokens/char。
+ * 原实现 text.length/4 对中文严重低估，导致 chunk 过大 → API 截断 → 重试。
+ */
 function estimateTokens(text: string): number {
-  return Math.ceil(text.length / 4);
+  let cjkChars = 0;
+  let otherChars = 0;
+  for (const ch of text) {
+    const code = ch.codePointAt(0)!;
+    if (
+      (code >= 0x4e00 && code <= 0x9fff) ||   // CJK Unified
+      (code >= 0x3040 && code <= 0x309f) ||   // Hiragana
+      (code >= 0x30a0 && code <= 0x30ff) ||   // Katakana
+      (code >= 0xac00 && code <= 0xd7af)      // Hangul
+    ) {
+      cjkChars++;
+    } else {
+      otherChars++;
+    }
+  }
+  return Math.ceil(cjkChars * 0.5 + otherChars * 0.25);
 }
 
 function buildJsonContent(blocks: TextBlock[]): string {

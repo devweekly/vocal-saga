@@ -154,4 +154,72 @@ describe('CacheManager', () => {
     await c.remove('key1');
     expect(await c.get<string>('key1')).toBeNull();
   });
+
+  // --- LRU eviction ---
+
+  it('evicts oldest entries when exceeding maxMemoryEntries', async () => {
+    const c = new CacheManager('test:lru', 1000, storage, 5);
+    // 填满 5 个
+    for (let i = 0; i < 5; i++) {
+      await c.set(`key${i}`, `value${i}`);
+    }
+    const stats1 = await c.getStats();
+    expect(stats1.memorySize).toBe(5);
+
+    // 第 6 个触发淘汰（删最早 20% = 1 个）
+    await c.set('key5', 'value5');
+    const stats2 = await c.getStats();
+    // 内存大小应 <= 5（淘汰后）
+    expect(stats2.memorySize).toBeLessThanOrEqual(5);
+    // key0 不应在内存中（但可能在 storage 里）
+    // 通过 stats 检查内存大小而非 get（get 会回源 storage）
+    expect(stats2.memorySize).toBeLessThanOrEqual(5);
+  });
+
+  it('preserves newer entries after eviction', async () => {
+    const c = new CacheManager('test:lru2', 1000, storage, 5);
+    for (let i = 0; i < 5; i++) {
+      await c.set(`key${i}`, `value${i}`);
+    }
+    await c.set('key5', 'value5');
+
+    // key5（最新）应该保留
+    expect(await c.get<string>('key5')).toBe('value5');
+    // key4（较新）应该保留
+    expect(await c.get<string>('key4')).toBe('value4');
+  });
+
+  it('does not evict when under maxMemoryEntries', async () => {
+    const c = new CacheManager('test:lru3', 1000, storage, 10);
+    for (let i = 0; i < 5; i++) {
+      await c.set(`key${i}`, `value${i}`);
+    }
+    const stats = await c.getStats();
+    expect(stats.memorySize).toBe(5);
+    // 没有淘汰，所有 key 都还在
+    for (let i = 0; i < 5; i++) {
+      expect(await c.get<string>(`key${i}`)).toBe(`value${i}`);
+    }
+  });
+
+  it('uses default maxMemoryEntries when not specified', async () => {
+    const c = new CacheManager('test:lru4', 1000, storage);
+    // 默认 500，写 10 个不会触发淘汰
+    for (let i = 0; i < 10; i++) {
+      await c.set(`key${i}`, `value${i}`);
+    }
+    const stats = await c.getStats();
+    expect(stats.memorySize).toBe(10);
+  });
+
+  it('eviction removes ~20% of entries', async () => {
+    const c = new CacheManager('test:lru5', 1000, storage, 10);
+    for (let i = 0; i < 10; i++) {
+      await c.set(`key${i}`, `value${i}`);
+    }
+    // 第 11 个触发淘汰，应该删除 ceil(10 * 0.2) = 2 个
+    await c.set('key10', 'value10');
+    const stats = await c.getStats();
+    expect(stats.memorySize).toBeLessThanOrEqual(9);
+  });
 });
