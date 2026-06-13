@@ -203,6 +203,65 @@ describe('prepareDocument', () => {
     expect(fullText).not.toContain('Footer');
   });
 
+  it('expands multiple .u-rich-text-blog siblings (Webflow real-world layout)', () => {
+    // claude.com/blog 的真实结构：文章内容被拆到多个 .u-rich-text-blog 容器，
+    // 分布在 .blog_post_wrap 的三个 .blog_post_layout 兄弟节点中。
+    // querySelector('.u-rich-text-blog') 只返回第一个，expandIfFragmented
+    // 必须向上展开到 .blog_post_wrap 才能覆盖全部内容。
+    document.body.innerHTML = `
+      <main>
+        <section class="hero_blog_post_wrap">
+          <p>Hero section（不应被提取）</p>
+        </section>
+        <section class="blog_post_section_wrap u-section">
+          <div class="blog_post_contain u-container">
+            <div class="blog_post_component">
+              <div class="blog_post_wrap u-grid-custom">
+                <div class="blog_post_layout u-column-custom">
+                  <div class="blog_post_content_wrap">
+                    <div class="u-rich-text-blog u-margin-trim w-richtext">
+                      <h2>What are skills?</h2>
+                      <p>Skills are folders of instructions, scripts, and resources.</p>
+                    </div>
+                  </div>
+                </div>
+                <div class="blog_post_layout u-column-custom is-cc">
+                  <div class="blog_post_content_wrap">
+                    <div class="u-rich-text-blog u-margin-trim w-richtext">
+                      <h2>Types of skills</h2>
+                      <p>After cataloging all of our internal skills at Anthropic, we noticed they cluster into nine categories.</p>
+                      <h3>Research skills</h3>
+                      <p>Research skills help Claude find and synthesize information.</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+        <section class="blog_related_section_wrap">
+          <p>Related posts（不应被提取）</p>
+        </section>
+      </main>
+    `;
+
+    const { fullText, blocks } = prepareDocument(document, "https://claude.com/blog/test");
+
+    // 第一个 .u-rich-text-blog 的内容
+    expect(fullText).toContain('What are skills?');
+    expect(fullText).toContain('Skills are folders of instructions');
+    // 第二个 .u-rich-text-blog 的内容（之前被漏掉的部分）
+    expect(fullText).toContain('Types of skills');
+    expect(fullText).toContain('After cataloging all of our internal skills');
+    expect(fullText).toContain('Research skills');
+    expect(fullText).toContain('Research skills help Claude');
+    // 不应包含 hero 和 related posts
+    expect(fullText).not.toContain('Hero section');
+    expect(fullText).not.toContain('Related posts');
+    // 应包含两个 .u-rich-text-blog 的全部 content block
+    expect(blocks.length).toBeGreaterThanOrEqual(6);
+  });
+
   it('should refine to .post-content inside <article> (Jane Street)', () => {
     // Jane Street blog: <article> 包含 .post-header + .post-content + .bios-container
     // 需要下钻到 .post-content 只取正文

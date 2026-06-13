@@ -104,11 +104,65 @@ function refineArticleRoot(candidate: Element): Element {
   return candidate;
 }
 
+/**
+ * Webflow 等 CMS 常把一篇博客拆到多个 .u-rich-text-blog / .rich-text 容器。
+ * 第一个命中后只覆盖开篇，后续内容在同级兄弟容器中。
+ *
+ * 策略：逐层向上检查 ancestor 是否包含其他有实质文本的兄弟节点。
+ * 如果有（且 ancestor 不是 nav/body/main），说明当前元素只是碎片，
+ * 向上扩展到该 ancestor。
+ */
+function expandIfFragmented(el: Element): Element {
+  let current: Element = el;
+  const MAX_UP = 6;
+  for (let i = 0; i < MAX_UP; i++) {
+    const parent = current.parentElement;
+    if (!parent) break;
+
+    const tag = parent.tagName.toLowerCase();
+    if (tag === 'body' || tag === 'html' || tag === 'main') break;
+
+    const classes = `${parent.className || ''} ${parent.id || ''}`;
+    if (/nav|menu|sidebar|footer|header|comment|widget/i.test(classes)) break;
+
+    const parentLen = (parent.textContent || '').trim().length;
+    const currentLen = (current.textContent || '').trim().length;
+
+    // 纯包装层（文本相同），穿过它继续向上
+    if (parentLen <= currentLen) {
+      current = parent;
+      continue;
+    }
+
+    // parent 有额外文本：检查是否来自有实质内容的兄弟节点
+    const siblings = Array.from(parent.children).filter((c) => c !== current);
+    const hasRichSibling = siblings.some(
+      (s) => (s.textContent || '').trim().length > 200,
+    );
+    if (!hasRichSibling) break;
+
+    current = parent;
+    // 继续向上，可能需要进一步展开
+  }
+  return current;
+}
+
 function findArticleRoot(doc: Document): Element {
   // Layer 1: 选择器快速匹配（处理已知站点）
   for (const selector of ARTICLE_SELECTORS) {
     const el = doc.querySelector(selector);
-    if (el) return refineArticleRoot(el);
+    if (el) {
+      const refined = refineArticleRoot(el);
+      // 如果 refine 后只覆盖碎片内容（如 Webflow 多个 .u-rich-text-blog），
+      // 自动向上展开到包含所有片段的最近祖先
+      const expanded = expandIfFragmented(refined);
+      if (expanded !== refined) {
+        console.log(
+          `[ContentHelper] Expanded from <${refined.tagName}> .${(refined.className || '').slice(0, 40)} to <${expanded.tagName}> .${(expanded.className || '').slice(0, 40)}`,
+        );
+      }
+      return expanded;
+    }
   }
 
   // Layer 2: 智能评分（处理未知站点）
