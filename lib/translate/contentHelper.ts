@@ -1,5 +1,6 @@
 import { extractBlocks, type TextBlock } from './blockExtractor';
 import { buildChunks, type Chunk } from './chunkBuilder';
+import { detectArticleRoot } from './contentDetector';
 
 // 优先级：先 class 后标签，先更具体的子容器再更通用的包裹元素。
 // 像 bankingdive.com 把 <article> 用作整页 wrapper、正文放在
@@ -11,15 +12,17 @@ const ARTICLE_SELECTORS = [
   '.article-text',
   '.story-body',
   '.story-content',
+  '.u-rich-text-blog',        // Webflow blog rich text (claude.com)
+  '.rich-text',               // Generic rich text wrapper
+  '.post-content',            // Common blog CMS (Jane Street, Hugo, Jekyll)
+  '.entry-content',           // WordPress
+  '.page-content',
   'article',
   '[role="article"]',
   '[role="main"]',
   'main',
   '.main-content',
   '.content-body',
-  '.post-content',
-  '.entry-content',
-  '.page-content',
 ];
 
 /**
@@ -57,6 +60,7 @@ function refineArticleRoot(candidate: Element): Element {
     '.article-text',
     '.story-body',
     '.story-content',
+    '.post-content',            // Jane Street, Hugo, Jekyll
   ];
 
   if (SPECIFIC_SELECTORS.some((sel) => candidate.matches?.(sel))) {
@@ -101,10 +105,17 @@ function refineArticleRoot(candidate: Element): Element {
 }
 
 function findArticleRoot(doc: Document): Element {
+  // Layer 1: 选择器快速匹配（处理已知站点）
   for (const selector of ARTICLE_SELECTORS) {
     const el = doc.querySelector(selector);
     if (el) return refineArticleRoot(el);
   }
+
+  // Layer 2: 智能评分（处理未知站点）
+  const detected = detectArticleRoot(doc);
+  if (detected) return detected;
+
+  // Layer 3: 兜底
   return doc.body || doc.documentElement;
 }
 

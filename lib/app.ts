@@ -283,9 +283,10 @@ export function createApp(storage?: StorageAdapter): Hono {
   });
 
   /**
-   * 公共翻译 handler，供 /translate/* 和 /s/* 使用。
+   * 公共翻译 handler，供 /translate/*、/s/*、/force/* 使用。
+   * @param force 跳过 D1 缓存，强制重新翻译并覆盖写入
    */
-  async function handleTranslateRequest(c: any, rawPath: string) {
+  async function handleTranslateRequest(c: any, rawPath: string, force = false) {
     if (!rawPath) {
       return c.json({ error: 'target url is required in path' }, 400);
     }
@@ -318,12 +319,12 @@ export function createApp(storage?: StorageAdapter): Hono {
       return c.json({ error: 'DeepSeek not configured' }, 500);
     }
 
-    console.log(`[translate/url-page] url=${url} src=${source || 'en'} tgt=${target} mode=${mode}`);
+    console.log(`[translate/url-page] url=${url} src=${source || 'en'} tgt=${target} mode=${mode} force=${force}`);
 
-    // ── D1 去重：同 URL+source+target 已存在则直接返回 ──
+    // ── D1 去重：同 URL+source+target 已存在则直接返回（force 模式跳过） ──
     const db = (c.env as any)?.DB999;
     const sourceStored = source || 'en';
-    if (db) {
+    if (db && !force) {
       try {
         const existing: any = await db.prepare(
           'SELECT html FROM translations WHERE url = ? AND source_lang = ? AND target_lang = ? LIMIT 1'
@@ -360,11 +361,17 @@ export function createApp(storage?: StorageAdapter): Hono {
       console.log(`[translate/url-page] blocks=${result.blocks} chunks=${result.chunks} duration=${result.duration_ms}ms`);
       // 缓存翻译结果，供 / 路由展示
       lastTranslatedHtml = result.html;
-      // 写入 D1（同一 URL+source+target 再次请求时直接读，不再翻译）
+      // 写入 D1（force 模式用 INSERT OR REPLACE 覆盖已有记录）
       if (db) {
         try {
+          if (force) {
+            // 先删旧记录，再插入新记录（D1 没有 UPSERT，用 REPLACE 模拟）
+            await db.prepare(
+              'DELETE FROM translations WHERE url = ? AND source_lang = ? AND target_lang = ?'
+            ).bind(url, sourceStored, target).run();
+          }
           await db.prepare(
-            'INSERT OR IGNORE INTO translations (url, source_lang, target_lang, html) VALUES (?, ?, ?, ?)'
+            'INSERT INTO translations (url, source_lang, target_lang, html) VALUES (?, ?, ?, ?)'
           ).bind(url, sourceStored, target, result.html).run();
         } catch (e) {
           console.error('[D1] save error:', e);
@@ -434,6 +441,12 @@ export function createApp(storage?: StorageAdapter): Hono {
   app.get('/translate/*', (c) => {
     const raw = decodeURIComponent(c.req.path.slice('/translate/'.length));
     return handleTranslateRequest(c, raw);
+  });
+
+  // ── 强制翻译：跳过 D1 缓存，强制重新抓取+翻译 ──────────
+  app.get('/force/*', requireAuth, (c) => {
+    const raw = decodeURIComponent(c.req.path.slice('/force/'.length));
+    return handleTranslateRequest(c, raw, /* force */ true);
   });
 
   // ── 术语表管理（持久层由 setDefaultStorage 注入） ─────
