@@ -15,15 +15,9 @@ import http from 'node:http';
 import type { AddressInfo } from 'node:net';
 
 // mock 必须在被测模块 import 之前 —— mock 掉 DeepSeek service 的 HTTP 调用
-// 注意：vi.fn().mockImplementation() 必须接收 class / function / arrow function，
-// vitest 4 不接受普通对象作为构造器。DeepSeek service 只用 .translate() 一个方法。
 vi.mock('../lib/translate/service/deepseek', () => ({
   DeepSeekTranslationService: class {
     constructor(_apiKey: string) {}
-    // service.translate(jsonContent, sourceLang, targetLang, glossary)
-    // chunk.jsonContent 是 string (JSON-stringified [{id,text}, ...])，
-    // 真实 service 返回 JSON 字符串 [{id, translated_text}, ...]，pipeline 用
-    // processTranslationResult(JSON.parse(...)) 还原成 Map<id, text>。
     async translate(jsonContent: string) {
       const blocks = JSON.parse(jsonContent) as Array<{ id: string; text: string }>;
       return JSON.stringify(
@@ -38,17 +32,35 @@ import { translateUrl } from '../lib/translate/pipeline';
 let server: http.Server;
 let baseUrl: string;
 
-beforeAll(async () => {
-  // 模拟 Cloudflare Workers 环境：linkedom 解析 HTML 后 injectGlobalWindow 仅在
-  // Node 模式下注入 globalThis.window。CF Workers 没有 Node 全局，window 永远
-  // undefined，必须保证 walker / rules / pipeline 在这种情况下也不 throw。
-  delete (globalThis as { window?: unknown }).window;
-  delete (globalThis as { document?: unknown }).document;
-  delete (globalThis as { HTMLElement?: unknown }).HTMLElement;
-
-  server = http.createServer((_req, res) => {
-    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-    res.end(`<!doctype html>
+/** 本地 HTTP server，根据 path 返回不同 HTML */
+function startServer(): Promise<{ server: http.Server; baseUrl: string }> {
+  return new Promise((resolve) => {
+    const srv = http.createServer((req, res) => {
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+      switch (req.url) {
+        case '/no-base':
+          res.end(`<!doctype html>
+<html>
+  <head><title>No base</title></head>
+  <body><p>Hello</p><img src="/relative.jpg"><script>void 0</script></body>
+</html>`);
+          break;
+        case '/has-base':
+          res.end(`<!doctype html>
+<html>
+  <head><base href="https://old-origin.com/"><title>Has base</title></head>
+  <body><p>Hello</p></body>
+</html>`);
+          break;
+        case '/base-no-href':
+          res.end(`<!doctype html>
+<html>
+  <head><base target="_blank"><title>Base target only</title></head>
+  <body><p>Hello</p></body>
+</html>`);
+          break;
+        default:
+          res.end(`<!doctype html>
 <html>
   <head><title>Sample article</title></head>
   <body>
@@ -60,10 +72,36 @@ beforeAll(async () => {
     <script>alert('xss')</script>
   </body>
 </html>`);
+      }
+    });
+    srv.listen(0, '127.0.0.1', () => {
+      const addr = srv.address() as AddressInfo;
+      resolve({ server: srv, baseUrl: `http://127.0.0.1:${addr.port}` });
+    });
   });
-  await new Promise<void>((r) => server.listen(0, '127.0.0.1', () => r()));
-  const addr = server.address() as AddressInfo;
-  baseUrl = `http://127.0.0.1:${addr.port}`;
+}
+
+function baseHref(html: string): string | null {
+  const m = html.match(/<base\s[^>]*href="([^"]+)"/i);
+  return m ? m[1] : null;
+}
+
+function baseTarget(html: string): string | null {
+  const m = html.match(/<base\s[^>]*target="([^"]+)"/i);
+  return m ? m[1] : null;
+}
+
+beforeAll(async () => {
+  // 模拟 Cloudflare Workers 环境：linkedom 解析 HTML 后 injectGlobalWindow 仅在
+  // Node 模式下注入 globalThis.window。CF Workers 没有 Node 全局，window 永远
+  // undefined，必须保证 walker / rules / pipeline 在这种情况下也不 throw。
+  delete (globalThis as { window?: unknown }).window;
+  delete (globalThis as { document?: unknown }).document;
+  delete (globalThis as { HTMLElement?: unknown }).HTMLElement;
+
+  const result = await startServer();
+  server = result.server;
+  baseUrl = result.baseUrl;
 });
 
 afterAll(async () => {
@@ -89,10 +127,25 @@ describe('translateUrl — end-to-end with linkedom', () => {
     expect(result.chunks).toBeGreaterThan(0);
   }, 10_000);
 
+  it('injects <base href> when none exists', async () => {
+    const result = await translateUrl({ url: `${baseUrl}/no-base`, apiKey: 'sk-test-dummy' });
+    // base href 为页面目录 URL（含路径）
+    expect(baseHref(result.html)).toBe(`${baseUrl}/no-base/`);
+  });
+
+  it('updates existing <base href>', async () => {
+    const result = await translateUrl({ url: `${baseUrl}/has-base`, apiKey: 'sk-test-dummy' });
+    expect(baseHref(result.html)).toBe(`${baseUrl}/has-base/`);
+    expect(result.html).not.toContain('old-origin.com');
+  });
+
+  it('preserves <base target> when adding href', async () => {
+    const result = await translateUrl({ url: `${baseUrl}/base-no-href`, apiKey: 'sk-test-dummy' });
+    expect(baseTarget(result.html)).toBe('_blank');
+    expect(baseHref(result.html)).toBe(`${baseUrl}/base-no-href/`);
+  });
+
   it('does not throw when window is undefined (CF Workers env)', async () => {
-    // 这条用例专门防回归：在没有 globalThis.window 的环境（CF Workers / 严格
-    // 隔离的 node）下走完整条链路，验证 getSiteRule 等所有"读 window"路径
-    // 都有兜底，不会再 "Cannot read properties of undefined (reading 'href')"。
     const savedWindow = (globalThis as { window?: unknown }).window;
     delete (globalThis as { window?: unknown }).window;
     try {
