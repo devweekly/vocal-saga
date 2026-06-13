@@ -297,4 +297,38 @@ describe('prepareDocument', () => {
     expect(fullText).not.toContain('Yaron Minsky joined Jane Street');
     expect(blocks.length).toBeGreaterThanOrEqual(4);
   });
+
+  it('should expand to include h1 title outside .entry-content (towardsdatascience-style)', () => {
+    // towardsdatascience.com: .entry-content 不含标题，标题在 <main> 内但不在 .entry-content 内
+    document.body.innerHTML = `
+      <main class="wp-block-group">
+        <div class="wp-block-group">
+          <a href="/category">LLM Applications</a>
+        </div>
+        <h1 class="wp-block-post-title">When PyMuPDF Can't See the Table</h1>
+        <div class="wp-block-tds-post-sub-heading">
+          <p>Enterprise Document Intelligence [Vol.1 #5bis]</p>
+        </div>
+        <div class="entry-content wp-block-post-content">
+          <p>This article is a parsing companion in Enterprise Document Intelligence.</p>
+          <p>PyMuPDF (fitz) is fast, free, and exact on clean prose.</p>
+        </div>
+      </main>
+    `;
+
+    const { blocks, fullText } = prepareDocument(document, "https://towardsdatascience.com/test");
+
+    // 标题应该被提取
+    const titleBlock = blocks.find(b => b.tag === 'h1' && b.text.includes('PyMuPDF'));
+    expect(titleBlock).toBeDefined();
+    expect(titleBlock!.text).toContain('When PyMuPDF');
+
+    // 副标题应该被提取
+    const subtitleBlock = blocks.find(b => b.text.includes('Enterprise Document Intelligence'));
+    expect(subtitleBlock).toBeDefined();
+
+    // 正文应该被提取
+    expect(fullText).toContain('parsing companion');
+    expect(fullText).toContain('PyMuPDF (fitz)');
+  });
 });

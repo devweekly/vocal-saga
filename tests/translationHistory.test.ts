@@ -135,6 +135,7 @@ describe('GET /<id> — D1 translation history', () => {
     await app.request(req('/s/medium/article'), {}, envWithDb(db));
 
     expect(db._rows).toHaveLength(1);
+    // www. 保留，所以存储的是 www.medium.com
     expect(db._rows[0].url).toBe('https://www.medium.com/article');
 
     const res = await app.request(req('/1'), {}, envWithDb(db));

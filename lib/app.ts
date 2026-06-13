@@ -283,6 +283,38 @@ export function createApp(storage?: StorageAdapter): Hono {
   });
 
   /**
+   * URL 标准化：统一格式以便缓存命中和去重。
+   *
+   * 规则：
+   *   1. 剥离 http:// 或 https:// 前缀
+   *   2. 无 "." 的首段域名自动补 .com（如 towardsdatascience → towardsdatascience.com）
+   *
+   * 注意：www.example.com 和 example.com 暂时保留为两个不同 URL，不做去重。
+   */
+  function normalizeUrl(rawPath: string): string {
+    // 1) 剥 scheme
+    let normalized = rawPath.replace(/^https?:\/\//i, '');
+
+    // 2) 无 "." 的首段域名补 .com（如 /translate/towardsdatascience/article → towardsdatascience.com/article）
+    const slashIdx = normalized.indexOf('/');
+    const hostPart = slashIdx < 0 ? normalized : normalized.slice(0, slashIdx);
+    const pathPart = slashIdx < 0 ? '' : normalized.slice(slashIdx);
+    if (hostPart && !hostPart.includes('.')) {
+      normalized = hostPart + '.com' + pathPart;
+    }
+
+    return normalized;
+  }
+
+  /**
+   * 缓存 key 直接用完整 URL（保留 scheme 和 www）。
+   * www.example.com 和 example.com 暂时视为不同 URL。
+   */
+  function cacheKeyUrl(url: string): string {
+    return url;
+  }
+
+  /**
    * 公共翻译 handler，供 /translate/*、/s/*、/force/* 使用。
    * @param force 跳过 D1 缓存，强制重新翻译并覆盖写入
    */
@@ -291,12 +323,11 @@ export function createApp(storage?: StorageAdapter): Hono {
       return c.json({ error: 'target url is required in path' }, 400);
     }
 
-    // 剥 scheme（兼容用户传过来时含/不含 https:// 的两种写法）
-    const stripped = rawPath.replace(/^https?:\/\//i, '');
-    if (!stripped) {
-      return c.json({ error: 'target url is empty after stripping scheme' }, 400);
+    const normalized = normalizeUrl(rawPath);
+    if (!normalized) {
+      return c.json({ error: 'target url is empty after normalization' }, 400);
     }
-    const url = `https://${stripped}`;
+    const url = `https://${normalized}`;
 
     const source = c.req.query('source');
     const target = c.req.query('target') || 'zh';
@@ -322,13 +353,15 @@ export function createApp(storage?: StorageAdapter): Hono {
     console.log(`[translate/url-page] url=${url} src=${source || 'en'} tgt=${target} mode=${mode} force=${force}`);
 
     // ── D1 去重：同 URL+source+target 已存在则直接返回（force 模式跳过） ──
+    // 用 cacheKeyUrl 标准化：www.example.com 和 example.com 命中同一缓存
     const db = (c.env as any)?.DB999;
     const sourceStored = source || 'en';
+    const cacheKey = cacheKeyUrl(url);
     if (db && !force) {
       try {
         const existing: any = await db.prepare(
           'SELECT html FROM translations WHERE url = ? AND source_lang = ? AND target_lang = ? LIMIT 1'
-        ).bind(url, sourceStored, target).first();
+        ).bind(cacheKey, sourceStored, target).first();
         if (existing) {
           console.log(`[translate/url-page] D1 cache hit for ${url}`);
           lastTranslatedHtml = existing.html;
@@ -362,17 +395,18 @@ export function createApp(storage?: StorageAdapter): Hono {
       // 缓存翻译结果，供 / 路由展示
       lastTranslatedHtml = result.html;
       // 写入 D1（force 模式用 INSERT OR REPLACE 覆盖已有记录）
+      // 用 cacheKey 存储：www 和非 www 共享同一缓存
       if (db) {
         try {
           if (force) {
             // 先删旧记录，再插入新记录（D1 没有 UPSERT，用 REPLACE 模拟）
             await db.prepare(
               'DELETE FROM translations WHERE url = ? AND source_lang = ? AND target_lang = ?'
-            ).bind(url, sourceStored, target).run();
+            ).bind(cacheKey, sourceStored, target).run();
           }
           await db.prepare(
             'INSERT INTO translations (url, source_lang, target_lang, html) VALUES (?, ?, ?, ?)'
-          ).bind(url, sourceStored, target, result.html).run();
+          ).bind(cacheKey, sourceStored, target, result.html).run();
         } catch (e) {
           console.error('[D1] save error:', e);
         }

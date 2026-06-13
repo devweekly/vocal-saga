@@ -172,6 +172,56 @@ describe('GET /translate/<target> — validation', () => {
   });
 });
 
+describe('GET /translate/<target> — URL normalization', () => {
+  it('strips https:// prefix', async () => {
+    const app = buildApp();
+    await app.request(req('/translate/https%3A%2F%2Fexample.com/article'));
+    const { translateUrl } = await import('../lib/translate/pipeline');
+    const call = (translateUrl as any).mock.calls[0][0];
+    expect(call.url).toBe('https://example.com/article');
+  });
+
+  it('strips http:// prefix and forces https', async () => {
+    const app = buildApp();
+    await app.request(req('/translate/http%3A%2F%2Fexample.com/article'));
+    const { translateUrl } = await import('../lib/translate/pipeline');
+    const call = (translateUrl as any).mock.calls[0][0];
+    expect(call.url).toBe('https://example.com/article');
+  });
+
+  it('adds .com suffix for domain without dot (towardsdatascience)', async () => {
+    const app = buildApp();
+    await app.request(req('/translate/towardsdatascience/article'));
+    const { translateUrl } = await import('../lib/translate/pipeline');
+    const call = (translateUrl as any).mock.calls[0][0];
+    expect(call.url).toBe('https://towardsdatascience.com/article');
+  });
+
+  it('adds .com suffix for bare domain without dot', async () => {
+    const app = buildApp();
+    await app.request(req('/translate/medium'));
+    const { translateUrl } = await import('../lib/translate/pipeline');
+    const call = (translateUrl as any).mock.calls[0][0];
+    expect(call.url).toBe('https://medium.com');
+  });
+
+  it('does not add .com for domain with dot', async () => {
+    const app = buildApp();
+    await app.request(req('/translate/example.org/article'));
+    const { translateUrl } = await import('../lib/translate/pipeline');
+    const call = (translateUrl as any).mock.calls[0][0];
+    expect(call.url).toBe('https://example.org/article');
+  });
+
+  it('preserves www. prefix (www and non-www treated as different)', async () => {
+    const app = buildApp();
+    await app.request(req('/translate/www.example.com/article'));
+    const { translateUrl } = await import('../lib/translate/pipeline');
+    const call = (translateUrl as any).mock.calls[0][0];
+    expect(call.url).toBe('https://www.example.com/article');
+  });
+});
+
 describe('legacy /api/translate/url — fully removed', () => {
   it('GET /api/translate/url returns 404', async () => {
     const app = buildApp();

@@ -109,8 +109,11 @@ function refineArticleRoot(candidate: Element): Element {
  * 第一个命中后只覆盖开篇，后续内容在同级兄弟容器中。
  *
  * 策略：逐层向上检查 ancestor 是否包含其他有实质文本的兄弟节点。
- * 如果有（且 ancestor 不是 nav/body/main），说明当前元素只是碎片，
+ * 如果有（且 ancestor 不是 nav/body），说明当前元素只是碎片，
  * 向上扩展到该 ancestor。
+ *
+ * 特殊处理 <main>：如果当前元素不包含 h1/h2 标题，继续向上扩展到 <main>，
+ * 因为标题可能在 <main> 内但在 .entry-content 外。
  */
 function expandIfFragmented(el: Element): Element {
   let current: Element = el;
@@ -120,10 +123,33 @@ function expandIfFragmented(el: Element): Element {
     if (!parent) break;
 
     const tag = parent.tagName.toLowerCase();
-    if (tag === 'body' || tag === 'html' || tag === 'main') break;
+    if (tag === 'body' || tag === 'html') break;
 
     const classes = `${parent.className || ''} ${parent.id || ''}`;
     if (/nav|menu|sidebar|footer|header|comment|widget/i.test(classes)) break;
+
+    // 当前元素不包含 h1/h2 标题 → 可能需要向上扩展来包含标题
+    const hasHeading = current.querySelector('h1, h2') !== null;
+    if (!hasHeading) {
+      // 向上检查最多 3 级祖先，看标题是否在当前元素之外
+      let ancestor: Element | null = parent;
+      let foundHeadingOutside = false;
+      for (let j = 0; j < 3 && ancestor; j++) {
+        const ancTag = ancestor.tagName.toLowerCase();
+        if (ancTag === 'body' || ancTag === 'html') break;
+        // 检查 ancestor 的兄弟节点是否有标题
+        const ancSiblings = Array.from(ancestor.parentElement?.children || []);
+        foundHeadingOutside = ancSiblings.some(
+          (s) => s !== ancestor && (s.tagName === 'H1' || s.tagName === 'H2' || s.querySelector?.('h1, h2'))
+        );
+        if (foundHeadingOutside) break;
+        ancestor = ancestor.parentElement;
+      }
+      if (foundHeadingOutside) {
+        current = parent;
+        continue;
+      }
+    }
 
     const parentLen = (parent.textContent || '').trim().length;
     const currentLen = (current.textContent || '').trim().length;
@@ -136,13 +162,17 @@ function expandIfFragmented(el: Element): Element {
 
     // parent 有额外文本：检查是否来自有实质内容的兄弟节点
     const siblings = Array.from(parent.children).filter((c) => c !== current);
-    const hasRichSibling = siblings.some(
-      (s) => (s.textContent || '').trim().length > 200,
-    );
+    const hasRichSibling = siblings.some((s) => {
+      const text = (s.textContent || '').trim();
+      if (text.length > 200) return true;
+      const sTag = s.tagName?.toLowerCase();
+      if (sTag === 'h1' || sTag === 'h2') return true;
+      if (s.querySelector('h1, h2')) return true;
+      return false;
+    });
     if (!hasRichSibling) break;
 
     current = parent;
-    // 继续向上，可能需要进一步展开
   }
   return current;
 }
