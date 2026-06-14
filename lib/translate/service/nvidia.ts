@@ -1,15 +1,17 @@
 /**
- * OpenRouter 翻译服务：使用 OpenRouter API 的免费模型。
+ * NVIDIA 翻译服务：使用 build.nvidia.com API。
  *
  * 与 DeepSeekTranslationService 共享 TranslationService 接口，
- * 但指向 OpenRouter 的 API 端点。
+ * 但指向 NVIDIA 的 API 端点。
  */
 import type { TranslationService, Glossary } from './_service';
 import { parseSSEStream } from './streamParser';
 
-const API_URL = 'https://openrouter.ai/api/v1/chat/completions';
-/** OpenRouter 免费模型：自动路由到最佳可用免费模型 */
-const MODEL = 'openrouter/free';
+const API_URL = 'https://integrate.api.nvidia.com/v1/chat/completions';
+/** 默认模型：kimi-k2.6 */
+const DEFAULT_MODEL = 'moonshotai/kimi-k2.6';
+/** DeepSeek 模型（通过 NVIDIA API） */
+const DEEPSEEK_MODEL = 'deepseek-ai/deepseek-v4-pro';
 const TRANSLATION_TEMPERATURE = 0.1;
 
 function estimateMaxTokens(inputJson: string): number {
@@ -21,8 +23,7 @@ function buildHeaders(apiKey: string): Record<string, string> {
   return {
     'Content-Type': 'application/json',
     Authorization: `Bearer ${apiKey}`,
-    'HTTP-Referer': 'https://vocal-saga.com',
-    'X-Title': 'Vocal Saga Translation',
+    Accept: 'application/json',
   };
 }
 
@@ -66,7 +67,8 @@ function buildTranslationBody(
   blocks: Array<{ id: string; text: string }>,
   sourceLang: string,
   targetLang: string,
-  glossary?: Glossary
+  glossary?: Glossary,
+  model?: string
 ) {
   const blocksJson = JSON.stringify(
     blocks.map((b) => ({ id: b.id, text: b.text })),
@@ -77,7 +79,7 @@ function buildTranslationBody(
   const systemContent = buildSystemContent(sourceLang, targetLang, glossary);
 
   return {
-    model: MODEL,
+    model: model || DEFAULT_MODEL,
     messages: [
       {
         role: 'system' as const,
@@ -95,11 +97,9 @@ function buildTranslationBody(
 
 /**
  * 清理 LLM 返回的 JSON：移除 markdown 代码块包裹。
- * 某些模型（如 OpenRouter 免费模型）会返回 ```json ... ``` 而非纯 JSON。
  */
 function stripMarkdownCodeBlock(text: string): string {
   const trimmed = text.trim();
-  // 匹配 ```json\n...\n``` 或 ```\n...\n```
   const match = trimmed.match(/^```(?:json)?\s*\n?([\s\S]*?)\n?\s*```$/);
   if (match) {
     return match[1].trim();
@@ -114,7 +114,7 @@ async function callApi(apiKey: string, body: string): Promise<string> {
     body,
   });
 
-  console.log('[OpenRouter] Response status:', response.status);
+  console.log('[NVIDIA] Response status:', response.status);
 
   const responseText = await response.text().catch(() => '');
 
@@ -132,25 +132,27 @@ async function callApi(apiKey: string, body: string): Promise<string> {
     } catch {
       errorMessage += ` - ${responseText.substring(0, 200)}`;
     }
-    throw new Error(`OpenRouter API error: ${errorMessage}`);
+    throw new Error(`NVIDIA API error: ${errorMessage}`);
   }
 
   const data = JSON.parse(responseText);
   const content = data.choices?.[0]?.message?.content;
 
   if (!content) {
-    throw new Error('OpenRouter returned invalid response: missing choices[0].message.content');
+    throw new Error('NVIDIA returned invalid response: missing choices[0].message.content');
   }
 
   // 清理 markdown 代码块包裹
   return stripMarkdownCodeBlock(content);
 }
 
-export class OpenRouterTranslationService implements TranslationService {
+export class NvidiaTranslationService implements TranslationService {
   private apiKey: string;
+  private model: string;
 
-  constructor(apiKey: string) {
+  constructor(apiKey: string, model?: string) {
     this.apiKey = apiKey;
+    this.model = model || DEFAULT_MODEL;
   }
 
   async translate(
@@ -161,7 +163,7 @@ export class OpenRouterTranslationService implements TranslationService {
   ): Promise<string> {
     const blocks = JSON.parse(jsonContent);
 
-    const body = buildTranslationBody(blocks, sourceLang, targetLang, glossary);
+    const body = buildTranslationBody(blocks, sourceLang, targetLang, glossary, this.model);
 
     const raw = await callApi(this.apiKey, JSON.stringify(body));
 
@@ -174,7 +176,7 @@ export class OpenRouterTranslationService implements TranslationService {
           (t: any, i: number) => t.translated_text === blocks[i]?.text || t.text === blocks[i]?.text
         ).length;
         if (unchanged > 0 && unchanged === translations.length) {
-          console.warn('[OpenRouter] ALL translated blocks came back unchanged');
+          console.warn('[NVIDIA] ALL translated blocks came back unchanged');
         }
       }
     } catch {
@@ -192,7 +194,7 @@ export class OpenRouterTranslationService implements TranslationService {
   ): AsyncGenerator<string, string, unknown> {
     const blocks = JSON.parse(jsonContent);
 
-    const body = buildTranslationBody(blocks, sourceLang, targetLang, glossary);
+    const body = buildTranslationBody(blocks, sourceLang, targetLang, glossary, this.model);
 
     const response = await fetch(API_URL, {
       method: 'POST',
@@ -202,11 +204,11 @@ export class OpenRouterTranslationService implements TranslationService {
 
     if (!response.ok) {
       const text = await response.text().catch(() => '');
-      throw new Error(`OpenRouter API error: HTTP ${response.status} - ${text.substring(0, 200)}`);
+      throw new Error(`NVIDIA API error: HTTP ${response.status} - ${text.substring(0, 200)}`);
     }
 
     if (!response.body) {
-      throw new Error('OpenRouter API error: response body is null');
+      throw new Error('NVIDIA API error: response body is null');
     }
 
     const reader = response.body.getReader();

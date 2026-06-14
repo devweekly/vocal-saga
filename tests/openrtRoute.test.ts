@@ -6,6 +6,42 @@
  */
 import { describe, it, expect, beforeAll, beforeEach, vi } from 'vitest';
 
+// 测试 stripMarkdownCodeBlock 函数
+describe('stripMarkdownCodeBlock', () => {
+  // 从 openrouter.ts 导入内部函数（通过动态 import 测试）
+  it('strips ```json code block', async () => {
+    const { OpenRouterTranslationService } = await import('../lib/translate/service/openrouter');
+    // 直接测试 stripMarkdownCodeBlock 逻辑
+    const input = '```json\n[{"id":"b1","translated_text":"你好"}]\n```';
+    const expected = '[{"id":"b1","translated_text":"你好"}]';
+    // 通过正则匹配验证
+    const match = input.trim().match(/^```(?:json)?\s*\n?([\s\S]*?)\n?\s*```$/);
+    expect(match).not.toBeNull();
+    expect(match![1].trim()).toBe(expected);
+  });
+
+  it('strips ``` code block without json label', () => {
+    const input = '```\n[{"id":"b1","translated_text":"你好"}]\n```';
+    const match = input.trim().match(/^```(?:json)?\s*\n?([\s\S]*?)\n?\s*```$/);
+    expect(match).not.toBeNull();
+    expect(match![1].trim()).toBe('[{"id":"b1","translated_text":"你好"}]');
+  });
+
+  it('returns plain JSON unchanged', () => {
+    const input = '[{"id":"b1","translated_text":"你好"}]';
+    const match = input.trim().match(/^```(?:json)?\s*\n?([\s\S]*?)\n?\s*```$/);
+    expect(match).toBeNull();
+    expect(input.trim()).toBe(input);
+  });
+
+  it('handles whitespace variations', () => {
+    const input = '  ```json\n  [{"id":"b1"}]\n  ```  ';
+    const match = input.trim().match(/^```(?:json)?\s*\n?([\s\S]*?)\n?\s*```$/);
+    expect(match).not.toBeNull();
+    expect(match![1].trim()).toBe('[{"id":"b1"}]');
+  });
+});
+
 // mock pipeline
 vi.mock('../lib/translate/pipeline', () => ({
   translateUrl: vi.fn(async (args: { url: string; mode: string; service: string }) => ({

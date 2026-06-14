@@ -252,11 +252,12 @@ export function createApp(storage?: StorageAdapter): Hono {
   });
 
   /**
-   * 公共翻译 handler，供 /translate/*、/s/*、/force/*、/openrt/* 使用。
+   * 公共翻译 handler，供 /translate/*、/s/*、/force/*、/openrt/*、/nvd/* 使用。
    * @param force 跳过 D1 缓存，强制重新翻译并覆盖写入
-   * @param service 翻译服务：'deepseek'（默认）或 'openrouter'
+   * @param service 翻译服务：'deepseek'（默认）、'openrouter' 或 'nvidia'
+   * @param model 可选模型名（用于 NVIDIA 等多模型服务）
    */
-  async function handleTranslateRequest(c: any, rawPath: string, force = false, service: 'deepseek' | 'openrouter' = 'deepseek') {
+  async function handleTranslateRequest(c: any, rawPath: string, force = false, service: 'deepseek' | 'openrouter' | 'nvidia' = 'deepseek', model?: string) {
     if (!rawPath) {
       return c.json({ error: 'target url is required in path' }, 400);
     }
@@ -320,9 +321,19 @@ export function createApp(storage?: StorageAdapter): Hono {
 
     try {
       // 根据 service 选择 API key
-      const apiKey = service === 'openrouter' ? OPENROUTER_API_KEY() : DS_API_KEY();
+      let apiKey: string;
+      let serviceName: string;
+      if (service === 'openrouter') {
+        apiKey = OPENROUTER_API_KEY();
+        serviceName = 'OpenRouter';
+      } else if (service === 'nvidia') {
+        apiKey = NVIDIA_API_KEY();
+        serviceName = 'NVIDIA';
+      } else {
+        apiKey = DS_API_KEY();
+        serviceName = 'DeepSeek';
+      }
       if (!apiKey) {
-        const serviceName = service === 'openrouter' ? 'OpenRouter' : 'DeepSeek';
         return c.json({ error: `${serviceName} API key not configured` }, 500);
       }
 
@@ -333,6 +344,7 @@ export function createApp(storage?: StorageAdapter): Hono {
         mode: mode as 'bilingual' | 'target',
         apiKey,
         service,
+        model,
       });
       console.log(`[translate/url-page] blocks=${result.blocks} chunks=${result.chunks} duration=${result.duration_ms}ms`);
       // 缓存翻译结果，供 / 路由展示
@@ -444,10 +456,22 @@ export function createApp(storage?: StorageAdapter): Hono {
     return handleTranslateRequest(c, raw, /* force */ true);
   });
 
-  // ── OpenRouter 免费模型翻译：使用 nvidia/nemotron-3-nano-30b-a3b ──────────
+  // ── OpenRouter 免费模型翻译：使用 openrouter/free ──────────
   app.get('/openrt/*', (c) => {
     const raw = decodeURIComponent(c.req.path.slice('/openrt/'.length));
     return handleTranslateRequest(c, raw, /* force */ false, /* service */ 'openrouter');
+  });
+
+  // ── NVIDIA 翻译：使用 build.nvidia.com ──────────
+  // /nvd/{url} → moonshotai/kimi-k2.6
+  // /nvd/deepseek/{url} → deepseek-ai/deepseek-v4-pro
+  app.get('/nvd/*', (c) => {
+    const raw = decodeURIComponent(c.req.path.slice('/nvd/'.length));
+    // 检测 deepseek/ 前缀
+    const isDeepseek = raw.startsWith('deepseek/');
+    const urlPath = isDeepseek ? raw.slice('deepseek/'.length) : raw;
+    const model = isDeepseek ? 'deepseek-ai/deepseek-v4-pro' : undefined;
+    return handleTranslateRequest(c, urlPath, /* force */ false, /* service */ 'nvidia', model);
   });
 
   // ── 术语表管理（持久层由 setDefaultStorage 注入） ─────

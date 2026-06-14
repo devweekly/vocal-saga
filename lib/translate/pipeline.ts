@@ -230,7 +230,8 @@ export interface TranslateUrlInput {
   apiKey: string;
   mode?: 'bilingual' | 'target';
   glossary?: Glossary;
-  service?: 'deepseek' | 'openrouter';
+  service?: 'deepseek' | 'openrouter' | 'nvidia';
+  model?: string;
 }
 
 export interface TranslateUrlResult {
@@ -264,6 +265,9 @@ export async function translateUrl(input: TranslateUrlInput): Promise<TranslateU
   if (serviceType === 'openrouter') {
     const { OpenRouterTranslationService } = await import('./service/openrouter');
     service = new OpenRouterTranslationService(input.apiKey) as any;
+  } else if (serviceType === 'nvidia') {
+    const { NvidiaTranslationService } = await import('./service/nvidia');
+    service = new NvidiaTranslationService(input.apiKey, input.model) as any;
   } else {
     service = new DeepSeekTranslationService(input.apiKey);
   }
