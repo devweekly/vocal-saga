@@ -235,12 +235,12 @@ export async function translateUrl(input: TranslateUrlInput): Promise<TranslateU
 
   const tFetch = performance.now();
   const page = await fetchPage(input.url);
-  logCost('fetchPage', tFetch);
+
   console.log(`[Pipeline] Fetched ${input.url} → ${page.finalUrl} (${page.status}, ${page.html.length} bytes)`);
 
   const tPrep = performance.now();
   const { blocks, chunks } = prepareDocument(page.doc, page.finalUrl);
-  logCost('prepareDocument', tPrep);
+
   console.log(`[Pipeline] Extracted ${blocks.length} blocks → ${chunks.length} chunks`);
 
   // 根据 service 参数选择翻译服务
@@ -267,7 +267,6 @@ export async function translateUrl(input: TranslateUrlInput): Promise<TranslateU
     input.glossary,
     /* concurrency */ 6
   );
-  logCost('translateChunks', tTrans);
 
   // 回填：一次性 querySelectorAll 建 Map → O(1) 查找（原实现 O(blocks × N)）
   const tApply = performance.now();
@@ -288,7 +287,6 @@ export async function translateUrl(input: TranslateUrlInput): Promise<TranslateU
     }
   }
   const tApplyEnd = performance.now();
-  logCost('applyTranslations', tApply);   // 含 applyBlockTranslation + querySelectorAll
 
   const tSer = performance.now();
 
@@ -330,7 +328,6 @@ export async function translateUrl(input: TranslateUrlInput): Promise<TranslateU
   }
 
   const html = '<!doctype html>\n' + page.doc.documentElement.outerHTML;
-  logCost('serializeHTML', tSer);
 
   const logDuration = performance.now() - tFetch;
   function us(v: number): string { return `${Math.round(v * 1000)}µs`; }
