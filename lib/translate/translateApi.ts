@@ -129,6 +129,15 @@ export function logUnchangedBlocks(
 }
 
 /**
+ * 清理 LLM 返回的 JSON：修复尾随逗号等常见问题。
+ * 某些模型（如 NVIDIA kimi）会返回带尾随逗号的 JSON。
+ */
+function cleanJsonString(str: string): string {
+  // 移除尾随逗号（对象或数组最后一个元素后的逗号）
+  return str.replace(/,\s*([}\]])/g, '$1');
+}
+
+/**
  * 组合函数：一次 JSON.parse 完成 processTranslationResult + logUnchangedBlocks。
  * 避免同一 rawJson 被 parse 两次（原流程：deepseek.ts logUnchangedBlocks → pipeline.ts processTranslationResult）。
  *
@@ -140,7 +149,14 @@ export function processTranslationWithCheck(
   jsonResult: string,
   originalBlocks?: Array<{ id: string; text: string }>
 ): Map<string, string> {
-  const parsed = JSON.parse(jsonResult);
+  let parsed;
+  try {
+    parsed = JSON.parse(jsonResult);
+  } catch {
+    // 尝试清理 JSON 后再解析
+    const cleaned = cleanJsonString(jsonResult);
+    parsed = JSON.parse(cleaned);
+  }
   const translations = parsed.translations || parsed;
   const result = new Map<string, string>();
 

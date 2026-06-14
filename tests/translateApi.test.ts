@@ -297,6 +297,36 @@ describe('clearAllCache', () => {
   });
 });
 
+describe('processTranslationWithCheck — JSON cleanup', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('handles trailing comma in object', () => {
+    const json = '{"translations":[{"id":"b1","translated_text":"你好",}]}';
+    const result = processTranslationWithCheck(json);
+    expect(result.get('b1')).toBe('你好');
+  });
+
+  it('handles trailing comma in array', () => {
+    const json = '{"translations":[{"id":"b1","translated_text":"你好"},{"id":"b2","translated_text":"世界",}]}';
+    const result = processTranslationWithCheck(json);
+    expect(result.size).toBe(2);
+  });
+
+  it('handles multiple trailing commas', () => {
+    const json = '{"translations":[{"id":"b1","translated_text":"你好",},]}';
+    const result = processTranslationWithCheck(json);
+    expect(result.get('b1')).toBe('你好');
+  });
+
+  it('handles valid JSON without cleanup', () => {
+    const json = '{"translations":[{"id":"b1","translated_text":"你好"}]}';
+    const result = processTranslationWithCheck(json);
+    expect(result.get('b1')).toBe('你好');
+  });
+});
+
 describe('processTranslationWithCheck', () => {
   beforeEach(() => {
     vi.clearAllMocks();
