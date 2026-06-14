@@ -252,10 +252,11 @@ export function createApp(storage?: StorageAdapter): Hono {
   });
 
   /**
-   * 公共翻译 handler，供 /translate/*、/s/*、/force/* 使用。
+   * 公共翻译 handler，供 /translate/*、/s/*、/force/*、/openrt/* 使用。
    * @param force 跳过 D1 缓存，强制重新翻译并覆盖写入
+   * @param service 翻译服务：'deepseek'（默认）或 'openrouter'
    */
-  async function handleTranslateRequest(c: any, rawPath: string, force = false) {
+  async function handleTranslateRequest(c: any, rawPath: string, force = false, service: 'deepseek' | 'openrouter' = 'deepseek') {
     if (!rawPath) {
       return c.json({ error: 'target url is required in path' }, 400);
     }
@@ -318,15 +319,20 @@ export function createApp(storage?: StorageAdapter): Hono {
     }
 
     try {
-      // CF Workers HTTP 请求无 wall-clock 限制，只需每调用 DeepSeek
-      // 的 15s timeout（deepseek.ts DEEPSEEK_TIMEOUT_MS）防 hung promise。
-      // 见 https://developers.cloudflare.com/workers/platform/limits/#duration
+      // 根据 service 选择 API key
+      const apiKey = service === 'openrouter' ? OPENROUTER_API_KEY() : DS_API_KEY();
+      if (!apiKey) {
+        const serviceName = service === 'openrouter' ? 'OpenRouter' : 'DeepSeek';
+        return c.json({ error: `${serviceName} API key not configured` }, 500);
+      }
+
       const result = await translateUrl({
         url,
         source,
         target,
         mode: mode as 'bilingual' | 'target',
-        apiKey: DS_API_KEY(),
+        apiKey,
+        service,
       });
       console.log(`[translate/url-page] blocks=${result.blocks} chunks=${result.chunks} duration=${result.duration_ms}ms`);
       // 缓存翻译结果，供 / 路由展示
@@ -436,6 +442,12 @@ export function createApp(storage?: StorageAdapter): Hono {
     }
     const raw = decodeURIComponent(c.req.path.slice('/force/'.length));
     return handleTranslateRequest(c, raw, /* force */ true);
+  });
+
+  // ── OpenRouter 免费模型翻译：使用 nvidia/nemotron-3-nano-30b-a3b ──────────
+  app.get('/openrt/*', (c) => {
+    const raw = decodeURIComponent(c.req.path.slice('/openrt/'.length));
+    return handleTranslateRequest(c, raw, /* force */ false, /* service */ 'openrouter');
   });
 
   // ── 术语表管理（持久层由 setDefaultStorage 注入） ─────

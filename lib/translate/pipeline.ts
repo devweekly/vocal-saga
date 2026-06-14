@@ -230,6 +230,7 @@ export interface TranslateUrlInput {
   apiKey: string;
   mode?: 'bilingual' | 'target';
   glossary?: Glossary;
+  service?: 'deepseek' | 'openrouter';
 }
 
 export interface TranslateUrlResult {
@@ -257,7 +258,15 @@ export async function translateUrl(input: TranslateUrlInput): Promise<TranslateU
   logCost('prepareDocument', tPrep);
   console.log(`[Pipeline] Extracted ${blocks.length} blocks → ${chunks.length} chunks`);
 
-  const service = new DeepSeekTranslationService(input.apiKey);
+  // 根据 service 参数选择翻译服务
+  const serviceType = input.service || 'deepseek';
+  let service: DeepSeekTranslationService;
+  if (serviceType === 'openrouter') {
+    const { OpenRouterTranslationService } = await import('./service/openrouter');
+    service = new OpenRouterTranslationService(input.apiKey) as any;
+  } else {
+    service = new DeepSeekTranslationService(input.apiKey);
+  }
   const tTrans = performance.now();
   const translations = await translateChunksWithRetry(
     service,
