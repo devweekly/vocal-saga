@@ -10,11 +10,12 @@ import type { Glossary } from './_service';
 
 /**
  * 估算 max output tokens。
- * 翻译 ratio 经验值：input * 8 * 2 = 16x，最低 1024。
+ * 翻译 ratio 约 1:1（JSON 格式输入 → JSON 格式输出），
+ * 留 2x 余量应对中文扩词，上限 131072（保守值，远低于 DeepSeek 384K 上限）。
  */
 export function estimateMaxTokens(inputJson: string): number {
   const estimatedInputTokens = Math.ceil(inputJson.length * 0.5);
-  return Math.max(1024, Math.ceil(estimatedInputTokens * 8 * 2));
+  return Math.min(131072, Math.max(2048, estimatedInputTokens * 2));
 }
 
 // ── System Prompt ────────────────────────────────────────────

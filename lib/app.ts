@@ -333,7 +333,16 @@ export function createApp(storage?: StorageAdapter): Hono {
         service,
         model,
       });
-      console.log(`[translate/url-page] blocks=${result.blocks} chunks=${result.chunks} duration=${result.duration_ms}ms`);
+      console.log(`[translate/url-page] blocks=${result.blocks} translated=${result.translatedBlocks} chunks=${result.chunks} duration=${result.duration_ms}ms`);
+
+      // 翻译 0 个 block → 服务端翻译失败，不缓存 D1，返回错误
+      if (result.translatedBlocks === 0 && result.blocks > 0) {
+        return c.json({
+          error: 'Translation produced no results',
+          detail: `${result.blocks} blocks extracted but 0 translated — service may be unavailable or prompt was filtered`,
+        }, 500);
+      }
+
       // 缓存翻译结果，供 / 路由展示
       lastTranslatedHtml = result.html;
       // 写入 D1（force 模式用 INSERT OR REPLACE 覆盖已有记录）

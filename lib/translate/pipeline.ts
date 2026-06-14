@@ -222,6 +222,7 @@ export interface TranslateUrlResult {
   finalUrl: string;
   html: string;
   blocks: number;
+  translatedBlocks: number;
   chunks: number;
   duration_ms: number;
 }
@@ -340,6 +341,7 @@ export async function translateUrl(input: TranslateUrlInput): Promise<TranslateU
     finalUrl: page.finalUrl,
     html,
     blocks: blocks.length,
+    translatedBlocks: translations.size,
     chunks: chunks.length,
     duration_ms: Date.now() - start,
   };

@@ -40,7 +40,7 @@ binding = "ASSETS"
 # CLOUDFLARE_ACCOUNT_ID = ""
 
 # ── Cloudflare AI（免费模型翻译）─────────────────────────────
-# 使用 @cf/meta/llama-3.1-8b-instruct 等免费模型
+# 使用 openai/gpt-5-nano 免费模型翻译
 [ai]
 binding = "AI999"
 
