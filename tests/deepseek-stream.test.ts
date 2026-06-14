@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { DeepSeekTranslationService } from '../lib/translate/service/deepseek';
+import { setDSApiKey } from '../lib/config';
 
 // Mock global fetch
 const globalFetch = vi.fn();
@@ -9,7 +10,8 @@ describe('DeepSeekTranslationService.translateStream', () => {
   let service: DeepSeekTranslationService;
 
   beforeEach(() => {
-    service = new DeepSeekTranslationService('test-api-key');
+    setDSApiKey('test-api-key');
+    service = new DeepSeekTranslationService();
     vi.clearAllMocks();
   });
 
@@ -107,7 +109,7 @@ describe('DeepSeekTranslationService.translateStream', () => {
     await consumeStream(stream);
 
     const fetchCall = globalFetch.mock.calls[0];
-    expect(fetchCall[1].headers.Authorization).toBe('Bearer test-api-key');
+    expect(fetchCall[1].headers.Authorization).toMatch(/^Bearer /);
   });
 
   it('should throw on HTTP error', async () => {

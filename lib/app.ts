@@ -24,9 +24,6 @@ import { normalizeUrl, cacheKeyUrl } from './urlUtils';
 import {
   CF_ACCOUNT_ID,
   CF_API_TOKEN,
-  DS_API_KEY,
-  NVIDIA_API_KEY,
-  OPENROUTER_API_KEY,
   CF_BASE,
   DS_BASE,
   NVIDIA_BASE,
@@ -34,6 +31,14 @@ import {
   DS_MODELS,
   resolveModel,
 } from './modelResolver';
+import {
+  setDSApiKey,
+  setOpenrouterApiKey,
+  setNvidiaApiKey,
+  getDSApiKey,
+  getOpenrouterApiKey,
+  getNvidiaApiKey,
+} from './config';
 
 // ── extractor 懒加载 ────────────────────────────────────────
 type Extractor = (text: string) => { document_terms: string[] };
@@ -49,6 +54,14 @@ async function getExtractor(): Promise<Extractor> {
 // ── 工厂 ────────────────────────────────────────────────────
 export function createApp(storage?: StorageAdapter): Hono {
   if (storage) setDefaultStorage(storage);
+
+  // 从环境变量设置 API keys（模块级变量）
+  const dsKey = process.env.DEEPSEEK_API_KEY || '';
+  const openrouterKey = process.env.OPENROUTER_API_KEY || '';
+  const nvidiaKey = process.env.NVIDIA_API_KEY || '';
+  if (dsKey) setDSApiKey(dsKey);
+  if (openrouterKey) setOpenrouterApiKey(openrouterKey);
+  if (nvidiaKey) setNvidiaApiKey(nvidiaKey);
 
   const app = new Hono();
   app.use('*', cors());
@@ -148,23 +161,23 @@ export function createApp(storage?: StorageAdapter): Hono {
       targetUrl = `${CF_BASE()}/v1/chat/completions`;
       headers = { 'Authorization': `Bearer ${CF_API_TOKEN()}`, 'Content-Type': 'application/json' };
     } else if (backend === 'nvidia') {
-      if (!NVIDIA_API_KEY()) {
+      if (!getNvidiaApiKey()) {
         return c.json({ error: 'NVIDIA Build not configured' }, 500);
       }
       targetUrl = `${NVIDIA_BASE}/v1/chat/completions`;
-      headers = { 'Authorization': `Bearer ${NVIDIA_API_KEY()}`, 'Accept': 'application/json', 'Content-Type': 'application/json' };
+      headers = { 'Authorization': `Bearer ${getNvidiaApiKey()}`, 'Accept': 'application/json', 'Content-Type': 'application/json' };
     } else if (backend === 'openrouter') {
-      if (!OPENROUTER_API_KEY()) {
+      if (!getOpenrouterApiKey()) {
         return c.json({ error: 'OpenRouter not configured' }, 500);
       }
       targetUrl = `${OPENROUTER_BASE}/v1/chat/completions`;
-      headers = { 'Authorization': `Bearer ${OPENROUTER_API_KEY()}`, 'Content-Type': 'application/json' };
+      headers = { 'Authorization': `Bearer ${getOpenrouterApiKey()}`, 'Content-Type': 'application/json' };
     } else {
-      if (!DS_API_KEY()) {
+      if (!getDSApiKey()) {
         return c.json({ error: 'DeepSeek not configured' }, 500);
       }
       targetUrl = `${DS_BASE}/v1/chat/completions`;
-      headers = { Authorization: `Bearer ${DS_API_KEY()}`, 'Content-Type': 'application/json' };
+      headers = { Authorization: `Bearer ${getDSApiKey()}`, 'Content-Type': 'application/json' };
     }
 
     const startedAt = Date.now();
@@ -211,7 +224,7 @@ export function createApp(storage?: StorageAdapter): Hono {
   // ── GET /api/v1/models ────────────────────────────────
   app.get('/api/v1/models', (c) => {
     const models: any[] = [];
-    if (DS_API_KEY()) {
+    if (getDSApiKey()) {
       for (const id of DS_MODELS) {
         models.push({ id, object: 'model', owned_by: 'deepseek' });
       }
@@ -231,16 +244,12 @@ export function createApp(storage?: StorageAdapter): Hono {
     if (!text || typeof text !== 'string') {
       return c.json({ error: 'text is required' }, 400);
     }
-    if (!DS_API_KEY()) {
-      return c.json({ error: 'DeepSeek not configured' }, 500);
-    }
     console.log(`[translate/text] chars=${text.length} src=${source || 'en'} tgt=${target || 'zh'}`);
     try {
       const result = await translateText({
         text,
         source,
         target,
-        apiKey: DS_API_KEY(),
         glossary,
       });
       console.log(`[translate/text] chunks=${result.chunks} duration=${result.duration_ms}ms`);
@@ -257,7 +266,7 @@ export function createApp(storage?: StorageAdapter): Hono {
    * @param service 翻译服务：'deepseek'（默认）、'openrouter' 或 'nvidia'
    * @param model 可选模型名（用于 NVIDIA 等多模型服务）
    */
-  async function handleTranslateRequest(c: any, rawPath: string, force = false, service: 'deepseek' | 'openrouter' | 'nvidia' = 'deepseek', model?: string) {
+  async function handleTranslateRequest(c: any, rawPath: string, force = false, service: 'deepseek' | 'openrouter' | 'nvidia' | 'cloudflare' = 'deepseek', model?: string) {
     if (!rawPath) {
       return c.json({ error: 'target url is required in path' }, 400);
     }
@@ -285,10 +294,6 @@ export function createApp(storage?: StorageAdapter): Hono {
     if (mode !== 'bilingual' && mode !== 'target') {
       return c.json({ error: 'mode must be bilingual or target' }, 400);
     }
-    if (!DS_API_KEY()) {
-      return c.json({ error: 'DeepSeek not configured' }, 500);
-    }
-
     console.log(`[translate/url-page] url=${url} src=${source || 'en'} tgt=${target} mode=${mode} force=${force}`);
 
     // ── D1 去重：同 URL+source+target 已存在则直接返回（force 模式跳过） ──
@@ -320,29 +325,11 @@ export function createApp(storage?: StorageAdapter): Hono {
     }
 
     try {
-      // 根据 service 选择 API key
-      let apiKey: string;
-      let serviceName: string;
-      if (service === 'openrouter') {
-        apiKey = OPENROUTER_API_KEY();
-        serviceName = 'OpenRouter';
-      } else if (service === 'nvidia') {
-        apiKey = NVIDIA_API_KEY();
-        serviceName = 'NVIDIA';
-      } else {
-        apiKey = DS_API_KEY();
-        serviceName = 'DeepSeek';
-      }
-      if (!apiKey) {
-        return c.json({ error: `${serviceName} API key not configured` }, 500);
-      }
-
       const result = await translateUrl({
         url,
         source,
         target,
         mode: mode as 'bilingual' | 'target',
-        apiKey,
         service,
         model,
       });
@@ -391,10 +378,13 @@ export function createApp(storage?: StorageAdapter): Hono {
    *   - 含点号则当完整域名用（如 /s/example.com/xxx → https://example.com/xxx）
    */
   app.get('/s/*', async (c) => {
-    const raw = decodeURIComponent(c.req.path.slice('/s/'.length));
+    let raw = decodeURIComponent(c.req.path.slice('/s/'.length));
     if (!raw) {
       return c.json({ error: 'target is required after /s/' }, 400);
     }
+
+    // 剥离 scheme（兼容 /s/https://github.com/... 和 /s/github.com/...）
+    raw = raw.replace(/^https?:\/\//i, '');
 
     const slashIdx = raw.indexOf('/');
     const firstSeg = slashIdx < 0 ? raw : raw.slice(0, slashIdx);
@@ -472,6 +462,19 @@ export function createApp(storage?: StorageAdapter): Hono {
     const urlPath = isDeepseek ? raw.slice('deepseek/'.length) : raw;
     const model = isDeepseek ? 'deepseek-ai/deepseek-v4-pro' : undefined;
     return handleTranslateRequest(c, urlPath, /* force */ false, /* service */ 'nvidia', model);
+  });
+
+  // ── Cloudflare AI 翻译：使用 CF Workers AI 的免费模型 ──────────
+  app.get('/cf/*', async (c) => {
+    const raw = decodeURIComponent(c.req.path.slice('/cf/'.length));
+    const ai = (c.env as any)?.AI999;
+    if (!ai) {
+      return c.json({ error: 'Cloudflare AI not configured' }, 500);
+    }
+    // 设置模块级 AI binding
+    const { setCloudflareAI } = await import('./translate/service/cloudflare');
+    setCloudflareAI(ai);
+    return handleTranslateRequest(c, raw, /* force */ false, /* service */ 'cloudflare');
   });
 
   // ── 原始页面：抓取 URL 并返回原始 HTML，不做翻译 ──────────

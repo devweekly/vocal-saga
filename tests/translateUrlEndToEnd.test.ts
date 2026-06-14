@@ -17,7 +17,6 @@ import type { AddressInfo } from 'node:net';
 // mock 必须在被测模块 import 之前 —— mock 掉 DeepSeek service 的 HTTP 调用
 vi.mock('../lib/translate/service/deepseek', () => ({
   DeepSeekTranslationService: class {
-    constructor(_apiKey: string) {}
     async translate(jsonContent: string) {
       const blocks = JSON.parse(jsonContent) as Array<{ id: string; text: string }>;
       return JSON.stringify(
@@ -112,7 +111,6 @@ describe('translateUrl — end-to-end with linkedom', () => {
   it('fetches, extracts, translates, and returns bilingual HTML', async () => {
     const result = await translateUrl({
       url: `${baseUrl}/`,
-      apiKey: 'sk-test-dummy',
     });
 
     expect(result.html).toContain('Graph abstractions at Netflix');
@@ -128,19 +126,19 @@ describe('translateUrl — end-to-end with linkedom', () => {
   }, 10_000);
 
   it('injects <base href> when none exists', async () => {
-    const result = await translateUrl({ url: `${baseUrl}/no-base`, apiKey: 'sk-test-dummy' });
+      const result = await translateUrl({ url: `${baseUrl}/no-base` });
     // base href 为页面目录 URL（含路径）
     expect(baseHref(result.html)).toBe(`${baseUrl}/no-base/`);
   });
 
   it('updates existing <base href>', async () => {
-    const result = await translateUrl({ url: `${baseUrl}/has-base`, apiKey: 'sk-test-dummy' });
+    const result = await translateUrl({ url: `${baseUrl}/has-base` });
     expect(baseHref(result.html)).toBe(`${baseUrl}/has-base/`);
     expect(result.html).not.toContain('old-origin.com');
   });
 
   it('preserves <base target> when adding href', async () => {
-    const result = await translateUrl({ url: `${baseUrl}/base-no-href`, apiKey: 'sk-test-dummy' });
+    const result = await translateUrl({ url: `${baseUrl}/base-no-href` });
     expect(baseTarget(result.html)).toBe('_blank');
     expect(baseHref(result.html)).toBe(`${baseUrl}/base-no-href/`);
   });
@@ -149,7 +147,7 @@ describe('translateUrl — end-to-end with linkedom', () => {
     const savedWindow = (globalThis as { window?: unknown }).window;
     delete (globalThis as { window?: unknown }).window;
     try {
-      const result = await translateUrl({ url: `${baseUrl}/`, apiKey: 'sk-test-dummy' });
+      const result = await translateUrl({ url: `${baseUrl}/` });
       expect(result.html).toContain('Graph abstractions at Netflix');
     } finally {
       if (savedWindow !== undefined) (globalThis as { window: unknown }).window = savedWindow;

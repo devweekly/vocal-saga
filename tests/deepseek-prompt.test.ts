@@ -1,12 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { DeepSeekTranslationService } from '../lib/translate/service/deepseek';
+import { setDSApiKey } from '../lib/config';
 
 // Mock global fetch
 const globalFetch = vi.fn();
 Object.defineProperty(globalThis, 'fetch', { value: globalFetch, writable: true });
 
 function createJsonResponse(json: unknown, status = 200) {
-  // Wrap the body so it looks like a real DeepSeek chat completions response.
   const contentString = typeof json === 'string' ? json : JSON.stringify(json);
   return {
     ok: status === 200,
@@ -23,7 +23,8 @@ describe('DeepSeekTranslationService.translate prompt', () => {
   let service: DeepSeekTranslationService;
 
   beforeEach(() => {
-    service = new DeepSeekTranslationService('test-api-key');
+    setDSApiKey('test-api-key');
+    service = new DeepSeekTranslationService();
     vi.clearAllMocks();
   });
 
@@ -86,8 +87,8 @@ describe('DeepSeekTranslationService.translate prompt', () => {
   });
 
   it('still passes when a block is silently returned unchanged (warns)', async () => {
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    // LLM "no-op": returns the source text as-is.
+    // unchanged 检测现在在 translateApi.ts 的 processTranslationWithCheck 中
+    // deepseek.ts 只负责返回 raw JSON，不做 unchanged 检测
     globalFetch.mockResolvedValue(
       createJsonResponse({ translations: [{ id: 'b1', translated_text: 'hello' }] })
     );
@@ -97,15 +98,10 @@ describe('DeepSeekTranslationService.translate prompt', () => {
       'zh',
       undefined
     );
-    // The raw string is still returned untouched — caller (background) decides
-    // what to do. We just verify the diagnostic fired.
-    expect(warn).toHaveBeenCalled();
     expect(result).toContain('hello');
-    warn.mockRestore();
   });
 
-  it('translateStream also runs the no-op check on its final content', async () => {
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+  it('translateStream returns the final content', async () => {
     const encoder = new TextEncoder();
     const payload = JSON.stringify({ translations: [{ id: 'b1', translated_text: 'hello' }] });
     const events = [
@@ -138,8 +134,6 @@ describe('DeepSeekTranslationService.translate prompt', () => {
       const r = await stream.next();
       if (r.done) break;
     }
-    // After stream exhaustion the diagnostic should have fired
-    expect(warn).toHaveBeenCalled();
-    warn.mockRestore();
+    // Stream completed successfully
   });
 });

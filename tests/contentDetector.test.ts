@@ -181,5 +181,48 @@ describe('contentDetector', () => {
       expect(root).not.toBeNull();
       expect(root!.textContent).toContain('main content');
     });
+
+    it('detects main element', () => {
+      document.body.innerHTML = `
+        <div class="header">Header</div>
+        <main>
+          <h1>Main Content</h1>
+          <p>This is the main content of the page.</p>
+          <p>More paragraphs to ensure good score.</p>
+        </main>
+        <footer>Footer</footer>
+      `;
+      const root = detectArticleRoot(document);
+      expect(root).not.toBeNull();
+      expect(root!.tagName).toBe('MAIN');
+    });
+
+    it('detects role="article"', () => {
+      document.body.innerHTML = `
+        <div role="article">
+          <h1>Article Title</h1>
+          <p>Article content with multiple paragraphs.</p>
+          <p>More content here.</p>
+        </div>
+      `;
+      const root = detectArticleRoot(document);
+      expect(root).not.toBeNull();
+      expect(root!.getAttribute('role')).toBe('article');
+    });
+
+    it('handles empty document', () => {
+      document.body.innerHTML = '';
+      const root = detectArticleRoot(document);
+      expect(root).toBeNull();
+    });
+
+    it('handles document with only scripts and styles', () => {
+      document.body.innerHTML = `
+        <script>console.log('test');</script>
+        <style>.class { color: red; }</style>
+      `;
+      const root = detectArticleRoot(document);
+      expect(root).toBeNull();
+    });
   });
 });

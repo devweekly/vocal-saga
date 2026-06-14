@@ -1,48 +1,11 @@
 /**
  * GET /openrt/<target-without-scheme> 路由单测。
  *
- * OpenRouter 免费模型翻译路由，使用 nvidia/nemotron-3-nano-30b-a3b。
+ * OpenRouter 免费模型翻译路由，使用 openrouter/free。
  * 与 /translate 路由类似，但使用 OpenRouter API 而非 DeepSeek。
  */
 import { describe, it, expect, beforeAll, beforeEach, vi } from 'vitest';
 
-// 测试 stripMarkdownCodeBlock 函数
-describe('stripMarkdownCodeBlock', () => {
-  // 从 openrouter.ts 导入内部函数（通过动态 import 测试）
-  it('strips ```json code block', async () => {
-    const { OpenRouterTranslationService } = await import('../lib/translate/service/openrouter');
-    // 直接测试 stripMarkdownCodeBlock 逻辑
-    const input = '```json\n[{"id":"b1","translated_text":"你好"}]\n```';
-    const expected = '[{"id":"b1","translated_text":"你好"}]';
-    // 通过正则匹配验证
-    const match = input.trim().match(/^```(?:json)?\s*\n?([\s\S]*?)\n?\s*```$/);
-    expect(match).not.toBeNull();
-    expect(match![1].trim()).toBe(expected);
-  });
-
-  it('strips ``` code block without json label', () => {
-    const input = '```\n[{"id":"b1","translated_text":"你好"}]\n```';
-    const match = input.trim().match(/^```(?:json)?\s*\n?([\s\S]*?)\n?\s*```$/);
-    expect(match).not.toBeNull();
-    expect(match![1].trim()).toBe('[{"id":"b1","translated_text":"你好"}]');
-  });
-
-  it('returns plain JSON unchanged', () => {
-    const input = '[{"id":"b1","translated_text":"你好"}]';
-    const match = input.trim().match(/^```(?:json)?\s*\n?([\s\S]*?)\n?\s*```$/);
-    expect(match).toBeNull();
-    expect(input.trim()).toBe(input);
-  });
-
-  it('handles whitespace variations', () => {
-    const input = '  ```json\n  [{"id":"b1"}]\n  ```  ';
-    const match = input.trim().match(/^```(?:json)?\s*\n?([\s\S]*?)\n?\s*```$/);
-    expect(match).not.toBeNull();
-    expect(match![1].trim()).toBe('[{"id":"b1"}]');
-  });
-});
-
-// mock pipeline
 vi.mock('../lib/translate/pipeline', () => ({
   translateUrl: vi.fn(async (args: { url: string; mode: string; service: string }) => ({
     html: `<html><body>openrouter: ${args.url} (${args.service})</body></html>`,
@@ -81,6 +44,37 @@ function req(path: string): Request {
   return new Request(`http://test${path}`);
 }
 
+// 测试 stripMarkdownCodeBlock 函数
+describe('stripMarkdownCodeBlock', () => {
+  it('strips ```json code block', async () => {
+    const { stripMarkdownCodeBlock } = await import('../lib/translate/service/shared');
+    const input = '```json\n[{"id":"b1","translated_text":"你好"}]\n```';
+    const result = stripMarkdownCodeBlock(input);
+    expect(result).toBe('[{"id":"b1","translated_text":"你好"}]');
+  });
+
+  it('strips ``` code block without json label', async () => {
+    const { stripMarkdownCodeBlock } = await import('../lib/translate/service/shared');
+    const input = '```\n[{"id":"b1","translated_text":"你好"}]\n```';
+    const result = stripMarkdownCodeBlock(input);
+    expect(result).toBe('[{"id":"b1","translated_text":"你好"}]');
+  });
+
+  it('returns plain JSON unchanged', async () => {
+    const { stripMarkdownCodeBlock } = await import('../lib/translate/service/shared');
+    const input = '[{"id":"b1","translated_text":"你好"}]';
+    const result = stripMarkdownCodeBlock(input);
+    expect(result).toBe(input);
+  });
+
+  it('handles whitespace variations', async () => {
+    const { stripMarkdownCodeBlock } = await import('../lib/translate/service/shared');
+    const input = '  ```json\n  [{"id":"b1"}]\n  ```  ';
+    const result = stripMarkdownCodeBlock(input);
+    expect(result).toBe('[{"id":"b1"}]');
+  });
+});
+
 describe('GET /openrt/<target> — OpenRouter free model', () => {
   it('200 with valid request', async () => {
     const app = buildApp();
@@ -97,26 +91,20 @@ describe('GET /openrt/<target> — OpenRouter free model', () => {
     expect(call.service).toBe('openrouter');
   });
 
-  it('uses OPENROUTER_API_KEY', async () => {
+  it('uses openrouter service', async () => {
     const app = buildApp();
     await app.request(req('/openrt/example.com'));
     const { translateUrl } = await import('../lib/translate/pipeline');
     const call = (translateUrl as any).mock.calls[0][0];
-    expect(call.apiKey).toBe('or-test-dummy');
+    expect(call.service).toBe('openrouter');
   });
 
-  it('500 when OPENROUTER_API_KEY is missing', async () => {
-    const saved = process.env.OPENROUTER_API_KEY;
-    delete process.env.OPENROUTER_API_KEY;
-    try {
-      const app = buildApp();
-      const res = await app.request(req('/openrt/example.com'));
-      expect(res.status).toBe(500);
-      const body = (await res.json()) as { error: string };
-      expect(body.error).toMatch(/OpenRouter/);
-    } finally {
-      process.env.OPENROUTER_API_KEY = saved;
-    }
+  it('returns translated HTML', async () => {
+    const app = buildApp();
+    const res = await app.request(req('/openrt/example.com'));
+    const body = await res.text();
+    expect(body).toContain('<html>');
+    expect(body).toContain('ok');
   });
 
   it('strips https:// prefix', async () => {

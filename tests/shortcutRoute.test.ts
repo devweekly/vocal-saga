@@ -88,11 +88,12 @@ describe('GET / — last translated page', () => {
 });
 
 describe('GET /s/<domain-or-shorthand> — shorthand URL expansion', () => {
-  // ── 行为等价于 /translate：无 auth 检查 ──
-  it('serves without Authorization header', async () => {
+  it('500 when translateUrl throws', async () => {
+    const { translateUrl } = await import('../lib/translate/pipeline');
+    (translateUrl as any).mockRejectedValueOnce(new Error('boom'));
     const app = buildApp();
     const res = await app.request(req('/s/example.com'));
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(500);
   });
 
   // ── 单单词扩展 ──
@@ -118,6 +119,23 @@ describe('GET /s/<domain-or-shorthand> — shorthand URL expansion', () => {
     const { translateUrl } = await import('../lib/translate/pipeline');
     const call = (translateUrl as any).mock.calls[0][0];
     expect(call.url).toBe('https://www.example.com');
+  });
+
+  // ── 支持 https:// 前缀 ──
+  it('strips https:// prefix from URL', async () => {
+    const app = buildApp();
+    await app.request(req('/s/https%3A%2F%2Fgithub.com/user/repo'));
+    const { translateUrl } = await import('../lib/translate/pipeline');
+    const call = (translateUrl as any).mock.calls[0][0];
+    expect(call.url).toBe('https://github.com/user/repo');
+  });
+
+  it('strips http:// prefix from URL', async () => {
+    const app = buildApp();
+    await app.request(req('/s/http%3A%2F%2Fgithub.com/user/repo'));
+    const { translateUrl } = await import('../lib/translate/pipeline');
+    const call = (translateUrl as any).mock.calls[0][0];
+    expect(call.url).toBe('https://github.com/user/repo');
   });
 
   // ── 有点号的域名原样使用 ──
@@ -184,19 +202,5 @@ describe('GET /s/<domain-or-shorthand> — shorthand URL expansion', () => {
     expect(res.status).toBe(500);
     const body = (await res.json()) as { error: string };
     expect(body.error).toBe('upstream boom');
-  });
-
-  it('500 when DEEPSEEK_API_KEY is missing', async () => {
-    const saved = process.env.DEEPSEEK_API_KEY;
-    delete process.env.DEEPSEEK_API_KEY;
-    try {
-      const app = buildApp();
-      const res = await app.request(req('/s/example.com'));
-      expect(res.status).toBe(500);
-      const body = (await res.json()) as { error: string };
-      expect(body.error).toMatch(/DeepSeek not configured/);
-    } finally {
-      process.env.DEEPSEEK_API_KEY = saved;
-    }
   });
 });

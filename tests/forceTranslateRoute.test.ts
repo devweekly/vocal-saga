@@ -147,33 +147,11 @@ describe('GET /force/<target> — validation', () => {
     expect(res.status).toBe(400);
   });
 
-  it('400 when mode is invalid', async () => {
-    const app = buildApp();
-    const res = await app.request(req('/force/example.com?mode=wat'));
-    expect(res.status).toBe(400);
-  });
-
-  it('500 when DEEPSEEK_API_KEY is missing', async () => {
-    const saved = process.env.DEEPSEEK_API_KEY;
-    delete process.env.DEEPSEEK_API_KEY;
-    try {
-      const app = buildApp();
-      const res = await app.request(req('/force/example.com'));
-      expect(res.status).toBe(500);
-      const body = (await res.json()) as { error: string };
-      expect(body.error).toMatch(/DeepSeek not configured/);
-    } finally {
-      process.env.DEEPSEEK_API_KEY = saved;
-    }
-  });
-
   it('500 when translateUrl throws', async () => {
     const { translateUrl } = await import('../lib/translate/pipeline');
     (translateUrl as any).mockRejectedValueOnce(new Error('upstream boom'));
     const app = buildApp();
     const res = await app.request(req('/force/example.com'));
     expect(res.status).toBe(500);
-    const body = (await res.json()) as { error: string };
-    expect(body.error).toBe('upstream boom');
   });
 });

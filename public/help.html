@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Vocal Saga — LLM Proxy</title>
+  <title>Vocal Saga — Help</title>
   <style>
     body { font-family: system-ui; max-width: 720px; margin: 40px auto; padding: 0 20px; color: #222; }
     h2 { border-bottom: 2px solid #e0e0e0; padding-bottom: 6px; margin-top: 32px; }
@@ -17,80 +17,122 @@
 <body>
 
   <h1>Vocal Saga</h1>
-  <p>OpenAI 兼容的 LLM 透明代理，将请求转发到 Cloudflare AI 或 DeepSeek。</p>
+  <p>OpenAI 兼容的 LLM 代理 + 网页翻译服务。支持 DeepSeek、OpenRouter、NVIDIA、Cloudflare AI 四个后端。</p>
 
-  <h2>端点</h2>
+  <h2>翻译页面（浏览器直访）</h2>
   <table>
-    <tr><th>方法</th><th>路径</th><th>说明</th></tr>
-    <tr><td><code>POST</code></td><td><code>/api/v1/chat/completions</code></td><td>Chat Completions（OpenAI 兼容）</td></tr>
-    <tr><td><code>GET</code></td><td><code>/api/v1/models</code></td><td>可用模型列表</td></tr>
-    <tr><td><code>GET</code></td><td><code>/api/hello?name=…</code></td><td>健康检查</td></tr>
+    <tr><th>路径</th><th>说明</th></tr>
+    <tr><td><code>/translate/&lt;url&gt;</code></td><td>翻译页面（默认 DeepSeek，双语模式）</td></tr>
+    <tr><td><code>/force/&lt;url&gt;</code></td><td>强制重新翻译，跳过 D1 缓存（限 1 次/分钟）</td></tr>
+    <tr><td><code>/openrt/&lt;url&gt;</code></td><td>使用 OpenRouter 免费模型翻译</td></tr>
+    <tr><td><code>/nvd/&lt;url&gt;</code></td><td>使用 NVIDIA kimi-k2.6 翻译</td></tr>
+    <tr><td><code>/nvd/deepseek/&lt;url&gt;</code></td><td>使用 NVIDIA deepseek-v4-pro 翻译</td></tr>
+    <tr><td><code>/cf/&lt;url&gt;</code></td><td>使用 Cloudflare AI (gpt-5-nano) 翻译</td></tr>
+    <tr><td><code>/s/&lt;domain&gt;/&lt;path&gt;</code></td><td>简写域名翻译（如 <code>/s/medium/article</code>）</td></tr>
+    <tr><td><code>/original/&lt;url&gt;</code></td><td>原始页面（不翻译）</td></tr>
+    <tr><td><code>/o/&lt;url&gt;</code></td><td><code>/original</code> 别名</td></tr>
   </table>
 
-  <h2>页面</h2>
-  <p><a href="/translate">/translate</a> — 翻译前端（粘贴文本 / 抓 URL，术语表管理）</p>
+  <p>Query params（可选）：<code>source</code>（默认 en）、<code>target</code>（默认 zh）、<code>mode</code>（bilingual | target）</p>
 
-  <h2>翻译 API</h2>
+  <h2>历史翻译</h2>
   <table>
-    <tr><th>方法</th><th>路径</th><th>说明</th></tr>
-    <tr><td><code>POST</code></td><td><code>/api/translate/text</code></td><td>翻译纯文本</td></tr>
-    <tr><td><code>POST</code></td><td><code>/api/translate/url</code></td><td>抓取并翻译 URL 内容</td></tr>
-    <tr><td><code>GET</code></td><td><code>/api/glossary</code></td><td>读取术语表</td></tr>
-    <tr><td><code>POST</code></td><td><code>/api/glossary</code></td><td>追加 user_terms</td></tr>
-    <tr><td><code>DELETE</code></td><td><code>/api/glossary/:term</code></td><td>删除指定 user_term</td></tr>
-    <tr><td><code>POST</code></td><td><code>/api/glossary/extract</code></td><td>从文本抽取 document_terms（?merge=true 合并到 user）</td></tr>
-    <tr><td><code>PUT</code></td><td><code>/api/glossary/document</code></td><td>显式设置 document_terms</td></tr>
-    <tr><td><code>DELETE</code></td><td><code>/api/glossary/document</code></td><td>清空 document_terms</td></tr>
+    <tr><th>路径</th><th>说明</th></tr>
+    <tr><td><code>/</code></td><td>最新一次翻译结果</td></tr>
+    <tr><td><code>/&lt;id&gt;</code></td><td>D1 中第 N 次翻译结果</td></tr>
+  </table>
+
+  <h2>LLM 代理 API</h2>
+  <table>
+    <tr><th>方法</th><th>路径</th><th>Auth</th><th>说明</th></tr>
+    <tr><td><code>POST</code></td><td><code>/api/v1/chat/completions</code></td><td>✓</td><td>Chat Completions（OpenAI 兼容）</td></tr>
+    <tr><td><code>GET</code></td><td><code>/api/v1/models</code></td><td>✗</td><td>可用模型列表</td></tr>
+    <tr><td><code>GET</code></td><td><code>/api/hello?name=…</code></td><td>✗</td><td>健康检查</td></tr>
   </table>
 
   <h2>后端路由规则</h2>
-  <p>根据请求中的 <code>model</code> 字段自动选择后端：</p>
+  <p>根据请求中的 <code>model</code> 和 <code>_backend</code> 字段自动选择后端：</p>
   <table>
-    <tr><th>模型名特征</th><th>后端</th><th>示例</th></tr>
-    <tr><td>包含 <code>/</code></td><td>Cloudflare AI</td><td><code>@cf/meta/llama-3.1-8b-instruct</code>、<code>deepseek/deepseek-v4-pro</code></td></tr>
-    <tr><td>以 <code>deepseek-</code> 开头（白名单）</td><td>DeepSeek</td><td><code>deepseek-v4-flash</code>、<code>deepseek-v4-pro</code></td></tr>
+    <tr><th>条件</th><th>后端</th><th>示例</th></tr>
+    <tr><td><code>_backend: "cloudflare"</code></td><td>Cloudflare AI</td><td><code>openai/gpt-5-nano</code></td></tr>
+    <tr><td><code>_backend: "nvidia"</code></td><td>NVIDIA Build</td><td><code>kimi-k2.6</code>、<code>deepseek-v4-pro</code></td></tr>
+    <tr><td><code>_backend: "openrouter"</code></td><td>OpenRouter</td><td><code>openrouter/free</code></td></tr>
+    <tr><td>模型名含 <code>/</code></td><td>Cloudflare AI</td><td><code>@cf/meta/llama-3.1-8b-instruct</code></td></tr>
+    <tr><td>模型名以 <code>deepseek-</code> 开头</td><td>DeepSeek</td><td><code>deepseek-v4-flash</code></td></tr>
     <tr><td>其他（默认）</td><td>DeepSeek</td><td>自动使用 <code>deepseek-v4-flash</code></td></tr>
   </table>
 
   <h2>认证</h2>
   <p><code>/api/v1/chat/completions</code> 需要 <code>Authorization: Bearer &lt;key&gt;</code> 认证。</p>
+  <p>翻译页面路由（<code>/translate</code>、<code>/force</code> 等）不需要认证。</p>
 
   <h2>使用示例</h2>
-  <pre># Cloudflare AI — deepseek-v4-flash
-curl -X POST "/api/v1/chat/completions" \
-  -H "Authorization: Bearer $API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "model": "deepseek/deepseek-v4-flash",
-    "messages": [{"role": "user", "content": "Hello"}]
-  }'
+  <pre># 翻译网页（浏览器直接访问）
+https://ss.dal.workers.dev/translate/example.com/article/path
 
-# DeepSeek 官方 — deepseek-v4-flash
+# 强制重新翻译（跳过缓存）
+https://ss.dal.workers.dev/force/example.com/article/path
+
+# 使用 OpenRouter 免费模型
+https://ss.dal.workers.dev/openrt/example.com/article/path
+
+# 使用 NVIDIA kimi-k2.6
+https://ss.dal.workers.dev/nvd/example.com/article/path
+
+# 使用 NVIDIA deepseek-v4-pro
+https://ss.dal.workers.dev/nvd/deepseek/example.com/article/path
+
+# 使用 Cloudflare AI
+https://ss.dal.workers.dev/cf/example.com/article/path
+
+# LLM 代理 — DeepSeek
 curl -X POST "/api/v1/chat/completions" \
   -H "Authorization: Bearer $API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
     "model": "deepseek-v4-flash",
     "messages": [{"role": "user", "content": "Hello"}]
+  }'
+
+# LLM 代理 — 指定 NVIDIA 后端
+curl -X POST "/api/v1/chat/completions" \
+  -H "Authorization: Bearer $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "kimi-k2.6",
+    "_backend": "nvidia",
+    "messages": [{"role": "user", "content": "Hello"}]
   }'</pre>
 
-  <p>响应中会附带 <code>_backend</code> 字段，标识实际使用的后端（<code>"cloudflare"</code> 或 <code>"deepseek"</code>）。</p>
+  <h2>术语表 API</h2>
+  <table>
+    <tr><th>方法</th><th>路径</th><th>说明</th></tr>
+    <tr><td><code>GET</code></td><td><code>/api/glossary</code></td><td>读取术语表</td></tr>
+    <tr><td><code>POST</code></td><td><code>/api/glossary</code></td><td>追加 user_terms</td></tr>
+    <tr><td><code>DELETE</code></td><td><code>/api/glossary</code></td><td>清空 user_terms</td></tr>
+    <tr><td><code>DELETE</code></td><td><code>/api/glossary/:term</code></td><td>删除指定 user_term（需 Auth）</td></tr>
+    <tr><td><code>POST</code></td><td><code>/api/glossary/extract</code></td><td>从文本抽取 document_terms（?merge=true 合并到 user）</td></tr>
+    <tr><td><code>PUT</code></td><td><code>/api/glossary/document</code></td><td>显式设置 document_terms</td></tr>
+    <tr><td><code>DELETE</code></td><td><code>/api/glossary/document</code></td><td>清空 document_terms（需 Auth）</td></tr>
+  </table>
+
+  <h2>环境变量</h2>
+  <table>
+    <tr><th>变量</th><th>说明</th><th>必填</th></tr>
+    <tr><td><code>DEEPSEEK_API_KEY</code></td><td>DeepSeek API Key</td><td>DeepSeek 后端必填</td></tr>
+    <tr><td><code>OPENROUTER_API_KEY</code></td><td>OpenRouter API Key</td><td>OpenRouter 后端必填</td></tr>
+    <tr><td><code>NVIDIA_API_KEY</code></td><td>NVIDIA Build API Key</td><td>NVIDIA 后端必填</td></tr>
+    <tr><td><code>CLOUDFLARE_ACCOUNT_ID</code></td><td>Cloudflare 账户 ID</td><td>CF 代理 API 必填</td></tr>
+    <tr><td><code>CLOUDFLARE_API_TOKEN</code></td><td>Cloudflare API Token（需 Workers AI 权限）</td><td>CF 代理 API 必填</td></tr>
+    <tr><td><code>AUTH_KEY</code></td><td>API 认证密钥（Bearer token）</td><td>chat/completions 必填</td></tr>
+  </table>
 
   <h2>已知限制</h2>
   <table>
     <tr><th>限制</th><th>说明</th></tr>
-    <tr><td>模型列表硬编码</td><td><code>/models</code> 返回静态列表，不动态查询上游。</td></tr>
-    <tr><td>仅 chat/completions</td><td>不支持 <code>/completions</code>、<code>/embeddings</code> 等其他 OpenAI 端点。</td></tr>
-    <tr><td>参数兼容性</td><td>某些 OpenAI 参数（如 <code>logprobs</code>）上游可能不支持，直接透传会导致 400 错误。</td></tr>
-  </table>
-
-  <h2>环境变量</h2>
-  <p>在 Netlify Dashboard 中配置以下环境变量：</p>
-  <table>
-    <tr><th>变量</th><th>说明</th><th>必填</th></tr>
-    <tr><td><code>CLOUDFLARE_ACCOUNT_ID</code></td><td>Cloudflare 账户 ID</td><td>使用 CF 模型时必填</td></tr>
-    <tr><td><code>CLOUDFLARE_API_TOKEN</code></td><td>Cloudflare API Token（需 Workers AI 权限）</td><td>使用 CF 模型时必填</td></tr>
-    <tr><td><code>DEEPSEEK_API_KEY</code></td><td>DeepSeek API Key</td><td>使用 DS 模型时必填</td></tr>
+    <tr><td>仅 chat/completions</td><td>不支持 <code>/completions</code>、<code>/embeddings</code> 等其他 OpenAI 端点</td></tr>
+    <tr><td>CF AI 不支持流式</td><td>Cloudflare Workers AI <code>/cf</code> 路由降级为非流式响应</td></tr>
+    <tr><td><code>/force</code> 限流</td><td>每 IP 每分钟最多 1 次强制翻译</td></tr>
   </table>
 
 </body>

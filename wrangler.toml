@@ -39,6 +39,11 @@ binding = "ASSETS"
 # [vars]
 # CLOUDFLARE_ACCOUNT_ID = ""
 
+# ── Cloudflare AI（免费模型翻译）─────────────────────────────
+# 使用 @cf/meta/llama-3.1-8b-instruct 等免费模型
+[ai]
+binding = "AI999"
+
 # ── D1 数据库（翻译结果持久化）─────────────────────────────
 # 创建：wrangler d1 create vocal-saga
 # 迁移：wrangler d1 execute vocal-saga --file=db/schema.sql

@@ -60,12 +60,12 @@ describe('GET /nvd/<target> — NVIDIA kimi-k2.6 (default)', () => {
     expect(call.service).toBe('nvidia');
   });
 
-  it('uses NVIDIA_API_KEY', async () => {
+  it('uses nvidia service', async () => {
     const app = buildApp();
     await app.request(req('/nvd/example.com'));
     const { translateUrl } = await import('../lib/translate/pipeline');
     const call = (translateUrl as any).mock.calls[0][0];
-    expect(call.apiKey).toBe('nvapi-test-dummy');
+    expect(call.service).toBe('nvidia');
   });
 
   it('uses default model (kimi-k2.6) when no deepseek prefix', async () => {
@@ -76,18 +76,12 @@ describe('GET /nvd/<target> — NVIDIA kimi-k2.6 (default)', () => {
     expect(call.model).toBeUndefined();
   });
 
-  it('500 when NVIDIA_API_KEY is missing', async () => {
-    const saved = process.env.NVIDIA_API_KEY;
-    delete process.env.NVIDIA_API_KEY;
-    try {
-      const app = buildApp();
-      const res = await app.request(req('/nvd/example.com'));
-      expect(res.status).toBe(500);
-      const body = (await res.json()) as { error: string };
-      expect(body.error).toMatch(/NVIDIA/);
-    } finally {
-      process.env.NVIDIA_API_KEY = saved;
-    }
+  it('returns translated HTML', async () => {
+    const app = buildApp();
+    const res = await app.request(req('/nvd/example.com'));
+    const body = await res.text();
+    expect(body).toContain('<html>');
+    expect(body).toContain('ok');
   });
 
   it('strips https:// prefix', async () => {

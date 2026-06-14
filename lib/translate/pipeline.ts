@@ -212,10 +212,9 @@ export interface TranslateUrlInput {
   url: string;
   source?: string;
   target?: string;
-  apiKey: string;
   mode?: 'bilingual' | 'target';
   glossary?: Glossary;
-  service?: 'deepseek' | 'openrouter' | 'nvidia';
+  service?: 'deepseek' | 'openrouter' | 'nvidia' | 'cloudflare';
   model?: string;
 }
 
@@ -249,12 +248,15 @@ export async function translateUrl(input: TranslateUrlInput): Promise<TranslateU
   let service: DeepSeekTranslationService;
   if (serviceType === 'openrouter') {
     const { OpenRouterTranslationService } = await import('./service/openrouter');
-    service = new OpenRouterTranslationService(input.apiKey) as any;
+    service = new OpenRouterTranslationService() as any;
   } else if (serviceType === 'nvidia') {
     const { NvidiaTranslationService } = await import('./service/nvidia');
-    service = new NvidiaTranslationService(input.apiKey, input.model) as any;
+    service = new NvidiaTranslationService(input.model) as any;
+  } else if (serviceType === 'cloudflare') {
+    const { CloudflareAITranslationService } = await import('./service/cloudflare');
+    service = new CloudflareAITranslationService() as any;
   } else {
-    service = new DeepSeekTranslationService(input.apiKey);
+    service = new DeepSeekTranslationService();
   }
   const tTrans = performance.now();
   const translations = await translateChunksWithRetry(

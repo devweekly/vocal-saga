@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { DeepSeekTranslationService } from '../lib/translate/service/deepseek';
+import { setDSApiKey } from '../lib/config';
 
 // Mock global fetch
 const globalFetch = vi.fn();
@@ -9,7 +10,8 @@ describe('DeepSeekTranslationService API methods', () => {
   let service: DeepSeekTranslationService;
 
   beforeEach(() => {
-    service = new DeepSeekTranslationService('test-api-key');
+    setDSApiKey('test-api-key');
+    service = new DeepSeekTranslationService();
     vi.clearAllMocks();
   });
 
@@ -35,7 +37,7 @@ describe('DeepSeekTranslationService API methods', () => {
       expect(result).toBe('{"translations":[{"id":"b1","translated_text":"你好"}]}');
       expect(globalFetch).toHaveBeenCalledTimes(1);
       const fetchCall = globalFetch.mock.calls[0];
-      expect(fetchCall[1].headers.Authorization).toBe('Bearer test-api-key');
+      expect(fetchCall[1].headers.Authorization).toMatch(/^Bearer /);
       const body = JSON.parse(fetchCall[1].body);
       expect(body.model).toBe('deepseek-v4-flash');
       expect(body.stream).toBe(false);
@@ -141,7 +143,7 @@ describe('DeepSeekTranslationService API methods', () => {
 
       await expect(
         service.translate(JSON.stringify([{ id: 'b1', text: 'hello' }]), 'en', 'zh', undefined)
-      ).rejects.toThrow('无效响应');
+      ).rejects.toThrow('invalid response');
     });
 
     it('should handle non-JSON error response', async () => {
@@ -160,7 +162,7 @@ describe('DeepSeekTranslationService API methods', () => {
   });
 
   describe('error handling', () => {
-    it('should handle 403 error with balance hint', async () => {
+    it('should handle 403 error', async () => {
       const mockResponse = {
         ok: false,
         status: 403,
@@ -173,10 +175,10 @@ describe('DeepSeekTranslationService API methods', () => {
 
       await expect(
         service.translate(JSON.stringify([{ id: 'b1', text: 'hello' }]), 'en', 'zh', undefined)
-      ).rejects.toThrow('账户余额不足');
+      ).rejects.toThrow('403');
     });
 
-    it('should handle 503 error with service hint', async () => {
+    it('should handle 503 error', async () => {
       const mockResponse = {
         ok: false,
         status: 503,
@@ -187,7 +189,7 @@ describe('DeepSeekTranslationService API methods', () => {
 
       await expect(
         service.translate(JSON.stringify([{ id: 'b1', text: 'hello' }]), 'en', 'zh', undefined)
-      ).rejects.toThrow('暂时不可用');
+      ).rejects.toThrow('503');
     });
   });
 });

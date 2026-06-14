@@ -4,111 +4,27 @@
  * 与 DeepSeekTranslationService 共享 TranslationService 接口，
  * 但指向 OpenRouter 的 API 端点。
  */
-import type { TranslationService, Glossary } from './_service';
+import type { TranslationService } from './_service';
 import { parseSSEStream } from './streamParser';
+import { getOpenrouterApiKey } from '../../config';
+import { buildTranslationBody, stripMarkdownCodeBlock } from './shared';
 
 const API_URL = 'https://openrouter.ai/api/v1/chat/completions';
-/** OpenRouter 免费模型：自动路由到最佳可用免费模型 */
 const MODEL = 'openrouter/free';
-const TRANSLATION_TEMPERATURE = 0.1;
 
-function estimateMaxTokens(inputJson: string): number {
-  const estimatedInputTokens = Math.ceil(inputJson.length * 0.5);
-  return Math.max(1024, Math.ceil(estimatedInputTokens * 8 * 2));
-}
-
-function buildHeaders(apiKey: string): Record<string, string> {
+function buildHeaders(): Record<string, string> {
   return {
     'Content-Type': 'application/json',
-    Authorization: `Bearer ${apiKey}`,
+    Authorization: `Bearer ${getOpenrouterApiKey()}`,
     'HTTP-Referer': 'https://vocal-saga.com',
     'X-Title': 'Vocal Saga Translation',
   };
 }
 
-function buildSystemContent(
-  sourceLang: string,
-  targetLang: string,
-  glossary?: Glossary
-): string {
-  const targetLangName = !targetLang ? 'Simplified Chinese' : targetLang === 'zh' ? 'Simplified Chinese' : targetLang;
-  const sourceLangName = !sourceLang ? 'English' : sourceLang === 'en' ? 'English' : sourceLang;
+async function callApi(body: string): Promise<string> {
+  const apiKey = getOpenrouterApiKey();
+  if (!apiKey) throw new Error('OpenRouter API key not configured');
 
-  let systemContent = `Translate ${sourceLangName} to ${targetLangName}.
-
-1. Return {"translations":[{"id":"x","translated_text":"y"}]}. One entry per input block, same ids.
-2. For translatable text, provide a translation. Never return empty string or placeholder.
-3. Keep URLs, code, and version numbers unchanged. Translate everything else.
-4. Treat every block as independent — do not skip, summarize, merge, or reorder any block.`;
-
-  const docTerms = glossary?.document_terms;
-  if (docTerms && docTerms.length > 0) {
-    const sorted = [...docTerms].sort();
-    systemContent += `
-
-Preserve only proper nouns and named entities. Examples:
-- company names
-- organization names
-- product names
-- service names
-- trademarks
-
-This page mentions:
-${sorted.join('\n')}
-
-Translate all ordinary English words and phrases normally.`;
-  }
-
-  return systemContent;
-}
-
-function buildTranslationBody(
-  blocks: Array<{ id: string; text: string }>,
-  sourceLang: string,
-  targetLang: string,
-  glossary?: Glossary
-) {
-  const blocksJson = JSON.stringify(
-    blocks.map((b) => ({ id: b.id, text: b.text })),
-    null,
-    2
-  );
-
-  const systemContent = buildSystemContent(sourceLang, targetLang, glossary);
-
-  return {
-    model: MODEL,
-    messages: [
-      {
-        role: 'system' as const,
-        content: systemContent,
-      },
-      {
-        role: 'user' as const,
-        content: `JSON:\n\n${blocksJson}`,
-      },
-    ],
-    temperature: TRANSLATION_TEMPERATURE,
-    max_tokens: estimateMaxTokens(blocksJson),
-  };
-}
-
-/**
- * 清理 LLM 返回的 JSON：移除 markdown 代码块包裹。
- * 某些模型（如 OpenRouter 免费模型）会返回 ```json ... ``` 而非纯 JSON。
- */
-function stripMarkdownCodeBlock(text: string): string {
-  const trimmed = text.trim();
-  // 匹配 ```json\n...\n``` 或 ```\n...\n```
-  const match = trimmed.match(/^```(?:json)?\s*\n?([\s\S]*?)\n?\s*```$/);
-  if (match) {
-    return match[1].trim();
-  }
-  return trimmed;
-}
-
-async function callApi(apiKey: string, body: string): Promise<string> {
-  // 60s 超时，防止免费模型太慢导致 Workers 挂起
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 60_000);
 
@@ -116,14 +32,14 @@ async function callApi(apiKey: string, body: string): Promise<string> {
   try {
     response = await fetch(API_URL, {
       method: 'POST',
-      headers: buildHeaders(apiKey),
+      headers: buildHeaders(),
       body,
       signal: controller.signal,
     });
   } catch (err) {
     clearTimeout(timeout);
     if (err instanceof DOMException && err.name === 'AbortError') {
-      throw new Error('OpenRouter API timeout (60s) — free model may be too slow for this content');
+      throw new Error('OpenRouter API timeout (60s)');
     }
     throw err;
   }
@@ -157,16 +73,11 @@ async function callApi(apiKey: string, body: string): Promise<string> {
     throw new Error('OpenRouter returned invalid response: missing choices[0].message.content');
   }
 
-  // 清理 markdown 代码块包裹
   return stripMarkdownCodeBlock(content);
 }
 
 export class OpenRouterTranslationService implements TranslationService {
-  private apiKey: string;
-
-  constructor(apiKey: string) {
-    this.apiKey = apiKey;
-  }
+  // apiKey 已通过 config 模块管理
 
   async translate(
     jsonContent: string,
@@ -176,9 +87,8 @@ export class OpenRouterTranslationService implements TranslationService {
   ): Promise<string> {
     const blocks = JSON.parse(jsonContent);
 
-    const body = buildTranslationBody(blocks, sourceLang, targetLang, glossary);
-
-    const raw = await callApi(this.apiKey, JSON.stringify(body));
+    const body = buildTranslationBody(blocks, sourceLang, targetLang, glossary, MODEL);
+    const raw = await callApi(JSON.stringify(body));
 
     // 简单的 unchanged 检测
     try {

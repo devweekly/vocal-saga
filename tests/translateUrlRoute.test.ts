@@ -126,14 +126,13 @@ describe('GET /translate/<target> — path parsing', () => {
 });
 
 describe('GET /translate/<target> — validation', () => {
-  it('400 when target is empty (just /translate/)', async () => {
+  it('400 when target is empty', async () => {
     const app = buildApp();
     const res = await app.request(req('/translate/'));
     expect(res.status).toBe(400);
   });
 
   it('400 when only the scheme is given (e.g. /translate/https://)', async () => {
-    // /translate/https://  → raw = 'https://' → strip 后 empty
     const app = buildApp();
     const res = await app.request(req('/translate/https%3A%2F%2F'));
     expect(res.status).toBe(400);
@@ -145,20 +144,6 @@ describe('GET /translate/<target> — validation', () => {
     expect(res.status).toBe(400);
     const body = (await res.json()) as { error: string };
     expect(body.error).toMatch(/bilingual or target/);
-  });
-
-  it('500 when DEEPSEEK_API_KEY is missing', async () => {
-    const saved = process.env.DEEPSEEK_API_KEY;
-    delete process.env.DEEPSEEK_API_KEY;
-    try {
-      const app = buildApp();
-      const res = await app.request(req('/translate/example.com'));
-      expect(res.status).toBe(500);
-      const body = (await res.json()) as { error: string };
-      expect(body.error).toMatch(/DeepSeek not configured/);
-    } finally {
-      process.env.DEEPSEEK_API_KEY = saved;
-    }
   });
 
   it('500 when translateUrl throws', async () => {
