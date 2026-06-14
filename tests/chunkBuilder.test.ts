@@ -141,7 +141,7 @@ describe('buildChunks', () => {
   // --- token target tests ---
 
   it('splits chunks at TARGET_TOKENS boundary', () => {
-    // TARGET_TOKENS = 15000, each block ~1000 tokens
+    // TARGET_TOKENS = 8000, each block ~1000 tokens
     // 20 blocks = 20000 tokens → should split into 2 chunks
     const blocks = Array.from({ length: 20 }, (_, i) =>
       tokenBlock(`b${i + 1}`, 'p', 1000)
@@ -150,9 +150,9 @@ describe('buildChunks', () => {
     const chunks = buildChunks(blocks);
 
     expect(chunks.length).toBeGreaterThanOrEqual(2);
-    // Each chunk should be around 15000 tokens (±20% tolerance)
+    // Each chunk should be around 8000 tokens (±20% tolerance)
     for (const chunk of chunks) {
-      expect(chunk.estimatedTokens).toBeLessThanOrEqual(17000);
+      expect(chunk.estimatedTokens).toBeLessThanOrEqual(10000);
     }
   });
 
