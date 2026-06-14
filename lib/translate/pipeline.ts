@@ -163,7 +163,6 @@ export interface TranslateTextInput {
   text: string;
   source?: string;
   target?: string;
-  apiKey: string;
   glossary?: Glossary;
 }
 
@@ -188,7 +187,7 @@ export async function translateText(input: TranslateTextInput): Promise<Translat
   ];
   const chunks = buildChunks(blocks as any);
 
-  const service = new DeepSeekTranslationService(input.apiKey);
+  const service = new DeepSeekTranslationService();
   const translations = await translateChunksWithRetry(
     service,
     chunks,

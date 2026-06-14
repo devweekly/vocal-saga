@@ -4,10 +4,10 @@
  * 与 DeepSeekTranslationService 共享 TranslationService 接口，
  * 但指向 NVIDIA 的 API 端点。
  */
-import type { TranslationService } from './_service';
+import type { TranslationService, Glossary } from './_service';
 import { parseSSEStream } from './streamParser';
 import { getNvidiaApiKey } from '../../config';
-import { buildTranslationBody, stripMarkdownCodeBlock } from './shared';
+import { buildTranslationBody, stripMarkdownCodeBlock, cleanJsonString } from './shared';
 
 const API_URL = 'https://integrate.api.nvidia.com/v1/chat/completions';
 const DEFAULT_MODEL = 'moonshotai/kimi-k2.6';
@@ -72,7 +72,14 @@ async function callApi(body: string): Promise<string> {
     throw new Error('NVIDIA returned invalid response: missing choices[0].message.content');
   }
 
-  return stripMarkdownCodeBlock(content);
+  let cleaned = stripMarkdownCodeBlock(content);
+  try {
+    JSON.parse(cleaned);
+  } catch {
+    cleaned = cleanJsonString(cleaned);
+  }
+
+  return cleaned;
 }
 
 export class NvidiaTranslationService implements TranslationService {
@@ -130,7 +137,7 @@ export class NvidiaTranslationService implements TranslationService {
     try {
       response = await fetch(API_URL, {
         method: 'POST',
-        headers: buildHeaders(this.apiKey),
+        headers: buildHeaders(),
         body: JSON.stringify({ ...body, stream: true }),
         signal: controller.signal,
       });

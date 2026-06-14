@@ -472,8 +472,8 @@ export function createApp(storage?: StorageAdapter): Hono {
       return c.json({ error: 'Cloudflare AI not configured' }, 500);
     }
     // 设置模块级 AI binding
-    const { setCloudflareAI } = await import('./translate/service/cloudflare');
-    setCloudflareAI(ai);
+    const { setAI } = await import('./config');
+    setAI(ai);
     return handleTranslateRequest(c, raw, /* force */ false, /* service */ 'cloudflare');
   });
 

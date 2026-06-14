@@ -27,7 +27,7 @@
     <tr><td><code>/openrt/&lt;url&gt;</code></td><td>使用 OpenRouter 免费模型翻译</td></tr>
     <tr><td><code>/nvd/&lt;url&gt;</code></td><td>使用 NVIDIA kimi-k2.6 翻译</td></tr>
     <tr><td><code>/nvd/deepseek/&lt;url&gt;</code></td><td>使用 NVIDIA deepseek-v4-pro 翻译</td></tr>
-    <tr><td><code>/cf/&lt;url&gt;</code></td><td>使用 Cloudflare AI (gpt-5-nano) 翻译</td></tr>
+    <tr><td><code>/cf/&lt;url&gt;</code></td><td>使用 Cloudflare AI (llama-3.2-1b) 翻译</td></tr>
     <tr><td><code>/s/&lt;domain&gt;/&lt;path&gt;</code></td><td>简写域名翻译（如 <code>/s/medium/article</code>）</td></tr>
     <tr><td><code>/original/&lt;url&gt;</code></td><td>原始页面（不翻译）</td></tr>
     <tr><td><code>/o/&lt;url&gt;</code></td><td><code>/original</code> 别名</td></tr>
@@ -54,7 +54,7 @@
   <p>根据请求中的 <code>model</code> 和 <code>_backend</code> 字段自动选择后端：</p>
   <table>
     <tr><th>条件</th><th>后端</th><th>示例</th></tr>
-    <tr><td><code>_backend: "cloudflare"</code></td><td>Cloudflare AI</td><td><code>openai/gpt-5-nano</code></td></tr>
+    <tr><td><code>_backend: "cloudflare"</code></td><td>Cloudflare AI</td><td><code>@cf/meta/llama-3.1-8b-instruct</code></td></tr>
     <tr><td><code>_backend: "nvidia"</code></td><td>NVIDIA Build</td><td><code>kimi-k2.6</code>、<code>deepseek-v4-pro</code></td></tr>
     <tr><td><code>_backend: "openrouter"</code></td><td>OpenRouter</td><td><code>openrouter/free</code></td></tr>
     <tr><td>模型名含 <code>/</code></td><td>Cloudflare AI</td><td><code>@cf/meta/llama-3.1-8b-instruct</code></td></tr>
