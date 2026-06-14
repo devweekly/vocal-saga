@@ -20,51 +20,20 @@ import {
 } from './translate/glossaryStore';
 import { setDefaultStorage, type StorageAdapter } from './storage';
 import { requireAuth } from './auth';
-
-/**
- * 实际请求处理时再读 AUTH_KEY，不在模块加载时校验：
- *   - CF Workers 模块在 isolate 启动期 eager 加载，shim 的 env 绑定
- *     要等请求来才可用，模块顶层就 process.env 读不到。
- *   - 改成"首次请求时 warn 但不 throw"，等调用方需要鉴权时再校验。
- * 鉴权逻辑封装在 lib/auth.ts 的 `requireAuth` middleware，路由直接挂上即可。
- */
-
-// ── LLM 代理上游配置 ────────────────────────────────────────
-// 必须 lazy 读 process.env：CF Workers 启动期 wrangler 还没把 .dev.vars 注入
-// process.env（只在 fetch handler 的 env 参数里给），所以模块顶层 const 会读到空串。
-// src/worker.ts 的 injectEnv() 在首个请求时把 env → process.env 同步一次，之后
-// 这些 getter 就能拿到真值。和 AUTH_KEY 一样 per-request 拿，不要放回顶层 const。
-const CF_ACCOUNT_ID      = (): string => process.env.CLOUDFLARE_ACCOUNT_ID || '';
-const CF_API_TOKEN       = (): string => process.env.CLOUDFLARE_API_TOKEN || '';
-const DS_API_KEY         = (): string => process.env.DEEPSEEK_API_KEY || '';
-const NVIDIA_API_KEY     = (): string => process.env.NVIDIA_API_KEY || '';
-const OPENROUTER_API_KEY = (): string => process.env.OPENROUTER_API_KEY || '';
-
-// CF_BASE 也得是函数，因为依赖 CF_ACCOUNT_ID()（lazy 读 env）
-const CF_BASE         = (): string => `https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID()}/ai`;
-const DS_BASE         = 'https://api.deepseek.com';
-const NVIDIA_BASE     = 'https://integrate.api.nvidia.com';
-const OPENROUTER_BASE = 'https://openrouter.ai/api';
-
-const DS_MODELS = new Set(['deepseek-v4-flash', 'deepseek-v4-pro']);
-const BACKENDS  = new Set(['deepseek', 'cloudflare', 'nvidia', 'openrouter']);
-
-function resolveModel(model: string | undefined, backendHint: string | undefined) {
-  if (backendHint) {
-    if (!BACKENDS.has(backendHint)) {
-      return { error: `unknown _backend: ${backendHint}` };
-    }
-    if (backendHint === 'deepseek') {
-      return { backend: 'deepseek', model: DS_MODELS.has(model ?? '') ? model! : 'deepseek-v4-flash' };
-    }
-    return { backend: backendHint, model: model! };
-  }
-  if (model && model.startsWith('nvidia/')) return { backend: 'nvidia',     model };
-  if (model && model.includes(':'))        return { backend: 'openrouter', model };
-  if (model && model.includes('/'))        return { backend: 'cloudflare', model };
-  if (model && DS_MODELS.has(model))       return { backend: 'deepseek',   model };
-  return { backend: 'deepseek', model: 'deepseek-v4-flash' };
-}
+import { normalizeUrl, cacheKeyUrl } from './urlUtils';
+import {
+  CF_ACCOUNT_ID,
+  CF_API_TOKEN,
+  DS_API_KEY,
+  NVIDIA_API_KEY,
+  OPENROUTER_API_KEY,
+  CF_BASE,
+  DS_BASE,
+  NVIDIA_BASE,
+  OPENROUTER_BASE,
+  DS_MODELS,
+  resolveModel,
+} from './modelResolver';
 
 // ── extractor 懒加载 ────────────────────────────────────────
 type Extractor = (text: string) => { document_terms: string[] };
@@ -281,38 +250,6 @@ export function createApp(storage?: StorageAdapter): Hono {
       return c.json({ error: (err as Error).message }, 500);
     }
   });
-
-  /**
-   * URL 标准化：统一格式以便缓存命中和去重。
-   *
-   * 规则：
-   *   1. 剥离 http:// 或 https:// 前缀
-   *   2. 无 "." 的首段域名自动补 .com（如 towardsdatascience → towardsdatascience.com）
-   *
-   * 注意：www.example.com 和 example.com 暂时保留为两个不同 URL，不做去重。
-   */
-  function normalizeUrl(rawPath: string): string {
-    // 1) 剥 scheme
-    let normalized = rawPath.replace(/^https?:\/\//i, '');
-
-    // 2) 无 "." 的首段域名补 .com（如 /translate/towardsdatascience/article → towardsdatascience.com/article）
-    const slashIdx = normalized.indexOf('/');
-    const hostPart = slashIdx < 0 ? normalized : normalized.slice(0, slashIdx);
-    const pathPart = slashIdx < 0 ? '' : normalized.slice(slashIdx);
-    if (hostPart && !hostPart.includes('.')) {
-      normalized = hostPart + '.com' + pathPart;
-    }
-
-    return normalized;
-  }
-
-  /**
-   * 缓存 key 直接用完整 URL（保留 scheme 和 www）。
-   * www.example.com 和 example.com 暂时视为不同 URL。
-   */
-  function cacheKeyUrl(url: string): string {
-    return url;
-  }
 
   /**
    * 公共翻译 handler，供 /translate/*、/s/*、/force/* 使用。
