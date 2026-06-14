@@ -25,7 +25,7 @@ async function callApi(body: string): Promise<string> {
   if (!apiKey) throw new Error('NVIDIA API key not configured');
 
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 60_000);
+  const timeout = setTimeout(() => controller.abort(), 80_000);
 
   let response: Response;
   try {
@@ -98,7 +98,7 @@ export class NvidiaTranslationService implements TranslationService {
     const blocks = JSON.parse(jsonContent);
 
     const body = buildTranslationBody(blocks, sourceLang, targetLang, glossary, this.model);
-    const raw = await callApi(JSON.stringify(body));
+    const raw = await callApi(JSON.stringify({ ...body, reasoning: { effort: 'none' } }));
 
     // 简单的 unchanged 检测
     try {
@@ -138,7 +138,7 @@ export class NvidiaTranslationService implements TranslationService {
       response = await fetch(API_URL, {
         method: 'POST',
         headers: buildHeaders(),
-        body: JSON.stringify({ ...body, stream: true }),
+        body: JSON.stringify({ ...body, stream: true, reasoning: { effort: 'none' } }),
         signal: controller.signal,
       });
     } catch (err) {

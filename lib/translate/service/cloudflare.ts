@@ -34,6 +34,9 @@ export class CloudflareAITranslationService implements TranslationService {
         { role: 'system' as const, content: systemContent },
         { role: 'user' as const, content: `JSON:\n\n${blocksJson}` },
       ],
+      parameters: {
+        reasoning_effort: 'none',
+      },
     };
 
     const ai = getAI();
