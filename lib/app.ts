@@ -474,6 +474,52 @@ export function createApp(storage?: StorageAdapter): Hono {
     return handleTranslateRequest(c, urlPath, /* force */ false, /* service */ 'nvidia', model);
   });
 
+  // ── 原始页面：抓取 URL 并返回原始 HTML，不做翻译 ──────────
+  // /original/{url} 和 /o/{url} 是别名
+  async function handleOriginalRequest(c: any, rawPath: string) {
+    if (!rawPath) {
+      return c.json({ error: 'target url is required' }, 400);
+    }
+    const normalized = normalizeUrl(rawPath);
+    if (!normalized) {
+      return c.json({ error: 'target url is empty after normalization' }, 400);
+    }
+    const url = `https://${normalized}`;
+
+    let parsed: URL;
+    try {
+      parsed = new URL(url);
+    } catch {
+      return c.json({ error: 'url is not a valid URL' }, 400);
+    }
+
+    try {
+      const { fetchPage } = await import('./translate/urlFetcher');
+      const page = await fetchPage(url);
+      return new Response(page.html, {
+        status: 200,
+        headers: {
+          'Content-Type': 'text/html; charset=utf-8',
+          'Cache-Control': 'public, max-age=3600',
+          'X-Original-Url': page.finalUrl,
+        },
+      });
+    } catch (err) {
+      console.error('[original] error:', err);
+      return c.json({ error: (err as Error).message }, 500);
+    }
+  }
+
+  app.get('/original/*', (c) => {
+    const raw = decodeURIComponent(c.req.path.slice('/original/'.length));
+    return handleOriginalRequest(c, raw);
+  });
+
+  app.get('/o/*', (c) => {
+    const raw = decodeURIComponent(c.req.path.slice('/o/'.length));
+    return handleOriginalRequest(c, raw);
+  });
+
   // ── 术语表管理（持久层由 setDefaultStorage 注入） ─────
   app.get('/api/glossary', async (c) => {
     try {

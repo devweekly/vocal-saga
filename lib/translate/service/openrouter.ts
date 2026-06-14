@@ -108,11 +108,26 @@ function stripMarkdownCodeBlock(text: string): string {
 }
 
 async function callApi(apiKey: string, body: string): Promise<string> {
-  const response = await fetch(API_URL, {
-    method: 'POST',
-    headers: buildHeaders(apiKey),
-    body,
-  });
+  // 60s 超时，防止免费模型太慢导致 Workers 挂起
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 60_000);
+
+  let response: Response;
+  try {
+    response = await fetch(API_URL, {
+      method: 'POST',
+      headers: buildHeaders(apiKey),
+      body,
+      signal: controller.signal,
+    });
+  } catch (err) {
+    clearTimeout(timeout);
+    if (err instanceof DOMException && err.name === 'AbortError') {
+      throw new Error('OpenRouter API timeout (60s) — free model may be too slow for this content');
+    }
+    throw err;
+  }
+  clearTimeout(timeout);
 
   console.log('[OpenRouter] Response status:', response.status);
 
@@ -194,11 +209,26 @@ export class OpenRouterTranslationService implements TranslationService {
 
     const body = buildTranslationBody(blocks, sourceLang, targetLang, glossary);
 
-    const response = await fetch(API_URL, {
-      method: 'POST',
-      headers: buildHeaders(this.apiKey),
-      body: JSON.stringify({ ...body, stream: true }),
-    });
+    // 60s 超时
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 60_000);
+
+    let response: Response;
+    try {
+      response = await fetch(API_URL, {
+        method: 'POST',
+        headers: buildHeaders(this.apiKey),
+        body: JSON.stringify({ ...body, stream: true }),
+        signal: controller.signal,
+      });
+    } catch (err) {
+      clearTimeout(timeout);
+      if (err instanceof DOMException && err.name === 'AbortError') {
+        throw new Error('OpenRouter stream timeout (60s)');
+      }
+      throw err;
+    }
+    clearTimeout(timeout);
 
     if (!response.ok) {
       const text = await response.text().catch(() => '');

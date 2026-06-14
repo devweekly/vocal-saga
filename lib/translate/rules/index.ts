@@ -4,12 +4,14 @@ import { githubRule } from './github-rules';
 import { redditRule } from './reddit-rules';
 import { hackernewsRule } from './hackernews-rules';
 import { fortuneRule } from './fortune-rules';
+import { arxivRule } from './arxiv-rules';
 
 const RULES: SiteRule[] = [
   githubRule,
   redditRule,
   hackernewsRule,
   fortuneRule,
+  arxivRule,
 ];
 
 export function matchSiteRule(url: string): MatchedRule | null {

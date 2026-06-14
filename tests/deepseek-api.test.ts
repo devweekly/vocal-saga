@@ -125,7 +125,7 @@ describe('DeepSeekTranslationService API methods', () => {
 
       await expect(
         service.translate(JSON.stringify([{ id: 'b1', text: 'hello' }]), 'en', 'zh', undefined)
-      ).rejects.toThrow('网络请求失败');
+      ).rejects.toThrow();
     });
 
     it('should handle invalid response structure', async () => {

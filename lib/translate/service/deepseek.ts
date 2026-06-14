@@ -137,65 +137,72 @@ async function callApi(
   apiKey: string,
   body: string
 ): Promise<string> {
+  // 45s 超时，防止 API 太慢导致 Workers 挂起
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 45_000);
+
+  let response: Response;
   try {
-    const response = await fetch(API_URL, {
+    response = await fetch(API_URL, {
       method: 'POST',
       headers: buildHeaders(apiKey),
       body,
+      signal: controller.signal,
     });
+  } catch (err) {
+    clearTimeout(timeout);
+    if (err instanceof DOMException && err.name === 'AbortError') {
+      throw new Error('DeepSeek API timeout (45s) — content may be too large');
+    }
+    throw err;
+  }
+  clearTimeout(timeout);
 
-    console.log('[DeepSeek] Response status:', response.status);
+  console.log('[DeepSeek] Response status:', response.status);
 
-    const responseText = await response.text().catch(() => '');
+  const responseText = await response.text().catch(() => '');
 
-    if (!response.ok) {
-      let errorMessage = `HTTP ${response.status}`;
-      
-      try {
-        const errorJson = JSON.parse(responseText);
-        if (errorJson.error) {
-          errorMessage += ` - ${errorJson.error.message || errorJson.error}`;
-          if (errorJson.error.type) errorMessage += ` [${errorJson.error.type}]`;
-          if (errorJson.error.code) errorMessage += ` (code: ${errorJson.error.code})`;
-        } else if (errorJson.message) {
-          errorMessage += ` - ${errorJson.message}`;
-        } else {
-          errorMessage += ` - ${responseText.substring(0, 200)}`;
-        }
-      } catch {
+  if (!response.ok) {
+    let errorMessage = `HTTP ${response.status}`;
+    
+    try {
+      const errorJson = JSON.parse(responseText);
+      if (errorJson.error) {
+        errorMessage += ` - ${errorJson.error.message || errorJson.error}`;
+        if (errorJson.error.type) errorMessage += ` [${errorJson.error.type}]`;
+        if (errorJson.error.code) errorMessage += ` (code: ${errorJson.error.code})`;
+      } else if (errorJson.message) {
+        errorMessage += ` - ${errorJson.message}`;
+      } else {
         errorMessage += ` - ${responseText.substring(0, 200)}`;
       }
-
-      if (response.status === 401) {
-        errorMessage += '\n\n可能原因: API Key 无效或已过期';
-      } else if (response.status === 403) {
-        errorMessage += '\n\n可能原因: 账户余额不足或被封禁';
-      } else if (response.status === 429) {
-        errorMessage += '\n\n可能原因: 请求频率超限，请稍后重试';
-      } else if (response.status === 500 || response.status === 503) {
-        errorMessage += '\n\n可能原因: DeepSeek 服务暂时不可用';
-      }
-
-      throw new Error(`DeepSeek API error: ${errorMessage}`);
+    } catch {
+      errorMessage += ` - ${responseText.substring(0, 200)}`;
     }
 
-    const data = JSON.parse(responseText);
-
-    const content = data.choices?.[0]?.message?.content;
-
-    if (!content) {
-      console.error('[DeepSeek] Invalid response structure:', JSON.stringify(data).substring(0, 500));
-      throw new Error('DeepSeek 返回了无效响应: 缺少 choices[0].message.content');
+    if (response.status === 401) {
+      errorMessage += '\n\n可能原因: API Key 无效或已过期';
+    } else if (response.status === 403) {
+      errorMessage += '\n\n可能原因: 账户余额不足或被封禁';
+    } else if (response.status === 429) {
+      errorMessage += '\n\n可能原因: 请求频率超限，请稍后重试';
+    } else if (response.status === 500 || response.status === 503) {
+      errorMessage += '\n\n可能原因: DeepSeek 服务暂时不可用';
     }
 
-    return content;
-  } catch (error) {
-    if (error instanceof TypeError && error.message.includes('fetch')) {
-      console.error('[DeepSeek] Fetch error - possible network/CORS issue:', error);
-      throw new Error(`网络请求失败: ${error.message}\n\n可能原因:\n1. 网络连接问题\n2. Firefox 扩展权限不足\n3. 被防火墙/代理拦截`);
-    }
-    throw error;
+    throw new Error(`DeepSeek API error: ${errorMessage}`);
   }
+
+  const data = JSON.parse(responseText);
+
+  const content = data.choices?.[0]?.message?.content;
+
+  if (!content) {
+    console.error('[DeepSeek] Invalid response structure:', JSON.stringify(data).substring(0, 500));
+    throw new Error('DeepSeek 返回了无效响应: 缺少 choices[0].message.content');
+  }
+
+  return content;
 }
 
 function hasGlossaryEntries(glossary?: Glossary): boolean {
