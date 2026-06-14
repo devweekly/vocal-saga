@@ -33,7 +33,7 @@ OpenAI-compatible LLM proxy + translation API，部署在 **Cloudflare Workers**
 │       ├── service/                # LLM API 调用
 │       │   ├── deepseek.ts         #   DeepSeek
 │       │   ├── openrouter.ts       #   OpenRouter
-│       │   └── nvidia.ts           #   NVIDIA (kimi-k2.6 / deepseek-v4-pro)
+│       │   └── nvidia.ts           #   NVIDIA (kimi-k2.6 / qwen3-next-80b-a3b-instruct)
 │       └── rules/                  # 站点规则
 ├── src/
 │   └── worker.ts                   # CF Workers 入口
@@ -64,7 +64,7 @@ OpenAI-compatible LLM proxy + translation API，部署在 **Cloudflare Workers**
 | `GET /force/<url>` | ✗ | 强制重新翻译（跳过 D1 缓存） |
 | `GET /openrt/<url>` | ✗ | OpenRouter 免费模型翻译 |
 | `GET /nvd/<url>` | ✗ | NVIDIA kimi-k2.6 翻译 |
-| `GET /nvd/deepseek/<url>` | ✗ | NVIDIA deepseek-v4-pro 翻译 |
+| `GET /nvd/qwen/<url>` | ✗ | NVIDIA qwen3-next-80b-a3b-instruct 翻译 |
 | `GET /original/<url>` | ✗ | 原始页面（不翻译） |
 | `GET /o/<url>` | ✗ | /original 别名 |
 | `GET /s/<domain>/<path>` | ✗ | 简写域名翻译 |
@@ -99,7 +99,7 @@ applyBlockTranslation (回填 HTML)
 |---------|-----|------|------|
 | DeepSeek | api.deepseek.com | deepseek-v4-flash | 45s |
 | OpenRouter | openrouter.ai | openrouter/free | 60s |
-| NVIDIA | integrate.api.nvidia.com | kimi-k2.6 / deepseek-v4-pro | 60s |
+| NVIDIA | integrate.api.nvidia.com | kimi-k2.6 / qwen3-next-80b-a3b-instruct | 60s |
 
 ## Site Rules
 

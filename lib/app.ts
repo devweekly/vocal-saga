@@ -463,13 +463,13 @@ export function createApp(storage?: StorageAdapter): Hono {
 
   // ── NVIDIA 翻译：使用 build.nvidia.com ──────────
   // /nvd/{url} → moonshotai/kimi-k2.6
-  // /nvd/deepseek/{url} → deepseek-ai/deepseek-v4-pro
+  // /nvd/qwen/{url} → qwen/qwen3-next-80b-a3b-instruct
   app.get('/nvd/*', (c) => {
     const raw = decodeURIComponent(c.req.path.slice('/nvd/'.length));
-    // 检测 deepseek/ 前缀
-    const isDeepseek = raw.startsWith('deepseek/');
-    const urlPath = isDeepseek ? raw.slice('deepseek/'.length) : raw;
-    const model = isDeepseek ? 'deepseek-ai/deepseek-v4-pro' : undefined;
+    // 检测 qwen/ 前缀
+    const isQwen = raw.startsWith('qwen/');
+    const urlPath = isQwen ? raw.slice('qwen/'.length) : raw;
+    const model = isQwen ? 'qwen/qwen3-next-80b-a3b-instruct' : 'moonshotai/kimi-k2.6';
     return handleTranslateRequest(c, urlPath, /* force */ false, /* service */ 'nvidia', model);
   });
 
