@@ -25,7 +25,7 @@ async function callApi(body: string): Promise<string> {
   if (!apiKey) throw new Error('NVIDIA API key not configured');
 
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 80_000);
+  const timeout = setTimeout(() => controller.abort(), 150_000);
 
   let response: Response;
   try {
