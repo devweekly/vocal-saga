@@ -476,6 +476,7 @@ export function createApp(storage?: StorageAdapter): Hono {
 
   // ── 原始页面：抓取 URL 并返回原始 HTML，不做翻译 ──────────
   // /original/{url} 和 /o/{url} 是别名
+  // 使用 <base> 标签让浏览器原生解析相对 URL
   async function handleOriginalRequest(c: any, rawPath: string) {
     if (!rawPath) {
       return c.json({ error: 'target url is required' }, 400);
@@ -494,9 +495,25 @@ export function createApp(storage?: StorageAdapter): Hono {
     }
 
     try {
+      const { parseHTML } = await import('linkedom');
       const { fetchPage } = await import('./translate/urlFetcher');
       const page = await fetchPage(url);
-      return new Response(page.html, {
+
+      // 注入 <base> 标签让浏览器原生解析相对 URL（图片、链接等）
+      const baseUrl = page.finalUrl.replace(/\/?$/, '/');
+      const { document } = parseHTML(page.html) as { document: Document };
+      const existingBase = document.querySelector('head > base');
+      if (existingBase) {
+        existingBase.setAttribute('href', baseUrl);
+      } else {
+        const base = document.createElement('base');
+        base.setAttribute('href', baseUrl);
+        const head = document.head;
+        if (head) head.insertBefore(base, head.firstChild);
+      }
+
+      const html = '<!doctype html>\n' + document.documentElement.outerHTML;
+      return new Response(html, {
         status: 200,
         headers: {
           'Content-Type': 'text/html; charset=utf-8',
