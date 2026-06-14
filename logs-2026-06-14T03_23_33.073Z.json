@@ -1,0 +1,3774 @@
+[
+  {
+    "source": {
+      "message": "[translate/url-page] blocks=87 chunks=12 duration=16240ms"
+    },
+    "dataset": "cloudflare-workers",
+    "timestamp": "2026-06-14T03:20:33.585Z",
+    "$workers": {
+      "truncated": false,
+      "event": {
+        "request": {
+          "url": "https://ss.dal.workers.dev/s/arxiv.org/html/2604.09805v1",
+          "method": "GET",
+          "path": "/s/arxiv.org/html/2604.09805v1"
+        }
+      },
+      "outcome": "ok",
+      "scriptName": "ss",
+      "eventType": "fetch",
+      "executionModel": "stateless",
+      "scriptVersion": {
+        "id": "425677f5-1a29-4e4c-b19e-73e709684e37"
+      },
+      "requestId": "a0b632c14f94255f"
+    },
+    "$metadata": {
+      "id": "01KV22ADHHVGDCRBQEPBKANQP2",
+      "requestId": "a0b632c14f94255f",
+      "trigger": "GET /s/arxiv.org/html/2604.09805v1",
+      "service": "ss",
+      "message": "[translate/url-page] blocks=87 chunks=12 duration=16240ms",
+      "account": "d74f37dea530584239cd3b7830def5a9",
+      "type": "cf-worker",
+      "fingerprint": "d70a6c7d4069b79c918b34720c1bf0b9",
+      "origin": "fetch",
+      "messageTemplate": "[translate/url-page] blocks=87 chunks=12 duration=16240ms"
+    }
+  },
+  {
+    "source": {
+      "message": "[PERF] total 16240000µs fetch=109000µs prep=0µs trans=16131000µs apply=0µs ser=0µs"
+    },
+    "dataset": "cloudflare-workers",
+    "timestamp": "2026-06-14T03:20:33.585Z",
+    "$workers": {
+      "truncated": false,
+      "event": {
+        "request": {
+          "url": "https://ss.dal.workers.dev/s/arxiv.org/html/2604.09805v1",
+          "method": "GET",
+          "path": "/s/arxiv.org/html/2604.09805v1"
+        }
+      },
+      "outcome": "ok",
+      "scriptName": "ss",
+      "eventType": "fetch",
+      "executionModel": "stateless",
+      "scriptVersion": {
+        "id": "425677f5-1a29-4e4c-b19e-73e709684e37"
+      },
+      "requestId": "a0b632c14f94255f"
+    },
+    "$metadata": {
+      "id": "01KV22ADHHVGDCRBQEPBKANQP1",
+      "requestId": "a0b632c14f94255f",
+      "trigger": "GET /s/arxiv.org/html/2604.09805v1",
+      "service": "ss",
+      "message": "[PERF] total 16240000µs fetch=109000µs prep=0µs trans=16131000µs apply=0µs ser=0µs",
+      "account": "d74f37dea530584239cd3b7830def5a9",
+      "type": "cf-worker",
+      "fingerprint": "d70a6c7d4069b79c918b34720c1bf0b9",
+      "origin": "fetch",
+      "messageTemplate": "[PERF] total 16240000µs fetch=109000µs prep=0µs trans=16131000µs apply=0µs ser=0µs"
+    }
+  },
+  {
+    "source": {
+      "message": "[PERF] serializeHTML 0µs"
+    },
+    "dataset": "cloudflare-workers",
+    "timestamp": "2026-06-14T03:20:33.585Z",
+    "$workers": {
+      "truncated": false,
+      "event": {
+        "request": {
+          "url": "https://ss.dal.workers.dev/s/arxiv.org/html/2604.09805v1",
+          "method": "GET",
+          "path": "/s/arxiv.org/html/2604.09805v1"
+        }
+      },
+      "outcome": "ok",
+      "scriptName": "ss",
+      "eventType": "fetch",
+      "executionModel": "stateless",
+      "scriptVersion": {
+        "id": "425677f5-1a29-4e4c-b19e-73e709684e37"
+      },
+      "requestId": "a0b632c14f94255f"
+    },
+    "$metadata": {
+      "id": "01KV22ADHHVGDCRBQEPBKANQP0",
+      "requestId": "a0b632c14f94255f",
+      "trigger": "GET /s/arxiv.org/html/2604.09805v1",
+      "service": "ss",
+      "message": "[PERF] serializeHTML 0µs",
+      "account": "d74f37dea530584239cd3b7830def5a9",
+      "type": "cf-worker",
+      "fingerprint": "d70a6c7d4069b79c918b34720c1bf0b9",
+      "origin": "fetch",
+      "messageTemplate": "[PERF] <*> <*>"
+    }
+  },
+  {
+    "source": {
+      "message": "[PERF] applyTranslations 0µs"
+    },
+    "dataset": "cloudflare-workers",
+    "timestamp": "2026-06-14T03:20:33.585Z",
+    "$workers": {
+      "truncated": false,
+      "event": {
+        "request": {
+          "url": "https://ss.dal.workers.dev/s/arxiv.org/html/2604.09805v1",
+          "method": "GET",
+          "path": "/s/arxiv.org/html/2604.09805v1"
+        }
+      },
+      "outcome": "ok",
+      "scriptName": "ss",
+      "eventType": "fetch",
+      "executionModel": "stateless",
+      "scriptVersion": {
+        "id": "425677f5-1a29-4e4c-b19e-73e709684e37"
+      },
+      "requestId": "a0b632c14f94255f"
+    },
+    "$metadata": {
+      "id": "01KV22ADHHVGDCRBQEPBKANQNZ",
+      "requestId": "a0b632c14f94255f",
+      "trigger": "GET /s/arxiv.org/html/2604.09805v1",
+      "service": "ss",
+      "message": "[PERF] applyTranslations 0µs",
+      "account": "d74f37dea530584239cd3b7830def5a9",
+      "type": "cf-worker",
+      "fingerprint": "d70a6c7d4069b79c918b34720c1bf0b9",
+      "origin": "fetch",
+      "messageTemplate": "[PERF] <*> <*>"
+    }
+  },
+  {
+    "source": {
+      "message": "[PERF] translateChunks 16131000µs"
+    },
+    "dataset": "cloudflare-workers",
+    "timestamp": "2026-06-14T03:20:33.585Z",
+    "$workers": {
+      "truncated": false,
+      "event": {
+        "request": {
+          "url": "https://ss.dal.workers.dev/s/arxiv.org/html/2604.09805v1",
+          "method": "GET",
+          "path": "/s/arxiv.org/html/2604.09805v1"
+        }
+      },
+      "outcome": "ok",
+      "scriptName": "ss",
+      "eventType": "fetch",
+      "executionModel": "stateless",
+      "scriptVersion": {
+        "id": "425677f5-1a29-4e4c-b19e-73e709684e37"
+      },
+      "requestId": "a0b632c14f94255f"
+    },
+    "$metadata": {
+      "id": "01KV22ADHHVGDCRBQEPBKANQNY",
+      "requestId": "a0b632c14f94255f",
+      "trigger": "GET /s/arxiv.org/html/2604.09805v1",
+      "service": "ss",
+      "message": "[PERF] translateChunks 16131000µs",
+      "account": "d74f37dea530584239cd3b7830def5a9",
+      "type": "cf-worker",
+      "fingerprint": "d70a6c7d4069b79c918b34720c1bf0b9",
+      "origin": "fetch",
+      "messageTemplate": "[PERF] <*> <*>"
+    }
+  },
+  {
+    "source": {
+      "message": "[Pipeline] translateChunks done (16131ms)"
+    },
+    "dataset": "cloudflare-workers",
+    "timestamp": "2026-06-14T03:20:33.585Z",
+    "$workers": {
+      "truncated": false,
+      "event": {
+        "request": {
+          "url": "https://ss.dal.workers.dev/s/arxiv.org/html/2604.09805v1",
+          "method": "GET",
+          "path": "/s/arxiv.org/html/2604.09805v1"
+        }
+      },
+      "outcome": "ok",
+      "scriptName": "ss",
+      "eventType": "fetch",
+      "executionModel": "stateless",
+      "scriptVersion": {
+        "id": "425677f5-1a29-4e4c-b19e-73e709684e37"
+      },
+      "requestId": "a0b632c14f94255f"
+    },
+    "$metadata": {
+      "id": "01KV22ADHHVGDCRBQEPBKANQNX",
+      "requestId": "a0b632c14f94255f",
+      "trigger": "GET /s/arxiv.org/html/2604.09805v1",
+      "service": "ss",
+      "message": "[Pipeline] translateChunks done (16131ms)",
+      "account": "d74f37dea530584239cd3b7830def5a9",
+      "type": "cf-worker",
+      "fingerprint": "d70a6c7d4069b79c918b34720c1bf0b9",
+      "origin": "fetch",
+      "messageTemplate": "[Pipeline] translateChunks done (16131ms)"
+    }
+  },
+  {
+    "source": {
+      "message": "[Chunk chunk11] queue.add done (8991ms)"
+    },
+    "dataset": "cloudflare-workers",
+    "timestamp": "2026-06-14T03:20:33.402Z",
+    "$workers": {
+      "truncated": false,
+      "event": {
+        "request": {
+          "url": "https://ss.dal.workers.dev/s/arxiv.org/html/2604.09805v1",
+          "method": "GET",
+          "path": "/s/arxiv.org/html/2604.09805v1"
+        }
+      },
+      "outcome": "ok",
+      "scriptName": "ss",
+      "eventType": "fetch",
+      "executionModel": "stateless",
+      "scriptVersion": {
+        "id": "425677f5-1a29-4e4c-b19e-73e709684e37"
+      },
+      "requestId": "a0b632c14f94255f"
+    },
+    "$metadata": {
+      "id": "01KV22ADBT31QXKF49HA82YS51",
+      "requestId": "a0b632c14f94255f",
+      "trigger": "GET /s/arxiv.org/html/2604.09805v1",
+      "service": "ss",
+      "message": "[Chunk chunk11] queue.add done (8991ms)",
+      "account": "d74f37dea530584239cd3b7830def5a9",
+      "type": "cf-worker",
+      "fingerprint": "d70a6c7d4069b79c918b34720c1bf0b9",
+      "origin": "fetch",
+      "messageTemplate": "[Chunk <*>] <DOMAIN> done (<*>)"
+    }
+  },
+  {
+    "source": {
+      "message": "[Chunk chunk11] api.call done (8991ms)"
+    },
+    "dataset": "cloudflare-workers",
+    "timestamp": "2026-06-14T03:20:33.402Z",
+    "$workers": {
+      "truncated": false,
+      "event": {
+        "request": {
+          "url": "https://ss.dal.workers.dev/s/arxiv.org/html/2604.09805v1",
+          "method": "GET",
+          "path": "/s/arxiv.org/html/2604.09805v1"
+        }
+      },
+      "outcome": "ok",
+      "scriptName": "ss",
+      "eventType": "fetch",
+      "executionModel": "stateless",
+      "scriptVersion": {
+        "id": "425677f5-1a29-4e4c-b19e-73e709684e37"
+      },
+      "requestId": "a0b632c14f94255f"
+    },
+    "$metadata": {
+      "id": "01KV22ADBT31QXKF49HA82YS50",
+      "requestId": "a0b632c14f94255f",
+      "trigger": "GET /s/arxiv.org/html/2604.09805v1",
+      "service": "ss",
+      "message": "[Chunk chunk11] api.call done (8991ms)",
+      "account": "d74f37dea530584239cd3b7830def5a9",
+      "type": "cf-worker",
+      "fingerprint": "d70a6c7d4069b79c918b34720c1bf0b9",
+      "origin": "fetch",
+      "messageTemplate": "[Chunk <*>] <DOMAIN> done (<*>)"
+    }
+  },
+  {
+    "source": {
+      "message": "[DeepSeek] Response status: 200"
+    },
+    "dataset": "cloudflare-workers",
+    "timestamp": "2026-06-14T03:20:33.402Z",
+    "$workers": {
+      "truncated": false,
+      "event": {
+        "request": {
+          "url": "https://ss.dal.workers.dev/s/arxiv.org/html/2604.09805v1",
+          "method": "GET",
+          "path": "/s/arxiv.org/html/2604.09805v1"
+        }
+      },
+      "outcome": "ok",
+      "scriptName": "ss",
+      "eventType": "fetch",
+      "executionModel": "stateless",
+      "scriptVersion": {
+        "id": "425677f5-1a29-4e4c-b19e-73e709684e37"
+      },
+      "requestId": "a0b632c14f94255f"
+    },
+    "$metadata": {
+      "id": "01KV22ADBT31QXKF49HA82YS4Z",
+      "requestId": "a0b632c14f94255f",
+      "trigger": "GET /s/arxiv.org/html/2604.09805v1",
+      "service": "ss",
+      "message": "[DeepSeek] Response status: 200",
+      "account": "d74f37dea530584239cd3b7830def5a9",
+      "type": "cf-worker",
+      "fingerprint": "d70a6c7d4069b79c918b34720c1bf0b9",
+      "origin": "fetch",
+      "messageTemplate": "[DeepSeek] Response status: 200"
+    }
+  },
+  {
+    "source": {
+      "message": "[Chunk chunk10] queue.add done (7284ms)"
+    },
+    "dataset": "cloudflare-workers",
+    "timestamp": "2026-06-14T03:20:31.597Z",
+    "$workers": {
+      "truncated": false,
+      "event": {
+        "request": {
+          "url": "https://ss.dal.workers.dev/s/arxiv.org/html/2604.09805v1",
+          "method": "GET",
+          "path": "/s/arxiv.org/html/2604.09805v1"
+        }
+      },
+      "outcome": "ok",
+      "scriptName": "ss",
+      "eventType": "fetch",
+      "executionModel": "stateless",
+      "scriptVersion": {
+        "id": "425677f5-1a29-4e4c-b19e-73e709684e37"
+      },
+      "requestId": "a0b632c14f94255f"
+    },
+    "$metadata": {
+      "id": "01KV22AC1C85VK60KE41NXVYYX",
+      "requestId": "a0b632c14f94255f",
+      "trigger": "GET /s/arxiv.org/html/2604.09805v1",
+      "service": "ss",
+      "message": "[Chunk chunk10] queue.add done (7284ms)",
+      "account": "d74f37dea530584239cd3b7830def5a9",
+      "type": "cf-worker",
+      "fingerprint": "d70a6c7d4069b79c918b34720c1bf0b9",
+      "origin": "fetch",
+      "messageTemplate": "[Chunk <*>] <DOMAIN> done (<*>)"
+    }
+  },
+  {
+    "source": {
+      "message": "[Chunk chunk10] api.call done (7284ms)"
+    },
+    "dataset": "cloudflare-workers",
+    "timestamp": "2026-06-14T03:20:31.597Z",
+    "$workers": {
+      "truncated": false,
+      "event": {
+        "request": {
+          "url": "https://ss.dal.workers.dev/s/arxiv.org/html/2604.09805v1",
+          "method": "GET",
+          "path": "/s/arxiv.org/html/2604.09805v1"
+        }
+      },
+      "outcome": "ok",
+      "scriptName": "ss",
+      "eventType": "fetch",
+      "executionModel": "stateless",
+      "scriptVersion": {
+        "id": "425677f5-1a29-4e4c-b19e-73e709684e37"
+      },
+      "requestId": "a0b632c14f94255f"
+    },
+    "$metadata": {
+      "id": "01KV22AC1C85VK60KE41NXVYYW",
+      "requestId": "a0b632c14f94255f",
+      "trigger": "GET /s/arxiv.org/html/2604.09805v1",
+      "service": "ss",
+      "message": "[Chunk chunk10] api.call done (7284ms)",
+      "account": "d74f37dea530584239cd3b7830def5a9",
+      "type": "cf-worker",
+      "fingerprint": "d70a6c7d4069b79c918b34720c1bf0b9",
+      "origin": "fetch",
+      "messageTemplate": "[Chunk <*>] <DOMAIN> done (<*>)"
+    }
+  },
+  {
+    "source": {
+      "message": "[DeepSeek] Response status: 200"
+    },
+    "dataset": "cloudflare-workers",
+    "timestamp": "2026-06-14T03:20:31.597Z",
+    "$workers": {
+      "truncated": false,
+      "event": {
+        "request": {
+          "url": "https://ss.dal.workers.dev/s/arxiv.org/html/2604.09805v1",
+          "method": "GET",
+          "path": "/s/arxiv.org/html/2604.09805v1"
+        }
+      },
+      "outcome": "ok",
+      "scriptName": "ss",
+      "eventType": "fetch",
+      "executionModel": "stateless",
+      "scriptVersion": {
+        "id": "425677f5-1a29-4e4c-b19e-73e709684e37"
+      },
+      "requestId": "a0b632c14f94255f"
+    },
+    "$metadata": {
+      "id": "01KV22AC1C85VK60KE41NXVYYV",
+      "requestId": "a0b632c14f94255f",
+      "trigger": "GET /s/arxiv.org/html/2604.09805v1",
+      "service": "ss",
+      "message": "[DeepSeek] Response status: 200",
+      "account": "d74f37dea530584239cd3b7830def5a9",
+      "type": "cf-worker",
+      "fingerprint": "d70a6c7d4069b79c918b34720c1bf0b9",
+      "origin": "fetch",
+      "messageTemplate": "[DeepSeek] Response status: 200"
+    }
+  },
+  {
+    "source": {
+      "message": "[Chunk chunk9] queue.add done (7365ms)"
+    },
+    "dataset": "cloudflare-workers",
+    "timestamp": "2026-06-14T03:20:31.017Z",
+    "$workers": {
+      "truncated": false,
+      "event": {
+        "request": {
+          "url": "https://ss.dal.workers.dev/s/arxiv.org/html/2604.09805v1",
+          "method": "GET",
+          "path": "/s/arxiv.org/html/2604.09805v1"
+        }
+      },
+      "outcome": "ok",
+      "scriptName": "ss",
+      "eventType": "fetch",
+      "executionModel": "stateless",
+      "scriptVersion": {
+        "id": "425677f5-1a29-4e4c-b19e-73e709684e37"
+      },
+      "requestId": "a0b632c14f94255f"
+    },
+    "$metadata": {
+      "id": "01KV22AC1C85VK60KE41NXVYYT",
+      "requestId": "a0b632c14f94255f",
+      "trigger": "GET /s/arxiv.org/html/2604.09805v1",
+      "service": "ss",
+      "message": "[Chunk chunk9] queue.add done (7365ms)",
+      "account": "d74f37dea530584239cd3b7830def5a9",
+      "type": "cf-worker",
+      "fingerprint": "d70a6c7d4069b79c918b34720c1bf0b9",
+      "origin": "fetch",
+      "messageTemplate": "[Chunk <*>] <DOMAIN> done (<*>)"
+    }
+  },
+  {
+    "source": {
+      "message": "[Chunk chunk9] api.call done (7365ms)"
+    },
+    "dataset": "cloudflare-workers",
+    "timestamp": "2026-06-14T03:20:31.017Z",
+    "$workers": {
+      "truncated": false,
+      "event": {
+        "request": {
+          "url": "https://ss.dal.workers.dev/s/arxiv.org/html/2604.09805v1",
+          "method": "GET",
+          "path": "/s/arxiv.org/html/2604.09805v1"
+        }
+      },
+      "outcome": "ok",
+      "scriptName": "ss",
+      "eventType": "fetch",
+      "executionModel": "stateless",
+      "scriptVersion": {
+        "id": "425677f5-1a29-4e4c-b19e-73e709684e37"
+      },
+      "requestId": "a0b632c14f94255f"
+    },
+    "$metadata": {
+      "id": "01KV22AC1C85VK60KE41NXVYYS",
+      "requestId": "a0b632c14f94255f",
+      "trigger": "GET /s/arxiv.org/html/2604.09805v1",
+      "service": "ss",
+      "message": "[Chunk chunk9] api.call done (7365ms)",
+      "account": "d74f37dea530584239cd3b7830def5a9",
+      "type": "cf-worker",
+      "fingerprint": "d70a6c7d4069b79c918b34720c1bf0b9",
+      "origin": "fetch",
+      "messageTemplate": "[Chunk <*>] <DOMAIN> done (<*>)"
+    }
+  },
+  {
+    "source": {
+      "message": "[DeepSeek] Response status: 200"
+    },
+    "dataset": "cloudflare-workers",
+    "timestamp": "2026-06-14T03:20:31.016Z",
+    "$workers": {
+      "truncated": false,
+      "event": {
+        "request": {
+          "url": "https://ss.dal.workers.dev/s/arxiv.org/html/2604.09805v1",
+          "method": "GET",
+          "path": "/s/arxiv.org/html/2604.09805v1"
+        }
+      },
+      "outcome": "ok",
+      "scriptName": "ss",
+      "eventType": "fetch",
+      "executionModel": "stateless",
+      "scriptVersion": {
+        "id": "425677f5-1a29-4e4c-b19e-73e709684e37"
+      },
+      "requestId": "a0b632c14f94255f"
+    },
+    "$metadata": {
+      "id": "01KV22AC1C85VK60KE41NXVYYR",
+      "requestId": "a0b632c14f94255f",
+      "trigger": "GET /s/arxiv.org/html/2604.09805v1",
+      "service": "ss",
+      "message": "[DeepSeek] Response status: 200",
+      "account": "d74f37dea530584239cd3b7830def5a9",
+      "type": "cf-worker",
+      "fingerprint": "d70a6c7d4069b79c918b34720c1bf0b9",
+      "origin": "fetch",
+      "messageTemplate": "[DeepSeek] Response status: 200"
+    }
+  },
+  {
+    "source": {
+      "message": "[Chunk chunk12] queue.add done (4222ms)"
+    },
+    "dataset": "cloudflare-workers",
+    "timestamp": "2026-06-14T03:20:29.309Z",
+    "$workers": {
+      "truncated": false,
+      "event": {
+        "request": {
+          "url": "https://ss.dal.workers.dev/s/arxiv.org/html/2604.09805v1",
+          "method": "GET",
+          "path": "/s/arxiv.org/html/2604.09805v1"
+        }
+      },
+      "outcome": "ok",
+      "scriptName": "ss",
+      "eventType": "fetch",
+      "executionModel": "stateless",
+      "scriptVersion": {
+        "id": "425677f5-1a29-4e4c-b19e-73e709684e37"
+      },
+      "requestId": "a0b632c14f94255f"
+    },
+    "$metadata": {
+      "id": "01KV22AC1C85VK60KE41NXVYYQ",
+      "requestId": "a0b632c14f94255f",
+      "trigger": "GET /s/arxiv.org/html/2604.09805v1",
+      "service": "ss",
+      "message": "[Chunk chunk12] queue.add done (4222ms)",
+      "account": "d74f37dea530584239cd3b7830def5a9",
+      "type": "cf-worker",
+      "fingerprint": "d70a6c7d4069b79c918b34720c1bf0b9",
+      "origin": "fetch",
+      "messageTemplate": "[Chunk <*>] <DOMAIN> done (<*>)"
+    }
+  },
+  {
+    "source": {
+      "message": "[Chunk chunk12] api.call done (4222ms)"
+    },
+    "dataset": "cloudflare-workers",
+    "timestamp": "2026-06-14T03:20:29.309Z",
+    "$workers": {
+      "truncated": false,
+      "event": {
+        "request": {
+          "url": "https://ss.dal.workers.dev/s/arxiv.org/html/2604.09805v1",
+          "method": "GET",
+          "path": "/s/arxiv.org/html/2604.09805v1"
+        }
+      },
+      "outcome": "ok",
+      "scriptName": "ss",
+      "eventType": "fetch",
+      "executionModel": "stateless",
+      "scriptVersion": {
+        "id": "425677f5-1a29-4e4c-b19e-73e709684e37"
+      },
+      "requestId": "a0b632c14f94255f"
+    },
+    "$metadata": {
+      "id": "01KV22AC1C85VK60KE41NXVYYP",
+      "requestId": "a0b632c14f94255f",
+      "trigger": "GET /s/arxiv.org/html/2604.09805v1",
+      "service": "ss",
+      "message": "[Chunk chunk12] api.call done (4222ms)",
+      "account": "d74f37dea530584239cd3b7830def5a9",
+      "type": "cf-worker",
+      "fingerprint": "d70a6c7d4069b79c918b34720c1bf0b9",
+      "origin": "fetch",
+      "messageTemplate": "[Chunk <*>] <DOMAIN> done (<*>)"
+    }
+  },
+  {
+    "source": {
+      "message": "[DeepSeek] Response status: 200"
+    },
+    "dataset": "cloudflare-workers",
+    "timestamp": "2026-06-14T03:20:29.308Z",
+    "$workers": {
+      "truncated": false,
+      "event": {
+        "request": {
+          "url": "https://ss.dal.workers.dev/s/arxiv.org/html/2604.09805v1",
+          "method": "GET",
+          "path": "/s/arxiv.org/html/2604.09805v1"
+        }
+      },
+      "outcome": "ok",
+      "scriptName": "ss",
+      "eventType": "fetch",
+      "executionModel": "stateless",
+      "scriptVersion": {
+        "id": "425677f5-1a29-4e4c-b19e-73e709684e37"
+      },
+      "requestId": "a0b632c14f94255f"
+    },
+    "$metadata": {
+      "id": "01KV22AC1C85VK60KE41NXVYYN",
+      "requestId": "a0b632c14f94255f",
+      "trigger": "GET /s/arxiv.org/html/2604.09805v1",
+      "service": "ss",
+      "message": "[DeepSeek] Response status: 200",
+      "account": "d74f37dea530584239cd3b7830def5a9",
+      "type": "cf-worker",
+      "fingerprint": "d70a6c7d4069b79c918b34720c1bf0b9",
+      "origin": "fetch",
+      "messageTemplate": "[DeepSeek] Response status: 200"
+    }
+  },
+  {
+    "source": {
+      "message": "[Chunk chunk8] queue.add done (6154ms)"
+    },
+    "dataset": "cloudflare-workers",
+    "timestamp": "2026-06-14T03:20:27.861Z",
+    "$workers": {
+      "truncated": false,
+      "event": {
+        "request": {
+          "url": "https://ss.dal.workers.dev/s/arxiv.org/html/2604.09805v1",
+          "method": "GET",
+          "path": "/s/arxiv.org/html/2604.09805v1"
+        }
+      },
+      "outcome": "ok",
+      "scriptName": "ss",
+      "eventType": "fetch",
+      "executionModel": "stateless",
+      "scriptVersion": {
+        "id": "425677f5-1a29-4e4c-b19e-73e709684e37"
+      },
+      "requestId": "a0b632c14f94255f"
+    },
+    "$metadata": {
+      "id": "01KV22AC1C85VK60KE41NXVYYM",
+      "requestId": "a0b632c14f94255f",
+      "trigger": "GET /s/arxiv.org/html/2604.09805v1",
+      "service": "ss",
+      "message": "[Chunk chunk8] queue.add done (6154ms)",
+      "account": "d74f37dea530584239cd3b7830def5a9",
+      "type": "cf-worker",
+      "fingerprint": "d70a6c7d4069b79c918b34720c1bf0b9",
+      "origin": "fetch",
+      "messageTemplate": "[Chunk <*>] <DOMAIN> done (<*>)"
+    }
+  },
+  {
+    "source": {
+      "message": "[Chunk chunk8] api.call done (6154ms)"
+    },
+    "dataset": "cloudflare-workers",
+    "timestamp": "2026-06-14T03:20:27.861Z",
+    "$workers": {
+      "truncated": false,
+      "event": {
+        "request": {
+          "url": "https://ss.dal.workers.dev/s/arxiv.org/html/2604.09805v1",
+          "method": "GET",
+          "path": "/s/arxiv.org/html/2604.09805v1"
+        }
+      },
+      "outcome": "ok",
+      "scriptName": "ss",
+      "eventType": "fetch",
+      "executionModel": "stateless",
+      "scriptVersion": {
+        "id": "425677f5-1a29-4e4c-b19e-73e709684e37"
+      },
+      "requestId": "a0b632c14f94255f"
+    },
+    "$metadata": {
+      "id": "01KV22AC1C85VK60KE41NXVYYK",
+      "requestId": "a0b632c14f94255f",
+      "trigger": "GET /s/arxiv.org/html/2604.09805v1",
+      "service": "ss",
+      "message": "[Chunk chunk8] api.call done (6154ms)",
+      "account": "d74f37dea530584239cd3b7830def5a9",
+      "type": "cf-worker",
+      "fingerprint": "d70a6c7d4069b79c918b34720c1bf0b9",
+      "origin": "fetch",
+      "messageTemplate": "[Chunk <*>] <DOMAIN> done (<*>)"
+    }
+  },
+  {
+    "source": {
+      "message": "[DeepSeek] Response status: 200"
+    },
+    "dataset": "cloudflare-workers",
+    "timestamp": "2026-06-14T03:20:27.861Z",
+    "$workers": {
+      "truncated": false,
+      "event": {
+        "request": {
+          "url": "https://ss.dal.workers.dev/s/arxiv.org/html/2604.09805v1",
+          "method": "GET",
+          "path": "/s/arxiv.org/html/2604.09805v1"
+        }
+      },
+      "outcome": "ok",
+      "scriptName": "ss",
+      "eventType": "fetch",
+      "executionModel": "stateless",
+      "scriptVersion": {
+        "id": "425677f5-1a29-4e4c-b19e-73e709684e37"
+      },
+      "requestId": "a0b632c14f94255f"
+    },
+    "$metadata": {
+      "id": "01KV22AC1C85VK60KE41NXVYYJ",
+      "requestId": "a0b632c14f94255f",
+      "trigger": "GET /s/arxiv.org/html/2604.09805v1",
+      "service": "ss",
+      "message": "[DeepSeek] Response status: 200",
+      "account": "d74f37dea530584239cd3b7830def5a9",
+      "type": "cf-worker",
+      "fingerprint": "d70a6c7d4069b79c918b34720c1bf0b9",
+      "origin": "fetch",
+      "messageTemplate": "[DeepSeek] Response status: 200"
+    }
+  },
+  {
+    "source": {
+      "message": "[Chunk chunk7] queue.add done (6354ms)"
+    },
+    "dataset": "cloudflare-workers",
+    "timestamp": "2026-06-14T03:20:27.263Z",
+    "$workers": {
+      "truncated": false,
+      "event": {
+        "request": {
+          "url": "https://ss.dal.workers.dev/s/arxiv.org/html/2604.09805v1",
+          "method": "GET",
+          "path": "/s/arxiv.org/html/2604.09805v1"
+        }
+      },
+      "outcome": "ok",
+      "scriptName": "ss",
+      "eventType": "fetch",
+      "executionModel": "stateless",
+      "scriptVersion": {
+        "id": "425677f5-1a29-4e4c-b19e-73e709684e37"
+      },
+      "requestId": "a0b632c14f94255f"
+    },
+    "$metadata": {
+      "id": "01KV22AC1C85VK60KE41NXVYYH",
+      "requestId": "a0b632c14f94255f",
+      "trigger": "GET /s/arxiv.org/html/2604.09805v1",
+      "service": "ss",
+      "message": "[Chunk chunk7] queue.add done (6354ms)",
+      "account": "d74f37dea530584239cd3b7830def5a9",
+      "type": "cf-worker",
+      "fingerprint": "d70a6c7d4069b79c918b34720c1bf0b9",
+      "origin": "fetch",
+      "messageTemplate": "[Chunk <*>] <DOMAIN> done (<*>)"
+    }
+  },
+  {
+    "source": {
+      "message": "[Chunk chunk7] api.call done (6354ms)"
+    },
+    "dataset": "cloudflare-workers",
+    "timestamp": "2026-06-14T03:20:27.263Z",
+    "$workers": {
+      "truncated": false,
+      "event": {
+        "request": {
+          "url": "https://ss.dal.workers.dev/s/arxiv.org/html/2604.09805v1",
+          "method": "GET",
+          "path": "/s/arxiv.org/html/2604.09805v1"
+        }
+      },
+      "outcome": "ok",
+      "scriptName": "ss",
+      "eventType": "fetch",
+      "executionModel": "stateless",
+      "scriptVersion": {
+        "id": "425677f5-1a29-4e4c-b19e-73e709684e37"
+      },
+      "requestId": "a0b632c14f94255f"
+    },
+    "$metadata": {
+      "id": "01KV22AC1C85VK60KE41NXVYYG",
+      "requestId": "a0b632c14f94255f",
+      "trigger": "GET /s/arxiv.org/html/2604.09805v1",
+      "service": "ss",
+      "message": "[Chunk chunk7] api.call done (6354ms)",
+      "account": "d74f37dea530584239cd3b7830def5a9",
+      "type": "cf-worker",
+      "fingerprint": "d70a6c7d4069b79c918b34720c1bf0b9",
+      "origin": "fetch",
+      "messageTemplate": "[Chunk <*>] <DOMAIN> done (<*>)"
+    }
+  },
+  {
+    "source": {
+      "message": "[DeepSeek] Response status: 200"
+    },
+    "dataset": "cloudflare-workers",
+    "timestamp": "2026-06-14T03:20:27.262Z",
+    "$workers": {
+      "truncated": false,
+      "event": {
+        "request": {
+          "url": "https://ss.dal.workers.dev/s/arxiv.org/html/2604.09805v1",
+          "method": "GET",
+          "path": "/s/arxiv.org/html/2604.09805v1"
+        }
+      },
+      "outcome": "ok",
+      "scriptName": "ss",
+      "eventType": "fetch",
+      "executionModel": "stateless",
+      "scriptVersion": {
+        "id": "425677f5-1a29-4e4c-b19e-73e709684e37"
+      },
+      "requestId": "a0b632c14f94255f"
+    },
+    "$metadata": {
+      "id": "01KV22AC1C85VK60KE41NXVYYF",
+      "requestId": "a0b632c14f94255f",
+      "trigger": "GET /s/arxiv.org/html/2604.09805v1",
+      "service": "ss",
+      "message": "[DeepSeek] Response status: 200",
+      "account": "d74f37dea530584239cd3b7830def5a9",
+      "type": "cf-worker",
+      "fingerprint": "d70a6c7d4069b79c918b34720c1bf0b9",
+      "origin": "fetch",
+      "messageTemplate": "[DeepSeek] Response status: 200"
+    }
+  },
+  {
+    "source": {
+      "message": "[DeepSeek] System prompt built:\nTranslate auto to Simplified Chinese.\n\n1. Return {\"translations\":[{\"id\":\"x\",\"translated_text\":\"y\"}]}. One entry per input block, same ids.\n2. For translatable text, provide a translation. Never return empty string or placeholder.\n3. Keep URLs, code, and version numbers unchanged. Translate everything else.\n4. Treat every block as independent — do not skip, summarize, merge, or reorder any block."
+    },
+    "dataset": "cloudflare-workers",
+    "timestamp": "2026-06-14T03:20:25.087Z",
+    "$workers": {
+      "truncated": false,
+      "event": {
+        "request": {
+          "url": "https://ss.dal.workers.dev/s/arxiv.org/html/2604.09805v1",
+          "method": "GET",
+          "path": "/s/arxiv.org/html/2604.09805v1"
+        }
+      },
+      "outcome": "ok",
+      "scriptName": "ss",
+      "eventType": "fetch",
+      "executionModel": "stateless",
+      "scriptVersion": {
+        "id": "425677f5-1a29-4e4c-b19e-73e709684e37"
+      },
+      "requestId": "a0b632c14f94255f"
+    },
+    "$metadata": {
+      "id": "01KV22AC1C85VK60KE41NXVYYE",
+      "requestId": "a0b632c14f94255f",
+      "trigger": "GET /s/arxiv.org/html/2604.09805v1",
+      "service": "ss",
+      "message": "[DeepSeek] System prompt built:\nTranslate auto to Simplified Chinese.\n\n1. Return {\"translations\":[{\"id\":\"x\",\"translated_text\":\"y\"}]}. One entry per input block, same ids.\n2. For translatable text, provide a translation. Never return empty string or placeholder.\n3. Keep URLs, code, and version numbers unchanged. Translate everything else.\n4. Treat every block as independent — do not skip, summarize, merge, or reorder any block.",
+      "account": "d74f37dea530584239cd3b7830def5a9",
+      "type": "cf-worker",
+      "fingerprint": "d70a6c7d4069b79c918b34720c1bf0b9",
+      "origin": "fetch",
+      "messageTemplate": "[DeepSeek] System prompt built:\nTranslate auto to Simplified Chinese.\n\n1. Return {\"translations\":[{\"id\":\"x\",\"translated_text\":\"y\"}]}. One entry per input block, same ids.\n2. For translatable text, provide a translation. Never return empty string or placeholder.\n3. Keep URLs, code, and version numbers unchanged. Translate everything else.\n4. Treat every block as independent — do not skip, summarize, merge, or reorder any block."
+    }
+  },
+  {
+    "source": {
+      "message": "[Chunk chunk12] api.call start"
+    },
+    "dataset": "cloudflare-workers",
+    "timestamp": "2026-06-14T03:20:25.087Z",
+    "$workers": {
+      "truncated": false,
+      "event": {
+        "request": {
+          "url": "https://ss.dal.workers.dev/s/arxiv.org/html/2604.09805v1",
+          "method": "GET",
+          "path": "/s/arxiv.org/html/2604.09805v1"
+        }
+      },
+      "outcome": "ok",
+      "scriptName": "ss",
+      "eventType": "fetch",
+      "executionModel": "stateless",
+      "scriptVersion": {
+        "id": "425677f5-1a29-4e4c-b19e-73e709684e37"
+      },
+      "requestId": "a0b632c14f94255f"
+    },
+    "$metadata": {
+      "id": "01KV22AC1C85VK60KE41NXVYYD",
+      "requestId": "a0b632c14f94255f",
+      "trigger": "GET /s/arxiv.org/html/2604.09805v1",
+      "service": "ss",
+      "message": "[Chunk chunk12] api.call start",
+      "account": "d74f37dea530584239cd3b7830def5a9",
+      "type": "cf-worker",
+      "fingerprint": "d70a6c7d4069b79c918b34720c1bf0b9",
+      "origin": "fetch",
+      "messageTemplate": "[Chunk <*>] <DOMAIN> start"
+    }
+  },
+  {
+    "source": {
+      "message": "[Chunk chunk12] queue.add start"
+    },
+    "dataset": "cloudflare-workers",
+    "timestamp": "2026-06-14T03:20:25.087Z",
+    "$workers": {
+      "truncated": false,
+      "event": {
+        "request": {
+          "url": "https://ss.dal.workers.dev/s/arxiv.org/html/2604.09805v1",
+          "method": "GET",
+          "path": "/s/arxiv.org/html/2604.09805v1"
+        }
+      },
+      "outcome": "ok",
+      "scriptName": "ss",
+      "eventType": "fetch",
+      "executionModel": "stateless",
+      "scriptVersion": {
+        "id": "425677f5-1a29-4e4c-b19e-73e709684e37"
+      },
+      "requestId": "a0b632c14f94255f"
+    },
+    "$metadata": {
+      "id": "01KV22AC1C85VK60KE41NXVYYC",
+      "requestId": "a0b632c14f94255f",
+      "trigger": "GET /s/arxiv.org/html/2604.09805v1",
+      "service": "ss",
+      "message": "[Chunk chunk12] queue.add start",
+      "account": "d74f37dea530584239cd3b7830def5a9",
+      "type": "cf-worker",
+      "fingerprint": "d70a6c7d4069b79c918b34720c1bf0b9",
+      "origin": "fetch",
+      "messageTemplate": "[Chunk <*>] <DOMAIN> start"
+    }
+  },
+  {
+    "source": {
+      "message": "[Chunk chunk12] start (3 blocks, 481 tokens)"
+    },
+    "dataset": "cloudflare-workers",
+    "timestamp": "2026-06-14T03:20:25.017Z",
+    "$workers": {
+      "truncated": false,
+      "event": {
+        "request": {
+          "url": "https://ss.dal.workers.dev/s/arxiv.org/html/2604.09805v1",
+          "method": "GET",
+          "path": "/s/arxiv.org/html/2604.09805v1"
+        }
+      },
+      "outcome": "ok",
+      "scriptName": "ss",
+      "eventType": "fetch",
+      "executionModel": "stateless",
+      "scriptVersion": {
+        "id": "425677f5-1a29-4e4c-b19e-73e709684e37"
+      },
+      "requestId": "a0b632c14f94255f"
+    },
+    "$metadata": {
+      "id": "01KV22AC1C85VK60KE41NXVYYB",
+      "requestId": "a0b632c14f94255f",
+      "trigger": "GET /s/arxiv.org/html/2604.09805v1",
+      "service": "ss",
+      "message": "[Chunk chunk12] start (3 blocks, 481 tokens)",
+      "account": "d74f37dea530584239cd3b7830def5a9",
+      "type": "cf-worker",
+      "fingerprint": "d70a6c7d4069b79c918b34720c1bf0b9",
+      "origin": "fetch",
+      "messageTemplate": "[Chunk <*>] start (<*> blocks, <*> tokens)"
+    }
+  },
+  {
+    "source": {
+      "message": "[Chunk chunk5] queue.add done (7272ms)"
+    },
+    "dataset": "cloudflare-workers",
+    "timestamp": "2026-06-14T03:20:24.844Z",
+    "$workers": {
+      "truncated": false,
+      "event": {
+        "request": {
+          "url": "https://ss.dal.workers.dev/s/arxiv.org/html/2604.09805v1",
+          "method": "GET",
+          "path": "/s/arxiv.org/html/2604.09805v1"
+        }
+      },
+      "outcome": "ok",
+      "scriptName": "ss",
+      "eventType": "fetch",
+      "executionModel": "stateless",
+      "scriptVersion": {
+        "id": "425677f5-1a29-4e4c-b19e-73e709684e37"
+      },
+      "requestId": "a0b632c14f94255f"
+    },
+    "$metadata": {
+      "id": "01KV22AC1C85VK60KE41NXVYYA",
+      "requestId": "a0b632c14f94255f",
+      "trigger": "GET /s/arxiv.org/html/2604.09805v1",
+      "service": "ss",
+      "message": "[Chunk chunk5] queue.add done (7272ms)",
+      "account": "d74f37dea530584239cd3b7830def5a9",
+      "type": "cf-worker",
+      "fingerprint": "d70a6c7d4069b79c918b34720c1bf0b9",
+      "origin": "fetch",
+      "messageTemplate": "[Chunk <*>] <DOMAIN> done (<*>)"
+    }
+  },
+  {
+    "source": {
+      "message": "[Chunk chunk5] api.call done (7272ms)"
+    },
+    "dataset": "cloudflare-workers",
+    "timestamp": "2026-06-14T03:20:24.844Z",
+    "$workers": {
+      "truncated": false,
+      "event": {
+        "request": {
+          "url": "https://ss.dal.workers.dev/s/arxiv.org/html/2604.09805v1",
+          "method": "GET",
+          "path": "/s/arxiv.org/html/2604.09805v1"
+        }
+      },
+      "outcome": "ok",
+      "scriptName": "ss",
+      "eventType": "fetch",
+      "executionModel": "stateless",
+      "scriptVersion": {
+        "id": "425677f5-1a29-4e4c-b19e-73e709684e37"
+      },
+      "requestId": "a0b632c14f94255f"
+    },
+    "$metadata": {
+      "id": "01KV22AC1C85VK60KE41NXVYY9",
+      "requestId": "a0b632c14f94255f",
+      "trigger": "GET /s/arxiv.org/html/2604.09805v1",
+      "service": "ss",
+      "message": "[Chunk chunk5] api.call done (7272ms)",
+      "account": "d74f37dea530584239cd3b7830def5a9",
+      "type": "cf-worker",
+      "fingerprint": "d70a6c7d4069b79c918b34720c1bf0b9",
+      "origin": "fetch",
+      "messageTemplate": "[Chunk <*>] <DOMAIN> done (<*>)"
+    }
+  },
+  {
+    "source": {
+      "message": "[DeepSeek] Response status: 200"
+    },
+    "dataset": "cloudflare-workers",
+    "timestamp": "2026-06-14T03:20:24.844Z",
+    "$workers": {
+      "truncated": false,
+      "event": {
+        "request": {
+          "url": "https://ss.dal.workers.dev/s/arxiv.org/html/2604.09805v1",
+          "method": "GET",
+          "path": "/s/arxiv.org/html/2604.09805v1"
+        }
+      },
+      "outcome": "ok",
+      "scriptName": "ss",
+      "eventType": "fetch",
+      "executionModel": "stateless",
+      "scriptVersion": {
+        "id": "425677f5-1a29-4e4c-b19e-73e709684e37"
+      },
+      "requestId": "a0b632c14f94255f"
+    },
+    "$metadata": {
+      "id": "01KV22AC1C85VK60KE41NXVYY8",
+      "requestId": "a0b632c14f94255f",
+      "trigger": "GET /s/arxiv.org/html/2604.09805v1",
+      "service": "ss",
+      "message": "[DeepSeek] Response status: 200",
+      "account": "d74f37dea530584239cd3b7830def5a9",
+      "type": "cf-worker",
+      "fingerprint": "d70a6c7d4069b79c918b34720c1bf0b9",
+      "origin": "fetch",
+      "messageTemplate": "[DeepSeek] Response status: 200"
+    }
+  },
+  {
+    "source": {
+      "message": "[DeepSeek] System prompt built:\nTranslate auto to Simplified Chinese.\n\n1. Return {\"translations\":[{\"id\":\"x\",\"translated_text\":\"y\"}]}. One entry per input block, same ids.\n2. For translatable text, provide a translation. Never return empty string or placeholder.\n3. Keep URLs, code, and version numbers unchanged. Translate everything else.\n4. Treat every block as independent — do not skip, summarize, merge, or reorder any block."
+    },
+    "dataset": "cloudflare-workers",
+    "timestamp": "2026-06-14T03:20:24.411Z",
+    "$workers": {
+      "truncated": false,
+      "event": {
+        "request": {
+          "url": "https://ss.dal.workers.dev/s/arxiv.org/html/2604.09805v1",
+          "method": "GET",
+          "path": "/s/arxiv.org/html/2604.09805v1"
+        }
+      },
+      "outcome": "ok",
+      "scriptName": "ss",
+      "eventType": "fetch",
+      "executionModel": "stateless",
+      "scriptVersion": {
+        "id": "425677f5-1a29-4e4c-b19e-73e709684e37"
+      },
+      "requestId": "a0b632c14f94255f"
+    },
+    "$metadata": {
+      "id": "01KV22AC1C85VK60KE41NXVYY7",
+      "requestId": "a0b632c14f94255f",
+      "trigger": "GET /s/arxiv.org/html/2604.09805v1",
+      "service": "ss",
+      "message": "[DeepSeek] System prompt built:\nTranslate auto to Simplified Chinese.\n\n1. Return {\"translations\":[{\"id\":\"x\",\"translated_text\":\"y\"}]}. One entry per input block, same ids.\n2. For translatable text, provide a translation. Never return empty string or placeholder.\n3. Keep URLs, code, and version numbers unchanged. Translate everything else.\n4. Treat every block as independent — do not skip, summarize, merge, or reorder any block.",
+      "account": "d74f37dea530584239cd3b7830def5a9",
+      "type": "cf-worker",
+      "fingerprint": "d70a6c7d4069b79c918b34720c1bf0b9",
+      "origin": "fetch",
+      "messageTemplate": "[DeepSeek] System prompt built:\nTranslate auto to Simplified Chinese.\n\n1. Return {\"translations\":[{\"id\":\"x\",\"translated_text\":\"y\"}]}. One entry per input block, same ids.\n2. For translatable text, provide a translation. Never return empty string or placeholder.\n3. Keep URLs, code, and version numbers unchanged. Translate everything else.\n4. Treat every block as independent — do not skip, summarize, merge, or reorder any block."
+    }
+  },
+  {
+    "source": {
+      "message": "[Chunk chunk11] api.call start"
+    },
+    "dataset": "cloudflare-workers",
+    "timestamp": "2026-06-14T03:20:24.411Z",
+    "$workers": {
+      "truncated": false,
+      "event": {
+        "request": {
+          "url": "https://ss.dal.workers.dev/s/arxiv.org/html/2604.09805v1",
+          "method": "GET",
+          "path": "/s/arxiv.org/html/2604.09805v1"
+        }
+      },
+      "outcome": "ok",
+      "scriptName": "ss",
+      "eventType": "fetch",
+      "executionModel": "stateless",
+      "scriptVersion": {
+        "id": "425677f5-1a29-4e4c-b19e-73e709684e37"
+      },
+      "requestId": "a0b632c14f94255f"
+    },
+    "$metadata": {
+      "id": "01KV22AC1C85VK60KE41NXVYY6",
+      "requestId": "a0b632c14f94255f",
+      "trigger": "GET /s/arxiv.org/html/2604.09805v1",
+      "service": "ss",
+      "message": "[Chunk chunk11] api.call start",
+      "account": "d74f37dea530584239cd3b7830def5a9",
+      "type": "cf-worker",
+      "fingerprint": "d70a6c7d4069b79c918b34720c1bf0b9",
+      "origin": "fetch",
+      "messageTemplate": "[Chunk <*>] <DOMAIN> start"
+    }
+  },
+  {
+    "source": {
+      "message": "[Chunk chunk11] queue.add start"
+    },
+    "dataset": "cloudflare-workers",
+    "timestamp": "2026-06-14T03:20:24.411Z",
+    "$workers": {
+      "truncated": false,
+      "event": {
+        "request": {
+          "url": "https://ss.dal.workers.dev/s/arxiv.org/html/2604.09805v1",
+          "method": "GET",
+          "path": "/s/arxiv.org/html/2604.09805v1"
+        }
+      },
+      "outcome": "ok",
+      "scriptName": "ss",
+      "eventType": "fetch",
+      "executionModel": "stateless",
+      "scriptVersion": {
+        "id": "425677f5-1a29-4e4c-b19e-73e709684e37"
+      },
+      "requestId": "a0b632c14f94255f"
+    },
+    "$metadata": {
+      "id": "01KV22AC1C85VK60KE41NXVYY5",
+      "requestId": "a0b632c14f94255f",
+      "trigger": "GET /s/arxiv.org/html/2604.09805v1",
+      "service": "ss",
+      "message": "[Chunk chunk11] queue.add start",
+      "account": "d74f37dea530584239cd3b7830def5a9",
+      "type": "cf-worker",
+      "fingerprint": "d70a6c7d4069b79c918b34720c1bf0b9",
+      "origin": "fetch",
+      "messageTemplate": "[Chunk <*>] <DOMAIN> start"
+    }
+  },
+  {
+    "source": {
+      "message": "[Chunk chunk11] start (10 blocks, 1129 tokens)"
+    },
+    "dataset": "cloudflare-workers",
+    "timestamp": "2026-06-14T03:20:24.324Z",
+    "$workers": {
+      "truncated": false,
+      "event": {
+        "request": {
+          "url": "https://ss.dal.workers.dev/s/arxiv.org/html/2604.09805v1",
+          "method": "GET",
+          "path": "/s/arxiv.org/html/2604.09805v1"
+        }
+      },
+      "outcome": "ok",
+      "scriptName": "ss",
+      "eventType": "fetch",
+      "executionModel": "stateless",
+      "scriptVersion": {
+        "id": "425677f5-1a29-4e4c-b19e-73e709684e37"
+      },
+      "requestId": "a0b632c14f94255f"
+    },
+    "$metadata": {
+      "id": "01KV22AC1C85VK60KE41NXVYY4",
+      "requestId": "a0b632c14f94255f",
+      "trigger": "GET /s/arxiv.org/html/2604.09805v1",
+      "service": "ss",
+      "message": "[Chunk chunk11] start (10 blocks, 1129 tokens)",
+      "account": "d74f37dea530584239cd3b7830def5a9",
+      "type": "cf-worker",
+      "fingerprint": "d70a6c7d4069b79c918b34720c1bf0b9",
+      "origin": "fetch",
+      "messageTemplate": "[Chunk <*>] start (<*> blocks, <*> tokens)"
+    }
+  },
+  {
+    "source": {
+      "message": "[DeepSeek] System prompt built:\nTranslate auto to Simplified Chinese.\n\n1. Return {\"translations\":[{\"id\":\"x\",\"translated_text\":\"y\"}]}. One entry per input block, same ids.\n2. For translatable text, provide a translation. Never return empty string or placeholder.\n3. Keep URLs, code, and version numbers unchanged. Translate everything else.\n4. Treat every block as independent — do not skip, summarize, merge, or reorder any block."
+    },
+    "dataset": "cloudflare-workers",
+    "timestamp": "2026-06-14T03:20:24.313Z",
+    "$workers": {
+      "truncated": false,
+      "event": {
+        "request": {
+          "url": "https://ss.dal.workers.dev/s/arxiv.org/html/2604.09805v1",
+          "method": "GET",
+          "path": "/s/arxiv.org/html/2604.09805v1"
+        }
+      },
+      "outcome": "ok",
+      "scriptName": "ss",
+      "eventType": "fetch",
+      "executionModel": "stateless",
+      "scriptVersion": {
+        "id": "425677f5-1a29-4e4c-b19e-73e709684e37"
+      },
+      "requestId": "a0b632c14f94255f"
+    },
+    "$metadata": {
+      "id": "01KV22AC1C85VK60KE41NXVYY3",
+      "requestId": "a0b632c14f94255f",
+      "trigger": "GET /s/arxiv.org/html/2604.09805v1",
+      "service": "ss",
+      "message": "[DeepSeek] System prompt built:\nTranslate auto to Simplified Chinese.\n\n1. Return {\"translations\":[{\"id\":\"x\",\"translated_text\":\"y\"}]}. One entry per input block, same ids.\n2. For translatable text, provide a translation. Never return empty string or placeholder.\n3. Keep URLs, code, and version numbers unchanged. Translate everything else.\n4. Treat every block as independent — do not skip, summarize, merge, or reorder any block.",
+      "account": "d74f37dea530584239cd3b7830def5a9",
+      "type": "cf-worker",
+      "fingerprint": "d70a6c7d4069b79c918b34720c1bf0b9",
+      "origin": "fetch",
+      "messageTemplate": "[DeepSeek] System prompt built:\nTranslate auto to Simplified Chinese.\n\n1. Return {\"translations\":[{\"id\":\"x\",\"translated_text\":\"y\"}]}. One entry per input block, same ids.\n2. For translatable text, provide a translation. Never return empty string or placeholder.\n3. Keep URLs, code, and version numbers unchanged. Translate everything else.\n4. Treat every block as independent — do not skip, summarize, merge, or reorder any block."
+    }
+  },
+  {
+    "source": {
+      "message": "[Chunk chunk10] api.call start"
+    },
+    "dataset": "cloudflare-workers",
+    "timestamp": "2026-06-14T03:20:24.313Z",
+    "$workers": {
+      "truncated": false,
+      "event": {
+        "request": {
+          "url": "https://ss.dal.workers.dev/s/arxiv.org/html/2604.09805v1",
+          "method": "GET",
+          "path": "/s/arxiv.org/html/2604.09805v1"
+        }
+      },
+      "outcome": "ok",
+      "scriptName": "ss",
+      "eventType": "fetch",
+      "executionModel": "stateless",
+      "scriptVersion": {
+        "id": "425677f5-1a29-4e4c-b19e-73e709684e37"
+      },
+      "requestId": "a0b632c14f94255f"
+    },
+    "$metadata": {
+      "id": "01KV22AC1C85VK60KE41NXVYY2",
+      "requestId": "a0b632c14f94255f",
+      "trigger": "GET /s/arxiv.org/html/2604.09805v1",
+      "service": "ss",
+      "message": "[Chunk chunk10] api.call start",
+      "account": "d74f37dea530584239cd3b7830def5a9",
+      "type": "cf-worker",
+      "fingerprint": "d70a6c7d4069b79c918b34720c1bf0b9",
+      "origin": "fetch",
+      "messageTemplate": "[Chunk <*>] <DOMAIN> start"
+    }
+  },
+  {
+    "source": {
+      "message": "[Chunk chunk10] queue.add start"
+    },
+    "dataset": "cloudflare-workers",
+    "timestamp": "2026-06-14T03:20:24.313Z",
+    "$workers": {
+      "truncated": false,
+      "event": {
+        "request": {
+          "url": "https://ss.dal.workers.dev/s/arxiv.org/html/2604.09805v1",
+          "method": "GET",
+          "path": "/s/arxiv.org/html/2604.09805v1"
+        }
+      },
+      "outcome": "ok",
+      "scriptName": "ss",
+      "eventType": "fetch",
+      "executionModel": "stateless",
+      "scriptVersion": {
+        "id": "425677f5-1a29-4e4c-b19e-73e709684e37"
+      },
+      "requestId": "a0b632c14f94255f"
+    },
+    "$metadata": {
+      "id": "01KV22AC1C85VK60KE41NXVYY1",
+      "requestId": "a0b632c14f94255f",
+      "trigger": "GET /s/arxiv.org/html/2604.09805v1",
+      "service": "ss",
+      "message": "[Chunk chunk10] queue.add start",
+      "account": "d74f37dea530584239cd3b7830def5a9",
+      "type": "cf-worker",
+      "fingerprint": "d70a6c7d4069b79c918b34720c1bf0b9",
+      "origin": "fetch",
+      "messageTemplate": "[Chunk <*>] <DOMAIN> start"
+    }
+  },
+  {
+    "source": {
+      "message": "[Chunk chunk10] start (10 blocks, 1027 tokens)"
+    },
+    "dataset": "cloudflare-workers",
+    "timestamp": "2026-06-14T03:20:24.205Z",
+    "$workers": {
+      "truncated": false,
+      "event": {
+        "request": {
+          "url": "https://ss.dal.workers.dev/s/arxiv.org/html/2604.09805v1",
+          "method": "GET",
+          "path": "/s/arxiv.org/html/2604.09805v1"
+        }
+      },
+      "outcome": "ok",
+      "scriptName": "ss",
+      "eventType": "fetch",
+      "executionModel": "stateless",
+      "scriptVersion": {
+        "id": "425677f5-1a29-4e4c-b19e-73e709684e37"
+      },
+      "requestId": "a0b632c14f94255f"
+    },
+    "$metadata": {
+      "id": "01KV22AC1C85VK60KE41NXVYY0",
+      "requestId": "a0b632c14f94255f",
+      "trigger": "GET /s/arxiv.org/html/2604.09805v1",
+      "service": "ss",
+      "message": "[Chunk chunk10] start (10 blocks, 1027 tokens)",
+      "account": "d74f37dea530584239cd3b7830def5a9",
+      "type": "cf-worker",
+      "fingerprint": "d70a6c7d4069b79c918b34720c1bf0b9",
+      "origin": "fetch",
+      "messageTemplate": "[Chunk <*>] start (<*> blocks, <*> tokens)"
+    }
+  },
+  {
+    "source": {
+      "message": "[Chunk chunk4] queue.add done (6610ms)"
+    },
+    "dataset": "cloudflare-workers",
+    "timestamp": "2026-06-14T03:20:24.161Z",
+    "$workers": {
+      "truncated": false,
+      "event": {
+        "request": {
+          "url": "https://ss.dal.workers.dev/s/arxiv.org/html/2604.09805v1",
+          "method": "GET",
+          "path": "/s/arxiv.org/html/2604.09805v1"
+        }
+      },
+      "outcome": "ok",
+      "scriptName": "ss",
+      "eventType": "fetch",
+      "executionModel": "stateless",
+      "scriptVersion": {
+        "id": "425677f5-1a29-4e4c-b19e-73e709684e37"
+      },
+      "requestId": "a0b632c14f94255f"
+    },
+    "$metadata": {
+      "id": "01KV22AC1C85VK60KE41NXVYXZ",
+      "requestId": "a0b632c14f94255f",
+      "trigger": "GET /s/arxiv.org/html/2604.09805v1",
+      "service": "ss",
+      "message": "[Chunk chunk4] queue.add done (6610ms)",
+      "account": "d74f37dea530584239cd3b7830def5a9",
+      "type": "cf-worker",
+      "fingerprint": "d70a6c7d4069b79c918b34720c1bf0b9",
+      "origin": "fetch",
+      "messageTemplate": "[Chunk <*>] <DOMAIN> done (<*>)"
+    }
+  },
+  {
+    "source": {
+      "message": "[Chunk chunk4] api.call done (6610ms)"
+    },
+    "dataset": "cloudflare-workers",
+    "timestamp": "2026-06-14T03:20:24.161Z",
+    "$workers": {
+      "truncated": false,
+      "event": {
+        "request": {
+          "url": "https://ss.dal.workers.dev/s/arxiv.org/html/2604.09805v1",
+          "method": "GET",
+          "path": "/s/arxiv.org/html/2604.09805v1"
+        }
+      },
+      "outcome": "ok",
+      "scriptName": "ss",
+      "eventType": "fetch",
+      "executionModel": "stateless",
+      "scriptVersion": {
+        "id": "425677f5-1a29-4e4c-b19e-73e709684e37"
+      },
+      "requestId": "a0b632c14f94255f"
+    },
+    "$metadata": {
+      "id": "01KV22AC1C85VK60KE41NXVYXY",
+      "requestId": "a0b632c14f94255f",
+      "trigger": "GET /s/arxiv.org/html/2604.09805v1",
+      "service": "ss",
+      "message": "[Chunk chunk4] api.call done (6610ms)",
+      "account": "d74f37dea530584239cd3b7830def5a9",
+      "type": "cf-worker",
+      "fingerprint": "d70a6c7d4069b79c918b34720c1bf0b9",
+      "origin": "fetch",
+      "messageTemplate": "[Chunk <*>] <DOMAIN> done (<*>)"
+    }
+  },
+  {
+    "source": {
+      "message": "[DeepSeek] Response status: 200"
+    },
+    "dataset": "cloudflare-workers",
+    "timestamp": "2026-06-14T03:20:24.160Z",
+    "$workers": {
+      "truncated": false,
+      "event": {
+        "request": {
+          "url": "https://ss.dal.workers.dev/s/arxiv.org/html/2604.09805v1",
+          "method": "GET",
+          "path": "/s/arxiv.org/html/2604.09805v1"
+        }
+      },
+      "outcome": "ok",
+      "scriptName": "ss",
+      "eventType": "fetch",
+      "executionModel": "stateless",
+      "scriptVersion": {
+        "id": "425677f5-1a29-4e4c-b19e-73e709684e37"
+      },
+      "requestId": "a0b632c14f94255f"
+    },
+    "$metadata": {
+      "id": "01KV22AC1C85VK60KE41NXVYXX",
+      "requestId": "a0b632c14f94255f",
+      "trigger": "GET /s/arxiv.org/html/2604.09805v1",
+      "service": "ss",
+      "message": "[DeepSeek] Response status: 200",
+      "account": "d74f37dea530584239cd3b7830def5a9",
+      "type": "cf-worker",
+      "fingerprint": "d70a6c7d4069b79c918b34720c1bf0b9",
+      "origin": "fetch",
+      "messageTemplate": "[DeepSeek] Response status: 200"
+    }
+  },
+  {
+    "source": {
+      "message": "[Chunk chunk6] queue.add done (6490ms)"
+    },
+    "dataset": "cloudflare-workers",
+    "timestamp": "2026-06-14T03:20:24.044Z",
+    "$workers": {
+      "truncated": false,
+      "event": {
+        "request": {
+          "url": "https://ss.dal.workers.dev/s/arxiv.org/html/2604.09805v1",
+          "method": "GET",
+          "path": "/s/arxiv.org/html/2604.09805v1"
+        }
+      },
+      "outcome": "ok",
+      "scriptName": "ss",
+      "eventType": "fetch",
+      "executionModel": "stateless",
+      "scriptVersion": {
+        "id": "425677f5-1a29-4e4c-b19e-73e709684e37"
+      },
+      "requestId": "a0b632c14f94255f"
+    },
+    "$metadata": {
+      "id": "01KV22AC1C85VK60KE41NXVYXW",
+      "requestId": "a0b632c14f94255f",
+      "trigger": "GET /s/arxiv.org/html/2604.09805v1",
+      "service": "ss",
+      "message": "[Chunk chunk6] queue.add done (6490ms)",
+      "account": "d74f37dea530584239cd3b7830def5a9",
+      "type": "cf-worker",
+      "fingerprint": "d70a6c7d4069b79c918b34720c1bf0b9",
+      "origin": "fetch",
+      "messageTemplate": "[Chunk <*>] <DOMAIN> done (<*>)"
+    }
+  },
+  {
+    "source": {
+      "message": "[Chunk chunk6] api.call done (6490ms)"
+    },
+    "dataset": "cloudflare-workers",
+    "timestamp": "2026-06-14T03:20:24.044Z",
+    "$workers": {
+      "truncated": false,
+      "event": {
+        "request": {
+          "url": "https://ss.dal.workers.dev/s/arxiv.org/html/2604.09805v1",
+          "method": "GET",
+          "path": "/s/arxiv.org/html/2604.09805v1"
+        }
+      },
+      "outcome": "ok",
+      "scriptName": "ss",
+      "eventType": "fetch",
+      "executionModel": "stateless",
+      "scriptVersion": {
+        "id": "425677f5-1a29-4e4c-b19e-73e709684e37"
+      },
+      "requestId": "a0b632c14f94255f"
+    },
+    "$metadata": {
+      "id": "01KV22AC1C85VK60KE41NXVYXV",
+      "requestId": "a0b632c14f94255f",
+      "trigger": "GET /s/arxiv.org/html/2604.09805v1",
+      "service": "ss",
+      "message": "[Chunk chunk6] api.call done (6490ms)",
+      "account": "d74f37dea530584239cd3b7830def5a9",
+      "type": "cf-worker",
+      "fingerprint": "d70a6c7d4069b79c918b34720c1bf0b9",
+      "origin": "fetch",
+      "messageTemplate": "[Chunk <*>] <DOMAIN> done (<*>)"
+    }
+  },
+  {
+    "source": {
+      "message": "[DeepSeek] Response status: 200"
+    },
+    "dataset": "cloudflare-workers",
+    "timestamp": "2026-06-14T03:20:24.007Z",
+    "$workers": {
+      "truncated": false,
+      "event": {
+        "request": {
+          "url": "https://ss.dal.workers.dev/s/arxiv.org/html/2604.09805v1",
+          "method": "GET",
+          "path": "/s/arxiv.org/html/2604.09805v1"
+        }
+      },
+      "outcome": "ok",
+      "scriptName": "ss",
+      "eventType": "fetch",
+      "executionModel": "stateless",
+      "scriptVersion": {
+        "id": "425677f5-1a29-4e4c-b19e-73e709684e37"
+      },
+      "requestId": "a0b632c14f94255f"
+    },
+    "$metadata": {
+      "id": "01KV22AC1C85VK60KE41NXVYXT",
+      "requestId": "a0b632c14f94255f",
+      "trigger": "GET /s/arxiv.org/html/2604.09805v1",
+      "service": "ss",
+      "message": "[DeepSeek] Response status: 200",
+      "account": "d74f37dea530584239cd3b7830def5a9",
+      "type": "cf-worker",
+      "fingerprint": "d70a6c7d4069b79c918b34720c1bf0b9",
+      "origin": "fetch",
+      "messageTemplate": "[DeepSeek] Response status: 200"
+    }
+  },
+  {
+    "source": {
+      "message": "[DeepSeek] System prompt built:\nTranslate auto to Simplified Chinese.\n\n1. Return {\"translations\":[{\"id\":\"x\",\"translated_text\":\"y\"}]}. One entry per input block, same ids.\n2. For translatable text, provide a translation. Never return empty string or placeholder.\n3. Keep URLs, code, and version numbers unchanged. Translate everything else.\n4. Treat every block as independent — do not skip, summarize, merge, or reorder any block."
+    },
+    "dataset": "cloudflare-workers",
+    "timestamp": "2026-06-14T03:20:23.652Z",
+    "$workers": {
+      "truncated": false,
+      "event": {
+        "request": {
+          "url": "https://ss.dal.workers.dev/s/arxiv.org/html/2604.09805v1",
+          "method": "GET",
+          "path": "/s/arxiv.org/html/2604.09805v1"
+        }
+      },
+      "outcome": "ok",
+      "scriptName": "ss",
+      "eventType": "fetch",
+      "executionModel": "stateless",
+      "scriptVersion": {
+        "id": "425677f5-1a29-4e4c-b19e-73e709684e37"
+      },
+      "requestId": "a0b632c14f94255f"
+    },
+    "$metadata": {
+      "id": "01KV22AC1C85VK60KE41NXVYXS",
+      "requestId": "a0b632c14f94255f",
+      "trigger": "GET /s/arxiv.org/html/2604.09805v1",
+      "service": "ss",
+      "message": "[DeepSeek] System prompt built:\nTranslate auto to Simplified Chinese.\n\n1. Return {\"translations\":[{\"id\":\"x\",\"translated_text\":\"y\"}]}. One entry per input block, same ids.\n2. For translatable text, provide a translation. Never return empty string or placeholder.\n3. Keep URLs, code, and version numbers unchanged. Translate everything else.\n4. Treat every block as independent — do not skip, summarize, merge, or reorder any block.",
+      "account": "d74f37dea530584239cd3b7830def5a9",
+      "type": "cf-worker",
+      "fingerprint": "d70a6c7d4069b79c918b34720c1bf0b9",
+      "origin": "fetch",
+      "messageTemplate": "[DeepSeek] System prompt built:\nTranslate auto to Simplified Chinese.\n\n1. Return {\"translations\":[{\"id\":\"x\",\"translated_text\":\"y\"}]}. One entry per input block, same ids.\n2. For translatable text, provide a translation. Never return empty string or placeholder.\n3. Keep URLs, code, and version numbers unchanged. Translate everything else.\n4. Treat every block as independent — do not skip, summarize, merge, or reorder any block."
+    }
+  },
+  {
+    "source": {
+      "message": "[Chunk chunk9] api.call start"
+    },
+    "dataset": "cloudflare-workers",
+    "timestamp": "2026-06-14T03:20:23.652Z",
+    "$workers": {
+      "truncated": false,
+      "event": {
+        "request": {
+          "url": "https://ss.dal.workers.dev/s/arxiv.org/html/2604.09805v1",
+          "method": "GET",
+          "path": "/s/arxiv.org/html/2604.09805v1"
+        }
+      },
+      "outcome": "ok",
+      "scriptName": "ss",
+      "eventType": "fetch",
+      "executionModel": "stateless",
+      "scriptVersion": {
+        "id": "425677f5-1a29-4e4c-b19e-73e709684e37"
+      },
+      "requestId": "a0b632c14f94255f"
+    },
+    "$metadata": {
+      "id": "01KV22AC1C85VK60KE41NXVYXR",
+      "requestId": "a0b632c14f94255f",
+      "trigger": "GET /s/arxiv.org/html/2604.09805v1",
+      "service": "ss",
+      "message": "[Chunk chunk9] api.call start",
+      "account": "d74f37dea530584239cd3b7830def5a9",
+      "type": "cf-worker",
+      "fingerprint": "d70a6c7d4069b79c918b34720c1bf0b9",
+      "origin": "fetch",
+      "messageTemplate": "[Chunk <*>] <DOMAIN> start"
+    }
+  },
+  {
+    "source": {
+      "message": "[Chunk chunk9] queue.add start"
+    },
+    "dataset": "cloudflare-workers",
+    "timestamp": "2026-06-14T03:20:23.652Z",
+    "$workers": {
+      "truncated": false,
+      "event": {
+        "request": {
+          "url": "https://ss.dal.workers.dev/s/arxiv.org/html/2604.09805v1",
+          "method": "GET",
+          "path": "/s/arxiv.org/html/2604.09805v1"
+        }
+      },
+      "outcome": "ok",
+      "scriptName": "ss",
+      "eventType": "fetch",
+      "executionModel": "stateless",
+      "scriptVersion": {
+        "id": "425677f5-1a29-4e4c-b19e-73e709684e37"
+      },
+      "requestId": "a0b632c14f94255f"
+    },
+    "$metadata": {
+      "id": "01KV22AC1C85VK60KE41NXVYXQ",
+      "requestId": "a0b632c14f94255f",
+      "trigger": "GET /s/arxiv.org/html/2604.09805v1",
+      "service": "ss",
+      "message": "[Chunk chunk9] queue.add start",
+      "account": "d74f37dea530584239cd3b7830def5a9",
+      "type": "cf-worker",
+      "fingerprint": "d70a6c7d4069b79c918b34720c1bf0b9",
+      "origin": "fetch",
+      "messageTemplate": "[Chunk <*>] <DOMAIN> start"
+    }
+  },
+  {
+    "source": {
+      "message": "[Chunk chunk9] start (10 blocks, 1091 tokens)"
+    },
+    "dataset": "cloudflare-workers",
+    "timestamp": "2026-06-14T03:20:23.580Z",
+    "$workers": {
+      "truncated": false,
+      "event": {
+        "request": {
+          "url": "https://ss.dal.workers.dev/s/arxiv.org/html/2604.09805v1",
+          "method": "GET",
+          "path": "/s/arxiv.org/html/2604.09805v1"
+        }
+      },
+      "outcome": "ok",
+      "scriptName": "ss",
+      "eventType": "fetch",
+      "executionModel": "stateless",
+      "scriptVersion": {
+        "id": "425677f5-1a29-4e4c-b19e-73e709684e37"
+      },
+      "requestId": "a0b632c14f94255f"
+    },
+    "$metadata": {
+      "id": "01KV22AC1C85VK60KE41NXVYXP",
+      "requestId": "a0b632c14f94255f",
+      "trigger": "GET /s/arxiv.org/html/2604.09805v1",
+      "service": "ss",
+      "message": "[Chunk chunk9] start (10 blocks, 1091 tokens)",
+      "account": "d74f37dea530584239cd3b7830def5a9",
+      "type": "cf-worker",
+      "fingerprint": "d70a6c7d4069b79c918b34720c1bf0b9",
+      "origin": "fetch",
+      "messageTemplate": "[Chunk <*>] start (<*> blocks, <*> tokens)"
+    }
+  },
+  {
+    "source": {
+      "message": "[Chunk chunk3] queue.add done (5823ms)"
+    },
+    "dataset": "cloudflare-workers",
+    "timestamp": "2026-06-14T03:20:23.403Z",
+    "$workers": {
+      "truncated": false,
+      "event": {
+        "request": {
+          "url": "https://ss.dal.workers.dev/s/arxiv.org/html/2604.09805v1",
+          "method": "GET",
+          "path": "/s/arxiv.org/html/2604.09805v1"
+        }
+      },
+      "outcome": "ok",
+      "scriptName": "ss",
+      "eventType": "fetch",
+      "executionModel": "stateless",
+      "scriptVersion": {
+        "id": "425677f5-1a29-4e4c-b19e-73e709684e37"
+      },
+      "requestId": "a0b632c14f94255f"
+    },
+    "$metadata": {
+      "id": "01KV22AC1C85VK60KE41NXVYXN",
+      "requestId": "a0b632c14f94255f",
+      "trigger": "GET /s/arxiv.org/html/2604.09805v1",
+      "service": "ss",
+      "message": "[Chunk chunk3] queue.add done (5823ms)",
+      "account": "d74f37dea530584239cd3b7830def5a9",
+      "type": "cf-worker",
+      "fingerprint": "d70a6c7d4069b79c918b34720c1bf0b9",
+      "origin": "fetch",
+      "messageTemplate": "[Chunk <*>] <DOMAIN> done (<*>)"
+    }
+  },
+  {
+    "source": {
+      "message": "[Chunk chunk3] api.call done (5823ms)"
+    },
+    "dataset": "cloudflare-workers",
+    "timestamp": "2026-06-14T03:20:23.403Z",
+    "$workers": {
+      "truncated": false,
+      "event": {
+        "request": {
+          "url": "https://ss.dal.workers.dev/s/arxiv.org/html/2604.09805v1",
+          "method": "GET",
+          "path": "/s/arxiv.org/html/2604.09805v1"
+        }
+      },
+      "outcome": "ok",
+      "scriptName": "ss",
+      "eventType": "fetch",
+      "executionModel": "stateless",
+      "scriptVersion": {
+        "id": "425677f5-1a29-4e4c-b19e-73e709684e37"
+      },
+      "requestId": "a0b632c14f94255f"
+    },
+    "$metadata": {
+      "id": "01KV22AC1C85VK60KE41NXVYXM",
+      "requestId": "a0b632c14f94255f",
+      "trigger": "GET /s/arxiv.org/html/2604.09805v1",
+      "service": "ss",
+      "message": "[Chunk chunk3] api.call done (5823ms)",
+      "account": "d74f37dea530584239cd3b7830def5a9",
+      "type": "cf-worker",
+      "fingerprint": "d70a6c7d4069b79c918b34720c1bf0b9",
+      "origin": "fetch",
+      "messageTemplate": "[Chunk <*>] <DOMAIN> done (<*>)"
+    }
+  },
+  {
+    "source": {
+      "message": "[DeepSeek] Response status: 200"
+    },
+    "dataset": "cloudflare-workers",
+    "timestamp": "2026-06-14T03:20:23.403Z",
+    "$workers": {
+      "truncated": false,
+      "event": {
+        "request": {
+          "url": "https://ss.dal.workers.dev/s/arxiv.org/html/2604.09805v1",
+          "method": "GET",
+          "path": "/s/arxiv.org/html/2604.09805v1"
+        }
+      },
+      "outcome": "ok",
+      "scriptName": "ss",
+      "eventType": "fetch",
+      "executionModel": "stateless",
+      "scriptVersion": {
+        "id": "425677f5-1a29-4e4c-b19e-73e709684e37"
+      },
+      "requestId": "a0b632c14f94255f"
+    },
+    "$metadata": {
+      "id": "01KV22AC1C85VK60KE41NXVYXK",
+      "requestId": "a0b632c14f94255f",
+      "trigger": "GET /s/arxiv.org/html/2604.09805v1",
+      "service": "ss",
+      "message": "[DeepSeek] Response status: 200",
+      "account": "d74f37dea530584239cd3b7830def5a9",
+      "type": "cf-worker",
+      "fingerprint": "d70a6c7d4069b79c918b34720c1bf0b9",
+      "origin": "fetch",
+      "messageTemplate": "[DeepSeek] Response status: 200"
+    }
+  },
+  {
+    "source": {
+      "message": "[DeepSeek] System prompt built:\nTranslate auto to Simplified Chinese.\n\n1. Return {\"translations\":[{\"id\":\"x\",\"translated_text\":\"y\"}]}. One entry per input block, same ids.\n2. For translatable text, provide a translation. Never return empty string or placeholder.\n3. Keep URLs, code, and version numbers unchanged. Translate everything else.\n4. Treat every block as independent — do not skip, summarize, merge, or reorder any block."
+    },
+    "dataset": "cloudflare-workers",
+    "timestamp": "2026-06-14T03:20:21.707Z",
+    "$workers": {
+      "truncated": false,
+      "event": {
+        "request": {
+          "url": "https://ss.dal.workers.dev/s/arxiv.org/html/2604.09805v1",
+          "method": "GET",
+          "path": "/s/arxiv.org/html/2604.09805v1"
+        }
+      },
+      "outcome": "ok",
+      "scriptName": "ss",
+      "eventType": "fetch",
+      "executionModel": "stateless",
+      "scriptVersion": {
+        "id": "425677f5-1a29-4e4c-b19e-73e709684e37"
+      },
+      "requestId": "a0b632c14f94255f"
+    },
+    "$metadata": {
+      "id": "01KV22AC1C85VK60KE41NXVYXJ",
+      "requestId": "a0b632c14f94255f",
+      "trigger": "GET /s/arxiv.org/html/2604.09805v1",
+      "service": "ss",
+      "message": "[DeepSeek] System prompt built:\nTranslate auto to Simplified Chinese.\n\n1. Return {\"translations\":[{\"id\":\"x\",\"translated_text\":\"y\"}]}. One entry per input block, same ids.\n2. For translatable text, provide a translation. Never return empty string or placeholder.\n3. Keep URLs, code, and version numbers unchanged. Translate everything else.\n4. Treat every block as independent — do not skip, summarize, merge, or reorder any block.",
+      "account": "d74f37dea530584239cd3b7830def5a9",
+      "type": "cf-worker",
+      "fingerprint": "d70a6c7d4069b79c918b34720c1bf0b9",
+      "origin": "fetch",
+      "messageTemplate": "[DeepSeek] System prompt built:\nTranslate auto to Simplified Chinese.\n\n1. Return {\"translations\":[{\"id\":\"x\",\"translated_text\":\"y\"}]}. One entry per input block, same ids.\n2. For translatable text, provide a translation. Never return empty string or placeholder.\n3. Keep URLs, code, and version numbers unchanged. Translate everything else.\n4. Treat every block as independent — do not skip, summarize, merge, or reorder any block."
+    }
+  },
+  {
+    "source": {
+      "message": "[Chunk chunk8] api.call start"
+    },
+    "dataset": "cloudflare-workers",
+    "timestamp": "2026-06-14T03:20:21.707Z",
+    "$workers": {
+      "truncated": false,
+      "event": {
+        "request": {
+          "url": "https://ss.dal.workers.dev/s/arxiv.org/html/2604.09805v1",
+          "method": "GET",
+          "path": "/s/arxiv.org/html/2604.09805v1"
+        }
+      },
+      "outcome": "ok",
+      "scriptName": "ss",
+      "eventType": "fetch",
+      "executionModel": "stateless",
+      "scriptVersion": {
+        "id": "425677f5-1a29-4e4c-b19e-73e709684e37"
+      },
+      "requestId": "a0b632c14f94255f"
+    },
+    "$metadata": {
+      "id": "01KV22AC1C85VK60KE41NXVYXH",
+      "requestId": "a0b632c14f94255f",
+      "trigger": "GET /s/arxiv.org/html/2604.09805v1",
+      "service": "ss",
+      "message": "[Chunk chunk8] api.call start",
+      "account": "d74f37dea530584239cd3b7830def5a9",
+      "type": "cf-worker",
+      "fingerprint": "d70a6c7d4069b79c918b34720c1bf0b9",
+      "origin": "fetch",
+      "messageTemplate": "[Chunk <*>] <DOMAIN> start"
+    }
+  },
+  {
+    "source": {
+      "message": "[Chunk chunk8] queue.add start"
+    },
+    "dataset": "cloudflare-workers",
+    "timestamp": "2026-06-14T03:20:21.707Z",
+    "$workers": {
+      "truncated": false,
+      "event": {
+        "request": {
+          "url": "https://ss.dal.workers.dev/s/arxiv.org/html/2604.09805v1",
+          "method": "GET",
+          "path": "/s/arxiv.org/html/2604.09805v1"
+        }
+      },
+      "outcome": "ok",
+      "scriptName": "ss",
+      "eventType": "fetch",
+      "executionModel": "stateless",
+      "scriptVersion": {
+        "id": "425677f5-1a29-4e4c-b19e-73e709684e37"
+      },
+      "requestId": "a0b632c14f94255f"
+    },
+    "$metadata": {
+      "id": "01KV22AC1C85VK60KE41NXVYXG",
+      "requestId": "a0b632c14f94255f",
+      "trigger": "GET /s/arxiv.org/html/2604.09805v1",
+      "service": "ss",
+      "message": "[Chunk chunk8] queue.add start",
+      "account": "d74f37dea530584239cd3b7830def5a9",
+      "type": "cf-worker",
+      "fingerprint": "d70a6c7d4069b79c918b34720c1bf0b9",
+      "origin": "fetch",
+      "messageTemplate": "[Chunk <*>] <DOMAIN> start"
+    }
+  },
+  {
+    "source": {
+      "message": "[Chunk chunk8] start (8 blocks, 919 tokens)"
+    },
+    "dataset": "cloudflare-workers",
+    "timestamp": "2026-06-14T03:20:21.609Z",
+    "$workers": {
+      "truncated": false,
+      "event": {
+        "request": {
+          "url": "https://ss.dal.workers.dev/s/arxiv.org/html/2604.09805v1",
+          "method": "GET",
+          "path": "/s/arxiv.org/html/2604.09805v1"
+        }
+      },
+      "outcome": "ok",
+      "scriptName": "ss",
+      "eventType": "fetch",
+      "executionModel": "stateless",
+      "scriptVersion": {
+        "id": "425677f5-1a29-4e4c-b19e-73e709684e37"
+      },
+      "requestId": "a0b632c14f94255f"
+    },
+    "$metadata": {
+      "id": "01KV22AC1C85VK60KE41NXVYXF",
+      "requestId": "a0b632c14f94255f",
+      "trigger": "GET /s/arxiv.org/html/2604.09805v1",
+      "service": "ss",
+      "message": "[Chunk chunk8] start (8 blocks, 919 tokens)",
+      "account": "d74f37dea530584239cd3b7830def5a9",
+      "type": "cf-worker",
+      "fingerprint": "d70a6c7d4069b79c918b34720c1bf0b9",
+      "origin": "fetch",
+      "messageTemplate": "[Chunk <*>] start (<*> blocks, <*> tokens)"
+    }
+  },
+  {
+    "source": {
+      "message": "[Chunk chunk2] queue.add done (3863ms)"
+    },
+    "dataset": "cloudflare-workers",
+    "timestamp": "2026-06-14T03:20:21.433Z",
+    "$workers": {
+      "truncated": false,
+      "event": {
+        "request": {
+          "url": "https://ss.dal.workers.dev/s/arxiv.org/html/2604.09805v1",
+          "method": "GET",
+          "path": "/s/arxiv.org/html/2604.09805v1"
+        }
+      },
+      "outcome": "ok",
+      "scriptName": "ss",
+      "eventType": "fetch",
+      "executionModel": "stateless",
+      "scriptVersion": {
+        "id": "425677f5-1a29-4e4c-b19e-73e709684e37"
+      },
+      "requestId": "a0b632c14f94255f"
+    },
+    "$metadata": {
+      "id": "01KV22AC1C85VK60KE41NXVYXE",
+      "requestId": "a0b632c14f94255f",
+      "trigger": "GET /s/arxiv.org/html/2604.09805v1",
+      "service": "ss",
+      "message": "[Chunk chunk2] queue.add done (3863ms)",
+      "account": "d74f37dea530584239cd3b7830def5a9",
+      "type": "cf-worker",
+      "fingerprint": "d70a6c7d4069b79c918b34720c1bf0b9",
+      "origin": "fetch",
+      "messageTemplate": "[Chunk <*>] <DOMAIN> done (<*>)"
+    }
+  },
+  {
+    "source": {
+      "message": "[Chunk chunk2] api.call done (3863ms)"
+    },
+    "dataset": "cloudflare-workers",
+    "timestamp": "2026-06-14T03:20:21.433Z",
+    "$workers": {
+      "truncated": false,
+      "event": {
+        "request": {
+          "url": "https://ss.dal.workers.dev/s/arxiv.org/html/2604.09805v1",
+          "method": "GET",
+          "path": "/s/arxiv.org/html/2604.09805v1"
+        }
+      },
+      "outcome": "ok",
+      "scriptName": "ss",
+      "eventType": "fetch",
+      "executionModel": "stateless",
+      "scriptVersion": {
+        "id": "425677f5-1a29-4e4c-b19e-73e709684e37"
+      },
+      "requestId": "a0b632c14f94255f"
+    },
+    "$metadata": {
+      "id": "01KV22AC1C85VK60KE41NXVYXD",
+      "requestId": "a0b632c14f94255f",
+      "trigger": "GET /s/arxiv.org/html/2604.09805v1",
+      "service": "ss",
+      "message": "[Chunk chunk2] api.call done (3863ms)",
+      "account": "d74f37dea530584239cd3b7830def5a9",
+      "type": "cf-worker",
+      "fingerprint": "d70a6c7d4069b79c918b34720c1bf0b9",
+      "origin": "fetch",
+      "messageTemplate": "[Chunk <*>] <DOMAIN> done (<*>)"
+    }
+  },
+  {
+    "source": {
+      "message": "[DeepSeek] Response status: 200"
+    },
+    "dataset": "cloudflare-workers",
+    "timestamp": "2026-06-14T03:20:21.433Z",
+    "$workers": {
+      "truncated": false,
+      "event": {
+        "request": {
+          "url": "https://ss.dal.workers.dev/s/arxiv.org/html/2604.09805v1",
+          "method": "GET",
+          "path": "/s/arxiv.org/html/2604.09805v1"
+        }
+      },
+      "outcome": "ok",
+      "scriptName": "ss",
+      "eventType": "fetch",
+      "executionModel": "stateless",
+      "scriptVersion": {
+        "id": "425677f5-1a29-4e4c-b19e-73e709684e37"
+      },
+      "requestId": "a0b632c14f94255f"
+    },
+    "$metadata": {
+      "id": "01KV22AC1C85VK60KE41NXVYXC",
+      "requestId": "a0b632c14f94255f",
+      "trigger": "GET /s/arxiv.org/html/2604.09805v1",
+      "service": "ss",
+      "message": "[DeepSeek] Response status: 200",
+      "account": "d74f37dea530584239cd3b7830def5a9",
+      "type": "cf-worker",
+      "fingerprint": "d70a6c7d4069b79c918b34720c1bf0b9",
+      "origin": "fetch",
+      "messageTemplate": "[DeepSeek] Response status: 200"
+    }
+  },
+  {
+    "source": {
+      "message": "[DeepSeek] System prompt built:\nTranslate auto to Simplified Chinese.\n\n1. Return {\"translations\":[{\"id\":\"x\",\"translated_text\":\"y\"}]}. One entry per input block, same ids.\n2. For translatable text, provide a translation. Never return empty string or placeholder.\n3. Keep URLs, code, and version numbers unchanged. Translate everything else.\n4. Treat every block as independent — do not skip, summarize, merge, or reorder any block."
+    },
+    "dataset": "cloudflare-workers",
+    "timestamp": "2026-06-14T03:20:20.909Z",
+    "$workers": {
+      "truncated": false,
+      "event": {
+        "request": {
+          "url": "https://ss.dal.workers.dev/s/arxiv.org/html/2604.09805v1",
+          "method": "GET",
+          "path": "/s/arxiv.org/html/2604.09805v1"
+        }
+      },
+      "outcome": "ok",
+      "scriptName": "ss",
+      "eventType": "fetch",
+      "executionModel": "stateless",
+      "scriptVersion": {
+        "id": "425677f5-1a29-4e4c-b19e-73e709684e37"
+      },
+      "requestId": "a0b632c14f94255f"
+    },
+    "$metadata": {
+      "id": "01KV22AC1C85VK60KE41NXVYXB",
+      "requestId": "a0b632c14f94255f",
+      "trigger": "GET /s/arxiv.org/html/2604.09805v1",
+      "service": "ss",
+      "message": "[DeepSeek] System prompt built:\nTranslate auto to Simplified Chinese.\n\n1. Return {\"translations\":[{\"id\":\"x\",\"translated_text\":\"y\"}]}. One entry per input block, same ids.\n2. For translatable text, provide a translation. Never return empty string or placeholder.\n3. Keep URLs, code, and version numbers unchanged. Translate everything else.\n4. Treat every block as independent — do not skip, summarize, merge, or reorder any block.",
+      "account": "d74f37dea530584239cd3b7830def5a9",
+      "type": "cf-worker",
+      "fingerprint": "d70a6c7d4069b79c918b34720c1bf0b9",
+      "origin": "fetch",
+      "messageTemplate": "[DeepSeek] System prompt built:\nTranslate auto to Simplified Chinese.\n\n1. Return {\"translations\":[{\"id\":\"x\",\"translated_text\":\"y\"}]}. One entry per input block, same ids.\n2. For translatable text, provide a translation. Never return empty string or placeholder.\n3. Keep URLs, code, and version numbers unchanged. Translate everything else.\n4. Treat every block as independent — do not skip, summarize, merge, or reorder any block."
+    }
+  },
+  {
+    "source": {
+      "message": "[Chunk chunk7] api.call start"
+    },
+    "dataset": "cloudflare-workers",
+    "timestamp": "2026-06-14T03:20:20.909Z",
+    "$workers": {
+      "truncated": false,
+      "event": {
+        "request": {
+          "url": "https://ss.dal.workers.dev/s/arxiv.org/html/2604.09805v1",
+          "method": "GET",
+          "path": "/s/arxiv.org/html/2604.09805v1"
+        }
+      },
+      "outcome": "ok",
+      "scriptName": "ss",
+      "eventType": "fetch",
+      "executionModel": "stateless",
+      "scriptVersion": {
+        "id": "425677f5-1a29-4e4c-b19e-73e709684e37"
+      },
+      "requestId": "a0b632c14f94255f"
+    },
+    "$metadata": {
+      "id": "01KV22AC1C85VK60KE41NXVYXA",
+      "requestId": "a0b632c14f94255f",
+      "trigger": "GET /s/arxiv.org/html/2604.09805v1",
+      "service": "ss",
+      "message": "[Chunk chunk7] api.call start",
+      "account": "d74f37dea530584239cd3b7830def5a9",
+      "type": "cf-worker",
+      "fingerprint": "d70a6c7d4069b79c918b34720c1bf0b9",
+      "origin": "fetch",
+      "messageTemplate": "[Chunk <*>] <DOMAIN> start"
+    }
+  },
+  {
+    "source": {
+      "message": "[Chunk chunk7] queue.add start"
+    },
+    "dataset": "cloudflare-workers",
+    "timestamp": "2026-06-14T03:20:20.909Z",
+    "$workers": {
+      "truncated": false,
+      "event": {
+        "request": {
+          "url": "https://ss.dal.workers.dev/s/arxiv.org/html/2604.09805v1",
+          "method": "GET",
+          "path": "/s/arxiv.org/html/2604.09805v1"
+        }
+      },
+      "outcome": "ok",
+      "scriptName": "ss",
+      "eventType": "fetch",
+      "executionModel": "stateless",
+      "scriptVersion": {
+        "id": "425677f5-1a29-4e4c-b19e-73e709684e37"
+      },
+      "requestId": "a0b632c14f94255f"
+    },
+    "$metadata": {
+      "id": "01KV22AC1C85VK60KE41NXVYX9",
+      "requestId": "a0b632c14f94255f",
+      "trigger": "GET /s/arxiv.org/html/2604.09805v1",
+      "service": "ss",
+      "message": "[Chunk chunk7] queue.add start",
+      "account": "d74f37dea530584239cd3b7830def5a9",
+      "type": "cf-worker",
+      "fingerprint": "d70a6c7d4069b79c918b34720c1bf0b9",
+      "origin": "fetch",
+      "messageTemplate": "[Chunk <*>] <DOMAIN> start"
+    }
+  },
+  {
+    "source": {
+      "message": "[Chunk chunk7] start (10 blocks, 920 tokens)"
+    },
+    "dataset": "cloudflare-workers",
+    "timestamp": "2026-06-14T03:20:20.807Z",
+    "$workers": {
+      "truncated": false,
+      "event": {
+        "request": {
+          "url": "https://ss.dal.workers.dev/s/arxiv.org/html/2604.09805v1",
+          "method": "GET",
+          "path": "/s/arxiv.org/html/2604.09805v1"
+        }
+      },
+      "outcome": "ok",
+      "scriptName": "ss",
+      "eventType": "fetch",
+      "executionModel": "stateless",
+      "scriptVersion": {
+        "id": "425677f5-1a29-4e4c-b19e-73e709684e37"
+      },
+      "requestId": "a0b632c14f94255f"
+    },
+    "$metadata": {
+      "id": "01KV22AC1C85VK60KE41NXVYX8",
+      "requestId": "a0b632c14f94255f",
+      "trigger": "GET /s/arxiv.org/html/2604.09805v1",
+      "service": "ss",
+      "message": "[Chunk chunk7] start (10 blocks, 920 tokens)",
+      "account": "d74f37dea530584239cd3b7830def5a9",
+      "type": "cf-worker",
+      "fingerprint": "d70a6c7d4069b79c918b34720c1bf0b9",
+      "origin": "fetch",
+      "messageTemplate": "[Chunk <*>] start (<*> blocks, <*> tokens)"
+    }
+  },
+  {
+    "source": {
+      "message": "[Chunk chunk1] queue.add done (3066ms)"
+    },
+    "dataset": "cloudflare-workers",
+    "timestamp": "2026-06-14T03:20:20.635Z",
+    "$workers": {
+      "truncated": false,
+      "event": {
+        "request": {
+          "url": "https://ss.dal.workers.dev/s/arxiv.org/html/2604.09805v1",
+          "method": "GET",
+          "path": "/s/arxiv.org/html/2604.09805v1"
+        }
+      },
+      "outcome": "ok",
+      "scriptName": "ss",
+      "eventType": "fetch",
+      "executionModel": "stateless",
+      "scriptVersion": {
+        "id": "425677f5-1a29-4e4c-b19e-73e709684e37"
+      },
+      "requestId": "a0b632c14f94255f"
+    },
+    "$metadata": {
+      "id": "01KV22AC1C85VK60KE41NXVYX7",
+      "requestId": "a0b632c14f94255f",
+      "trigger": "GET /s/arxiv.org/html/2604.09805v1",
+      "service": "ss",
+      "message": "[Chunk chunk1] queue.add done (3066ms)",
+      "account": "d74f37dea530584239cd3b7830def5a9",
+      "type": "cf-worker",
+      "fingerprint": "d70a6c7d4069b79c918b34720c1bf0b9",
+      "origin": "fetch",
+      "messageTemplate": "[Chunk chunk1] <DOMAIN> done (3066ms)"
+    }
+  },
+  {
+    "source": {
+      "message": "[Chunk chunk1] api.call done (3066ms)"
+    },
+    "dataset": "cloudflare-workers",
+    "timestamp": "2026-06-14T03:20:20.635Z",
+    "$workers": {
+      "truncated": false,
+      "event": {
+        "request": {
+          "url": "https://ss.dal.workers.dev/s/arxiv.org/html/2604.09805v1",
+          "method": "GET",
+          "path": "/s/arxiv.org/html/2604.09805v1"
+        }
+      },
+      "outcome": "ok",
+      "scriptName": "ss",
+      "eventType": "fetch",
+      "executionModel": "stateless",
+      "scriptVersion": {
+        "id": "425677f5-1a29-4e4c-b19e-73e709684e37"
+      },
+      "requestId": "a0b632c14f94255f"
+    },
+    "$metadata": {
+      "id": "01KV22AC1C85VK60KE41NXVYX6",
+      "requestId": "a0b632c14f94255f",
+      "trigger": "GET /s/arxiv.org/html/2604.09805v1",
+      "service": "ss",
+      "message": "[Chunk chunk1] api.call done (3066ms)",
+      "account": "d74f37dea530584239cd3b7830def5a9",
+      "type": "cf-worker",
+      "fingerprint": "d70a6c7d4069b79c918b34720c1bf0b9",
+      "origin": "fetch",
+      "messageTemplate": "[Chunk chunk1] <DOMAIN> done (3066ms)"
+    }
+  },
+  {
+    "source": {
+      "message": "[DeepSeek] Response status: 200"
+    },
+    "dataset": "cloudflare-workers",
+    "timestamp": "2026-06-14T03:20:20.635Z",
+    "$workers": {
+      "truncated": false,
+      "event": {
+        "request": {
+          "url": "https://ss.dal.workers.dev/s/arxiv.org/html/2604.09805v1",
+          "method": "GET",
+          "path": "/s/arxiv.org/html/2604.09805v1"
+        }
+      },
+      "outcome": "ok",
+      "scriptName": "ss",
+      "eventType": "fetch",
+      "executionModel": "stateless",
+      "scriptVersion": {
+        "id": "425677f5-1a29-4e4c-b19e-73e709684e37"
+      },
+      "requestId": "a0b632c14f94255f"
+    },
+    "$metadata": {
+      "id": "01KV22AC1C85VK60KE41NXVYX5",
+      "requestId": "a0b632c14f94255f",
+      "trigger": "GET /s/arxiv.org/html/2604.09805v1",
+      "service": "ss",
+      "message": "[DeepSeek] Response status: 200",
+      "account": "d74f37dea530584239cd3b7830def5a9",
+      "type": "cf-worker",
+      "fingerprint": "d70a6c7d4069b79c918b34720c1bf0b9",
+      "origin": "fetch",
+      "messageTemplate": "[DeepSeek] Response status: 200"
+    }
+  },
+  {
+    "source": {
+      "message": "[DeepSeek] System prompt built:\nTranslate auto to Simplified Chinese.\n\n1. Return {\"translations\":[{\"id\":\"x\",\"translated_text\":\"y\"}]}. One entry per input block, same ids.\n2. For translatable text, provide a translation. Never return empty string or placeholder.\n3. Keep URLs, code, and version numbers unchanged. Translate everything else.\n4. Treat every block as independent — do not skip, summarize, merge, or reorder any block."
+    },
+    "dataset": "cloudflare-workers",
+    "timestamp": "2026-06-14T03:20:17.580Z",
+    "$workers": {
+      "truncated": false,
+      "event": {
+        "request": {
+          "url": "https://ss.dal.workers.dev/s/arxiv.org/html/2604.09805v1",
+          "method": "GET",
+          "path": "/s/arxiv.org/html/2604.09805v1"
+        }
+      },
+      "outcome": "ok",
+      "scriptName": "ss",
+      "eventType": "fetch",
+      "executionModel": "stateless",
+      "scriptVersion": {
+        "id": "425677f5-1a29-4e4c-b19e-73e709684e37"
+      },
+      "requestId": "a0b632c14f94255f"
+    },
+    "$metadata": {
+      "id": "01KV22AC1C85VK60KE41NXVYX4",
+      "requestId": "a0b632c14f94255f",
+      "trigger": "GET /s/arxiv.org/html/2604.09805v1",
+      "service": "ss",
+      "message": "[DeepSeek] System prompt built:\nTranslate auto to Simplified Chinese.\n\n1. Return {\"translations\":[{\"id\":\"x\",\"translated_text\":\"y\"}]}. One entry per input block, same ids.\n2. For translatable text, provide a translation. Never return empty string or placeholder.\n3. Keep URLs, code, and version numbers unchanged. Translate everything else.\n4. Treat every block as independent — do not skip, summarize, merge, or reorder any block.",
+      "account": "d74f37dea530584239cd3b7830def5a9",
+      "type": "cf-worker",
+      "fingerprint": "d70a6c7d4069b79c918b34720c1bf0b9",
+      "origin": "fetch",
+      "messageTemplate": "[DeepSeek] System prompt built:\nTranslate auto to Simplified Chinese.\n\n1. Return {\"translations\":[{\"id\":\"x\",\"translated_text\":\"y\"}]}. One entry per input block, same ids.\n2. For translatable text, provide a translation. Never return empty string or placeholder.\n3. Keep URLs, code, and version numbers unchanged. Translate everything else.\n4. Treat every block as independent — do not skip, summarize, merge, or reorder any block."
+    }
+  },
+  {
+    "source": {
+      "message": "[Chunk chunk3] api.call start"
+    },
+    "dataset": "cloudflare-workers",
+    "timestamp": "2026-06-14T03:20:17.580Z",
+    "$workers": {
+      "truncated": false,
+      "event": {
+        "request": {
+          "url": "https://ss.dal.workers.dev/s/arxiv.org/html/2604.09805v1",
+          "method": "GET",
+          "path": "/s/arxiv.org/html/2604.09805v1"
+        }
+      },
+      "outcome": "ok",
+      "scriptName": "ss",
+      "eventType": "fetch",
+      "executionModel": "stateless",
+      "scriptVersion": {
+        "id": "425677f5-1a29-4e4c-b19e-73e709684e37"
+      },
+      "requestId": "a0b632c14f94255f"
+    },
+    "$metadata": {
+      "id": "01KV22AC1C85VK60KE41NXVYX3",
+      "requestId": "a0b632c14f94255f",
+      "trigger": "GET /s/arxiv.org/html/2604.09805v1",
+      "service": "ss",
+      "message": "[Chunk chunk3] api.call start",
+      "account": "d74f37dea530584239cd3b7830def5a9",
+      "type": "cf-worker",
+      "fingerprint": "d70a6c7d4069b79c918b34720c1bf0b9",
+      "origin": "fetch",
+      "messageTemplate": "[Chunk <*>] <DOMAIN> start"
+    }
+  },
+  {
+    "source": {
+      "message": "[Chunk chunk3] queue.add start"
+    },
+    "dataset": "cloudflare-workers",
+    "timestamp": "2026-06-14T03:20:17.580Z",
+    "$workers": {
+      "truncated": false,
+      "event": {
+        "request": {
+          "url": "https://ss.dal.workers.dev/s/arxiv.org/html/2604.09805v1",
+          "method": "GET",
+          "path": "/s/arxiv.org/html/2604.09805v1"
+        }
+      },
+      "outcome": "ok",
+      "scriptName": "ss",
+      "eventType": "fetch",
+      "executionModel": "stateless",
+      "scriptVersion": {
+        "id": "425677f5-1a29-4e4c-b19e-73e709684e37"
+      },
+      "requestId": "a0b632c14f94255f"
+    },
+    "$metadata": {
+      "id": "01KV22AC1C85VK60KE41NXVYX2",
+      "requestId": "a0b632c14f94255f",
+      "trigger": "GET /s/arxiv.org/html/2604.09805v1",
+      "service": "ss",
+      "message": "[Chunk chunk3] queue.add start",
+      "account": "d74f37dea530584239cd3b7830def5a9",
+      "type": "cf-worker",
+      "fingerprint": "d70a6c7d4069b79c918b34720c1bf0b9",
+      "origin": "fetch",
+      "messageTemplate": "[Chunk <*>] <DOMAIN> start"
+    }
+  },
+  {
+    "source": {
+      "message": "[DeepSeek] System prompt built:\nTranslate auto to Simplified Chinese.\n\n1. Return {\"translations\":[{\"id\":\"x\",\"translated_text\":\"y\"}]}. One entry per input block, same ids.\n2. For translatable text, provide a translation. Never return empty string or placeholder.\n3. Keep URLs, code, and version numbers unchanged. Translate everything else.\n4. Treat every block as independent — do not skip, summarize, merge, or reorder any block."
+    },
+    "dataset": "cloudflare-workers",
+    "timestamp": "2026-06-14T03:20:17.572Z",
+    "$workers": {
+      "truncated": false,
+      "event": {
+        "request": {
+          "url": "https://ss.dal.workers.dev/s/arxiv.org/html/2604.09805v1",
+          "method": "GET",
+          "path": "/s/arxiv.org/html/2604.09805v1"
+        }
+      },
+      "outcome": "ok",
+      "scriptName": "ss",
+      "eventType": "fetch",
+      "executionModel": "stateless",
+      "scriptVersion": {
+        "id": "425677f5-1a29-4e4c-b19e-73e709684e37"
+      },
+      "requestId": "a0b632c14f94255f"
+    },
+    "$metadata": {
+      "id": "01KV22AC1C85VK60KE41NXVYX1",
+      "requestId": "a0b632c14f94255f",
+      "trigger": "GET /s/arxiv.org/html/2604.09805v1",
+      "service": "ss",
+      "message": "[DeepSeek] System prompt built:\nTranslate auto to Simplified Chinese.\n\n1. Return {\"translations\":[{\"id\":\"x\",\"translated_text\":\"y\"}]}. One entry per input block, same ids.\n2. For translatable text, provide a translation. Never return empty string or placeholder.\n3. Keep URLs, code, and version numbers unchanged. Translate everything else.\n4. Treat every block as independent — do not skip, summarize, merge, or reorder any block.",
+      "account": "d74f37dea530584239cd3b7830def5a9",
+      "type": "cf-worker",
+      "fingerprint": "d70a6c7d4069b79c918b34720c1bf0b9",
+      "origin": "fetch",
+      "messageTemplate": "[DeepSeek] System prompt built:\nTranslate auto to Simplified Chinese.\n\n1. Return {\"translations\":[{\"id\":\"x\",\"translated_text\":\"y\"}]}. One entry per input block, same ids.\n2. For translatable text, provide a translation. Never return empty string or placeholder.\n3. Keep URLs, code, and version numbers unchanged. Translate everything else.\n4. Treat every block as independent — do not skip, summarize, merge, or reorder any block."
+    }
+  },
+  {
+    "source": {
+      "message": "[Chunk chunk5] api.call start"
+    },
+    "dataset": "cloudflare-workers",
+    "timestamp": "2026-06-14T03:20:17.572Z",
+    "$workers": {
+      "truncated": false,
+      "event": {
+        "request": {
+          "url": "https://ss.dal.workers.dev/s/arxiv.org/html/2604.09805v1",
+          "method": "GET",
+          "path": "/s/arxiv.org/html/2604.09805v1"
+        }
+      },
+      "outcome": "ok",
+      "scriptName": "ss",
+      "eventType": "fetch",
+      "executionModel": "stateless",
+      "scriptVersion": {
+        "id": "425677f5-1a29-4e4c-b19e-73e709684e37"
+      },
+      "requestId": "a0b632c14f94255f"
+    },
+    "$metadata": {
+      "id": "01KV22AC1C85VK60KE41NXVYX0",
+      "requestId": "a0b632c14f94255f",
+      "trigger": "GET /s/arxiv.org/html/2604.09805v1",
+      "service": "ss",
+      "message": "[Chunk chunk5] api.call start",
+      "account": "d74f37dea530584239cd3b7830def5a9",
+      "type": "cf-worker",
+      "fingerprint": "d70a6c7d4069b79c918b34720c1bf0b9",
+      "origin": "fetch",
+      "messageTemplate": "[Chunk <*>] <DOMAIN> start"
+    }
+  },
+  {
+    "source": {
+      "message": "[Chunk chunk5] queue.add start"
+    },
+    "dataset": "cloudflare-workers",
+    "timestamp": "2026-06-14T03:20:17.572Z",
+    "$workers": {
+      "truncated": false,
+      "event": {
+        "request": {
+          "url": "https://ss.dal.workers.dev/s/arxiv.org/html/2604.09805v1",
+          "method": "GET",
+          "path": "/s/arxiv.org/html/2604.09805v1"
+        }
+      },
+      "outcome": "ok",
+      "scriptName": "ss",
+      "eventType": "fetch",
+      "executionModel": "stateless",
+      "scriptVersion": {
+        "id": "425677f5-1a29-4e4c-b19e-73e709684e37"
+      },
+      "requestId": "a0b632c14f94255f"
+    },
+    "$metadata": {
+      "id": "01KV22AC1C85VK60KE41NXVYWZ",
+      "requestId": "a0b632c14f94255f",
+      "trigger": "GET /s/arxiv.org/html/2604.09805v1",
+      "service": "ss",
+      "message": "[Chunk chunk5] queue.add start",
+      "account": "d74f37dea530584239cd3b7830def5a9",
+      "type": "cf-worker",
+      "fingerprint": "d70a6c7d4069b79c918b34720c1bf0b9",
+      "origin": "fetch",
+      "messageTemplate": "[Chunk <*>] <DOMAIN> start"
+    }
+  },
+  {
+    "source": {
+      "message": "[DeepSeek] System prompt built:\nTranslate auto to Simplified Chinese.\n\n1. Return {\"translations\":[{\"id\":\"x\",\"translated_text\":\"y\"}]}. One entry per input block, same ids.\n2. For translatable text, provide a translation. Never return empty string or placeholder.\n3. Keep URLs, code, and version numbers unchanged. Translate everything else.\n4. Treat every block as independent — do not skip, summarize, merge, or reorder any block."
+    },
+    "dataset": "cloudflare-workers",
+    "timestamp": "2026-06-14T03:20:17.570Z",
+    "$workers": {
+      "truncated": false,
+      "event": {
+        "request": {
+          "url": "https://ss.dal.workers.dev/s/arxiv.org/html/2604.09805v1",
+          "method": "GET",
+          "path": "/s/arxiv.org/html/2604.09805v1"
+        }
+      },
+      "outcome": "ok",
+      "scriptName": "ss",
+      "eventType": "fetch",
+      "executionModel": "stateless",
+      "scriptVersion": {
+        "id": "425677f5-1a29-4e4c-b19e-73e709684e37"
+      },
+      "requestId": "a0b632c14f94255f"
+    },
+    "$metadata": {
+      "id": "01KV22AC1C85VK60KE41NXVYWY",
+      "requestId": "a0b632c14f94255f",
+      "trigger": "GET /s/arxiv.org/html/2604.09805v1",
+      "service": "ss",
+      "message": "[DeepSeek] System prompt built:\nTranslate auto to Simplified Chinese.\n\n1. Return {\"translations\":[{\"id\":\"x\",\"translated_text\":\"y\"}]}. One entry per input block, same ids.\n2. For translatable text, provide a translation. Never return empty string or placeholder.\n3. Keep URLs, code, and version numbers unchanged. Translate everything else.\n4. Treat every block as independent — do not skip, summarize, merge, or reorder any block.",
+      "account": "d74f37dea530584239cd3b7830def5a9",
+      "type": "cf-worker",
+      "fingerprint": "d70a6c7d4069b79c918b34720c1bf0b9",
+      "origin": "fetch",
+      "messageTemplate": "[DeepSeek] System prompt built:\nTranslate auto to Simplified Chinese.\n\n1. Return {\"translations\":[{\"id\":\"x\",\"translated_text\":\"y\"}]}. One entry per input block, same ids.\n2. For translatable text, provide a translation. Never return empty string or placeholder.\n3. Keep URLs, code, and version numbers unchanged. Translate everything else.\n4. Treat every block as independent — do not skip, summarize, merge, or reorder any block."
+    }
+  },
+  {
+    "source": {
+      "message": "[Chunk chunk2] api.call start"
+    },
+    "dataset": "cloudflare-workers",
+    "timestamp": "2026-06-14T03:20:17.570Z",
+    "$workers": {
+      "truncated": false,
+      "event": {
+        "request": {
+          "url": "https://ss.dal.workers.dev/s/arxiv.org/html/2604.09805v1",
+          "method": "GET",
+          "path": "/s/arxiv.org/html/2604.09805v1"
+        }
+      },
+      "outcome": "ok",
+      "scriptName": "ss",
+      "eventType": "fetch",
+      "executionModel": "stateless",
+      "scriptVersion": {
+        "id": "425677f5-1a29-4e4c-b19e-73e709684e37"
+      },
+      "requestId": "a0b632c14f94255f"
+    },
+    "$metadata": {
+      "id": "01KV22AC1C85VK60KE41NXVYWX",
+      "requestId": "a0b632c14f94255f",
+      "trigger": "GET /s/arxiv.org/html/2604.09805v1",
+      "service": "ss",
+      "message": "[Chunk chunk2] api.call start",
+      "account": "d74f37dea530584239cd3b7830def5a9",
+      "type": "cf-worker",
+      "fingerprint": "d70a6c7d4069b79c918b34720c1bf0b9",
+      "origin": "fetch",
+      "messageTemplate": "[Chunk <*>] <DOMAIN> start"
+    }
+  },
+  {
+    "source": {
+      "message": "[Chunk chunk2] queue.add start"
+    },
+    "dataset": "cloudflare-workers",
+    "timestamp": "2026-06-14T03:20:17.570Z",
+    "$workers": {
+      "truncated": false,
+      "event": {
+        "request": {
+          "url": "https://ss.dal.workers.dev/s/arxiv.org/html/2604.09805v1",
+          "method": "GET",
+          "path": "/s/arxiv.org/html/2604.09805v1"
+        }
+      },
+      "outcome": "ok",
+      "scriptName": "ss",
+      "eventType": "fetch",
+      "executionModel": "stateless",
+      "scriptVersion": {
+        "id": "425677f5-1a29-4e4c-b19e-73e709684e37"
+      },
+      "requestId": "a0b632c14f94255f"
+    },
+    "$metadata": {
+      "id": "01KV22AC1C85VK60KE41NXVYWW",
+      "requestId": "a0b632c14f94255f",
+      "trigger": "GET /s/arxiv.org/html/2604.09805v1",
+      "service": "ss",
+      "message": "[Chunk chunk2] queue.add start",
+      "account": "d74f37dea530584239cd3b7830def5a9",
+      "type": "cf-worker",
+      "fingerprint": "d70a6c7d4069b79c918b34720c1bf0b9",
+      "origin": "fetch",
+      "messageTemplate": "[Chunk <*>] <DOMAIN> start"
+    }
+  },
+  {
+    "source": {
+      "message": "[DeepSeek] System prompt built:\nTranslate auto to Simplified Chinese.\n\n1. Return {\"translations\":[{\"id\":\"x\",\"translated_text\":\"y\"}]}. One entry per input block, same ids.\n2. For translatable text, provide a translation. Never return empty string or placeholder.\n3. Keep URLs, code, and version numbers unchanged. Translate everything else.\n4. Treat every block as independent — do not skip, summarize, merge, or reorder any block."
+    },
+    "dataset": "cloudflare-workers",
+    "timestamp": "2026-06-14T03:20:17.569Z",
+    "$workers": {
+      "truncated": false,
+      "event": {
+        "request": {
+          "url": "https://ss.dal.workers.dev/s/arxiv.org/html/2604.09805v1",
+          "method": "GET",
+          "path": "/s/arxiv.org/html/2604.09805v1"
+        }
+      },
+      "outcome": "ok",
+      "scriptName": "ss",
+      "eventType": "fetch",
+      "executionModel": "stateless",
+      "scriptVersion": {
+        "id": "425677f5-1a29-4e4c-b19e-73e709684e37"
+      },
+      "requestId": "a0b632c14f94255f"
+    },
+    "$metadata": {
+      "id": "01KV22AC1C85VK60KE41NXVYWV",
+      "requestId": "a0b632c14f94255f",
+      "trigger": "GET /s/arxiv.org/html/2604.09805v1",
+      "service": "ss",
+      "message": "[DeepSeek] System prompt built:\nTranslate auto to Simplified Chinese.\n\n1. Return {\"translations\":[{\"id\":\"x\",\"translated_text\":\"y\"}]}. One entry per input block, same ids.\n2. For translatable text, provide a translation. Never return empty string or placeholder.\n3. Keep URLs, code, and version numbers unchanged. Translate everything else.\n4. Treat every block as independent — do not skip, summarize, merge, or reorder any block.",
+      "account": "d74f37dea530584239cd3b7830def5a9",
+      "type": "cf-worker",
+      "fingerprint": "d70a6c7d4069b79c918b34720c1bf0b9",
+      "origin": "fetch",
+      "messageTemplate": "[DeepSeek] System prompt built:\nTranslate auto to Simplified Chinese.\n\n1. Return {\"translations\":[{\"id\":\"x\",\"translated_text\":\"y\"}]}. One entry per input block, same ids.\n2. For translatable text, provide a translation. Never return empty string or placeholder.\n3. Keep URLs, code, and version numbers unchanged. Translate everything else.\n4. Treat every block as independent — do not skip, summarize, merge, or reorder any block."
+    }
+  },
+  {
+    "source": {
+      "message": "[Chunk chunk1] api.call start"
+    },
+    "dataset": "cloudflare-workers",
+    "timestamp": "2026-06-14T03:20:17.569Z",
+    "$workers": {
+      "truncated": false,
+      "event": {
+        "request": {
+          "url": "https://ss.dal.workers.dev/s/arxiv.org/html/2604.09805v1",
+          "method": "GET",
+          "path": "/s/arxiv.org/html/2604.09805v1"
+        }
+      },
+      "outcome": "ok",
+      "scriptName": "ss",
+      "eventType": "fetch",
+      "executionModel": "stateless",
+      "scriptVersion": {
+        "id": "425677f5-1a29-4e4c-b19e-73e709684e37"
+      },
+      "requestId": "a0b632c14f94255f"
+    },
+    "$metadata": {
+      "id": "01KV22AC1C85VK60KE41NXVYWT",
+      "requestId": "a0b632c14f94255f",
+      "trigger": "GET /s/arxiv.org/html/2604.09805v1",
+      "service": "ss",
+      "message": "[Chunk chunk1] api.call start",
+      "account": "d74f37dea530584239cd3b7830def5a9",
+      "type": "cf-worker",
+      "fingerprint": "d70a6c7d4069b79c918b34720c1bf0b9",
+      "origin": "fetch",
+      "messageTemplate": "[Chunk <*>] <DOMAIN> start"
+    }
+  },
+  {
+    "source": {
+      "message": "[Chunk chunk1] queue.add start"
+    },
+    "dataset": "cloudflare-workers",
+    "timestamp": "2026-06-14T03:20:17.569Z",
+    "$workers": {
+      "truncated": false,
+      "event": {
+        "request": {
+          "url": "https://ss.dal.workers.dev/s/arxiv.org/html/2604.09805v1",
+          "method": "GET",
+          "path": "/s/arxiv.org/html/2604.09805v1"
+        }
+      },
+      "outcome": "ok",
+      "scriptName": "ss",
+      "eventType": "fetch",
+      "executionModel": "stateless",
+      "scriptVersion": {
+        "id": "425677f5-1a29-4e4c-b19e-73e709684e37"
+      },
+      "requestId": "a0b632c14f94255f"
+    },
+    "$metadata": {
+      "id": "01KV22AC1C85VK60KE41NXVYWS",
+      "requestId": "a0b632c14f94255f",
+      "trigger": "GET /s/arxiv.org/html/2604.09805v1",
+      "service": "ss",
+      "message": "[Chunk chunk1] queue.add start",
+      "account": "d74f37dea530584239cd3b7830def5a9",
+      "type": "cf-worker",
+      "fingerprint": "d70a6c7d4069b79c918b34720c1bf0b9",
+      "origin": "fetch",
+      "messageTemplate": "[Chunk <*>] <DOMAIN> start"
+    }
+  },
+  {
+    "source": {
+      "message": "[DeepSeek] System prompt built:\nTranslate auto to Simplified Chinese.\n\n1. Return {\"translations\":[{\"id\":\"x\",\"translated_text\":\"y\"}]}. One entry per input block, same ids.\n2. For translatable text, provide a translation. Never return empty string or placeholder.\n3. Keep URLs, code, and version numbers unchanged. Translate everything else.\n4. Treat every block as independent — do not skip, summarize, merge, or reorder any block."
+    },
+    "dataset": "cloudflare-workers",
+    "timestamp": "2026-06-14T03:20:17.554Z",
+    "$workers": {
+      "truncated": false,
+      "event": {
+        "request": {
+          "url": "https://ss.dal.workers.dev/s/arxiv.org/html/2604.09805v1",
+          "method": "GET",
+          "path": "/s/arxiv.org/html/2604.09805v1"
+        }
+      },
+      "outcome": "ok",
+      "scriptName": "ss",
+      "eventType": "fetch",
+      "executionModel": "stateless",
+      "scriptVersion": {
+        "id": "425677f5-1a29-4e4c-b19e-73e709684e37"
+      },
+      "requestId": "a0b632c14f94255f"
+    },
+    "$metadata": {
+      "id": "01KV22AC1C85VK60KE41NXVYWR",
+      "requestId": "a0b632c14f94255f",
+      "trigger": "GET /s/arxiv.org/html/2604.09805v1",
+      "service": "ss",
+      "message": "[DeepSeek] System prompt built:\nTranslate auto to Simplified Chinese.\n\n1. Return {\"translations\":[{\"id\":\"x\",\"translated_text\":\"y\"}]}. One entry per input block, same ids.\n2. For translatable text, provide a translation. Never return empty string or placeholder.\n3. Keep URLs, code, and version numbers unchanged. Translate everything else.\n4. Treat every block as independent — do not skip, summarize, merge, or reorder any block.",
+      "account": "d74f37dea530584239cd3b7830def5a9",
+      "type": "cf-worker",
+      "fingerprint": "d70a6c7d4069b79c918b34720c1bf0b9",
+      "origin": "fetch",
+      "messageTemplate": "[DeepSeek] System prompt built:\nTranslate auto to Simplified Chinese.\n\n1. Return {\"translations\":[{\"id\":\"x\",\"translated_text\":\"y\"}]}. One entry per input block, same ids.\n2. For translatable text, provide a translation. Never return empty string or placeholder.\n3. Keep URLs, code, and version numbers unchanged. Translate everything else.\n4. Treat every block as independent — do not skip, summarize, merge, or reorder any block."
+    }
+  },
+  {
+    "source": {
+      "message": "[Chunk chunk6] api.call start"
+    },
+    "dataset": "cloudflare-workers",
+    "timestamp": "2026-06-14T03:20:17.554Z",
+    "$workers": {
+      "truncated": false,
+      "event": {
+        "request": {
+          "url": "https://ss.dal.workers.dev/s/arxiv.org/html/2604.09805v1",
+          "method": "GET",
+          "path": "/s/arxiv.org/html/2604.09805v1"
+        }
+      },
+      "outcome": "ok",
+      "scriptName": "ss",
+      "eventType": "fetch",
+      "executionModel": "stateless",
+      "scriptVersion": {
+        "id": "425677f5-1a29-4e4c-b19e-73e709684e37"
+      },
+      "requestId": "a0b632c14f94255f"
+    },
+    "$metadata": {
+      "id": "01KV22AC1C85VK60KE41NXVYWQ",
+      "requestId": "a0b632c14f94255f",
+      "trigger": "GET /s/arxiv.org/html/2604.09805v1",
+      "service": "ss",
+      "message": "[Chunk chunk6] api.call start",
+      "account": "d74f37dea530584239cd3b7830def5a9",
+      "type": "cf-worker",
+      "fingerprint": "d70a6c7d4069b79c918b34720c1bf0b9",
+      "origin": "fetch",
+      "messageTemplate": "[Chunk <*>] <DOMAIN> start"
+    }
+  },
+  {
+    "source": {
+      "message": "[Chunk chunk6] queue.add start"
+    },
+    "dataset": "cloudflare-workers",
+    "timestamp": "2026-06-14T03:20:17.554Z",
+    "$workers": {
+      "truncated": false,
+      "event": {
+        "request": {
+          "url": "https://ss.dal.workers.dev/s/arxiv.org/html/2604.09805v1",
+          "method": "GET",
+          "path": "/s/arxiv.org/html/2604.09805v1"
+        }
+      },
+      "outcome": "ok",
+      "scriptName": "ss",
+      "eventType": "fetch",
+      "executionModel": "stateless",
+      "scriptVersion": {
+        "id": "425677f5-1a29-4e4c-b19e-73e709684e37"
+      },
+      "requestId": "a0b632c14f94255f"
+    },
+    "$metadata": {
+      "id": "01KV22AC1C85VK60KE41NXVYWP",
+      "requestId": "a0b632c14f94255f",
+      "trigger": "GET /s/arxiv.org/html/2604.09805v1",
+      "service": "ss",
+      "message": "[Chunk chunk6] queue.add start",
+      "account": "d74f37dea530584239cd3b7830def5a9",
+      "type": "cf-worker",
+      "fingerprint": "d70a6c7d4069b79c918b34720c1bf0b9",
+      "origin": "fetch",
+      "messageTemplate": "[Chunk <*>] <DOMAIN> start"
+    }
+  },
+  {
+    "source": {
+      "message": "[DeepSeek] System prompt built:\nTranslate auto to Simplified Chinese.\n\n1. Return {\"translations\":[{\"id\":\"x\",\"translated_text\":\"y\"}]}. One entry per input block, same ids.\n2. For translatable text, provide a translation. Never return empty string or placeholder.\n3. Keep URLs, code, and version numbers unchanged. Translate everything else.\n4. Treat every block as independent — do not skip, summarize, merge, or reorder any block."
+    },
+    "dataset": "cloudflare-workers",
+    "timestamp": "2026-06-14T03:20:17.551Z",
+    "$workers": {
+      "truncated": false,
+      "event": {
+        "request": {
+          "url": "https://ss.dal.workers.dev/s/arxiv.org/html/2604.09805v1",
+          "method": "GET",
+          "path": "/s/arxiv.org/html/2604.09805v1"
+        }
+      },
+      "outcome": "ok",
+      "scriptName": "ss",
+      "eventType": "fetch",
+      "executionModel": "stateless",
+      "scriptVersion": {
+        "id": "425677f5-1a29-4e4c-b19e-73e709684e37"
+      },
+      "requestId": "a0b632c14f94255f"
+    },
+    "$metadata": {
+      "id": "01KV22AC1C85VK60KE41NXVYWN",
+      "requestId": "a0b632c14f94255f",
+      "trigger": "GET /s/arxiv.org/html/2604.09805v1",
+      "service": "ss",
+      "message": "[DeepSeek] System prompt built:\nTranslate auto to Simplified Chinese.\n\n1. Return {\"translations\":[{\"id\":\"x\",\"translated_text\":\"y\"}]}. One entry per input block, same ids.\n2. For translatable text, provide a translation. Never return empty string or placeholder.\n3. Keep URLs, code, and version numbers unchanged. Translate everything else.\n4. Treat every block as independent — do not skip, summarize, merge, or reorder any block.",
+      "account": "d74f37dea530584239cd3b7830def5a9",
+      "type": "cf-worker",
+      "fingerprint": "d70a6c7d4069b79c918b34720c1bf0b9",
+      "origin": "fetch",
+      "messageTemplate": "[DeepSeek] System prompt built:\nTranslate auto to Simplified Chinese.\n\n1. Return {\"translations\":[{\"id\":\"x\",\"translated_text\":\"y\"}]}. One entry per input block, same ids.\n2. For translatable text, provide a translation. Never return empty string or placeholder.\n3. Keep URLs, code, and version numbers unchanged. Translate everything else.\n4. Treat every block as independent — do not skip, summarize, merge, or reorder any block."
+    }
+  },
+  {
+    "source": {
+      "message": "[Chunk chunk4] api.call start"
+    },
+    "dataset": "cloudflare-workers",
+    "timestamp": "2026-06-14T03:20:17.551Z",
+    "$workers": {
+      "truncated": false,
+      "event": {
+        "request": {
+          "url": "https://ss.dal.workers.dev/s/arxiv.org/html/2604.09805v1",
+          "method": "GET",
+          "path": "/s/arxiv.org/html/2604.09805v1"
+        }
+      },
+      "outcome": "ok",
+      "scriptName": "ss",
+      "eventType": "fetch",
+      "executionModel": "stateless",
+      "scriptVersion": {
+        "id": "425677f5-1a29-4e4c-b19e-73e709684e37"
+      },
+      "requestId": "a0b632c14f94255f"
+    },
+    "$metadata": {
+      "id": "01KV22AC1C85VK60KE41NXVYWM",
+      "requestId": "a0b632c14f94255f",
+      "trigger": "GET /s/arxiv.org/html/2604.09805v1",
+      "service": "ss",
+      "message": "[Chunk chunk4] api.call start",
+      "account": "d74f37dea530584239cd3b7830def5a9",
+      "type": "cf-worker",
+      "fingerprint": "d70a6c7d4069b79c918b34720c1bf0b9",
+      "origin": "fetch",
+      "messageTemplate": "[Chunk chunk4] <DOMAIN> start"
+    }
+  },
+  {
+    "source": {
+      "message": "[Chunk chunk4] queue.add start"
+    },
+    "dataset": "cloudflare-workers",
+    "timestamp": "2026-06-14T03:20:17.551Z",
+    "$workers": {
+      "truncated": false,
+      "event": {
+        "request": {
+          "url": "https://ss.dal.workers.dev/s/arxiv.org/html/2604.09805v1",
+          "method": "GET",
+          "path": "/s/arxiv.org/html/2604.09805v1"
+        }
+      },
+      "outcome": "ok",
+      "scriptName": "ss",
+      "eventType": "fetch",
+      "executionModel": "stateless",
+      "scriptVersion": {
+        "id": "425677f5-1a29-4e4c-b19e-73e709684e37"
+      },
+      "requestId": "a0b632c14f94255f"
+    },
+    "$metadata": {
+      "id": "01KV22AC1C85VK60KE41NXVYWK",
+      "requestId": "a0b632c14f94255f",
+      "trigger": "GET /s/arxiv.org/html/2604.09805v1",
+      "service": "ss",
+      "message": "[Chunk chunk4] queue.add start",
+      "account": "d74f37dea530584239cd3b7830def5a9",
+      "type": "cf-worker",
+      "fingerprint": "d70a6c7d4069b79c918b34720c1bf0b9",
+      "origin": "fetch",
+      "messageTemplate": "[Chunk chunk4] <DOMAIN> start"
+    }
+  },
+  {
+    "source": {
+      "message": "[Chunk chunk6] start (9 blocks, 925 tokens)"
+    },
+    "dataset": "cloudflare-workers",
+    "timestamp": "2026-06-14T03:20:17.454Z",
+    "$workers": {
+      "truncated": false,
+      "event": {
+        "request": {
+          "url": "https://ss.dal.workers.dev/s/arxiv.org/html/2604.09805v1",
+          "method": "GET",
+          "path": "/s/arxiv.org/html/2604.09805v1"
+        }
+      },
+      "outcome": "ok",
+      "scriptName": "ss",
+      "eventType": "fetch",
+      "executionModel": "stateless",
+      "scriptVersion": {
+        "id": "425677f5-1a29-4e4c-b19e-73e709684e37"
+      },
+      "requestId": "a0b632c14f94255f"
+    },
+    "$metadata": {
+      "id": "01KV22AC1C85VK60KE41NXVYWJ",
+      "requestId": "a0b632c14f94255f",
+      "trigger": "GET /s/arxiv.org/html/2604.09805v1",
+      "service": "ss",
+      "message": "[Chunk chunk6] start (9 blocks, 925 tokens)",
+      "account": "d74f37dea530584239cd3b7830def5a9",
+      "type": "cf-worker",
+      "fingerprint": "d70a6c7d4069b79c918b34720c1bf0b9",
+      "origin": "fetch",
+      "messageTemplate": "[Chunk <*>] start (<*> blocks, <*> tokens)"
+    }
+  },
+  {
+    "source": {
+      "message": "[Chunk chunk5] start (8 blocks, 1087 tokens)"
+    },
+    "dataset": "cloudflare-workers",
+    "timestamp": "2026-06-14T03:20:17.454Z",
+    "$workers": {
+      "truncated": false,
+      "event": {
+        "request": {
+          "url": "https://ss.dal.workers.dev/s/arxiv.org/html/2604.09805v1",
+          "method": "GET",
+          "path": "/s/arxiv.org/html/2604.09805v1"
+        }
+      },
+      "outcome": "ok",
+      "scriptName": "ss",
+      "eventType": "fetch",
+      "executionModel": "stateless",
+      "scriptVersion": {
+        "id": "425677f5-1a29-4e4c-b19e-73e709684e37"
+      },
+      "requestId": "a0b632c14f94255f"
+    },
+    "$metadata": {
+      "id": "01KV22AC1C85VK60KE41NXVYWH",
+      "requestId": "a0b632c14f94255f",
+      "trigger": "GET /s/arxiv.org/html/2604.09805v1",
+      "service": "ss",
+      "message": "[Chunk chunk5] start (8 blocks, 1087 tokens)",
+      "account": "d74f37dea530584239cd3b7830def5a9",
+      "type": "cf-worker",
+      "fingerprint": "d70a6c7d4069b79c918b34720c1bf0b9",
+      "origin": "fetch",
+      "messageTemplate": "[Chunk <*>] start (<*> blocks, <*> tokens)"
+    }
+  },
+  {
+    "source": {
+      "message": "[Chunk chunk4] start (9 blocks, 855 tokens)"
+    },
+    "dataset": "cloudflare-workers",
+    "timestamp": "2026-06-14T03:20:17.454Z",
+    "$workers": {
+      "truncated": false,
+      "event": {
+        "request": {
+          "url": "https://ss.dal.workers.dev/s/arxiv.org/html/2604.09805v1",
+          "method": "GET",
+          "path": "/s/arxiv.org/html/2604.09805v1"
+        }
+      },
+      "outcome": "ok",
+      "scriptName": "ss",
+      "eventType": "fetch",
+      "executionModel": "stateless",
+      "scriptVersion": {
+        "id": "425677f5-1a29-4e4c-b19e-73e709684e37"
+      },
+      "requestId": "a0b632c14f94255f"
+    },
+    "$metadata": {
+      "id": "01KV22AC1C85VK60KE41NXVYWG",
+      "requestId": "a0b632c14f94255f",
+      "trigger": "GET /s/arxiv.org/html/2604.09805v1",
+      "service": "ss",
+      "message": "[Chunk chunk4] start (9 blocks, 855 tokens)",
+      "account": "d74f37dea530584239cd3b7830def5a9",
+      "type": "cf-worker",
+      "fingerprint": "d70a6c7d4069b79c918b34720c1bf0b9",
+      "origin": "fetch",
+      "messageTemplate": "[Chunk <*>] start (<*> blocks, <*> tokens)"
+    }
+  },
+  {
+    "source": {
+      "message": "[Chunk chunk3] start (4 blocks, 785 tokens)"
+    },
+    "dataset": "cloudflare-workers",
+    "timestamp": "2026-06-14T03:20:17.454Z",
+    "$workers": {
+      "truncated": false,
+      "event": {
+        "request": {
+          "url": "https://ss.dal.workers.dev/s/arxiv.org/html/2604.09805v1",
+          "method": "GET",
+          "path": "/s/arxiv.org/html/2604.09805v1"
+        }
+      },
+      "outcome": "ok",
+      "scriptName": "ss",
+      "eventType": "fetch",
+      "executionModel": "stateless",
+      "scriptVersion": {
+        "id": "425677f5-1a29-4e4c-b19e-73e709684e37"
+      },
+      "requestId": "a0b632c14f94255f"
+    },
+    "$metadata": {
+      "id": "01KV22AC1C85VK60KE41NXVYWF",
+      "requestId": "a0b632c14f94255f",
+      "trigger": "GET /s/arxiv.org/html/2604.09805v1",
+      "service": "ss",
+      "message": "[Chunk chunk3] start (4 blocks, 785 tokens)",
+      "account": "d74f37dea530584239cd3b7830def5a9",
+      "type": "cf-worker",
+      "fingerprint": "d70a6c7d4069b79c918b34720c1bf0b9",
+      "origin": "fetch",
+      "messageTemplate": "[Chunk <*>] start (<*> blocks, <*> tokens)"
+    }
+  },
+  {
+    "source": {
+      "message": "[Chunk chunk2] start (2 blocks, 393 tokens)"
+    },
+    "dataset": "cloudflare-workers",
+    "timestamp": "2026-06-14T03:20:17.454Z",
+    "$workers": {
+      "truncated": false,
+      "event": {
+        "request": {
+          "url": "https://ss.dal.workers.dev/s/arxiv.org/html/2604.09805v1",
+          "method": "GET",
+          "path": "/s/arxiv.org/html/2604.09805v1"
+        }
+      },
+      "outcome": "ok",
+      "scriptName": "ss",
+      "eventType": "fetch",
+      "executionModel": "stateless",
+      "scriptVersion": {
+        "id": "425677f5-1a29-4e4c-b19e-73e709684e37"
+      },
+      "requestId": "a0b632c14f94255f"
+    },
+    "$metadata": {
+      "id": "01KV22AC1C85VK60KE41NXVYWE",
+      "requestId": "a0b632c14f94255f",
+      "trigger": "GET /s/arxiv.org/html/2604.09805v1",
+      "service": "ss",
+      "message": "[Chunk chunk2] start (2 blocks, 393 tokens)",
+      "account": "d74f37dea530584239cd3b7830def5a9",
+      "type": "cf-worker",
+      "fingerprint": "d70a6c7d4069b79c918b34720c1bf0b9",
+      "origin": "fetch",
+      "messageTemplate": "[Chunk <*>] start (<*> blocks, <*> tokens)"
+    }
+  },
+  {
+    "source": {
+      "message": "[Chunk chunk1] start (4 blocks, 306 tokens)"
+    },
+    "dataset": "cloudflare-workers",
+    "timestamp": "2026-06-14T03:20:17.454Z",
+    "$workers": {
+      "truncated": false,
+      "event": {
+        "request": {
+          "url": "https://ss.dal.workers.dev/s/arxiv.org/html/2604.09805v1",
+          "method": "GET",
+          "path": "/s/arxiv.org/html/2604.09805v1"
+        }
+      },
+      "outcome": "ok",
+      "scriptName": "ss",
+      "eventType": "fetch",
+      "executionModel": "stateless",
+      "scriptVersion": {
+        "id": "425677f5-1a29-4e4c-b19e-73e709684e37"
+      },
+      "requestId": "a0b632c14f94255f"
+    },
+    "$metadata": {
+      "id": "01KV22AC1C85VK60KE41NXVYWD",
+      "requestId": "a0b632c14f94255f",
+      "trigger": "GET /s/arxiv.org/html/2604.09805v1",
+      "service": "ss",
+      "message": "[Chunk chunk1] start (4 blocks, 306 tokens)",
+      "account": "d74f37dea530584239cd3b7830def5a9",
+      "type": "cf-worker",
+      "fingerprint": "d70a6c7d4069b79c918b34720c1bf0b9",
+      "origin": "fetch",
+      "messageTemplate": "[Chunk <*>] start (<*> blocks, <*> tokens)"
+    }
+  },
+  {
+    "source": {
+      "message": "[Pipeline] translateChunks: 12 chunks, concurrency=6"
+    },
+    "dataset": "cloudflare-workers",
+    "timestamp": "2026-06-14T03:20:17.454Z",
+    "$workers": {
+      "truncated": false,
+      "event": {
+        "request": {
+          "url": "https://ss.dal.workers.dev/s/arxiv.org/html/2604.09805v1",
+          "method": "GET",
+          "path": "/s/arxiv.org/html/2604.09805v1"
+        }
+      },
+      "outcome": "ok",
+      "scriptName": "ss",
+      "eventType": "fetch",
+      "executionModel": "stateless",
+      "scriptVersion": {
+        "id": "425677f5-1a29-4e4c-b19e-73e709684e37"
+      },
+      "requestId": "a0b632c14f94255f"
+    },
+    "$metadata": {
+      "id": "01KV22AC1C85VK60KE41NXVYWC",
+      "requestId": "a0b632c14f94255f",
+      "trigger": "GET /s/arxiv.org/html/2604.09805v1",
+      "service": "ss",
+      "message": "[Pipeline] translateChunks: 12 chunks, concurrency=6",
+      "account": "d74f37dea530584239cd3b7830def5a9",
+      "type": "cf-worker",
+      "fingerprint": "d70a6c7d4069b79c918b34720c1bf0b9",
+      "origin": "fetch",
+      "messageTemplate": "[Pipeline] translateChunks: 12 chunks, concurrency=6"
+    }
+  },
+  {
+    "source": {
+      "message": "[Pipeline] Extracted 87 blocks → 12 chunks"
+    },
+    "dataset": "cloudflare-workers",
+    "timestamp": "2026-06-14T03:20:17.454Z",
+    "$workers": {
+      "truncated": false,
+      "event": {
+        "request": {
+          "url": "https://ss.dal.workers.dev/s/arxiv.org/html/2604.09805v1",
+          "method": "GET",
+          "path": "/s/arxiv.org/html/2604.09805v1"
+        }
+      },
+      "outcome": "ok",
+      "scriptName": "ss",
+      "eventType": "fetch",
+      "executionModel": "stateless",
+      "scriptVersion": {
+        "id": "425677f5-1a29-4e4c-b19e-73e709684e37"
+      },
+      "requestId": "a0b632c14f94255f"
+    },
+    "$metadata": {
+      "id": "01KV22AC1C85VK60KE41NXVYWB",
+      "requestId": "a0b632c14f94255f",
+      "trigger": "GET /s/arxiv.org/html/2604.09805v1",
+      "service": "ss",
+      "message": "[Pipeline] Extracted 87 blocks → 12 chunks",
+      "account": "d74f37dea530584239cd3b7830def5a9",
+      "type": "cf-worker",
+      "fingerprint": "d70a6c7d4069b79c918b34720c1bf0b9",
+      "origin": "fetch",
+      "messageTemplate": "[Pipeline] Extracted 87 blocks → 12 chunks"
+    }
+  },
+  {
+    "source": {
+      "message": "[PERF] prepareDocument 0µs"
+    },
+    "dataset": "cloudflare-workers",
+    "timestamp": "2026-06-14T03:20:17.454Z",
+    "$workers": {
+      "truncated": false,
+      "event": {
+        "request": {
+          "url": "https://ss.dal.workers.dev/s/arxiv.org/html/2604.09805v1",
+          "method": "GET",
+          "path": "/s/arxiv.org/html/2604.09805v1"
+        }
+      },
+      "outcome": "ok",
+      "scriptName": "ss",
+      "eventType": "fetch",
+      "executionModel": "stateless",
+      "scriptVersion": {
+        "id": "425677f5-1a29-4e4c-b19e-73e709684e37"
+      },
+      "requestId": "a0b632c14f94255f"
+    },
+    "$metadata": {
+      "id": "01KV22AC1C85VK60KE41NXVYWA",
+      "requestId": "a0b632c14f94255f",
+      "trigger": "GET /s/arxiv.org/html/2604.09805v1",
+      "service": "ss",
+      "message": "[PERF] prepareDocument 0µs",
+      "account": "d74f37dea530584239cd3b7830def5a9",
+      "type": "cf-worker",
+      "fingerprint": "d70a6c7d4069b79c918b34720c1bf0b9",
+      "origin": "fetch",
+      "messageTemplate": "[PERF] <*> <*>"
+    }
+  },
+  {
+    "source": {
+      "0": {
+        "id": "chunk1",
+        "blockIds": "b1,b2,b3,b4",
+        "blocks": 4,
+        "tokens": 306
+      },
+      "1": {
+        "id": "chunk2",
+        "blockIds": "b5,b6",
+        "blocks": 2,
+        "tokens": 393
+      },
+      "2": {
+        "id": "chunk3",
+        "blockIds": "b7,b8,b9,b10",
+        "blocks": 4,
+        "tokens": 785
+      },
+      "3": {
+        "id": "chunk4",
+        "blockIds": "b11,b12,b13,b14,b15,b16,b17,b18,b19",
+        "blocks": 9,
+        "tokens": 855
+      },
+      "4": {
+        "id": "chunk5",
+        "blockIds": "b20,b21,b22,b23,b24,b25,b26,b27",
+        "blocks": 8,
+        "tokens": 1087
+      },
+      "5": {
+        "id": "chunk6",
+        "blockIds": "b28,b29,b30,b31,b32,b33,b34,b35,b36",
+        "blocks": 9,
+        "tokens": 925
+      },
+      "6": {
+        "id": "chunk7",
+        "blockIds": "b37,b38,b39,b40,b41,b42,b43,b44,b45,b46",
+        "blocks": 10,
+        "tokens": 920
+      },
+      "7": {
+        "id": "chunk8",
+        "blockIds": "b47,b48,b49,b50,b51,b52,b53,b54",
+        "blocks": 8,
+        "tokens": 919
+      },
+      "8": {
+        "id": "chunk9",
+        "blockIds": "b55,b56,b57,b58,b59,b60,b61,b62,b63,b64",
+        "blocks": 10,
+        "tokens": 1091
+      },
+      "9": {
+        "id": "chunk10",
+        "blockIds": "b65,b66,b67,b68,b69,b70,b71,b72,b73,b74",
+        "blocks": 10,
+        "tokens": 1027
+      },
+      "10": {
+        "id": "chunk11",
+        "blockIds": "b75,b76,b77,b78,b79,b80,b81,b82,b83,b84",
+        "blocks": 10,
+        "tokens": 1129
+      },
+      "11": {
+        "id": "chunk12",
+        "blockIds": "b85,b86,b87",
+        "blocks": 3,
+        "tokens": 481
+      },
+      "message": "[ChunkBuilder] Chunk sizes:"
+    },
+    "dataset": "cloudflare-workers",
+    "timestamp": "2026-06-14T03:20:17.454Z",
+    "$workers": {
+      "truncated": false,
+      "event": {
+        "request": {
+          "url": "https://ss.dal.workers.dev/s/arxiv.org/html/2604.09805v1",
+          "method": "GET",
+          "path": "/s/arxiv.org/html/2604.09805v1"
+        }
+      },
+      "outcome": "ok",
+      "scriptName": "ss",
+      "eventType": "fetch",
+      "executionModel": "stateless",
+      "scriptVersion": {
+        "id": "425677f5-1a29-4e4c-b19e-73e709684e37"
+      },
+      "requestId": "a0b632c14f94255f"
+    },
+    "$metadata": {
+      "id": "01KV22AC1C85VK60KE41NXVYW9",
+      "requestId": "a0b632c14f94255f",
+      "trigger": "GET /s/arxiv.org/html/2604.09805v1",
+      "service": "ss",
+      "message": "[ChunkBuilder] Chunk sizes:",
+      "account": "d74f37dea530584239cd3b7830def5a9",
+      "type": "cf-worker",
+      "fingerprint": "d70a6c7d4069b79c918b34720c1bf0b9",
+      "origin": "fetch",
+      "messageTemplate": "[ChunkBuilder] Chunk sizes:"
+    }
+  },
+  {
+    "source": {
+      "message": "[ChunkBuilder] Built 12 chunks"
+    },
+    "dataset": "cloudflare-workers",
+    "timestamp": "2026-06-14T03:20:17.454Z",
+    "$workers": {
+      "truncated": false,
+      "event": {
+        "request": {
+          "url": "https://ss.dal.workers.dev/s/arxiv.org/html/2604.09805v1",
+          "method": "GET",
+          "path": "/s/arxiv.org/html/2604.09805v1"
+        }
+      },
+      "outcome": "ok",
+      "scriptName": "ss",
+      "eventType": "fetch",
+      "executionModel": "stateless",
+      "scriptVersion": {
+        "id": "425677f5-1a29-4e4c-b19e-73e709684e37"
+      },
+      "requestId": "a0b632c14f94255f"
+    },
+    "$metadata": {
+      "id": "01KV22AC1C85VK60KE41NXVYW8",
+      "requestId": "a0b632c14f94255f",
+      "trigger": "GET /s/arxiv.org/html/2604.09805v1",
+      "service": "ss",
+      "message": "[ChunkBuilder] Built 12 chunks",
+      "account": "d74f37dea530584239cd3b7830def5a9",
+      "type": "cf-worker",
+      "fingerprint": "d70a6c7d4069b79c918b34720c1bf0b9",
+      "origin": "fetch",
+      "messageTemplate": "[ChunkBuilder] Built 12 chunks"
+    }
+  },
+  {
+    "source": {
+      "message": "[ChunkBuilder] buildChunks called with 87 blocks"
+    },
+    "dataset": "cloudflare-workers",
+    "timestamp": "2026-06-14T03:20:17.454Z",
+    "$workers": {
+      "truncated": false,
+      "event": {
+        "request": {
+          "url": "https://ss.dal.workers.dev/s/arxiv.org/html/2604.09805v1",
+          "method": "GET",
+          "path": "/s/arxiv.org/html/2604.09805v1"
+        }
+      },
+      "outcome": "ok",
+      "scriptName": "ss",
+      "eventType": "fetch",
+      "executionModel": "stateless",
+      "scriptVersion": {
+        "id": "425677f5-1a29-4e4c-b19e-73e709684e37"
+      },
+      "requestId": "a0b632c14f94255f"
+    },
+    "$metadata": {
+      "id": "01KV22AC1C85VK60KE41NXVYW7",
+      "requestId": "a0b632c14f94255f",
+      "trigger": "GET /s/arxiv.org/html/2604.09805v1",
+      "service": "ss",
+      "message": "[ChunkBuilder] buildChunks called with 87 blocks",
+      "account": "d74f37dea530584239cd3b7830def5a9",
+      "type": "cf-worker",
+      "fingerprint": "d70a6c7d4069b79c918b34720c1bf0b9",
+      "origin": "fetch",
+      "messageTemplate": "[ChunkBuilder] buildChunks called with 87 blocks"
+    }
+  },
+  {
+    "source": {
+      "message": "[PERF]   collectBlocks 0µs (rejected=6 skipped=76 accepted=224)"
+    },
+    "dataset": "cloudflare-workers",
+    "timestamp": "2026-06-14T03:20:17.454Z",
+    "$workers": {
+      "truncated": false,
+      "event": {
+        "request": {
+          "url": "https://ss.dal.workers.dev/s/arxiv.org/html/2604.09805v1",
+          "method": "GET",
+          "path": "/s/arxiv.org/html/2604.09805v1"
+        }
+      },
+      "outcome": "ok",
+      "scriptName": "ss",
+      "eventType": "fetch",
+      "executionModel": "stateless",
+      "scriptVersion": {
+        "id": "425677f5-1a29-4e4c-b19e-73e709684e37"
+      },
+      "requestId": "a0b632c14f94255f"
+    },
+    "$metadata": {
+      "id": "01KV22AC1C85VK60KE41NXVYW6",
+      "requestId": "a0b632c14f94255f",
+      "trigger": "GET /s/arxiv.org/html/2604.09805v1",
+      "service": "ss",
+      "message": "[PERF]   collectBlocks 0µs (rejected=6 skipped=76 accepted=224)",
+      "account": "d74f37dea530584239cd3b7830def5a9",
+      "type": "cf-worker",
+      "fingerprint": "d70a6c7d4069b79c918b34720c1bf0b9",
+      "origin": "fetch",
+      "messageTemplate": "[PERF]   collectBlocks 0µs (rejected=6 skipped=76 accepted=224)"
+    }
+  },
+  {
+    "source": {
+      "message": "[getSiteRule] matched rule for https://arxiv.org/html/2604.09805v1 with 7 skipSelectors"
+    },
+    "dataset": "cloudflare-workers",
+    "timestamp": "2026-06-14T03:20:17.454Z",
+    "$workers": {
+      "truncated": false,
+      "event": {
+        "request": {
+          "url": "https://ss.dal.workers.dev/s/arxiv.org/html/2604.09805v1",
+          "method": "GET",
+          "path": "/s/arxiv.org/html/2604.09805v1"
+        }
+      },
+      "outcome": "ok",
+      "scriptName": "ss",
+      "eventType": "fetch",
+      "executionModel": "stateless",
+      "scriptVersion": {
+        "id": "425677f5-1a29-4e4c-b19e-73e709684e37"
+      },
+      "requestId": "a0b632c14f94255f"
+    },
+    "$metadata": {
+      "id": "01KV22AC1C85VK60KE41NXVYW5",
+      "requestId": "a0b632c14f94255f",
+      "trigger": "GET /s/arxiv.org/html/2604.09805v1",
+      "service": "ss",
+      "message": "[getSiteRule] matched rule for https://arxiv.org/html/2604.09805v1 with 7 skipSelectors",
+      "account": "d74f37dea530584239cd3b7830def5a9",
+      "type": "cf-worker",
+      "fingerprint": "d70a6c7d4069b79c918b34720c1bf0b9",
+      "origin": "fetch",
+      "messageTemplate": "[getSiteRule] matched rule for https://arxiv.org/html/2604.09805v1 with 7 skipSelectors"
+    }
+  },
+  {
+    "source": {
+      "message": "[ContentHelper] Expanded from <ARTICLE> .ltx_document ltx_authors_1line to <DIV> .ltx_page_content"
+    },
+    "dataset": "cloudflare-workers",
+    "timestamp": "2026-06-14T03:20:17.454Z",
+    "$workers": {
+      "truncated": false,
+      "event": {
+        "request": {
+          "url": "https://ss.dal.workers.dev/s/arxiv.org/html/2604.09805v1",
+          "method": "GET",
+          "path": "/s/arxiv.org/html/2604.09805v1"
+        }
+      },
+      "outcome": "ok",
+      "scriptName": "ss",
+      "eventType": "fetch",
+      "executionModel": "stateless",
+      "scriptVersion": {
+        "id": "425677f5-1a29-4e4c-b19e-73e709684e37"
+      },
+      "requestId": "a0b632c14f94255f"
+    },
+    "$metadata": {
+      "id": "01KV22AC1C85VK60KE41NXVYW4",
+      "requestId": "a0b632c14f94255f",
+      "trigger": "GET /s/arxiv.org/html/2604.09805v1",
+      "service": "ss",
+      "message": "[ContentHelper] Expanded from <ARTICLE> .ltx_document ltx_authors_1line to <DIV> .ltx_page_content",
+      "account": "d74f37dea530584239cd3b7830def5a9",
+      "type": "cf-worker",
+      "fingerprint": "d70a6c7d4069b79c918b34720c1bf0b9",
+      "origin": "fetch",
+      "messageTemplate": "[ContentHelper] Expanded from <ARTICLE> .ltx_document ltx_authors_1line to <DIV> .ltx_page_content"
+    }
+  },
+  {
+    "source": {
+      "message": "[Pipeline] Fetched https://arxiv.org/html/2604.09805v1 → https://arxiv.org/html/2604.09805v1 (200, 100623 bytes)"
+    },
+    "dataset": "cloudflare-workers",
+    "timestamp": "2026-06-14T03:20:17.454Z",
+    "$workers": {
+      "truncated": false,
+      "event": {
+        "request": {
+          "url": "https://ss.dal.workers.dev/s/arxiv.org/html/2604.09805v1",
+          "method": "GET",
+          "path": "/s/arxiv.org/html/2604.09805v1"
+        }
+      },
+      "outcome": "ok",
+      "scriptName": "ss",
+      "eventType": "fetch",
+      "executionModel": "stateless",
+      "scriptVersion": {
+        "id": "425677f5-1a29-4e4c-b19e-73e709684e37"
+      },
+      "requestId": "a0b632c14f94255f"
+    },
+    "$metadata": {
+      "id": "01KV22AC1C85VK60KE41NXVYW3",
+      "requestId": "a0b632c14f94255f",
+      "trigger": "GET /s/arxiv.org/html/2604.09805v1",
+      "service": "ss",
+      "message": "[Pipeline] Fetched https://arxiv.org/html/2604.09805v1 → https://arxiv.org/html/2604.09805v1 (200, 100623 bytes)",
+      "account": "d74f37dea530584239cd3b7830def5a9",
+      "type": "cf-worker",
+      "fingerprint": "d70a6c7d4069b79c918b34720c1bf0b9",
+      "origin": "fetch",
+      "messageTemplate": "[Pipeline] Fetched https://arxiv.org/html/2604.09805v1 → https://arxiv.org/html/2604.09805v1 (200, 100623 bytes)"
+    }
+  }
+]

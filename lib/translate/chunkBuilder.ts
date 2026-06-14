@@ -8,8 +8,7 @@ export interface Chunk {
 }
 
 const MAX_INPUT_TOKENS = 500000;
-const TARGET_TOKENS = 800;
-const WARMUP_TARGET_TOKENS = 400;
+const TARGET_TOKENS = 1000;
 
 /**
  * 估算 token 数：CJK 字符约 0.5 tokens/char，拉丁文约 0.25 tokens/char。
@@ -72,7 +71,7 @@ export function buildChunks(blocks: TextBlock[]): Chunk[] {
     const blockTokens = estimateTokens(block.text) + 20;
 
     const isBoundary = isStructuralBoundary(block);
-    const targetTokens = chunks.length < 2 ? WARMUP_TARGET_TOKENS : TARGET_TOKENS;
+    const targetTokens = TARGET_TOKENS;
     const wouldExceed = currentTokens + blockTokens > targetTokens;
     const mustFlush = currentTokens + blockTokens > MAX_INPUT_TOKENS;
 

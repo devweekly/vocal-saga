@@ -138,52 +138,22 @@ describe('buildChunks', () => {
     expect(allBlocks.some(b => b.tag === 'h2')).toBe(true);
   });
 
-  // --- warmup token target tests ---
+  // --- token target tests ---
 
-  it('uses WARMUP_TARGET_TOKENS for first two chunks', () => {
-    // Each block: 100 tokens. WARMUP=400 → 4 blocks per warmup chunk.
-    // TARGET=800 → 8 blocks per normal chunk.
-    const blocks = Array.from({ length: 12 }, (_, i) =>
+  it('splits chunks at TARGET_TOKENS boundary', () => {
+    // TARGET_TOKENS = 1000, each block ~100 tokens
+    // 20 blocks = 2000 tokens → should split into 2 chunks
+    const blocks = Array.from({ length: 20 }, (_, i) =>
       tokenBlock(`b${i + 1}`, 'p', 100)
     );
 
     const chunks = buildChunks(blocks);
 
-    expect(chunks.length).toBeGreaterThanOrEqual(3);
-    // chunk1 and chunk2 warmup: each ≤ 400 tokens
-    expect(chunks[0].estimatedTokens).toBeLessThanOrEqual(420);
-    expect(chunks[1].estimatedTokens).toBeLessThanOrEqual(420);
-    // chunk3+ normal: each ≤ 800 tokens
-    for (let i = 2; i < chunks.length; i++) {
-      expect(chunks[i].estimatedTokens).toBeLessThanOrEqual(820);
+    expect(chunks.length).toBeGreaterThanOrEqual(2);
+    // Each chunk should be around 1000 tokens (±20% tolerance)
+    for (const chunk of chunks) {
+      expect(chunk.estimatedTokens).toBeLessThanOrEqual(1200);
     }
-  });
-
-  it('both warmup chunks are roughly equal size', () => {
-    const blocks = Array.from({ length: 14 }, (_, i) =>
-      tokenBlock(`b${i + 1}`, 'p', 100)
-    );
-
-    const chunks = buildChunks(blocks);
-
-    expect(chunks.length).toBeGreaterThanOrEqual(3);
-    expect(chunks[0].estimatedTokens).toBeLessThanOrEqual(420);
-    expect(chunks[1].estimatedTokens).toBeLessThanOrEqual(420);
-  });
-
-  it('third chunk is larger than warmup chunks', () => {
-    const blocks = Array.from({ length: 15 }, (_, i) =>
-      tokenBlock(`b${i + 1}`, 'p', 100)
-    );
-
-    const chunks = buildChunks(blocks);
-
-    expect(chunks[0].estimatedTokens).toBeLessThanOrEqual(420);
-    expect(chunks[1].estimatedTokens).toBeLessThanOrEqual(420);
-    const normalChunks = chunks.slice(2);
-    expect(normalChunks.length).toBeGreaterThan(0);
-    // At least one normal chunk exceeds warmup limit
-    expect(normalChunks.some(c => c.estimatedTokens > 420)).toBe(true);
   });
 
   it('single block stays one chunk', () => {

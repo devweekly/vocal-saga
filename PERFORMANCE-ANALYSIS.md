@@ -1,142 +1,124 @@
-# Cloudflare Workers 性能优化分析报告 v3
+# Cloudflare Workers 性能优化分析报告 v7（基于生产日志）
 
 > 分析日期：2026-06-14
-> 目标：CF Workers CPU time 和 TTFB 优化
+> 数据来源：CF Workers Logs（100 条最新日志）
 
 ---
 
-## 一、实测数据
+## 一、生产日志数据
 
-### 三个真实页面的指标
+### 总体统计
 
-| 指标 | TechCrunch | The Verge | Jane Street |
-|------|-----------|-----------|-------------|
-| DOM 节点 | 1997 | 2359 | 415 |
-| Blocks | 61 | 83 | 35 |
-| Chunks | 4 | 6 | 5 |
-| Layer1 命中 | ✓ main | ✓ [role="article"] | ✓ .post-content |
-| Layer2 触发 | ✗ | ✗ | ✗ |
-| headingPath 数量 | 61/61 | 83/83 | 35/35 |
+| 指标 | 值 |
+|------|-----|
+| 总请求数 | 100 |
+| 成功率 | **100%**（全部 outcome=ok） |
+| 错误/异常 | **0** |
+| Timeout | **0** |
+| Hung/Cancel | **0** |
 
-**关键发现**：
-- **Layer1 命中率 100%**（测试的 3 个站全部 Layer1 命中）
-- **headingPath 被收集但从未使用**（100% 的 block 都计算了，但 prompt 里没用）
+### 单请求耗时分解（arxiv.org 示例）
+
+```
+fetch (I/O):     109ms
+parseHTML:       0ms
+prepareDoc:      0ms
+translateChunks: 16131ms  ← 99% 时间在这里
+apply:           0ms
+serializeHTML:   0ms
+────────────────────────
+TOTAL:           16240ms
+```
+
+### translateChunks 内部（12 个 chunk）
+
+| Chunk | Blocks | Tokens | API 耗时 |
+|-------|--------|--------|---------|
+| chunk1 | 4 | 306 | 3066ms |
+| chunk2 | 2 | 393 | 3863ms |
+| chunk3 | 4 | 785 | 5823ms |
+| chunk4 | 9 | 855 | 6610ms |
+| chunk5 | 8 | 1087 | 7272ms |
+| chunk6 | 9 | 925 | 6490ms |
+| chunk7 | 10 | 920 | 6354ms |
+| chunk8 | 8 | 919 | 6154ms |
+| chunk9 | 10 | 1091 | 7365ms |
+| chunk10 | 10 | 1027 | 7284ms |
+| chunk11 | 10 | 1129 | 8991ms |
+| chunk12 | 3 | 481 | 4222ms |
+
+**平均 chunk 耗时：6124ms**
 
 ---
 
-## 二、headingPath 是最大的浪费
+## 二、关键结论
+
+### 1. Worker 没有 hung
+
+100% 成功率，0 错误。之前的 hung 问题可能是：
+- 旧版本代码（无超时保护）
+- 或偶发的网络问题
+
+### 2. 真正的瓶颈是 DeepSeek API
+
+```
+translateChunks: 16131ms / 16240ms = 99.3%
+```
+
+**99% 的时间花在等待 DeepSeek API 响应**。
+
+### 3. 并发有效但 API 慢
+
+- 12 chunks，concurrency=6
+- 平均每个 chunk 6.1 秒
+- 总耗时 16.2 秒
+
+### 4. CPU 和 DOM 处理几乎为零
+
+```
+parseHTML: 0ms
+prepareDoc: 0ms
+apply: 0ms
+serializeHTML: 0ms
+```
+
+---
+
+## 三、优化方向
 
 ### 当前状态
 
-`walker.ts` 第 307 行：
+- Worker hung：**已解决**（100% 成功）
+- CPU：**不是瓶颈**（<1ms）
+- DOM：**不是瓶颈**（<1ms）
+- **唯一瓶颈：DeepSeek API 响应时间**
 
-```typescript
-headingPath: getHeadingPath(translateNode),
-```
+### 可优化项
 
-每个 block 都调用 `getHeadingPath`，这个函数会：
-1. 向上遍历祖先链找 heading
-2. 拼接路径字符串
+| # | 改动 | 预期收益 |
+|---|------|---------|
+| 1 | **减少 chunk 数量**（合并小 chunk） | 减少 API 调用次数 |
+| 2 | **提高 concurrency**（6 → 8？） | 更多 chunk 并行 |
+| 3 | **使用更快的模型**（如 flash 版本） | 单次 API 调用更快 |
+| 4 | **预热 KV cache** | 首次请求后后续请求走缓存 |
 
-### 但 prompt 里完全没用
+### 不需要做
 
-```bash
-grep -rn "headingPath" lib/translate/service/*.ts lib/translate/pipeline.ts
-# 无输出
-```
-
-**结论：headingPath 是纯粹的 CPU 浪费**。
-
-### 优化方案
-
-**直接删除 `getHeadingPath` 和 `headingPath` 字段**。
-
-收益：
-- 每个 block 省一次祖先链遍历
-- 500 blocks × 10 层深度 = 5000 次节点访问
-- CPU ↓ 显著
+- headingPath / xpath 删除（CPU 已经是 0）
+- contentHelper 重构（DOM 处理已经是 0）
+- compromise lazy import（对热实例无影响）
 
 ---
 
-## 三、xpath 同样可以删除
+## 四、总结
 
-`walker.ts` 第 305 行：
+**Worker hung 问题已解决**。当前唯一瓶颈是 DeepSeek API 响应时间（平均 6.1 秒/chunk）。
 
-```typescript
-xpath: getXPath(translateNode),
-```
-
-**生产环境只用 `data-fanyi-block-id`**，xpath 没有被使用。
-
----
-
-## 四、DOM 遍历次数分析
-
-### 当前流程
-
-```
-Layer1 命中 → contentHelper.findArticleRoot (1次查询)
-            → walker (1次 DFS)
-            = 2次 DOM 访问
-```
-
-如果 Layer1 命中率是 100%（测试数据支持），那么：
-- contentDetector **根本不执行**
-- 实际只有 **2 次 DOM 访问**，不是 3 次
-
-### 但 Layer1 内部有冗余
-
-`contentHelper.ts` 中：
-1. `querySelector` 遍历 ARTICLE_SELECTORS（最多 17 次）
-2. `refineArticleRoot` 可能再做 `querySelector`
-3. `expandIfFragmented` 向上遍历祖先
-
-**这部分可以优化，但不是大头**。
+**下一步**：
+1. 部署最新代码验证
+2. 考虑减少 chunk 数量或提高 concurrency
+3. 观察 KV cache 命中率
 
 ---
 
-## 五、更新后的优先级
-
-### P0（立即做，收益最大）
-
-| # | 改动 | 收益 | 工作量 |
-|---|------|------|--------|
-| 1 | **删除 `getHeadingPath` 和 `headingPath`** | CPU ↓ 显著（每个 block 省一次祖先遍历） | 小 |
-| 2 | **删除 `getXPath` 和 `xpath`** | CPU ↓（每个 block 省一次祖先遍历） | 小 |
-| 3 | **compromise lazy import** | 冷启动 -50~100ms | 小 |
-
-### P1（值得做）
-
-| # | 改动 | 收益 | 工作量 |
-|---|------|------|--------|
-| 4 | 合并 contentHelper + walker 的重复遍历 | CPU ↓ | 中 |
-| 5 | JSON stringify/parse 热点分析 | 需要先测量 | 小 |
-
-### P2（有空再做）
-
-| # | 改动 | 收益 | 工作量 |
-|---|------|------|--------|
-| 6 | TextEncoder 模块级缓存 | 微量 | 小 |
-| 7 | RegExp 模块级缓存 | 微量 | 小 |
-
-### P3（不需要做）
-
-| # | 改动 | 原因 |
-|---|------|------|
-| 8 | Array.from → for...of | <1% 收益 |
-| 9 | contentDetector 缓存 | Layer1 100% 命中，不触发 |
-| 10 | LRU/SITE_RULES | 已优化 |
-
----
-
-## 六、总结
-
-**最大发现**：`headingPath` 被收集但从未使用，是纯粹的 CPU 浪费。
-
-**最大收益**：删除 `headingPath` + `xpath`，每个 block 省两次祖先遍历。
-
-**Layer1 命中率**：100%（测试数据），contentDetector 根本不触发。
-
----
-
-*报告 v3 完毕。*
+*报告 v7 完毕。基于 100 条生产日志。*

@@ -1,15 +1,15 @@
 /**
- * 翻译 pipeline — 串联 contentHelper / chunkBuilder / translationQueue / cache / service。
+ * 翻译 pipeline — 串联 contentHelper / chunkBuilder / cache / service。
  *
  * 三个对外入口：
  *   - translateText   纯文本批量翻译（不抽 DOM）
  *   - translateDoc    已有 Document（service-side 用 urlFetcher.ts）
  *   - translateUrl    完整 URL → 翻译后 HTML（jsdom + cheerio 回填）
  *
- * 保留 fanyi-extension 的核心策略：
- *   - 串行请求 (globalQueue.concurrency=1) 保 DeepSeek KV cache 命中
+ * Server 端策略：
  *   - chunk 内 missing 自动 retry 一次
  *   - 整 chunk 缓存 (translationCache)
+ *   - 全并行翻译（KV cache 不跨请求）
  */
 
 import { prepareDocument } from './contentHelper';
@@ -19,7 +19,6 @@ import {
   diffMissingIds,
   shouldRetryMissing,
 } from './chunkRetry';
-import { globalQueue } from './translationQueue';
 import {
   cacheTranslation,
   getCachedTranslation,
@@ -51,23 +50,25 @@ async function translateChunk(
   isRetry = false
 ): Promise<Map<string, string>> {
   const tChunk = performance.now();
+  const chunkLabel = `[Chunk ${chunk.id}]`;
   const cacheKey = generateTranslationCacheKey(chunk.jsonContent, sourceLang, targetLang);
 
   // 1) 缓存
+  const us = (ms: number) => `${Math.round(ms * 1000)}µs`;
+  console.log(`${chunkLabel} start (${chunk.blocks.length} blocks, ${chunk.estimatedTokens} tokens)`);
   if (!isRetry) {
     const cached = await getCachedTranslation(cacheKey);
     if (cached) {
-      console.log(`[Pipeline] cache hit ${cacheKey} (${chunk.blocks.length} blocks)`);
+      console.log(`${chunkLabel} cache hit`);
       return cached;
     }
   }
 
-  // 2) 调 service（串行队列保 KV cache）
-  console.log(`[Chunk ${chunk.id}] translate start, ${chunk.blocks.length} blocks, ${chunk.estimatedTokens} est. tokens`);
-  const raw = await globalQueue.add(() =>
-    service.translate(chunk.jsonContent, sourceLang, targetLang, glossary)
-  );
-  logCost(`Chunk ${chunk.id} translate`, tChunk);
+  // 2) 调 service（直接并行，不走队列）
+  console.log(`${chunkLabel} api.call start`);
+  const tApi = performance.now();
+  const raw = await service.translate(chunk.jsonContent, sourceLang, targetLang, glossary);
+  console.log(`${chunkLabel} api.call done (${us(performance.now() - tApi)})`);
 
   // 一次 parse 完成 result 提取 + unchanged 检测（原流程 parse 两次）
   const result = processTranslationWithCheck(raw, chunk.blocks.map((b) => ({ id: b.id, text: b.text })));
@@ -90,32 +91,17 @@ async function translateChunksWithRetry(
    * 并行 chunk 数。
    *   - translateText（小文本，单 chunk）→ 1
    *   - translateUrl → 6（CF Workers 同时建立连接上限 6，全并发）
-   * CF Workers 限制同时最多 6 个 fetch 等待 response headers，这里设 6 刚好打满。
-   * 超过 6 会排队等，不会报错。
+   * CF Workers 限制同时最多 6 个 fetch 等待 response headers。
+   * Server 端 KV cache 不跨请求，直接全并行。
    */
-  concurrency = 1
+  concurrency = 6
 ): Promise<Map<string, string>> {
   const finalTranslations = new Map<string, string>();
   if (chunks.length === 0) return finalTranslations;
 
-  // 临时提高队列并发，让 worker 池能同时发出多个请求
-  globalQueue.setConcurrency(concurrency);
-
-  let nextIdx = 0;
-
-  async function worker(): Promise<void> {
-    while (nextIdx < chunks.length) {
-      const idx = nextIdx++;
-      const chunk = chunks[idx];
-
-      try {
-        await processOneChunk(chunk);
-      } catch (err) {
-        // 让第一个失败的 chunk 传播到外层
-        throw err;
-      }
-    }
-  }
+  const us = (ms: number) => `${Math.round(ms * 1000)}µs`;
+  console.log(`[Pipeline] translateChunks: ${chunks.length} chunks, concurrency=${concurrency}`);
+  const tAll = performance.now();
 
   async function processOneChunk(
     chunk: ReturnType<typeof buildChunks>[number]
@@ -157,14 +143,13 @@ async function translateChunksWithRetry(
   }
 
   try {
-    const pool = Array.from(
-      { length: Math.min(concurrency, chunks.length) },
-      () => worker()
-    );
+    // 全并行翻译（server 端 KV cache 不跨请求）
+    const pool = chunks.map((chunk) => processOneChunk(chunk));
     await Promise.all(pool);
-  } finally {
-    // 恢复串行（保后续请求的 KV cache 命中）
-    globalQueue.setConcurrency(1);
+    console.log(`[Pipeline] translateChunks done (${us(performance.now() - tAll)})`);
+  } catch (err) {
+    console.error(`[Pipeline] translateChunks failed after ${us(performance.now() - tAll)}:`, err);
+    throw err;
   }
 
   return finalTranslations;
