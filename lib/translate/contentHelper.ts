@@ -6,6 +6,10 @@ import { detectArticleRoot } from './contentDetector';
 // 像 bankingdive.com 把 <article> 用作整页 wrapper、正文放在
 // .article-body 的站点，会直接定位到 .article-body。HBR 这种把整篇
 // 装在 <article> 内的站点仍然走 <article>。
+//
+// 注意：选择器按 token 精确匹配（CSS 类选择器语义），所以 .blog-content
+// 不会误命中 .blog-content__mbox / .blog-content__topic-block（BEM 子类
+// 是独立 token）。Ghost 博客（commoncog.com 等）就靠这条。
 const ARTICLE_SELECTORS = [
   '.article-body',
   '.article-content',
@@ -17,6 +21,7 @@ const ARTICLE_SELECTORS = [
   '.post-content',            // Common blog CMS (Jane Street, Hugo, Jekyll)
   '.entry-content',           // WordPress
   '.page-content',
+  '.blog-content',            // Ghost 博客（commoncog.com）
   'article',
   '[role="article"]',
   '[role="main"]',

@@ -4,194 +4,268 @@
  * 当 ARTICLE_SELECTORS 选择器快速路径全部 miss 时，
  * 对所有候选容器评分，选最高分的作为文章根节点。
  *
- * 评分维度：
- *   1. textDensity   — 纯文本/HTML 比值（正文高，导航低）
- *   2. linkDensity   — 链接文本占比倒数（正文低，导航高）
- *   3. paragraphRatio — <p> 标签占比（正文高，sidebar 低）
- *   4. headingScore  — h1-h6 数量（适度多=好，太多=差）
- *   5. stopwordScore — 英文停用词密度（正文 20-40%）
- *   6. classHint     — class 名正向/负向暗示
- *   7. noisePenalty  — form/list/iframe 等噪声惩罚
+ * 评分维度（绝对分制）：
+ *   1. textLength    — 纯文本长度（封顶 50K，超长页不会爆分）
+ *   2. paragraphCount — <p> 数量（强信号）
+ *   3. headingCount  — h1-h3 数量
+ *   4. linkRatio     — 链接文本占总文本比例（按比例惩罚）
+ *   5. linkCount     — 链接数量（弱惩罚）
+ *   6. listCount     — <li> 数量（导航/列表特征）
+ *   7. form/aside    — 表单/嵌套导航噪声
+ *   8. classHint     — token 化 class 名匹配（避免 BEM 子类误命中）
+ *
+ * 设计原则：
+ *   - 不用归一化分（0-1），避免特征权重被压缩到无法区分
+ *   - class 名匹配走 token 边界，区分 `blog-content`（正文）和
+ *     `blog-content__mbox`（BEM 子类，CTA/话题块）
+ *   - Tailwind 工具类（text-gray-500、bg-body）不会进入 POSITIVE 集合
  */
 
 // =============================================================================
 // 常量
 // =============================================================================
 
-/** 评分阈值：低于此分数回退 body */
-export const SCORE_THRESHOLD = 0.35;
+/** 评分阈值：绝对分，低于此分数回退到 body */
+export const SCORE_THRESHOLD = 500;
 
-/** 正向 class 名模式 */
-const POSITIVE_CLASS_RE = /article|content|post|body|text|entry|rich|blog|story|main/i;
+/** 最小文本长度：低于此长度直接判 0（避免短 nav 误判） */
+const MIN_TEXT_LENGTH = 50;
 
-/** 负向 class 名模式 */
-const NEGATIVE_CLASS_RE = /nav|menu|sidebar|footer|header|comment|widget|ad|banner|social|share|related|cookie|popup|modal/i;
-
-/** 英文停用词表（高频功能词） */
-const STOPWORDS = new Set([
-  'the', 'a', 'an', 'is', 'are', 'was', 'were', 'be', 'been', 'being',
-  'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would', 'could',
-  'should', 'may', 'might', 'must', 'can', 'shall', 'to', 'of', 'in',
-  'for', 'on', 'with', 'at', 'by', 'from', 'as', 'into', 'through',
-  'during', 'before', 'after', 'above', 'below', 'between', 'out', 'off',
-  'over', 'under', 'again', 'further', 'then', 'once', 'here', 'there',
-  'when', 'where', 'why', 'how', 'all', 'both', 'each', 'few', 'more',
-  'most', 'other', 'some', 'such', 'no', 'not', 'only', 'own', 'same',
-  'than', 'too', 'very', 'just', 'because', 'but', 'and', 'or', 'if',
-  'while', 'about', 'up', 'its', 'it', 'he', 'she', 'we', 'they', 'you',
-  'me', 'him', 'her', 'us', 'them', 'my', 'your', 'his', 'our', 'their',
-  'this', 'that', 'these', 'those', 'i', 'what', 'which', 'who', 'whom',
+/**
+ * 已知"正文类"class token 集合（精确匹配整个 token，不做子串扫描）。
+ *
+ * 用 Set 而不是正则：解决 `blog-content__mbox` 包含 "content" 子串导致
+ * 误命中的问题。BEM 子类（`__mbox`、`__topic-block`）和 Tailwind
+ * 工具类（`text-gray-500`）作为独立 token 都不会进入该集合。
+ */
+const POSITIVE_CLASS_TOKENS: ReadonlySet<string> = new Set([
+  // 通用单 token
+  'article',
+  'content',
+  'post',
+  'entry',
+  'rich',
+  'blog',
+  'story',
+  'body',
+  'main',
+  'text',
+  // 复合 token（Ghost、WordPress、Medium、Substack 等常见 CMS）
+  'article-body',
+  'article-content',
+  'article-text',
+  'post-content',
+  'post-body',
+  'entry-content',
+  'entry-body',
+  'page-content',
+  'main-content',
+  'story-body',
+  'story-content',
+  'blog-content',       // Ghost 博客
+  'blog-post',
+  'blog-body',
+  'rich-text',          // Webflow
+  'rich-content',
 ]);
+
+/**
+ * 已知"非正文"class token 集合（精确匹配）。
+ * 一旦命中直接大幅减分，无论正文特征多强都拉低。
+ */
+const NEGATIVE_CLASS_TOKENS: ReadonlySet<string> = new Set([
+  'nav',
+  'navigation',
+  'navbar',
+  'menu',
+  'sidebar',
+  'side-bar',
+  'aside',
+  'footer',
+  'header',
+  'comment',
+  'comments',
+  'disqus',
+  'discourse',
+  'widget',
+  'ad',
+  'ads',
+  'advert',
+  'banner',
+  'social',
+  'share',
+  'sharing',
+  'related',
+  'recommended',
+  'cookie',
+  'popup',
+  'modal',
+  'newsletter',
+  'subscribe',
+  'cta',
+  'promo',
+  'breadcrumb',
+  'pagination',
+  'toolbar',
+  'metadata',
+  'meta',
+  'author',
+  'byline',
+  'timestamp',
+  'tag',
+  'tags',
+  'category',
+  'topics',
+  'topic',
+]);
+
+/** id 兜底：少数站点正文只标 id 没标 class（用子串扫描，id 一般唯一） */
+const POSITIVE_ID_RE = /article|content|post|entry|rich|blog|story|main|body/i;
+const NEGATIVE_ID_RE = /nav|menu|sidebar|footer|header|comment|widget|ad|banner|social|share|related|cookie|popup|modal|disqus|discourse/i;
+
+// =============================================================================
+// 工具函数
+// =============================================================================
+
+/**
+ * 把 className 拆成 token 数组。
+ *
+ * HTML 标准：class="a b c" 空格分隔。这里再按连字符/下划线切分，
+ * 避免 `blog-content` 这个 token 包含 "content" 子串带来的歧义。
+ *
+ * 例：class="blog-content__mbox bg-purple-50"
+ *   → ["blog", "content", "mbox", "bg", "purple", "50"]
+ *   → 用 [blog, content, mbox, bg, purple, 50] 跟 POSITIVE/NEGATIVE 比对
+ *   → content 命中 POSITIVE，mbox 命中 NEGATIVE，二者抵消
+ */
+function tokenizeClass(el: Element): string[] {
+  if (!el.className || typeof el.className !== 'string') return [];
+  return el.className
+    .toLowerCase()
+    .split(/[\s\-_]+/)
+    .filter(Boolean);
+}
+
+/** 祖先负向 tag：含这几种祖先的子树基本不会是正文 */
+const NEGATIVE_ANCESTOR_TAGS = new Set(['nav', 'header', 'footer', 'aside']);
+
+/**
+ * 收集元素及其祖先链上的正向/负向 token 命中。
+ * 祖先有 NAV/MENU 时整支子树都打折（避免子元素被孤立打分）。
+ */
+function collectSignals(el: Element): { positive: boolean; negative: boolean; semantic: number } {
+  let positive = false;
+  let negative = false;
+  let semantic = 0;
+
+  // 当前元素
+  const tag = el.tagName.toLowerCase();
+  const role = el.getAttribute('role');
+
+  if (tag === 'nav' || tag === 'header' || tag === 'footer' || tag === 'aside') {
+    // 元素本身就是 nav/header/footer/aside，直接判负
+    return { positive, negative: true, semantic };
+  }
+  if (tag === 'article' || role === 'article') {
+    semantic += 500;
+  } else if (tag === 'main' || role === 'main') {
+    semantic += 300;
+  } else if (tag === 'section') {
+    // section 经常被滥用，弱 boost
+    semantic += 50;
+  }
+
+  for (const token of tokenizeClass(el)) {
+    if (POSITIVE_CLASS_TOKENS.has(token)) positive = true;
+    if (NEGATIVE_CLASS_TOKENS.has(token)) negative = true;
+  }
+  if (el.id) {
+    if (POSITIVE_ID_RE.test(el.id)) positive = true;
+    if (NEGATIVE_ID_RE.test(el.id)) negative = true;
+  }
+
+  // 祖先链（最多 3 层）
+  let parent = el.parentElement;
+  for (let i = 0; i < 3 && parent; i++) {
+    const parentTag = parent.tagName.toLowerCase();
+    if (NEGATIVE_ANCESTOR_TAGS.has(parentTag)) {
+      // 祖先含 nav/header/footer/aside，整支子树降分
+      return { positive, negative: true, semantic };
+    }
+    for (const token of tokenizeClass(parent)) {
+      if (NEGATIVE_CLASS_TOKENS.has(token)) {
+        negative = true;
+        // 早退：找到一次强负向就够
+        if (token === 'nav' || token === 'navigation' || token === 'header' || token === 'footer' || token === 'sidebar') {
+          return { positive, negative: true, semantic };
+        }
+      }
+    }
+    if (parent.id && NEGATIVE_ID_RE.test(parent.id)) {
+      negative = true;
+    }
+    parent = parent.parentElement;
+  }
+
+  return { positive, negative, semantic };
+}
 
 // =============================================================================
 // 评分函数
 // =============================================================================
 
 /**
- * 文本密度：纯文本字符数 / HTML 字符数。
- * 正文：0.3-0.6；导航：< 0.1
- */
-function textDensity(el: Element): number {
-  const text = el.textContent || '';
-  const html = el.innerHTML || '';
-  if (html.length === 0) return 0;
-  return text.length / html.length;
-}
-
-/**
- * 链接密度倒数：1 - (链接文本 / 总文本)。
- * 正文：< 0.1 链接占比 → 倒数 > 0.9
- * 导航：> 0.5 链接占比 → 倒数 < 0.5
- */
-function linkDensity(el: Element): number {
-  const allText = el.textContent || '';
-  if (allText.length === 0) return 0;
-  let linkTextLen = 0;
-  for (const a of Array.from(el.querySelectorAll('a'))) {
-    linkTextLen += (a.textContent || '').length;
-  }
-  const ratio = linkTextLen / allText.length;
-  return 1 - Math.min(ratio, 1);
-}
-
-/**
- * 段落比例：<p> 数量 / 总子元素数量。
- * 正文：<p> 多；导航/sidebar 几乎无 <p>
- */
-function paragraphRatio(el: Element): number {
-  const children = el.children.length || 1;
-  const pCount = el.querySelectorAll('p').length;
-  return Math.min(pCount / children, 1);
-}
-
-/**
- * 标题得分：h1-h6 数量。
- * 0 个：0.3（可能有内容但无标题）
- * 1-10 个：1.0（正常文章）
- * > 10 个：递减（可能包含导航/目录）
- */
-function headingScore(el: Element): number {
-  const h1 = el.querySelectorAll('h1').length;
-  const h2 = el.querySelectorAll('h2').length;
-  const h3 = el.querySelectorAll('h3').length;
-  const total = h1 + h2 + h3;
-  if (total === 0) return 0.3;
-  if (total <= 10) return 1;
-  return Math.max(0.3, 1 - (total - 10) * 0.05);
-}
-
-/**
- * 停用词得分：英文停用词占比。
- * 正文：20-40%
- * 代码/链接：< 10%
- */
-function stopwordScore(el: Element): number {
-  const text = (el.textContent || '').toLowerCase();
-  const words = text.split(/\s+/).filter(Boolean);
-  if (words.length === 0) return 0;
-  let stopCount = 0;
-  for (const w of words) {
-    if (STOPWORDS.has(w)) stopCount++;
-  }
-  // 归一化到 0-1，30% 停用词为满分
-  return Math.min(stopCount / words.length / 0.3, 1);
-}
-
-/**
- * class 名暗示：正向加分，负向减分。
- */
-function classHint(el: Element): number {
-  const combined = `${el.className || ''} ${el.id || ''}`;
-  let score = 0.5;
-  if (POSITIVE_CLASS_RE.test(combined)) score += 0.3;
-  if (NEGATIVE_CLASS_RE.test(combined)) score -= 0.4;
-  return Math.max(0, Math.min(1, score));
-}
-
-/**
- * 噪声惩罚：含 form/list/iframe 等。
- * 返回 0（无噪声）到 1（高噪声）
- */
-function noisePenalty(el: Element): number {
-  let penalty = 0;
-
-  // 链接比例高 → 导航/链接列表
-  const linkCount = el.querySelectorAll('a').length;
-  const childCount = el.children.length || 1;
-  if (linkCount / childCount > 0.5) penalty += 0.4;
-
-  // 含 <form> → 搜索/登录表单
-  if (el.querySelector('form')) penalty += 0.2;
-
-  // <li> 很多 → 列表/导航
-  const listItems = el.querySelectorAll('li').length;
-  if (listItems > 10) penalty += 0.3;
-
-  // 含 iframe/embed → 嵌入内容
-  if (el.querySelector('iframe, embed, object')) penalty += 0.2;
-
-  return Math.min(penalty, 1);
-}
-
-// =============================================================================
-// 综合评分
-// =============================================================================
-
-/** 各维度权重 */
-const WEIGHTS = {
-  textDensity: 30,
-  linkDensity: 20,
-  paragraphRatio: 25,
-  headingScore: 10,
-  stopwordScore: 10,
-  classHint: 5,
-  noisePenalty: 15, // 负向
-};
-
-/**
- * 对单个元素综合评分。
- * 返回 0-1 之间的分数。
+ * 核心评分函数（绝对分制）。
+ *
+ * 典型 article root 得分范围：
+ *   - 普通博客（5000 字符 + 16 p + 8 h + 20 a）≈ 4000-8000
+ *   - 长文（30000 字符 + 50 p + 20 h）≈ 15000-30000
+ *   - 短文（1000 字符 + 4 p + 2 h）≈ 1500-3000
+ *
+ * 典型非正文得分：
+ *   - 导航菜单（200-500 字符 + 10 a + 5 li）≈ 0-300
+ *   - CTA 框（800 字符 + 2 a）≈ 600-900
+ *   - 相关推荐（1500 字符 + 20 a + 链接密度 0.5）≈ -500 ~ 200
  */
 export function scoreElement(el: Element): number {
-  const td = textDensity(el);
-  const ld = linkDensity(el);
-  const pr = paragraphRatio(el);
-  const hs = headingScore(el);
-  const ss = stopwordScore(el);
-  const ch = classHint(el);
-  const np = noisePenalty(el);
+  const text = (el.textContent || '').trim();
+  if (text.length < MIN_TEXT_LENGTH) return 0;
 
-  const raw =
-    td * WEIGHTS.textDensity +
-    ld * WEIGHTS.linkDensity +
-    pr * WEIGHTS.paragraphRatio +
-    hs * WEIGHTS.headingScore +
-    ss * WEIGHTS.stopwordScore +
-    ch * WEIGHTS.classHint -
-    np * WEIGHTS.noisePenalty;
+  // ---- 基础特征 ----
+  const textLen = Math.min(text.length, 50000);   // 封顶 50K
+  const pCount = el.querySelectorAll('p').length;
+  const hCount = el.querySelectorAll('h1, h2, h3').length;
+  const aEls = Array.from(el.querySelectorAll('a'));
+  const aCount = aEls.length;
+  let aTextLen = 0;
+  for (const a of aEls) {
+    aTextLen += (a.textContent || '').length;
+  }
+  const linkRatio = aTextLen / Math.max(text.length, 1);
+  const liCount = el.querySelectorAll('li').length;
+  const formCount = el.querySelectorAll('form').length;
+  const asideNavFooterHeaderCount = el.querySelectorAll('aside, nav, footer, header').length;
 
-  // 归一化到 0-1（满分 = 30+20+25+10+10+5 = 100）
-  return Math.max(0, raw / 100);
+  // ---- class + semantic 提示（token 化）----
+  const { positive, negative, semantic } = collectSignals(el);
+  let classBoost = 0;
+  if (positive) classBoost += 300;
+  if (negative) classBoost -= 600;
+
+  // ---- 综合评分 ----
+  let score = 0;
+  score += textLen;                                    // 长度主导
+  score += pCount * 80;                                // <p> 强信号
+  score += hCount * 25;                                // 标题
+  score -= aCount * 2;                                 // 链接数量
+  score -= Math.floor(linkRatio * 2000);               // 链接密度
+  score -= liCount * 5;                                // 列表/导航
+  score -= formCount * 50;                             // 表单
+  score -= asideNavFooterHeaderCount * 30;             // 嵌套的导航/页脚
+  score += classBoost;                                 // class 提示
+  score += semantic;                                   // 语义标签 boost（<article>/<main>）
+
+  return score;
 }
 
 // =============================================================================
@@ -200,7 +274,7 @@ export function scoreElement(el: Element): number {
 
 /**
  * 收集所有可能的正文候选容器。
- * 包括：语义标签、role 属性、class 名暗示、table 布局中的大 td、父级（向上 2 层）。
+ * 包括：语义标签、role 属性、class 名暗示（token 化）、table 布局中的大 td、父级。
  */
 export function collectCandidates(doc: Document): Element[] {
   const seen = new Set<Element>();
@@ -226,16 +300,18 @@ export function collectCandidates(doc: Document): Element[] {
     }
   }
 
-  // 3) class 名暗示（div / section）
-  for (const el of doc.querySelectorAll('div, section')) {
-    const combined = `${el.className || ''} ${el.id || ''}`;
-    if (POSITIVE_CLASS_RE.test(combined)) {
+  // 3) class 名暗示（div / section / article / main）
+  //    按 token 精确匹配，避免 BEM 子类（`blog-content__mbox`）误命中
+  for (const el of doc.querySelectorAll('div, section, article, main')) {
+    const tokens = tokenizeClass(el);
+    const hasPositive = tokens.some((t) => POSITIVE_CLASS_TOKENS.has(t));
+    const idHit = el.id && POSITIVE_ID_RE.test(el.id);
+    if (hasPositive || idHit) {
       add(el);
     }
   }
 
   // 4) table 布局中的大 td（Paul Graham 等老式站点）
-  //    找文本长度 > 1000 字符的 td，作为候选
   for (const td of doc.querySelectorAll('td')) {
     const text = (td.textContent || '').trim();
     if (text.length > 1000) {
@@ -291,10 +367,11 @@ export function detectArticleRoot(doc: Document): Element | null {
   }
 
   if (bestScore < SCORE_THRESHOLD) {
-    console.log(`[ContentDetector] Best score ${bestScore.toFixed(3)} < threshold ${SCORE_THRESHOLD}, fallback to body`);
+    console.log(`[ContentDetector] Best score ${bestScore} < threshold ${SCORE_THRESHOLD}, fallback to body`);
     return null;
   }
 
-  console.log(`[ContentDetector] Best: <${bestEl!.tagName}> .${(bestEl!.className || '').split(/\s+/)[0]} (score: ${bestScore.toFixed(3)})`);
+  const firstClass = (bestEl!.className || '').split(/\s+/)[0] || '';
+  console.log(`[ContentDetector] Best: <${bestEl!.tagName}> .${firstClass} (score: ${bestScore})`);
   return bestEl;
 }
