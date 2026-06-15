@@ -44,16 +44,20 @@ export class CloudflareAITranslationService implements TranslationService {
 
     console.log(`[CloudAI] Calling ${MODEL}, ${blocks.length} blocks`);
     const response = await ai.run(MODEL, body);
-    console.log('[CloudAI] Response received');
+    console.log('[CloudAI] raw response:', JSON.stringify(response)?.slice(0, 2000));
 
     // CF Workers AI 的 ai.run() 对 chat-completion 模型返回
-    // { response: "...", usage: {...} }；需要拿 .response 才是 LLM 文本。
-    // 直接 JSON.stringify(response) 会把外层一起带进下游解析，导致
-    // "translations is not iterable"。
+    // { response: "...", usage: {...} }。response 字段本身可能是字符串
+    // （最常见，LLM 原始输出），也可能是已解析的对象，少数情况下还有
+    // 其他形态。统一转成字符串交给下游解析。
     const content =
       typeof response === 'string'
         ? response
-        : (response as any)?.response ?? JSON.stringify(response);
+        : (response as any)?.response != null
+        ? typeof (response as any).response === 'string'
+          ? (response as any).response
+          : JSON.stringify((response as any).response)
+        : JSON.stringify(response);
 
     // 清理 markdown 代码块 + 修复 JSON
     let cleaned = stripMarkdownCodeBlock(content);
@@ -61,6 +65,26 @@ export class CloudflareAITranslationService implements TranslationService {
       JSON.parse(cleaned);
     } catch {
       cleaned = cleanJsonString(cleaned);
+    }
+
+    // 防御：下游 processTranslationWithCheck 会做 `for (const item of translations)`，
+    // 拿到非数组就直接抛 "translations is not iterable"，排查时只能看到错误
+    // 信息，看不到真实 payload。这里提前验证，失败时把完整内容带上。
+    let parsedForCheck: any;
+    try {
+      parsedForCheck = JSON.parse(cleaned);
+    } catch (e) {
+      throw new Error(
+        `[CloudAI] cleaned content is not valid JSON. content=${cleaned.slice(0, 1000)}`
+      );
+    }
+    const arr = parsedForCheck?.translations;
+    if (!Array.isArray(arr)) {
+      console.log('[CloudAI] parsed keys:', Object.keys(parsedForCheck ?? {}));
+      console.log('[CloudAI] parsed.translations type:', typeof arr, 'value:', arr);
+      throw new Error(
+        `[CloudAI] translations is not iterable. payload=${JSON.stringify(parsedForCheck).slice(0, 2000)}`
+      );
     }
 
     return cleaned;
