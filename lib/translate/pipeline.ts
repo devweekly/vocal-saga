@@ -220,6 +220,7 @@ export interface TranslateUrlInput {
 export interface TranslateUrlResult {
   url: string;
   finalUrl: string;
+  title: string;
   html: string;
   blocks: number;
   translatedBlocks: number;
@@ -236,7 +237,12 @@ export async function translateUrl(input: TranslateUrlInput): Promise<TranslateU
   const tFetch = performance.now();
   const page = await fetchPage(input.url);
 
-  console.log(`[Pipeline] Fetched ${input.url} → ${page.finalUrl} (${page.status}, ${page.html.length} bytes)`);
+  // 从页面 <title> 提取标题
+  const title =
+    (page.doc.querySelector('title')?.textContent || '').trim().substring(0, 200) ||
+    page.finalUrl;
+
+  console.log(`[Pipeline] Fetched ${input.url} → ${page.finalUrl} (${page.status}, ${page.html.length} bytes) title="${title}"`);
 
   const tPrep = performance.now();
   const { blocks, chunks } = prepareDocument(page.doc, page.finalUrl);
@@ -317,10 +323,6 @@ export async function translateUrl(input: TranslateUrlInput): Promise<TranslateU
       '  margin: 0.2em 0 0.4em 0;',
       '  padding: 0.15em 0.6em;',
       '  border-left: 3px solid currentColor;',
-      '  font-style: italic;',
-      '  opacity: 0.7;',
-      '  font-size: 0.95em;',
-      '  line-height: 1.4;',
       '}',
       '.fanyi-translated { /* 容器：仅加 class，不改原样式 */ }',
     ].join('\n');
@@ -336,6 +338,7 @@ export async function translateUrl(input: TranslateUrlInput): Promise<TranslateU
   return {
     url: input.url,
     finalUrl: page.finalUrl,
+    title,
     html,
     blocks: blocks.length,
     translatedBlocks: translations.size,

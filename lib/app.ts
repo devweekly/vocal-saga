@@ -63,6 +63,15 @@ export function createApp(storage?: StorageAdapter): Hono {
   if (openrouterKey) setOpenrouterApiKey(openrouterKey);
   if (nvidiaKey) setNvidiaApiKey(nvidiaKey);
 
+  // 简单的 HTML 转义，防止列表页 title XSS
+  function escapeHtml(text: string): string {
+    return text
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+
   const app = new Hono();
   app.use('*', cors());
 
@@ -73,7 +82,7 @@ export function createApp(storage?: StorageAdapter): Hono {
     if (db) {
       try {
         const result = await db.prepare(
-          'SELECT id, url, source_lang, target_lang FROM translations ORDER BY id DESC LIMIT 10'
+          'SELECT id, url, title, source_lang, target_lang FROM translations ORDER BY id DESC LIMIT 10'
         ).all();
         if (result.results) rows.push(...result.results);
       } catch (e) {
@@ -83,12 +92,13 @@ export function createApp(storage?: StorageAdapter): Hono {
 
     // 构建 HTML 列表页
     const items = rows.map((r: any) => {
-      const url = `https://${r.url}`;
+      const url = `${r.url}`;
+      const displayTitle = r.title || r.url;
       const lang = `${r.source_lang || 'en'} → ${r.target_lang || 'zh'}`;
-      return `<li style="margin-bottom:12px;line-height:1.6">
-        <a href="/${r.id}" style="font-size:16px;text-decoration:none;color:#2563eb">#${r.id}</a>
+      return `<li style="margin-bottom:16px;line-height:1.6">
+        <a href="/${r.id}" style="font-size:16px;text-decoration:none;color:#2563eb;font-weight:500">${escapeHtml(displayTitle)}</a>
         <span style="color:#6b7280;margin-left:8px;font-size:13px">${lang}</span>
-        <br><a href="${url}" target="_blank" rel="noopener" style="color:#6b7280;font-size:13px;text-decoration:none">${r.url}</a>
+        <br><a href="${url}" target="_blank" rel="noopener" style="color:#9ca3af;font-size:12px;text-decoration:none">${r.url}</a>
       </li>`;
     }).join('\n');
 
@@ -361,6 +371,11 @@ ${items ? `<ul>${items}</ul>` : '<p class="empty">暂无翻译记录</p>'}
     const target = c.req.query('target') || 'zh';
     const mode = c.req.query('mode') || 'bilingual';
 
+    // source / target 必须是合法语言代码（auto、ISO 639-1/2 字母码、或带区域子标签）
+    const VALID_LANG_RE = /^(auto|[a-zA-Z]{2,3})(-[a-zA-Z]{2,3})?$/;
+    const sourceStored = source && VALID_LANG_RE.test(source) ? source : 'en';
+    const targetStored = VALID_LANG_RE.test(target) ? target : 'zh';
+
     let parsed: URL;
     try {
       parsed = new URL(url);
@@ -374,18 +389,17 @@ ${items ? `<ul>${items}</ul>` : '<p class="empty">暂无翻译记录</p>'}
     if (mode !== 'bilingual' && mode !== 'target') {
       return c.json({ error: 'mode must be bilingual or target' }, 400);
     }
-    console.log(`[translate/url-page] url=${url} src=${source || 'en'} tgt=${target} mode=${mode} force=${force}`);
+    console.log(`[translate/url-page] url=${url} src=${sourceStored} tgt=${targetStored} mode=${mode} force=${force}`);
 
     // ── D1 去重：同 URL+source+target 已存在则直接返回（force 模式跳过） ──
     // 用 cacheKeyUrl 标准化：www.example.com 和 example.com 命中同一缓存
     const db = (c.env as any)?.DB999;
-    const sourceStored = source || 'en';
     const cacheKey = cacheKeyUrl(url);
     if (db && !force) {
       try {
         const existing: any = await db.prepare(
           'SELECT html FROM translations WHERE url = ? AND source_lang = ? AND target_lang = ? LIMIT 1'
-        ).bind(cacheKey, sourceStored, target).first();
+        ).bind(cacheKey, sourceStored, targetStored).first();
         if (existing) {
           console.log(`[translate/url-page] D1 cache hit for ${url}`);
           return new Response(existing.html, {
@@ -430,11 +444,11 @@ ${items ? `<ul>${items}</ul>` : '<p class="empty">暂无翻译记录</p>'}
             // 先删旧记录，再插入新记录（D1 没有 UPSERT，用 REPLACE 模拟）
             await db.prepare(
               'DELETE FROM translations WHERE url = ? AND source_lang = ? AND target_lang = ?'
-            ).bind(cacheKey, sourceStored, target).run();
+            ).bind(cacheKey, sourceStored, targetStored).run();
           }
           await db.prepare(
-            'INSERT INTO translations (url, source_lang, target_lang, html) VALUES (?, ?, ?, ?)'
-          ).bind(cacheKey, sourceStored, target, result.html).run();
+            'INSERT OR IGNORE INTO translations (url, title, source_lang, target_lang, html) VALUES (?, ?, ?, ?, ?)'
+          ).bind(cacheKey, result.title || '', sourceStored, targetStored, result.html).run();
         } catch (e) {
           console.error('[D1] save error:', e);
         }

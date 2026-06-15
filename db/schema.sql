@@ -3,6 +3,7 @@
 CREATE TABLE IF NOT EXISTS translations (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   url TEXT NOT NULL,
+  title TEXT DEFAULT '',
   source_lang TEXT DEFAULT 'en',
   target_lang TEXT DEFAULT 'zh',
   html TEXT NOT NULL,

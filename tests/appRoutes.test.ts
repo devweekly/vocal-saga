@@ -37,6 +37,7 @@ beforeEach(async () => {
   mockClearAll(translateUrl, translateText);
   (translateUrl as any).mockResolvedValue({
     html: '<html><body>ok</body></html>',
+    title: 'Test',
     blocks: 1, chunks: 1, duration_ms: 10,
   });
 

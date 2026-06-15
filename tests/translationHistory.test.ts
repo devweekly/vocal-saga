@@ -17,6 +17,7 @@ import { MapStorage, setDefaultStorage } from '../lib/storage';
 interface MockRow {
   id: number;
   url: string;
+  title: string;
   source_lang: string;
   target_lang: string;
   html: string;
@@ -38,9 +39,10 @@ function createMockDb() {
               const row: MockRow = {
                 id: nextId++,
                 url: args[0],
-                source_lang: args[1],
-                target_lang: args[2],
-                html: args[3],
+                title: args[1] ?? '',
+                source_lang: args[2],
+                target_lang: args[3],
+                html: args[4],
                 created_at: new Date().toISOString(),
               };
               rows.push(row);
@@ -72,6 +74,7 @@ beforeEach(async () => {
   (translateUrl as any).mockClear();
   (translateUrl as any).mockResolvedValue({
     html: '<html><body>translated page</body></html>',
+    title: 'Test',
     blocks: 3,
     chunks: 1,
     duration_ms: 50,
@@ -151,10 +154,12 @@ describe('GET /<id> — D1 translation history', () => {
     const { translateUrl } = await import('../lib/translate/pipeline');
     (translateUrl as any).mockResolvedValueOnce({
       html: '<html><body>first</body></html>',
+      title: 'First',
       blocks: 1, chunks: 1, duration_ms: 10,
     });
     (translateUrl as any).mockResolvedValueOnce({
       html: '<html><body>second</body></html>',
+      title: 'Second',
       blocks: 1, chunks: 1, duration_ms: 10,
     });
 
