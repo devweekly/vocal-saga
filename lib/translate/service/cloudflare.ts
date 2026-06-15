@@ -46,8 +46,14 @@ export class CloudflareAITranslationService implements TranslationService {
     const response = await ai.run(MODEL, body);
     console.log('[CloudAI] Response received');
 
-    // CF AI 返回的可能是对象或字符串
-    const content = typeof response === 'string' ? response : JSON.stringify(response);
+    // CF Workers AI 的 ai.run() 对 chat-completion 模型返回
+    // { response: "...", usage: {...} }；需要拿 .response 才是 LLM 文本。
+    // 直接 JSON.stringify(response) 会把外层一起带进下游解析，导致
+    // "translations is not iterable"。
+    const content =
+      typeof response === 'string'
+        ? response
+        : (response as any)?.response ?? JSON.stringify(response);
 
     // 清理 markdown 代码块 + 修复 JSON
     let cleaned = stripMarkdownCodeBlock(content);
