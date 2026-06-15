@@ -490,4 +490,250 @@ describe('contentDetector', () => {
       expect(root!.tagName.toLowerCase()).toBe('main');
     });
   });
+
+  // --- v2 评分模型修正测试 (修复 4 项必改 + 2 项可增强) ---
+
+  describe('v2 scoring model fixes', () => {
+    // ---- 1) linkTextLength 只统计直接 text node ----
+    it('linkTextLength counts only direct text nodes (not nested DOM)', () => {
+      // 旧版: a.textContent 会把 <span> 内的文字也计入, 错误高估 linkTextLength,
+      // 导致 bodyText 偏低, 评分误判为链接列表。
+      // 新版: 只统计 <a> 下的直接 text node。
+      // 关键不变量: <a><span>text</span></a> 形式下, bodyText (非链接文本) 应当大于
+      // <a>text</a> 形式 (前者 linkTextLength ≈ 0 因为直接 text node 只有空白,
+      // 后者 linkTextLength = text 长度)。所以 nested 形式 score 应当 >= direct 形式。
+      const withNested = document.createElement('div');
+      withNested.className = 'article-content';
+      withNested.innerHTML = `
+        <p>${'word '.repeat(40).trim()}</p>
+        <a href="#"><span>${'x'.repeat(100)}</span></a>
+      `;
+      const withDirect = document.createElement('div');
+      withDirect.className = 'article-content';
+      withDirect.innerHTML = `
+        <p>${'word '.repeat(40).trim()}</p>
+        <a href="#">${'x'.repeat(100)}</a>
+      `;
+      // nested 形式 linkTextLength 几乎为 0, bodyText 完整保留, score 应高于 direct
+      const scoreNested = scoreElement(withNested);
+      const scoreDirect = scoreElement(withDirect);
+      expect(scoreNested).toBeGreaterThan(scoreDirect);
+    });
+
+    it('does not over-count icon font text inside links', () => {
+      // icon font 通常用 ::before content 或 <i class="icon"> 表现, 不产生直接 text node
+      const el = document.createElement('div');
+      el.className = 'article-content';
+      el.innerHTML = `
+        <p>${'content '.repeat(30).trim()}</p>
+        <a href="#"><i class="icon-share"></i>Share</a>
+      `;
+      document.body.appendChild(el);
+      // linkTextLength 应只算 "Share" (5字符), 不算 <i> 内空
+      // linkRatio = 5/(~180) < 0.5, 不触发 0.5x 惩罚 → score 应 > 阈值
+      const score = scoreElement(el);
+      expect(score).toBeGreaterThan(SCORE_THRESHOLD);
+    });
+
+    // ---- 2) 纯 multiplicative model: structureBoost ----
+    it('structureBoost: <article> applies 1.3x multiplier (not absolute +500)', () => {
+      // 同样 text/length, 比较 <article> vs <div>:
+      // article 应该得到 1.3x boost, score 约 = 1.3 * div score
+      const buildEl = (tag: string) => {
+        const el = document.createElement(tag);
+        el.className = 'content';
+        el.textContent = 'word '.repeat(200).trim();
+        return el;
+      };
+      const divScore = scoreElement(buildEl('div'));
+      const articleScore = scoreElement(buildEl('article'));
+      // ratio 应近似 1.3 (允许 floating point 误差)
+      const ratio = articleScore / divScore;
+      expect(ratio).toBeGreaterThan(1.25);
+      expect(ratio).toBeLessThan(1.35);
+    });
+
+    it('structureBoost: <main> applies 1.2x multiplier', () => {
+      const buildEl = (tag: string) => {
+        const el = document.createElement(tag);
+        el.className = 'content';
+        el.textContent = 'word '.repeat(200).trim();
+        return el;
+      };
+      const divScore = scoreElement(buildEl('div'));
+      const mainScore = scoreElement(buildEl('main'));
+      const ratio = mainScore / divScore;
+      expect(ratio).toBeGreaterThan(1.15);
+      expect(ratio).toBeLessThan(1.25);
+    });
+
+    it('structureBoost: <section> applies weak 1.05x multiplier', () => {
+      const buildEl = (tag: string) => {
+        const el = document.createElement(tag);
+        el.className = 'content';
+        el.textContent = 'word '.repeat(200).trim();
+        return el;
+      };
+      const divScore = scoreElement(buildEl('div'));
+      const sectionScore = scoreElement(buildEl('section'));
+      const ratio = sectionScore / divScore;
+      // section 弱 boost, 1.05x
+      expect(ratio).toBeGreaterThan(1.0);
+      expect(ratio).toBeLessThan(1.1);
+    });
+
+    it('multiplicative model: ranking is monotonic across DOM sizes', () => {
+      // 关键不变量: score 应该是"文本质量函数"而非"标签绝对加分函数"。
+      // 同样 200 字符正文, article vs main: article 必胜, 但分差应按比例 (1.3/1.2 ≈ 1.083x),
+      // 不应像旧版 +500 把 200 字符 article 拉到接近 1000 字符 div 的位置。
+      const smallArticle = document.createElement('article');
+      smallArticle.className = 'content';
+      smallArticle.textContent = 'word '.repeat(40).trim();  // 短文 ~200 chars
+      const bigMain = document.createElement('main');
+      bigMain.textContent = 'word '.repeat(400).trim();  // 长文 ~2000 chars
+      // 即使 bigMain 文本 10x 于 smallArticle, smallArticle 的 multiplicative boost
+      // (1.3) 不会像旧版 +500 那样让小 article 凭空超过大 main。
+      // 这里只检查 "score 比值小于文本比值" (即 boost 不会把 ranking 拉爆):
+      //   smallArticle (200 chars, 1.3x) vs bigMain (2000 chars, 1.2x)
+      //   score(article) / score(main) ≈ (200 * 1.3) / (2000 * 1.2) ≈ 0.108
+      const a = scoreElement(smallArticle);
+      const m = scoreElement(bigMain);
+      expect(a).toBeLessThan(m);
+    });
+
+    // ---- 3) POSITIVE tokens 收紧 ----
+    it('does not treat Tailwind .text-* utility as positive', () => {
+      // 旧版 POSITIVE 包含 'text' token, .text-gray-500 会被当正文容器加分。
+      // 新版 POSITIVE_TOKENS 已删除 'text', .text-* 应被忽略。
+      const el = document.createElement('div');
+      el.className = 'text-gray-500 text-sm p-4';
+      el.innerHTML = `
+        <a href="#">A</a><a href="#">B</a><a href="#">C</a>
+        <a href="#">D</a><a href="#">E</a><a href="#">F</a>
+      `;
+      document.body.appendChild(el);
+      const score = scoreElement(el);
+      // 没有 positive boost, 仅靠 density, 链接列表分应低于阈值
+      expect(score).toBeLessThan(SCORE_THRESHOLD);
+    });
+
+    it('does not treat .content-* carousel/sidebar as positive', () => {
+      // 旧版 POSITIVE 包含 'content' token, .content-carousel / .content-sidebar
+      // 会被加分。新版 POSITIVE_TOKENS 严格收紧, 只接受单 token article/post/entry 等,
+      // 复合类靠 POSITIVE_COMPOUND_RE 匹配 (article-content / post-body 模式)。
+      const el = document.createElement('div');
+      el.className = 'content-carousel content-sidebar content-wrapper';
+      el.textContent = 'word '.repeat(200).trim();
+      document.body.appendChild(el);
+      const score = scoreElement(el);
+      // 没有 positive boost, score 来自纯 density
+      // 对比同条件下的 article-content 元素 (应有 1.2x boost)
+      const ref = document.createElement('div');
+      ref.className = 'article-content';
+      ref.textContent = 'word '.repeat(200).trim();
+      const refScore = scoreElement(ref);
+      // article-content 必高于 content-carousel (有 1.2x boost)
+      expect(refScore).toBeGreaterThan(score);
+    });
+
+    it('POSITIVE_COMPOUND_RE matches article-content / post-body / entry-content', () => {
+      // 复合 regex 匹配 CMS 常见命名, 验证三种典型写法
+      const compounds = ['article-content', 'post-body', 'entry-content', 'main-content', 'rich-text'];
+      for (const cls of compounds) {
+        const el = document.createElement('div');
+        el.className = cls;
+        el.textContent = 'word '.repeat(100).trim();
+        const ref = document.createElement('div');
+        ref.className = 'plain-wrapper';
+        ref.textContent = 'word '.repeat(100).trim();
+        // 有复合类的元素应得到 1.2x boost
+        expect(scoreElement(el)).toBeGreaterThan(scoreElement(ref));
+      }
+    });
+
+    // ---- 4) 去除 ancestor early return ----
+    it('article inside <aside> is NOT killed (ancestor negative = soft penalty)', () => {
+      // 旧版: 祖先含 aside → 立即 return negative, article 被误杀。
+      // 新版: aside 祖先只设 negative=true, 由 scoring system 综合判定。
+      // 关键场景: SPA 布局 sidebar 内嵌 article preview card。
+      document.body.innerHTML = `
+        <aside class="sidebar">
+          <article class="post-content">
+            <h1>Preview Article</h1>
+            <p>${'Substantial content here. '.repeat(30).trim()}</p>
+            <p>${'More body text in the article. '.repeat(30).trim()}</p>
+          </article>
+        </aside>
+      `;
+      const root = detectArticleRoot(document);
+      // 应该仍能识别 article 作为正文, 不被 aside 祖先杀死
+      expect(root).not.toBeNull();
+      expect(root!.className).toContain('post-content');
+    });
+
+    it('article inside <aside> with similar text density wins via structureBoost', () => {
+      // 对比场景: aside 包裹了 article + 一个同尺寸的普通 div
+      //   - <div class="raw-content">     200 字符, 无 positive signal
+      //   - <article class="article-body"> 200 字符, 1.2x content + 1.3x article
+      // 期望 article 胜出, 因为同文本下 multiplicative boost 决定 ranking。
+      // 注意: 这里故意让两者文本量相近 — 如果 raw 远大于 article, density 公式
+      // 会让 raw 胜出 (这是合理行为: 大块纯文本本身是强 content 信号)。
+      document.body.innerHTML = `
+        <aside class="sidebar">
+          <div class="raw-content">
+            <p>${'Plain text no signal. '.repeat(10).trim()}</p>
+          </div>
+          <article class="article-body">
+            <p>${'Real article body. '.repeat(10).trim()}</p>
+          </article>
+        </aside>
+      `;
+      const root = detectArticleRoot(document);
+      expect(root).not.toBeNull();
+      expect(root!.tagName.toLowerCase()).toBe('article');
+    });
+
+    // ---- 5) META tokens 弱 penalty (0.85x, 不被 0.5x 重击) ----
+    it('META tokens (byline / author) apply weak 0.85x, not 0.5x', () => {
+      // author / timestamp / tag 是 metadata, 走 0.85x, 不应被当作 nav/footer 重击。
+      // 验证: META-only 元素的 score 应高于 NEGATIVE_CONTAINER-only 元素 (在同文本条件下)。
+      // 注意: class 名要避免触发 POSITIVE_TOKENS (如 'post'/'entry'/'article' 等),
+      // 否则 positive boost 会污染 ratio 验证。
+      const metaEl = document.createElement('div');
+      metaEl.className = 'byline';
+      metaEl.textContent = 'word '.repeat(200).trim();
+
+      const navEl = document.createElement('div');
+      navEl.className = 'nav';
+      navEl.textContent = 'word '.repeat(200).trim();
+
+      const metaScore = scoreElement(metaEl);
+      const navScore = scoreElement(navEl);
+      // byline: 'byline' token 在 META_TOKENS → meta=true → 0.85x
+      // nav: 'nav' token 在 NEGATIVE_CONTAINER_TOKENS → negative=true → 0.5x
+      // 两者都不在 POSITIVE_TOKENS, ratio 应 = 0.85 / 0.5 = 1.7
+      expect(metaScore).toBeGreaterThan(navScore);
+      const ratio = metaScore / navScore;
+      expect(ratio).toBeCloseTo(1.7, 1);
+    });
+
+    it('class="post-meta" ancestor does not kill nested real article', () => {
+      // Medium/Substack 文章 header 通常有 <div class="post-meta"> 包裹 author/time,
+      // 后面跟 <article class="post-content">。新设计下, post-meta 是 META (0.85x),
+      // 不应连累 article 子节点。
+      document.body.innerHTML = `
+        <div class="post-meta">
+          <span>Author Name</span>
+          <span>2026-06-15</span>
+        </div>
+        <article class="post-content">
+          <h1>Real Article</h1>
+          <p>${'Substantial content paragraphs here. '.repeat(20).trim()}</p>
+        </article>
+      `;
+      const root = detectArticleRoot(document);
+      expect(root).not.toBeNull();
+      expect(root!.className).toContain('post-content');
+    });
+  });
 });

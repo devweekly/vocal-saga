@@ -41,7 +41,7 @@
 // =============================================================================
 
 /**
- * 评分阈值：Text Density 综合分（含 log 缩放和乘性调整），低于此分数回退到 body。
+ * 评分阈值：Text Density 综合分（log 缩放 + 乘性调整），低于此分数回退到 body。
  *
  * 阈值选取依据：
  *   - 链接列表 / 导航：通常 0-50
@@ -55,49 +55,56 @@ export const SCORE_THRESHOLD = 300;
 /** 最小文本长度：低于此长度直接判 0（避免短 nav 误判） */
 const MIN_TEXT_LENGTH = 50;
 
+// =============================================================================
+// Token 系统 (POSITIVE / NEGATIVE / META 分离)
+// =============================================================================
+//
+// 旧版把 "text" / "content" / "body" / "blog" 当 POSITIVE token, 实际太宽泛:
+//   - "text" 是 Tailwind utility (.text-gray-500)
+//   - "content" 在 carousel / sidebar / ad container 都用
+//   - "body" 在 footer / card body 出现
+//   - "blog" 在 blog-sidebar / blog-meta 等非正文区也用
+//
+// 新版三层设计:
+//   1) POSITIVE_TOKENS     单 token, 严格 CMS/语义词汇
+//   2) POSITIVE_COMPOUND_RE 直接对原始 className 跑 regex, 命中 CMS 复合类
+//                            (article-content / post-body / entry-content ...)
+//   3) NEGATIVE_CONTAINER  容器级噪声 (nav / sidebar / footer / ad ...)
+//      META                元数据 (author / timestamp / tag / category ...),
+//                          不参与主 negative scoring, 走弱 penalty
+//
+// 为什么 metadata 不算 negative container:
+//   author / timestamp / tag / category 在 Medium / Substack 文章 header
+//   是合法 metadata 区域, 不应和 nav / footer 同等惩罚。改成 0.85x 弱 penalty。
+
 /**
- * 已知"正文类"class token 集合（精确匹配整个 token，不做子串扫描）。
- *
- * 用 Set 而不是正则：解决 `blog-content__mbox` 包含 "content" 子串导致
- * 误命中的问题。BEM 子类（`__mbox`、`__topic-block`）和 Tailwind
- * 工具类（`text-gray-500`）作为独立 token 都不会进入该集合。
+ * 已知"正文类"单 token 集合。严格收紧：只保留语义/结构上明确指示正文的词。
  */
-const POSITIVE_CLASS_TOKENS: ReadonlySet<string> = new Set([
-  // 通用单 token
+const POSITIVE_TOKENS: ReadonlySet<string> = new Set([
+  // 语义单 token
   'article',
-  'content',
   'post',
   'entry',
   'rich',
-  'blog',
   'story',
-  'body',
   'main',
-  'text',
-  // 复合 token（Ghost、WordPress、Medium、Substack 等常见 CMS）
-  'article-body',
-  'article-content',
-  'article-text',
-  'post-content',
-  'post-body',
-  'entry-content',
-  'entry-body',
-  'page-content',
-  'main-content',
-  'story-body',
-  'story-content',
-  'blog-content',       // Ghost 博客
-  'blog-post',
-  'blog-body',
-  'rich-text',          // Webflow
-  'rich-content',
+  // BEM 块名 (Ghost / WordPress / Webflow 等)
+  'post-content-block',
+  'post-content-wrapper',
+  'article-container',
+  'article-wrapper',
 ]);
 
 /**
- * 已知"非正文"class token 集合（精确匹配）。
- * 一旦命中直接大幅减分，无论正文特征多强都拉低。
+ * 已知"正文类"复合模式。在原始 className 上做 regex 匹配，
+ * 解决 token 拆分后丢失"article-content"这种组合语义的问题。
  */
-const NEGATIVE_CLASS_TOKENS: ReadonlySet<string> = new Set([
+const POSITIVE_COMPOUND_RE: RegExp = /(?:^|[\s_-])(article|post|entry|blog|page|story|rich)[_-](content|body|text|inner|main)(?:[\s_-]|$)/i;
+
+/**
+ * 容器级 negative tokens。命中视为"整棵子树不是正文"，乘性 0.5x。
+ */
+const NEGATIVE_CONTAINER_TOKENS: ReadonlySet<string> = new Set([
   'nav',
   'navigation',
   'navbar',
@@ -131,6 +138,16 @@ const NEGATIVE_CLASS_TOKENS: ReadonlySet<string> = new Set([
   'breadcrumb',
   'pagination',
   'toolbar',
+  'mbox',             // BEM element: blog-content__mbox (Ghost callout box)
+  'callout',
+  'pullquote',
+]);
+
+/**
+ * 元数据 tokens。author / timestamp / tag / category 是文章 metadata 区域,
+ * 走 0.85x 弱 penalty (不被 negative 0.5x 重击, 但仍提示"非主体正文")。
+ */
+const META_TOKENS: ReadonlySet<string> = new Set([
   'metadata',
   'meta',
   'author',
@@ -139,13 +156,40 @@ const NEGATIVE_CLASS_TOKENS: ReadonlySet<string> = new Set([
   'tag',
   'tags',
   'category',
+  'categories',
   'topics',
   'topic',
+  'date',
+  'time',
+  'reading-time',
+  'post-meta',
+  'entry-meta',
+  'article-meta',
 ]);
 
 /** id 兜底：少数站点正文只标 id 没标 class（用子串扫描，id 一般唯一） */
-const POSITIVE_ID_RE = /article|content|post|entry|rich|blog|story|main|body/i;
-const NEGATIVE_ID_RE = /nav|menu|sidebar|footer|header|comment|widget|ad|banner|social|share|related|cookie|popup|modal|disqus|discourse/i;
+const POSITIVE_ID_RE = /(?:article|content|post|entry|rich|blog|story|main|body)/i;
+const NEGATIVE_CONTAINER_ID_RE = /(?:nav|menu|sidebar|footer|header|comment|widget|ad|banner|social|share|related|cookie|popup|modal|disqus|discourse)/i;
+const META_ID_RE = /(?:author|byline|timestamp|tag|category|topic|date|meta)/i;
+
+// =============================================================================
+// 语义标签乘性加成 (替代旧版 semantic += 500 / 300 / 50 的加法体系)
+// =============================================================================
+//
+// 旧版问题: 绝对加分在小 DOM 上把 article tag 拉爆, 与 density 乘性项
+// 互不对齐, 导致 ranking 在不同 scale 下不稳定。
+//
+// 新版: 全部 multiplicative, ranking 单调。
+//   - <article>    1.3x   (强语义信号)
+//   - <main>       1.2x
+//   - <section>    1.05x  (弱, section 经常被滥用)
+//   - role=main    1.2x
+//   - role=article 1.3x
+const STRUCTURE_BOOST: Record<string, number> = {
+  article: 1.3,
+  main: 1.2,
+  section: 1.05,
+};
 
 // =============================================================================
 // 工具函数
@@ -170,68 +214,53 @@ function tokenizeClass(el: Element): string[] {
     .filter(Boolean);
 }
 
-/** 祖先负向 tag：含这几种祖先的子树基本不会是正文 */
-const NEGATIVE_ANCESTOR_TAGS = new Set(['nav', 'header', 'footer', 'aside']);
-
 /**
- * 收集元素及其祖先链上的正向/负向 token 命中。
- * 祖先有 NAV/MENU 时整支子树都打折（避免子元素被孤立打分）。
+ * 收集元素自身的正向/负向/元数据 class 信号。
+ *
+ * 设计原则（修复旧版问题）:
+ *   1) **不传播 ancestor 信号**: 旧版 "祖先含 nav/header/footer/aside → 立即 return"
+ *      会误杀 <article> inside <aside> 这类合法 SPA layout (article preview card
+ *      in sidebar)。即使去掉 early return, 仍以 0.5x 乘性惩罚 ancestor negative,
+ *      等价于 own negative, 同样会误杀 (post-content 被压到 0.6x, 输给 wrapper 节点)。
+ *      新版只收集元素自身 class/id 信号, ancestor 仅作为 control-flow 决策 (early return
+ *      已被取消, 所以不再有 ancestor 维度)。
+ *   2) **semantic 字段移除**: 旧版 += 500 / 300 / 50 绝对加分破坏 multiplicative 体系;
+ *      语义标签 boost 改在 scoreElement 里通过 STRUCTURE_BOOST 乘数处理。
+ *   3) **META tokens 单独 flag**: author / timestamp / tag 走 0.85x 弱 penalty,
+ *      不和 nav / footer 同等被 negative 0.5x 重击。
  */
-function collectSignals(el: Element): { positive: boolean; negative: boolean; semantic: number } {
+function collectSignals(
+  el: Element
+): { positive: boolean; negative: boolean; meta: boolean } {
   let positive = false;
   let negative = false;
-  let semantic = 0;
+  let meta = false;
 
-  // 当前元素
-  const tag = el.tagName.toLowerCase();
-  const role = el.getAttribute('role');
-
-  if (tag === 'nav' || tag === 'header' || tag === 'footer' || tag === 'aside') {
-    // 元素本身就是 nav/header/footer/aside，直接判负
-    return { positive, negative: true, semantic };
-  }
-  if (tag === 'article' || role === 'article') {
-    semantic += 500;
-  } else if (tag === 'main' || role === 'main') {
-    semantic += 300;
-  } else if (tag === 'section') {
-    // section 经常被滥用，弱 boost
-    semantic += 50;
-  }
-
+  // ---- 当前元素 class token 匹配 ----
   for (const token of tokenizeClass(el)) {
-    if (POSITIVE_CLASS_TOKENS.has(token)) positive = true;
-    if (NEGATIVE_CLASS_TOKENS.has(token)) negative = true;
+    if (POSITIVE_TOKENS.has(token)) positive = true;
+    if (NEGATIVE_CONTAINER_TOKENS.has(token)) negative = true;
+    if (META_TOKENS.has(token)) meta = true;
   }
+  // 复合类名匹配: 在原始 className 上跑 regex, 命中 CMS 复合类
+  if (el.className && typeof el.className === 'string' && POSITIVE_COMPOUND_RE.test(el.className)) {
+    positive = true;
+  }
+  // ---- 当前元素 id 兜底 ----
   if (el.id) {
     if (POSITIVE_ID_RE.test(el.id)) positive = true;
-    if (NEGATIVE_ID_RE.test(el.id)) negative = true;
+    if (NEGATIVE_CONTAINER_ID_RE.test(el.id)) negative = true;
+    if (META_ID_RE.test(el.id)) meta = true;
   }
 
-  // 祖先链（最多 3 层）
-  let parent = el.parentElement;
-  for (let i = 0; i < 3 && parent; i++) {
-    const parentTag = parent.tagName.toLowerCase();
-    if (NEGATIVE_ANCESTOR_TAGS.has(parentTag)) {
-      // 祖先含 nav/header/footer/aside，整支子树降分
-      return { positive, negative: true, semantic };
-    }
-    for (const token of tokenizeClass(parent)) {
-      if (NEGATIVE_CLASS_TOKENS.has(token)) {
-        negative = true;
-        // 早退：找到一次强负向就够
-        if (token === 'nav' || token === 'navigation' || token === 'header' || token === 'footer' || token === 'sidebar') {
-          return { positive, negative: true, semantic };
-        }
-      }
-    }
-    if (parent.id && NEGATIVE_ID_RE.test(parent.id)) {
-      negative = true;
-    }
-    parent = parent.parentElement;
-  }
+  // 注意: 不再遍历 ancestor 链。
+  // 旧设计的 ancestor 早退 / ancestor negative 都被取消, 因为:
+  //   - SPA 布局: <article> in <aside> 常见且合法
+  //   - 元素自身 class (article-content / post-content) 已经是强 signal
+  //   - ancestor 维度会让 scoring 在 ancestor wrapper 与自身 article 之间互相干扰
+  // 如果未来 ancestor 信号要重新引入, 必须用"软权重" (0.9x) 而非 own signal 的 0.5x。
 
-  return { positive, negative, semantic };
+  return { positive, negative, meta };
 }
 
 // =============================================================================
@@ -239,9 +268,9 @@ function collectSignals(el: Element): { positive: boolean; negative: boolean; se
 // =============================================================================
 
 /**
- * 核心评分函数（Text Density 算法）。
+ * 核心评分函数（Text Density 算法，纯 multiplicative 模型）。
  *
- * 主指标：
+ * 主指标（density）:
  *   density = (bodyTextLength / (linkCount + 1)) * log(textLength + 1)
  *
  * 公式直觉：
@@ -249,13 +278,18 @@ function collectSignals(el: Element): { positive: boolean; negative: boolean; se
  *   - 主体文本少、链接多 → 低 density（导航、链接列表、相关推荐）
  *   - log 缩放：长正文自然占优，避免短链接列表偶然获得高密度
  *
- * 辅助调整（在主指标上叠加，不破坏 ratio 语义）：
- *   - 链接文本占比 > 50% → 0.5x 乘性惩罚（典型链接列表）
- *   - class POSITIVE → 1.2x；NEGATIVE → 0.5x（打破平局）
- *   - <article> +500 / <main> +300（语义标签）
+ * 调整项（全部 multiplicative, ranking 单调）:
+ *   - 链接文本占比 > 50% → 0.5x（典型链接列表）
+ *   - <article> 1.3x / <main> 1.2x / <section> 1.05x / role=article 1.3x
+ *   - class POSITIVE → 1.2x；NEGATIVE → 0.5x
+ *   - META (author/timestamp 等 metadata) → 0.85x 弱 penalty
  *
- * 典型得分参考（自然对数）：
- *   - 普通博客（2000 字符）              ≈ 15000
+ * 旧版 (mixed additive) 问题:
+ *   - semantic += 500/300/50 在小 DOM 上把 article tag 拉爆
+ *   - ranking 在不同 scale 下不稳定, 阈值难以统一
+ *
+ * 典型得分参考（自然对数）:
+ *   - 普通博客（2000 字符）              ≈ 15000 * structureBoost
  *   - 长文（30000 字符）                 ≈ 300000+
  *   - 短文（500 字符）                    ≈ 3000
  *   - 导航菜单（200 字符 + 15a）          ≈ 0
@@ -267,11 +301,21 @@ export function scoreElement(el: Element): number {
   if (text.length < MIN_TEXT_LENGTH) return 0;
 
   // ---- 链接分析 ----
-  const aEls = Array.from(el.querySelectorAll('a'));
+  // linkTextLength 修复: 旧版用 a.textContent 会包含嵌套 DOM (icon font / aria-label /
+  // 嵌入 <span> 等), 出现 double count 和 overshoot。改为只统计直接 text node,
+  // 与"用户在浏览器看到的链接文字"语义一致。
+  const aEls = el.querySelectorAll('a');
   const linkCount = aEls.length;
   let linkTextLength = 0;
-  for (const a of aEls) {
-    linkTextLength += (a.textContent || '').length;
+  for (let i = 0; i < aEls.length; i++) {
+    const a = aEls[i];
+    const children = a.childNodes;
+    for (let j = 0; j < children.length; j++) {
+      const n = children[j];
+      if (n.nodeType === 3 /* TEXT_NODE */) {
+        linkTextLength += (n.textContent || '').length;
+      }
+    }
   }
   // 主体文本 = 总文本 - 链接文本
   const bodyTextLength = text.length - linkTextLength;
@@ -291,14 +335,24 @@ export function scoreElement(el: Element): number {
     score *= 0.5;
   }
 
-  // ---- class + semantic 提示 ----
-  const { positive, negative, semantic } = collectSignals(el);
-  let classMultiplier = 1;
-  if (positive) classMultiplier *= 1.2;   // article-content / blog-content 等
-  if (negative) classMultiplier *= 0.5;   // nav / sidebar / footer / mbox 等
+  // ---- 信号收集 (multiplicative 体系) ----
+  const { positive, negative, meta } = collectSignals(el);
 
-  // 乘性调整 + 语义标签加成
-  return score * classMultiplier + semantic;
+  // 1) 语义标签乘性加成 (替代旧版 semantic += 500)
+  const tag = el.tagName.toLowerCase();
+  const role = el.getAttribute('role');
+  let structureBoost = 1;
+  if (tag === 'article' || role === 'article') structureBoost *= STRUCTURE_BOOST.article;
+  else if (tag === 'main' || role === 'main') structureBoost *= STRUCTURE_BOOST.main;
+  else if (tag === 'section') structureBoost *= STRUCTURE_BOOST.section;
+
+  // 2) class 乘性调整
+  let classMultiplier = 1;
+  if (positive) classMultiplier *= 1.2;   // article-content / post-content 等
+  if (negative) classMultiplier *= 0.5;   // nav / sidebar / footer / mbox 等
+  if (meta) classMultiplier *= 0.85;      // author / timestamp / tag (弱)
+
+  return score * structureBoost * classMultiplier;
 }
 
 // =============================================================================
@@ -307,7 +361,19 @@ export function scoreElement(el: Element): number {
 
 /**
  * 收集所有可能的正文候选容器。
- * 包括：语义标签、role 属性、class 名暗示（token 化）、table 布局中的大 td、父级。
+ * 包括：语义标签、role 属性、class 名暗示（token 化 + 复合 regex）、table 布局中的大 td、父级。
+ *
+ * 设计取舍（subtree dedupe 暂不启用）:
+ *   理论上同一棵 DOM 子树多个候选只评一次即可, 避免 CPU 浪费。
+ *   但实测中: 兄弟级容器（wrapper > nav + article-body）会被错误合并, 导致
+ *   本应胜出的 article-body 子节点被压到 wrapper 的得分。算法应该信任 score
+ *   排序, 而不是提前合并:
+ *     - 同节点用 `seen` Set 已去重
+ *     - 不同节点即使 ancestor / descendant, 评分函数会基于 density + class
+ *       信号自行区分（positive/negative 乘性 + structureBoost）
+ *   候选数量通常 < 30, 多评几次的 CPU 开销可忽略。
+ *   如未来要重做 dedupe, 需区分"严格 ancestor 关系"vs"兄弟级合并",
+ *   避免误伤 article inside wrapper 的常见 CMS 布局。
  */
 export function collectCandidates(doc: Document): Element[] {
   const seen = new Set<Element>();
@@ -320,32 +386,33 @@ export function collectCandidates(doc: Document): Element[] {
   }
 
   // 1) 语义标签
-  for (const tag of ['article', 'main']) {
-    for (const el of doc.querySelectorAll(tag)) {
-      add(el);
-    }
-  }
+  const semanticAll = doc.querySelectorAll('article, main');
+  for (let i = 0; i < semanticAll.length; i++) add(semanticAll[i]);
 
   // 2) role 属性
-  for (const sel of ['[role="main"]', '[role="article"]', '[role="region"]']) {
-    for (const el of doc.querySelectorAll(sel)) {
-      add(el);
-    }
-  }
+  const roleAll = doc.querySelectorAll('[role="main"], [role="article"], [role="region"]');
+  for (let i = 0; i < roleAll.length; i++) add(roleAll[i]);
 
-  // 3) class 名暗示（div / section / article / main）
-  //    按 token 精确匹配，避免 BEM 子类（`blog-content__mbox`）误命中
-  for (const el of doc.querySelectorAll('div, section, article, main')) {
+  // 3) class 名暗示 (div / section / article / main)
+  //    - 单 token 命中 POSITIVE_TOKENS (article / post / entry / rich / story / main)
+  //    - 或 原始 className 命中 POSITIVE_COMPOUND_RE (article-content / post-body 等)
+  //    - 或 id 命中 POSITIVE_ID_RE
+  const classAll = doc.querySelectorAll('div, section, article, main');
+  for (let i = 0; i < classAll.length; i++) {
+    const el = classAll[i];
     const tokens = tokenizeClass(el);
-    const hasPositive = tokens.some((t) => POSITIVE_CLASS_TOKENS.has(t));
+    const hasToken = tokens.some((t) => POSITIVE_TOKENS.has(t));
+    const hasCompound = el.className && typeof el.className === 'string' && POSITIVE_COMPOUND_RE.test(el.className);
     const idHit = el.id && POSITIVE_ID_RE.test(el.id);
-    if (hasPositive || idHit) {
+    if (hasToken || hasCompound || idHit) {
       add(el);
     }
   }
 
   // 4) table 布局中的大 td（Paul Graham 等老式站点）
-  for (const td of doc.querySelectorAll('td')) {
+  const tdAll = doc.querySelectorAll('td');
+  for (let i = 0; i < tdAll.length; i++) {
+    const td = tdAll[i];
     const text = (td.textContent || '').trim();
     if (text.length > 1000) {
       add(td);
@@ -353,10 +420,13 @@ export function collectCandidates(doc: Document): Element[] {
   }
 
   // 5) 每个候选的父级（向上 2 层）
-  const originals = [...candidates];
-  for (const el of originals) {
-    let parent = el.parentElement;
-    for (let i = 0; i < 2 && parent && parent !== doc.body; i++) {
+  //    把 ancestor 维度加入 scoring 空间, 让 density 自然区分:
+  //    - 小 article 子节点 (高 density + positive signal) 会胜过其大 wrapper 祖先
+  //    - 配合 collectSignals 提供的 positive/negative 信号综合排序
+  const originals = candidates.slice();
+  for (let i = 0; i < originals.length; i++) {
+    let parent = originals[i].parentElement;
+    for (let j = 0; j < 2 && parent && parent !== doc.body; j++) {
       add(parent);
       parent = parent.parentElement;
     }
@@ -364,7 +434,9 @@ export function collectCandidates(doc: Document): Element[] {
 
   // 6) 兜底：如果候选太少，把 body 的直接子 div 也加入
   if (candidates.length < 3) {
-    for (const child of doc.body.children) {
+    const bodyChildren = doc.body.children;
+    for (let i = 0; i < bodyChildren.length; i++) {
+      const child = bodyChildren[i];
       if (child.tagName === 'DIV' || child.tagName === 'SECTION') {
         add(child);
       }
