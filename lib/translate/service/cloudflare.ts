@@ -34,10 +34,20 @@ export class CloudflareAITranslationService implements TranslationService {
         { role: 'system' as const, content: systemContent },
         { role: 'user' as const, content: `JSON:\n\n${blocksJson}` },
       ],
+      // 关闭思考：GLM-4.7-flash 是 reasoning 模型，思考过程会被模型放进
+      // message.reasoning 字段（我们已忽略），但思考本身会拖慢全并行翻译。
+      // 双重保险：参数 + prompt 末尾的强约束。
       parameters: {
+        disable_thinking: true,
         reasoning_effort: 'none',
       },
     };
+
+    // 末尾再追加禁思考约束，覆盖参数被 Workers AI 忽略的场景。
+    body.messages[0].content += `
+
+Do NOT output any reasoning, thinking, chain-of-thought, or analysis.
+Return ONLY the final JSON object. No prose, no explanation, no markdown outside the JSON block.`;
 
     const ai = getAI();
     if (!ai) throw new Error('Cloudflare AI not configured');
@@ -46,18 +56,22 @@ export class CloudflareAITranslationService implements TranslationService {
     const response = await ai.run(MODEL, body);
     console.log('[CloudAI] raw response:', JSON.stringify(response)?.slice(0, 2000));
 
-    // CF Workers AI 的 ai.run() 对 chat-completion 模型返回
-    // { response: "...", usage: {...} }。response 字段本身可能是字符串
-    // （最常见，LLM 原始输出），也可能是已解析的对象，少数情况下还有
-    // 其他形态。统一转成字符串交给下游解析。
-    const content =
-      typeof response === 'string'
-        ? response
-        : (response as any)?.response != null
-        ? typeof (response as any).response === 'string'
-          ? (response as any).response
-          : JSON.stringify((response as any).response)
-        : JSON.stringify(response);
+    // @cf/zai-org/glm-4.7-flash 走 OpenAI 兼容返回：
+    //   { choices: [{ message: { role, content, reasoning? } }] }
+    // message.content 是真正的 LLM 输出（可能带 ```json``` 包装），
+    // message.reasoning 是思考过程，忽略。
+    // 老一点的 @cf/ 模型可能返回 { response: "..." }；两种都认。
+    let content: string;
+    const choice = (response as any)?.choices?.[0]?.message;
+    if (typeof choice?.content === 'string') {
+      content = choice.content;
+    } else if (typeof (response as any)?.response === 'string') {
+      content = (response as any).response;
+    } else if (typeof response === 'string') {
+      content = response;
+    } else {
+      content = JSON.stringify(response);
+    }
 
     // 清理 markdown 代码块 + 修复 JSON
     let cleaned = stripMarkdownCodeBlock(content);
