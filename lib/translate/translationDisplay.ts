@@ -90,16 +90,15 @@ export function applyInlineTranslation(
   }
   textHost.appendChild(originalSpan);
 
-  // 3) 插入译文 span
+  // 3) 插入译文 span（不加括号，直接 inline 显示）
   const translationSpan = doc.createElement('span');
   translationSpan.className = 'fanyi-inline-translation';
-  translationSpan.textContent = `（${translatedText}）`;
+  translationSpan.textContent = translatedText;
   textHost.appendChild(translationSpan);
 
-  // 4) target 模式：隐藏原文，只显示译文（去掉括号）
+  // 4) target 模式：隐藏原文，只显示译文
   if (mode === 'target') {
     originalSpan.style.display = 'none';
-    translationSpan.textContent = translatedText; // 去掉括号
   }
 
   // 5) 标记宿主
@@ -196,15 +195,6 @@ export function toggleBlockTranslation(node: HTMLElement): void {
   if (inlineOriginal && inlineTranslation) {
     const isHidden = inlineOriginal.style.display === 'none';
     inlineOriginal.style.display = isHidden ? '' : 'none';
-    // 切换时同时切换括号： bilingual 显示括号，target 不显示
-    const rawText = inlineTranslation.textContent || '';
-    if (isHidden) {
-      // 从 target 切回 bilingual：加上括号
-      inlineTranslation.textContent = rawText.startsWith('（') ? rawText : `（${rawText}）`;
-    } else {
-      // 从 bilingual 切到 target：去掉括号
-      inlineTranslation.textContent = rawText.replace(/^（|）$/g, '');
-    }
     return;
   }
 
