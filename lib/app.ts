@@ -66,39 +66,56 @@ export function createApp(storage?: StorageAdapter): Hono {
   const app = new Hono();
   app.use('*', cors());
 
-  // ── 上一次翻译的结果缓存（瞬态，仅当前 isolate 内） ──
-  // 每次 /translate/* 或 /s/* 成功后写入，/ 路由读取并展示。
-  let lastTranslatedHtml: string | null = null;
-
-  // ── GET / — 展示最新一次翻译结果 ──────────────────────
   app.get('/', async (c) => {
-    // 1) 内存快速路径（同一 isolate 内刚翻译过）
-    if (lastTranslatedHtml) {
-      return new Response(lastTranslatedHtml, {
-        status: 200,
-        headers: { 'Content-Type': 'text/html; charset=utf-8' },
-      });
-    }
-    // 2) D1 持久化：取最新记录
     const db = (c.env as any)?.DB999;
+    const rows: any[] = [];
+
     if (db) {
       try {
-        const row: any = await db.prepare(
-          'SELECT html FROM translations ORDER BY id DESC LIMIT 1'
-        ).first();
-        if (row) {
-          lastTranslatedHtml = row.html;
-          return new Response(row.html, {
-            status: 200,
-            headers: { 'Content-Type': 'text/html; charset=utf-8' },
-          });
-        }
+        const result = await db.prepare(
+          'SELECT id, url, source_lang, target_lang FROM translations ORDER BY id DESC LIMIT 10'
+        ).all();
+        if (result.results) rows.push(...result.results);
       } catch (e) {
-        console.error('[D1] latest fetch error:', e);
+        console.error('[D1] list error:', e);
       }
     }
-    // 3) 没有任何翻译记录，跳转到帮助页面
-    return c.redirect('/help', 302);
+
+    // 构建 HTML 列表页
+    const items = rows.map((r: any) => {
+      const url = `https://${r.url}`;
+      const lang = `${r.source_lang || 'en'} → ${r.target_lang || 'zh'}`;
+      return `<li style="margin-bottom:12px;line-height:1.6">
+        <a href="/${r.id}" style="font-size:16px;text-decoration:none;color:#2563eb">#${r.id}</a>
+        <span style="color:#6b7280;margin-left:8px;font-size:13px">${lang}</span>
+        <br><a href="${url}" target="_blank" rel="noopener" style="color:#6b7280;font-size:13px;text-decoration:none">${r.url}</a>
+      </li>`;
+    }).join('\n');
+
+    const html = `<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>翻译记录</title>
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 720px; margin: 40px auto; padding: 0 20px; color: #1f2937; }
+  h1 { font-size: 24px; margin-bottom: 24px; }
+  ul { list-style: none; padding: 0; }
+  a:hover { text-decoration: underline !important; }
+  .empty { color: #9ca3af; font-size: 15px; }
+</style>
+</head>
+<body>
+<h1>翻译记录</h1>
+${items ? `<ul>${items}</ul>` : '<p class="empty">暂无翻译记录</p>'}
+</body>
+</html>`;
+
+    return new Response(html, {
+      status: 200,
+      headers: { 'Content-Type': 'text/html; charset=utf-8' },
+    });
   });
 
   // ── GET /<id> — 从 D1 取出第 N 次翻译结果展示 ────────
@@ -221,6 +238,69 @@ export function createApp(storage?: StorageAdapter): Hono {
     }
   });
 
+  // ── POST /fanyi ───────────────────────────────────────
+  // fanyi-extension 代理：接收浏览器扩展的翻译请求，直接转发给 DeepSeek API，
+  // 不做任何额外处理（不鉴权、不改 prompt、不改参数）。
+  // 需要 DEEPSEEK_API_KEY 环境变量或 wrangler secret。
+  app.post('/fanyi', async (c) => {
+    const body = await c.req.json().catch(() => ({} as any));
+    const { stream, messages } = body;
+    if (!messages || !Array.isArray(messages) || messages.length === 0) {
+      return c.json({ error: 'messages is required' }, 400);
+    }
+    if (!getDSApiKey()) {
+      return c.json({ error: 'DeepSeek not configured' }, 500);
+    }
+
+    console.log(`[fanyi] stream=${!!stream} msgs=${messages.length}`);
+
+    const startedAt = Date.now();
+    try {
+      const upstream = await fetch(`${DS_BASE}/v1/chat/completions`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${getDSApiKey()}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(body),
+      });
+
+      const latency = Date.now() - startedAt;
+
+      if (!upstream.ok) {
+        const errText = await upstream.text();
+        console.error(`[fanyi] status=${upstream.status} latency=${latency}ms err=${errText}`);
+        return c.json(
+          { error: 'Upstream DeepSeek error', detail: errText },
+          upstream.status as 400 | 401 | 403 | 404 | 429 | 500 | 502 | 503
+        );
+      }
+
+      if (stream && upstream.body) {
+        console.log(`[fanyi] status=${upstream.status} latency=${latency}ms stream=started`);
+        return new Response(upstream.body, {
+          status: 200,
+          headers: {
+            'Content-Type': 'text/event-stream',
+            'Cache-Control': 'no-cache',
+            'Connection': 'keep-alive',
+            'X-Accel-Buffering': 'no',
+          },
+        });
+      }
+
+      // 非流式：透传完整 JSON 响应
+      const data = (await upstream.json()) as Record<string, any>;
+      const usage = data.usage;
+      console.log(`[fanyi] status=${upstream.status} latency=${latency}ms` +
+        (usage ? ` tokens_in=${usage.prompt_tokens} tokens_out=${usage.completion_tokens}` : ''));
+      return c.json(data);
+    } catch (err) {
+      console.error(`[fanyi] error="${(err as Error).message}" latency=${Date.now() - startedAt}ms`);
+      return c.json({ error: 'Upstream request failed', detail: (err as Error).message }, 502);
+    }
+  });
+
   // ── GET /api/v1/models ────────────────────────────────
   app.get('/api/v1/models', (c) => {
     const models: any[] = [];
@@ -308,7 +388,6 @@ export function createApp(storage?: StorageAdapter): Hono {
         ).bind(cacheKey, sourceStored, target).first();
         if (existing) {
           console.log(`[translate/url-page] D1 cache hit for ${url}`);
-          lastTranslatedHtml = existing.html;
           return new Response(existing.html, {
             status: 200,
             headers: {
@@ -343,8 +422,6 @@ export function createApp(storage?: StorageAdapter): Hono {
         }, 500);
       }
 
-      // 缓存翻译结果，供 / 路由展示
-      lastTranslatedHtml = result.html;
       // 写入 D1（force 模式用 INSERT OR REPLACE 覆盖已有记录）
       // 用 cacheKey 存储：www 和非 www 共享同一缓存
       if (db) {

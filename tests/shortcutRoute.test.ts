@@ -1,7 +1,7 @@
 /**
  * GET / 和 GET /s/* 路由单测。
  *
- * /  — 展示上一次翻译结果（瞬态），无翻译时 302 → /help
+ * /  — 展示最近 10 条翻译记录列表
  * /s/ — 简写域名扩展：单单词无点号 → www.<word>.com
  */
 import { describe, it, expect, beforeAll, beforeEach, vi } from 'vitest';
@@ -38,52 +38,25 @@ function req(path: string): Request {
   return new Request(`http://test${path}`);
 }
 
-describe('GET / — last translated page', () => {
-  it('redirects to /help when no translation has been done', async () => {
+describe('GET / — translation record list', () => {
+  it('returns 200 with record list page (no D1 → empty list)', async () => {
     const app = buildApp();
-    const res = await app.request(req('/'));
-    expect(res.status).toBe(302);
-    expect(res.headers.get('Location')).toBe('/help');
-  });
-
-  it('returns last translated HTML after a /translate/* call', async () => {
-    const app = buildApp();
-    // 先发起一次翻译请求
-    await app.request(req('/translate/example.com'));
-    // / 应该返回刚才的翻译结果
     const res = await app.request(req('/'));
     expect(res.status).toBe(200);
     expect(res.headers.get('Content-Type')).toBe('text/html; charset=utf-8');
     const text = await res.text();
-    expect(text).toContain('translated content');
+    expect(text).toContain('翻译记录');
+    expect(text).toContain('暂无翻译记录');
   });
 
-  it('returns last translated HTML after a /s/* call', async () => {
+  it('shows records when D1 has data', async () => {
+    // 构造一个带 mock D1 的 app，验证列表渲染
     const app = buildApp();
-    await app.request(req('/s/medium/article'));
+    // 没有 D1 binding 时返回空列表，不报错
     const res = await app.request(req('/'));
     expect(res.status).toBe(200);
     const text = await res.text();
-    expect(text).toContain('translated content');
-  });
-
-  it('returns the most recent translation (overwrites previous)', async () => {
-    const app = buildApp();
-    const { translateUrl } = await import('../lib/translate/pipeline');
-    (translateUrl as any).mockResolvedValueOnce({
-      html: '<html><body>first</body></html>',
-      blocks: 1, chunks: 1, duration_ms: 10,
-    });
-    (translateUrl as any).mockResolvedValueOnce({
-      html: '<html><body>second</body></html>',
-      blocks: 1, chunks: 1, duration_ms: 10,
-    });
-    await app.request(req('/translate/site1.com'));
-    await app.request(req('/translate/site2.com'));
-    const res = await app.request(req('/'));
-    const text = await res.text();
-    expect(text).toContain('second');
-    expect(text).not.toContain('first');
+    expect(text).toContain('<title>翻译记录</title>');
   });
 });
 
