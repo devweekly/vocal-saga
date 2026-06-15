@@ -188,7 +188,7 @@ const META_ID_RE = /(?:author|byline|timestamp|tag|category|topic|date|meta)/i;
 const STRUCTURE_BOOST: Record<string, number> = {
   article: 1.3,
   main: 1.2,
-  section: 1.05,
+  section: 1.02,
 };
 
 // =============================================================================
@@ -327,14 +327,6 @@ export function scoreElement(el: Element): number {
   // - log 缩放：长正文自然占优，短链接列表被压制
   let score = (bodyTextLength / (linkCount + 1)) * Math.log(text.length + 1);
 
-  // ---- 链接密度软约束 ----
-  // 链接文本占比 > 50% → 视为链接列表，乘性 0.5x 惩罚
-  // 典型场景：相关推荐、目录、面包屑
-  const linkRatio = linkTextLength / Math.max(text.length, 1);
-  if (linkRatio > 0.5) {
-    score *= 0.5;
-  }
-
   // ---- 信号收集 (multiplicative 体系) ----
   const { positive, negative, meta } = collectSignals(el);
 
@@ -350,9 +342,80 @@ export function scoreElement(el: Element): number {
   let classMultiplier = 1;
   if (positive) classMultiplier *= 1.2;   // article-content / post-content 等
   if (negative) classMultiplier *= 0.5;   // nav / sidebar / footer / mbox 等
-  if (meta) classMultiplier *= 0.85;      // author / timestamp / tag (弱)
+  if (meta) classMultiplier *= 0.92;      // author / timestamp / tag (弱)
 
-  return score * structureBoost * classMultiplier;
+  // -------------------------
+  // FIX 1: smooth link penalty
+  // -------------------------
+  const linkRatio = linkTextLength / Math.max(text.length, 1);
+  score *= 1 / (1 + linkRatio * 2);
+
+  // -------------------------
+  // FIX 2: container penalty
+  // -------------------------
+  const childCount = el.children?.length || 0;
+  const densityPerChild = text.length / Math.max(childCount, 1);
+
+  let containerPenalty = 1;
+  if (childCount > 20 && densityPerChild < 25) {
+    containerPenalty *= 0.85;
+  }
+
+  // -------------------------
+  // FIX 3: sibling normalization
+  // -------------------------
+  let siblingBoost = 1;
+  const parent = el.parentElement;
+
+  if (parent) {
+    const siblings = parent.children;
+
+    let maxSiblingText = 0;
+    let total = 0;
+
+    for (let i = 0; i < siblings.length; i++) {
+      const len = (siblings[i].textContent || '').length;
+      total += len;
+      if (len > maxSiblingText) maxSiblingText = len;
+    }
+
+    const myLen = text.length;
+
+    if (maxSiblingText > 0 && myLen < maxSiblingText * 0.7) {
+      siblingBoost *= 0.85;
+    }
+
+    if (siblings.length > 3) {
+      const avg = total / siblings.length;
+      if (Math.abs(myLen - avg) / avg < 0.25) {
+        siblingBoost *= 0.9;
+      }
+    }
+  }
+
+  // -------------------------
+  // FIX 4: depth normalization
+  // -------------------------
+  let depthBoost = 1;
+  let depth = 0;
+  let p: Element | null = el.parentElement;
+
+  while (p) {
+    depth++;
+    p = p.parentElement;
+  }
+
+  if (depth < 3) depthBoost = 0.95;
+  if (depth > 7) depthBoost *= 0.9;
+
+  return (
+    score *
+    structureBoost *
+    classMultiplier *
+    containerPenalty *
+    siblingBoost *
+    depthBoost
+  );
 }
 
 // =============================================================================
@@ -390,7 +453,7 @@ export function collectCandidates(doc: Document): Element[] {
   for (let i = 0; i < semanticAll.length; i++) add(semanticAll[i]);
 
   // 2) role 属性
-  const roleAll = doc.querySelectorAll('[role="main"], [role="article"], [role="region"]');
+  const roleAll = doc.querySelectorAll('[role="main"], [role="article"]');
   for (let i = 0; i < roleAll.length; i++) add(roleAll[i]);
 
   // 3) class 名暗示 (div / section / article / main)

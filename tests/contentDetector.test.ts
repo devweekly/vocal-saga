@@ -693,9 +693,9 @@ describe('contentDetector', () => {
       expect(root!.tagName.toLowerCase()).toBe('article');
     });
 
-    // ---- 5) META tokens 弱 penalty (0.85x, 不被 0.5x 重击) ----
-    it('META tokens (byline / author) apply weak 0.85x, not 0.5x', () => {
-      // author / timestamp / tag 是 metadata, 走 0.85x, 不应被当作 nav/footer 重击。
+    // ---- 5) META tokens 弱 penalty (0.92x, 不被 0.5x 重击) ----
+    it('META tokens (byline / author) apply weak 0.92x, not 0.5x', () => {
+      // author / timestamp / tag 是 metadata, 走 0.92x, 不应被当作 nav/footer 重击。
       // 验证: META-only 元素的 score 应高于 NEGATIVE_CONTAINER-only 元素 (在同文本条件下)。
       // 注意: class 名要避免触发 POSITIVE_TOKENS (如 'post'/'entry'/'article' 等),
       // 否则 positive boost 会污染 ratio 验证。
@@ -709,17 +709,17 @@ describe('contentDetector', () => {
 
       const metaScore = scoreElement(metaEl);
       const navScore = scoreElement(navEl);
-      // byline: 'byline' token 在 META_TOKENS → meta=true → 0.85x
+      // byline: 'byline' token 在 META_TOKENS → meta=true → 0.92x
       // nav: 'nav' token 在 NEGATIVE_CONTAINER_TOKENS → negative=true → 0.5x
-      // 两者都不在 POSITIVE_TOKENS, ratio 应 = 0.85 / 0.5 = 1.7
+      // 两者都不在 POSITIVE_TOKENS, ratio 应 = 0.92 / 0.5 = 1.84
       expect(metaScore).toBeGreaterThan(navScore);
       const ratio = metaScore / navScore;
-      expect(ratio).toBeCloseTo(1.7, 1);
+      expect(ratio).toBeCloseTo(1.84, 1);
     });
 
     it('class="post-meta" ancestor does not kill nested real article', () => {
       // Medium/Substack 文章 header 通常有 <div class="post-meta"> 包裹 author/time,
-      // 后面跟 <article class="post-content">。新设计下, post-meta 是 META (0.85x),
+      // 后面跟 <article class="post-content">。新设计下, post-meta 是 META (0.92x),
       // 不应连累 article 子节点。
       document.body.innerHTML = `
         <div class="post-meta">
@@ -734,6 +734,96 @@ describe('contentDetector', () => {
       const root = detectArticleRoot(document);
       expect(root).not.toBeNull();
       expect(root!.className).toContain('post-content');
+    });
+
+    // ---- FIX 1: smooth link penalty ----
+    it('smooth link penalty: 40% link ratio gets ~0.56x not 0.5x hard cutoff', () => {
+      // 旧版: linkRatio > 0.5 时硬切到 0.5x；新版: 1/(1+2r) 平滑
+      // r=0.4 → 1/(1+0.8)=0.556
+      const lowLink = document.createElement('div');
+      lowLink.className = 'article-content';
+      lowLink.innerHTML = `<p>${'word '.repeat(100).trim()}</p><a href="#">${'link '.repeat(40).trim()}</a>`;
+
+      const highLink = document.createElement('div');
+      highLink.className = 'article-content';
+      highLink.innerHTML = `<p>${'word '.repeat(40).trim()}</p><a href="#">${'link '.repeat(60).trim()}</a>`;
+
+      const s1 = scoreElement(lowLink);
+      const s2 = scoreElement(highLink);
+      expect(s1).toBeGreaterThan(s2);
+    });
+
+    // ---- FIX 2: container penalty ----
+    it('container penalty: >20 children with <25 chars/child gets 0.85x', () => {
+      const sparse = document.createElement('div');
+      sparse.className = 'article-content';
+      for (let i = 0; i < 25; i++) {
+        const child = document.createElement('span');
+        child.textContent = 'short';
+        sparse.appendChild(child);
+      }
+
+      const dense = document.createElement('div');
+      dense.className = 'article-content';
+      dense.textContent = 'word '.repeat(200).trim();
+
+      const sSparse = scoreElement(sparse);
+      const sDense = scoreElement(dense);
+      expect(sDense).toBeGreaterThan(sSparse);
+    });
+
+    // ---- FIX 3: sibling normalization ----
+    it('sibling normalization: smaller sibling among many gets penalized', () => {
+      const parent = document.createElement('div');
+
+      const big = document.createElement('div');
+      big.className = 'article-content';
+      big.textContent = 'word '.repeat(500).trim();
+      parent.appendChild(big);
+
+      const small = document.createElement('div');
+      small.className = 'article-content';
+      small.textContent = 'word '.repeat(50).trim();
+      parent.appendChild(small);
+
+      // 再加几个中等兄弟，触发 siblings.length > 3
+      for (let i = 0; i < 3; i++) {
+        const mid = document.createElement('div');
+        mid.textContent = 'word '.repeat(200).trim();
+        parent.appendChild(mid);
+      }
+
+      const sBig = scoreElement(big);
+      const sSmall = scoreElement(small);
+      expect(sBig).toBeGreaterThan(sSmall);
+    });
+
+    // ---- FIX 4: depth normalization ----
+    it('depth normalization: depth < 3 gets 0.95x, depth > 7 gets 0.9x', () => {
+      const buildAtDepth = (depth: number) => {
+        let root = document.createElement('div');
+        let current = root;
+        for (let i = 0; i < depth; i++) {
+          const child = document.createElement('div');
+          current.appendChild(child);
+          current = child;
+        }
+        current.className = 'article-content';
+        current.textContent = 'word '.repeat(200).trim();
+        return current;
+      };
+
+      const shallow = buildAtDepth(1); // depth < 3
+      const deep = buildAtDepth(10);   // depth > 7
+      const mid = buildAtDepth(5);     // normal depth
+
+      const sShallow = scoreElement(shallow);
+      const sDeep = scoreElement(deep);
+      const sMid = scoreElement(mid);
+
+      // mid should be highest (no depth penalty)
+      expect(sMid).toBeGreaterThan(sShallow);
+      expect(sMid).toBeGreaterThan(sDeep);
     });
   });
 });

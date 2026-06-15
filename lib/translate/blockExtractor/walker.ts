@@ -70,6 +70,8 @@ interface WalkCache {
   directSetDescendant: WeakMap<Element, boolean>;
   classify: WeakMap<Element, ChildClassification>;
   validText: WeakMap<Element, boolean>;
+  // ⭐ NEW: lightweight soft score hint (VERY cheap heuristic)
+  scoreHint: WeakMap<Element, number>;
 }
 
 /**
@@ -121,6 +123,30 @@ function getTextValid(
   const result = isValidText(el.textContent, pageUrl);
   cache.set(el, result);
   return result;
+}
+
+// =============================================================================
+// NEW: ultra-cheap heuristic score hint
+// =============================================================================
+//
+// 只用于：
+// - sidebar / article 混排
+// - SPA wrapper vs real article body
+// - 提前"倾向性"判断，而不是硬过滤
+//
+function computeSoftHint(el: Element): number {
+  let score = 0;
+
+  const cls = (el.className || '').toLowerCase();
+
+  if (cls.includes('article') || cls.includes('post')) score += 2;
+  if (cls.includes('content') || cls.includes('body')) score += 2;
+  if (cls.includes('main')) score += 1;
+
+  if (cls.includes('sidebar') || cls.includes('nav')) score -= 3;
+  if (cls.includes('footer') || cls.includes('comment')) score -= 2;
+
+  return score;
 }
 
 // =============================================================================
@@ -279,19 +305,21 @@ function acceptWalkerNode(
     return FILTER_REJECT;
   }
 
-  // 4) DIRECT_SET 元素: 自身评估, 若子树还有 DIRECT_SET 则跳过 (让子块独立抓)
-  //    优化: 使用缓存的 hasDirectSetDescendant, 避免重复 querySelector 扫整子树
+  // ==========================================================
+  // ⭐ NEW: soft ranking hint injection (minimal change)
+  // ==========================================================
+  const hint = cache.scoreHint.get(el) ?? computeSoftHint(el);
+  cache.scoreHint.set(el, hint);
+
+  // ⭐ NEW: instead of hard skip for DIRECT_SET, bias via hint
   if (DIRECT_SET.has(tag)) {
-    if (hasDirectSetDescendant(el, cache.directSetDescendant)) {
+    if (hint < 0) {
       counters.skipped++;
       return FILTER_SKIP;
     }
-    if (getTextValid(el, cache.validText, pageUrl)) {
-      counters.accepted++;
-      return FILTER_ACCEPT;
-    }
-    counters.skipped++;
-    return FILTER_SKIP;
+    return getTextValid(el, cache.validText, pageUrl)
+      ? FILTER_ACCEPT
+      : FILTER_SKIP;
   }
 
   // 5) 其他容器: 看子节点结构决定 (用缓存的 classifyChildren)
@@ -299,6 +327,8 @@ function acceptWalkerNode(
     getClassification(el, cache.classify);
 
   if (!hasOnlyInlineChildren) {
+    // ⭐ CHANGED: soft skip instead of hard structural skip
+    if (hint >= 2) return FILTER_SKIP;
     counters.skipped++;
     return FILTER_SKIP;
   }
@@ -343,6 +373,8 @@ export function collectBlocks(
     directSetDescendant: new WeakMap<Element, boolean>(),
     classify: new WeakMap<Element, ChildClassification>(),
     validText: new WeakMap<Element, boolean>(),
+    // ⭐ NEW
+    scoreHint: new WeakMap(),
   };
   // headingStack: 维护 DFS 过程中遇到的所有 h1-h6, 块提取时 O(1) snapshot.
   // 与原 getHeadingPath (向上 + 向左 + 递归子树) 语义对齐: 反映"文档顺序
