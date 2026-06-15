@@ -38,7 +38,7 @@ async function callApi(body: string): Promise<string> {
   } catch (err) {
     clearTimeout(timeout);
     if (err instanceof DOMException && err.name === 'AbortError') {
-      throw new Error('NVIDIA API timeout (80s)');
+      throw new Error('NVIDIA API timeout (150s)');
     }
     throw err;
   }
