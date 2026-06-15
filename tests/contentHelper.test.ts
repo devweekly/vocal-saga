@@ -332,3 +332,76 @@ describe('prepareDocument', () => {
     expect(fullText).toContain('PyMuPDF (fitz)');
   });
 });
+
+// =============================================================================
+// L3 兜底：L1/L2 都失败时直接遍历 body 抓取所有 TextNode
+// =============================================================================
+
+describe('L3 fallback (findArticleRootL3)', () => {
+  beforeEach(() => {
+    document.body.innerHTML = '';
+  });
+
+  it('L1/L2 fail on hostile class names → L3 extracts via walker', () => {
+    // 场景：class 同时含正文+负向 token，detector 拒绝，
+    // ARTICLE_SELECTORS 也不命中，但 walker 仍能抓出 <p>/<h2> 文本。
+    // 这是搜索结果页 / 评论流 / 无主文章容器的典型场景。
+    // 文本故意做短（每个 wrapper < 50 chars）以确保 Text Density < 300。
+    document.body.innerHTML = `
+      <header>Site Header Navigation</header>
+      <div class="article-nav">
+        <h2>Result One</h2>
+        <p>First short text.</p>
+      </div>
+      <div class="article-nav">
+        <h2>Result Two</h2>
+        <p>Second short text.</p>
+      </div>
+      <footer>Site Footer Copyright</footer>
+    `;
+
+    const { blocks, fullText } = prepareDocument(document, "https://example.com/results");
+
+    // 验证 walker 在 L3 模式下抓到了内容（不依赖 L1/L2 的容器识别）
+    expect(blocks.length).toBeGreaterThan(0);
+    expect(fullText).toContain('Result One');
+    expect(fullText).toContain('Result Two');
+
+    // walker 的噪声过滤仍然生效
+    expect(fullText).not.toContain('Site Header Navigation');
+    expect(fullText).not.toContain('Site Footer Copyright');
+  });
+
+  it('L3 handles page with only loose <p> tags (no container)', () => {
+    // 极端场景：body 直接是游离 <p>，没有 div 包装
+    // L1 失败（无 article / main），L2 失败（短文 Text Density < 300）
+    // L3 应该用 body 作 root，walker 抓出所有 <p>
+    document.body.innerHTML = `
+      <p>Result one short.</p>
+      <p>Result two short.</p>
+      <p>Result three short.</p>
+    `;
+
+    const { blocks, fullText } = prepareDocument(document, "https://example.com/loose");
+
+    expect(blocks.length).toBeGreaterThan(0);
+    expect(fullText).toContain('Result one');
+    expect(fullText).toContain('Result two');
+    expect(fullText).toContain('Result three');
+  });
+
+  it('L3 returns body element (verify the fallback path explicitly)', async () => {
+    const { findArticleRootL3 } = await import('../lib/translate/contentHelper');
+
+    document.body.innerHTML = `<p>Some body content here for L3 to detect and return properly.</p>`;
+    const root = findArticleRootL3(document);
+    expect(root).toBe(document.body);
+  });
+
+  it('L3 throws when no body or documentElement exists', async () => {
+    const { findArticleRootL3 } = await import('../lib/translate/contentHelper');
+    // Mock a minimal document-like object with neither body nor documentElement
+    const fakeDoc = {} as Document;
+    expect(() => findArticleRootL3(fakeDoc)).toThrow('L3 fallback failed');
+  });
+});

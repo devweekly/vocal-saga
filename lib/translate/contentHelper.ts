@@ -204,8 +204,35 @@ function findArticleRoot(doc: Document): Element {
   const detected = detectArticleRoot(doc);
   if (detected) return detected;
 
-  // Layer 3: 兜底
-  return doc.body || doc.documentElement;
+  // Layer 3: 兜底 — 直接遍历 body 抓取所有符合规则的 TextNode
+  // 适用于：无明显文章容器（搜索结果、列表页、评论流）的场景
+  return findArticleRootL3(doc);
+}
+
+/**
+ * Layer 3 兜底：在没有明显文章容器时，直接遍历 body 抓取所有可翻译块。
+ *
+ * 策略：walker 自身的噪声过滤（SKIP_SET、SEMANTIC_SKIP_TAGS、class 跳过规则）
+ * 仍然有效，会自动跳过 nav/aside/footer/script/style 等。所以"用 body 作 root"
+ * 实际上等价于"提取页面所有非噪声文本"，不需要单独的 walker 实现。
+ *
+ * 与 L1/L2 的关键区别：
+ *   - L1/L2 试图定位**单一正文容器**，让 chunk 切分更聚焦
+ *   - L3 放弃"容器"概念，让 walker 自由抓取所有合法 TextBlock
+ *
+ * @param doc Document
+ * @returns 兜底用的 root（通常是 body）
+ */
+export function findArticleRootL3(doc: Document): Element {
+  const root = doc.body || doc.documentElement;
+  if (!root) {
+    throw new Error('L3 fallback failed: no body or documentElement');
+  }
+  console.log(
+    `[ContentHelper] L3 fallback: L1 (selector) and L2 (Text Density) both failed. ` +
+      `Walking body directly. Root: <${root.tagName.toLowerCase()}>`,
+  );
+  return root;
 }
 
 export function prepareDocument(

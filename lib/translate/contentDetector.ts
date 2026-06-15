@@ -1,32 +1,56 @@
 /**
- * 智能正文识别：基于评分的容器选择算法。
+ * 智能正文识别：基于文本密度（Text Density）的容器选择算法。
  *
- * 当 ARTICLE_SELECTORS 选择器快速路径全部 miss 时，
- * 对所有候选容器评分，选最高分的作为文章根节点。
+ * 当 ARTICLE_SELECTORS 选择器快速路径全部 miss 时，对所有候选容器
+ * 计算 Text Density，选最高分作为文章根节点。
  *
- * 评分维度（绝对分制）：
- *   1. textLength    — 纯文本长度（封顶 50K，超长页不会爆分）
- *   2. paragraphCount — <p> 数量（强信号）
- *   3. headingCount  — h1-h3 数量
- *   4. linkRatio     — 链接文本占总文本比例（按比例惩罚）
- *   5. linkCount     — 链接数量（弱惩罚）
- *   6. listCount     — <li> 数量（导航/列表特征）
- *   7. form/aside    — 表单/嵌套导航噪声
- *   8. classHint     — token 化 class 名匹配（避免 BEM 子类误命中）
+ * 评分核心：Text Density 公式
+ *   density = (bodyTextLength / (linkCount + 1)) * log(textLength + 1)
+ *
+ * 公式三要素：
+ *   1. bodyTextLength = textLength - linkTextLength
+ *      → 主体文本（去除链接包裹的文本）
+ *   2. / (linkCount + 1)
+ *      → 链接密集区域（导航、相关推荐、目录）密度自然降低
+ *   3. * log(textLength + 1)
+ *      → 长文本自然占优，抑制短链接列表偶然获得的高密度
+ *
+ * 辅助调整（不破坏主公式语义）：
+ *   - 链接文本占比 > 50% → 0.5x 乘性惩罚（典型链接列表）
+ *   - <p>/<h> 数量用 log 缩放后加成（结构信号）
+ *   - class 命中 POSITIVE → 1.2x；命中 NEGATIVE → 0.5x
+ *   - <article> +500 / <main> +300（语义标签加成）
  *
  * 设计原则：
- *   - 不用归一化分（0-1），避免特征权重被压缩到无法区分
- *   - class 名匹配走 token 边界，区分 `blog-content`（正文）和
- *     `blog-content__mbox`（BEM 子类，CTA/话题块）
- *   - Tailwind 工具类（text-gray-500、bg-body）不会进入 POSITIVE 集合
+ *   - 主指标是 ratio（Text Density），不依赖绝对长度
+ *   - 链接列表自然被打低分，不需要写专门的 nav 规则
+ *   - class 名匹配走 token 边界，区分 BEM 子类
+ *   - 语义标签作为"打破平局"的辅证
+ *
+ * 典型得分参考（log 自然对数）：
+ *   - 普通博客（2000 字符 + 10p + 5h）          ≈ 15000-20000
+ *   - 长文（30000 字符 + 50p + 20h）              ≈ 300000+
+ *   - 短文（500 字符 + 3p + 1h）                  ≈ 3000-5000
+ *   - 导航菜单（200 字符 + 15a，主体文本=0）       ≈ 0
+ *   - 相关推荐（1500 字符 + 20a，链接密度 0.6）    ≈ 200-500
+ *   - CTA 框（800 字符 + 2a）                     ≈ 2000-3000
  */
 
 // =============================================================================
 // 常量
 // =============================================================================
 
-/** 评分阈值：绝对分，低于此分数回退到 body */
-export const SCORE_THRESHOLD = 500;
+/**
+ * 评分阈值：Text Density 综合分（含 log 缩放和乘性调整），低于此分数回退到 body。
+ *
+ * 阈值选取依据：
+ *   - 链接列表 / 导航：通常 0-50
+ *   - CTA 框 + 负向 class：约 100-200
+ *   - 阈值 300 留出充分安全边距，过滤上述非正文
+ *   - 短文（500 字符）≈ 3000（远高于阈值）
+ *   - 普通博客正文 ≈ 15000（远高于阈值）
+ */
+export const SCORE_THRESHOLD = 300;
 
 /** 最小文本长度：低于此长度直接判 0（避免短 nav 误判） */
 const MIN_TEXT_LENGTH = 50;
@@ -215,57 +239,66 @@ function collectSignals(el: Element): { positive: boolean; negative: boolean; se
 // =============================================================================
 
 /**
- * 核心评分函数（绝对分制）。
+ * 核心评分函数（Text Density 算法）。
  *
- * 典型 article root 得分范围：
- *   - 普通博客（5000 字符 + 16 p + 8 h + 20 a）≈ 4000-8000
- *   - 长文（30000 字符 + 50 p + 20 h）≈ 15000-30000
- *   - 短文（1000 字符 + 4 p + 2 h）≈ 1500-3000
+ * 主指标：
+ *   density = (bodyTextLength / (linkCount + 1)) * log(textLength + 1)
  *
- * 典型非正文得分：
- *   - 导航菜单（200-500 字符 + 10 a + 5 li）≈ 0-300
- *   - CTA 框（800 字符 + 2 a）≈ 600-900
- *   - 相关推荐（1500 字符 + 20 a + 链接密度 0.5）≈ -500 ~ 200
+ * 公式直觉：
+ *   - 主体文本多、链接少 → 高 density（典型正文）
+ *   - 主体文本少、链接多 → 低 density（导航、链接列表、相关推荐）
+ *   - log 缩放：长正文自然占优，避免短链接列表偶然获得高密度
+ *
+ * 辅助调整（在主指标上叠加，不破坏 ratio 语义）：
+ *   - 链接文本占比 > 50% → 0.5x 乘性惩罚（典型链接列表）
+ *   - class POSITIVE → 1.2x；NEGATIVE → 0.5x（打破平局）
+ *   - <article> +500 / <main> +300（语义标签）
+ *
+ * 典型得分参考（自然对数）：
+ *   - 普通博客（2000 字符）              ≈ 15000
+ *   - 长文（30000 字符）                 ≈ 300000+
+ *   - 短文（500 字符）                    ≈ 3000
+ *   - 导航菜单（200 字符 + 15a）          ≈ 0
+ *   - 相关推荐（1500 字符 + 20a）         ≈ 200
+ *   - CTA 框（100 字符 + 1a，mbox 负向）  ≈ 100-150
  */
 export function scoreElement(el: Element): number {
   const text = (el.textContent || '').trim();
   if (text.length < MIN_TEXT_LENGTH) return 0;
 
-  // ---- 基础特征 ----
-  const textLen = Math.min(text.length, 50000);   // 封顶 50K
-  const pCount = el.querySelectorAll('p').length;
-  const hCount = el.querySelectorAll('h1, h2, h3').length;
+  // ---- 链接分析 ----
   const aEls = Array.from(el.querySelectorAll('a'));
-  const aCount = aEls.length;
-  let aTextLen = 0;
+  const linkCount = aEls.length;
+  let linkTextLength = 0;
   for (const a of aEls) {
-    aTextLen += (a.textContent || '').length;
+    linkTextLength += (a.textContent || '').length;
   }
-  const linkRatio = aTextLen / Math.max(text.length, 1);
-  const liCount = el.querySelectorAll('li').length;
-  const formCount = el.querySelectorAll('form').length;
-  const asideNavFooterHeaderCount = el.querySelectorAll('aside, nav, footer, header').length;
+  // 主体文本 = 总文本 - 链接文本
+  const bodyTextLength = text.length - linkTextLength;
 
-  // ---- class + semantic 提示（token 化）----
+  // ---- 核心 Text Density ----
+  // (bodyText / (linkCount + 1)) * log(text + 1)
+  // - 分子：主体文本（去除链接后）
+  // - 分母：链接数 + 1（避免除零，平滑无链接情况）
+  // - log 缩放：长正文自然占优，短链接列表被压制
+  let score = (bodyTextLength / (linkCount + 1)) * Math.log(text.length + 1);
+
+  // ---- 链接密度软约束 ----
+  // 链接文本占比 > 50% → 视为链接列表，乘性 0.5x 惩罚
+  // 典型场景：相关推荐、目录、面包屑
+  const linkRatio = linkTextLength / Math.max(text.length, 1);
+  if (linkRatio > 0.5) {
+    score *= 0.5;
+  }
+
+  // ---- class + semantic 提示 ----
   const { positive, negative, semantic } = collectSignals(el);
-  let classBoost = 0;
-  if (positive) classBoost += 300;
-  if (negative) classBoost -= 600;
+  let classMultiplier = 1;
+  if (positive) classMultiplier *= 1.2;   // article-content / blog-content 等
+  if (negative) classMultiplier *= 0.5;   // nav / sidebar / footer / mbox 等
 
-  // ---- 综合评分 ----
-  let score = 0;
-  score += textLen;                                    // 长度主导
-  score += pCount * 80;                                // <p> 强信号
-  score += hCount * 25;                                // 标题
-  score -= aCount * 2;                                 // 链接数量
-  score -= Math.floor(linkRatio * 2000);               // 链接密度
-  score -= liCount * 5;                                // 列表/导航
-  score -= formCount * 50;                             // 表单
-  score -= asideNavFooterHeaderCount * 30;             // 嵌套的导航/页脚
-  score += classBoost;                                 // class 提示
-  score += semantic;                                   // 语义标签 boost（<article>/<main>）
-
-  return score;
+  // 乘性调整 + 语义标签加成
+  return score * classMultiplier + semantic;
 }
 
 // =============================================================================

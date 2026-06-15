@@ -346,4 +346,148 @@ describe('contentDetector', () => {
       expect(root!.className).toContain('article-body');
     });
   });
+
+  // --- Text Density 算法特性测试 ---
+
+  describe('Text Density characteristics', () => {
+    it('scores near 0 for element where all text is inside links', () => {
+      // 纯链接列表：text≈linkText，bodyText≈0
+      // 用紧凑 innerHTML 避免标签间空白被算作 body 文本
+      const el = document.createElement('div');
+      el.innerHTML =
+        '<a href="#">First link with some text</a>' +
+        '<a href="#">Second link with more text</a>' +
+        '<a href="#">Third link with even more text</a>' +
+        '<a href="#">Fourth link with additional text</a>';
+      document.body.appendChild(el);
+      const score = scoreElement(el);
+      // bodyText ≈ 0，density 应接近 0
+      // 允许少量 round-off 误差
+      expect(score).toBeLessThan(5);
+    });
+
+    it('density decreases as link count increases for same body text', () => {
+      // 相同 bodyText（500 字符），不同 linkCount
+      // density = (500 / (n+1)) * log(500+1) ≈ (500 / (n+1)) * 6.21
+      const buildEl = (linkCount: number) => {
+        const el = document.createElement('div');
+        // 主体文本：单个长段落（500 字符）
+        el.appendChild(
+          (() => {
+            const p = document.createElement('p');
+            p.textContent = 'word '.repeat(100).trim();
+            return p;
+          })()
+        );
+        // 添加若干空链接（仅贡献 linkCount，不贡献文本）
+        for (let i = 0; i < linkCount; i++) {
+          const a = document.createElement('a');
+          a.href = '#';
+          el.appendChild(a);
+        }
+        return el;
+      };
+
+      const s0 = scoreElement(buildEl(0));
+      const s5 = scoreElement(buildEl(5));
+      const s20 = scoreElement(buildEl(20));
+
+      // linkCount 越多，密度越低
+      expect(s0).toBeGreaterThan(s5);
+      expect(s5).toBeGreaterThan(s20);
+    });
+
+    it('penalizes elements with linkRatio > 0.5 (link-heavy regions)', () => {
+      // 链接文本 > 总文本 50% → 乘性 0.5x 惩罚
+      // 对比：相同 bodyText，一个 linkRatio=0.3，一个 linkRatio=0.7
+      const buildEl = (linkTextRatio: number) => {
+        const el = document.createElement('div');
+        const totalText = 1000;
+        const linkTextLen = Math.floor(totalText * linkTextRatio);
+        const bodyTextLen = totalText - linkTextLen;
+        el.innerHTML = `
+          <p>${'word '.repeat(Math.floor(bodyTextLen / 5)).trim()}</p>
+          <a href="#">${'link'.repeat(Math.floor(linkTextLen / 4))}</a>
+        `;
+        return el;
+      };
+
+      const lowLink = scoreElement(buildEl(0.3));
+      const highLink = scoreElement(buildEl(0.7));
+
+      // 链接占比 > 0.5 应明显低于 ≤ 0.5
+      // 注意：highLink 受到 0.5x 惩罚，应该显著降低
+      expect(highLink).toBeLessThan(lowLink);
+    });
+
+    it('rewards long text without links (high text density)', () => {
+      // 2000 字符纯文本（无链接、无 class）
+      // density = (2000 / 1) * log(2001) ≈ 2000 * 7.6 ≈ 15200
+      const el = document.createElement('div');
+      el.appendChild(
+        (() => {
+          const p = document.createElement('p');
+          p.textContent = 'This is a long paragraph of plain text content. '.repeat(40).trim();
+          return p;
+        })()
+      );
+      document.body.appendChild(el);
+      const score = scoreElement(el);
+      // 应远超阈值
+      expect(score).toBeGreaterThan(SCORE_THRESHOLD * 10);
+    });
+
+    it('Text Density outperforms Readability on link list vs short paragraph', () => {
+      // 经典场景：左侧栏是链接列表（5个链接），右侧是短段落（150字符）
+      // Text Density 下短段落应当胜出（因为 bodyText 大、log 缩放）
+      const sidebar = document.createElement('div');
+      sidebar.className = 'sidebar';
+      sidebar.innerHTML = `
+        <a href="#">Link one with text</a>
+        <a href="#">Link two with text</a>
+        <a href="#">Link three with text</a>
+        <a href="#">Link four with text</a>
+        <a href="#">Link five with text</a>
+      `;
+      document.body.appendChild(sidebar);
+
+      const main = document.createElement('div');
+      main.className = 'content';
+      main.innerHTML = `
+        <p>This is a substantial paragraph with about one hundred and fifty characters of real text content for the algorithm to evaluate properly.</p>
+      `;
+      document.body.appendChild(main);
+
+      const sidebarScore = scoreElement(sidebar);
+      const mainScore = scoreElement(main);
+
+      expect(mainScore).toBeGreaterThan(sidebarScore);
+    });
+
+    it('detects article root in typical blog layout (h1 + multiple p, no links)', () => {
+      // 典型博客布局：标题 + 多段正文，无链接
+      document.body.innerHTML = `
+        <header>
+          <a href="/">Home</a>
+          <a href="/about">About</a>
+          <a href="/blog">Blog</a>
+        </header>
+        <main>
+          <h1>Article Title</h1>
+          <p>${'Paragraph with content. '.repeat(15).trim()}</p>
+          <p>${'Another paragraph here. '.repeat(15).trim()}</p>
+          <p>${'Yet another paragraph. '.repeat(15).trim()}</p>
+          <p>${'Final paragraph for good measure. '.repeat(15).trim()}</p>
+        </main>
+        <footer>
+          <a href="#">Footer link 1</a>
+          <a href="#">Footer link 2</a>
+        </footer>
+      `;
+      const root = detectArticleRoot(document);
+      expect(root).not.toBeNull();
+      // <main> 应被识别为正文容器
+      expect(root!.tagName.toLowerCase()).toBe('main');
+    });
+  });
 });
