@@ -8,7 +8,7 @@ import type { TranslationService, Glossary } from './_service';
 import { getAI } from '../../config';
 import { buildSystemContent, stripMarkdownCodeBlock, cleanJsonString } from './shared';
 
-const MODEL = '@cf/zai-org/glm-4.7-flash';
+const MODEL = '@cf/moonshotai/kimi-k2.6';
 
 export class CloudflareAITranslationService implements TranslationService {
 
