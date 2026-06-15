@@ -41,6 +41,7 @@ import {
   hasTranslateBlockClass,
   isContentEditable,
   isElementHidden,
+  isInlineCandidate,
   isInsideArticle,
   isMetadataClass,
   isNonHTMLNamespace,
@@ -445,11 +446,13 @@ function walkNode(
           } catch {
             /* ignore */
           }
+          const isCandidate = isInlineCandidate(translateNode, text);
           blocks.push({
             id,
             xpath: getXPath(translateNode),
             tag: translateNode.tagName.toLowerCase(),
             text,
+            renderHint: isCandidate ? { inlineCandidate: true } : undefined,
             context: {
               // O(1) snapshot: headingStack 是当前节点之前遇到的 h1-h6,
               // 自身 heading 不包含在自身 headingPath 里 (与原 getHeadingPath 行为一致).

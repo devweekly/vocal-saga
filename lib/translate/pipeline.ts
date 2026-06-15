@@ -276,7 +276,7 @@ export async function translateUrl(input: TranslateUrlInput): Promise<TranslateU
 
   // 回填：一次性 querySelectorAll 建 Map → O(1) 查找（原实现 O(blocks × N)）
   const tApply = performance.now();
-  const { applyBlockTranslation } = await import('./translationDisplay');
+  const { applyBlockTranslation, applyInlineTranslation } = await import('./translationDisplay');
   const blockMap = new Map<string, Element>();
   page.doc.querySelectorAll('[data-fanyi-block-id]').forEach((el) => {
     const id = el.getAttribute('data-fanyi-block-id');
@@ -289,7 +289,17 @@ export async function translateUrl(input: TranslateUrlInput): Promise<TranslateU
     // linkedom 的节点 instanceof jsdom.Element = false，统一用 nodeType 判别；
     // 这里任何 data-fanyi-block-id 节点都是 grabNode 出来的 Element，可信。
     if (el && (el as Node).nodeType === 1) {
-      applyBlockTranslation(el as unknown as HTMLElement, translated, mode);
+      const htmlEl = el as unknown as HTMLElement;
+      // Render 阶段最终决定：candidate + 译文也要短
+      const shouldInline =
+        block.renderHint?.inlineCandidate === true &&
+        translated.length <= 40 &&               // 译文不超过 40 字符
+        translated.split(/\s+/).length <= 12;    // 译文不超过 12 词
+      if (shouldInline) {
+        applyInlineTranslation(htmlEl, translated, mode);
+      } else {
+        applyBlockTranslation(htmlEl, translated, mode);
+      }
     }
   }
   const tApplyEnd = performance.now();
@@ -309,8 +319,7 @@ export async function translateUrl(input: TranslateUrlInput): Promise<TranslateU
     if (head) head.insertBefore(base, head.firstChild);
   }
 
-  // 注入双语显示 CSS —— 只针对我们注入的 .fanyi-original / .fanyi-translation，
-  // 不覆盖原页面任何已有元素的样式（用 currentColor + 0 opacity，没有强制颜色）。
+  // 注入双语显示 CSS —— 只针对我们注入的 span，不覆盖原页面任何已有元素的样式。
   const head = page.doc.head;
   if (head && !head.querySelector('#fanyi-bilingual-styles')) {
     const style = page.doc.createElement('style');
@@ -323,6 +332,13 @@ export async function translateUrl(input: TranslateUrlInput): Promise<TranslateU
       '  margin: 0.2em 0 0.4em 0;',
       '  padding: 0.15em 0.6em;',
       '  border-left: 3px solid currentColor;',
+      '}',
+      '.fanyi-inline-original { /* 原文：继承原页面样式，不额外设颜色 */ }',
+      '.fanyi-inline-translation {',
+      '  opacity: 0.75;',
+      '  font-size: 0.9em;',
+      '  margin-left: 0.3em;',
+      '  white-space: normal;',
       '}',
       '.fanyi-translated { /* 容器：仅加 class，不改原样式 */ }',
     ].join('\n');

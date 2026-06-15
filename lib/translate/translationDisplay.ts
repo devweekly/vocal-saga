@@ -1,5 +1,9 @@
 export type TranslationMode = 'bilingual' | 'target';
 
+// =============================================================================
+// Block 模式（默认）：译文作为独立段落插入
+// =============================================================================
+
 /**
  * Wrap translation around an element without destroying its existing children.
  *
@@ -48,7 +52,121 @@ export function applyBlockTranslation(
   node.appendChild(translationSpan);
 }
 
+// =============================================================================
+// Inline 模式（短句列表项）：译文直接 append 在原文末尾
+// =============================================================================
+
+/**
+ * Inline 翻译：译文 append 在原文的最后一个文本承载元素内。
+ *
+ * 为什么不是 node.appendChild？
+ * 对于 <li><button>Delete</button></li>，append 到 li 会让译文跑到 button 外面，
+ * 视觉上变成 "Delete [按钮] （删除）[文本]"，用户会以为这是两个独立元素。
+ *
+ * 正确做法：找到最后一个包含直接文本节点的叶子元素，把译文插进去。
+ * 例如 <li><a>Repository embedding index</a></li> → 插到 <a> 内部。
+ */
+export function applyInlineTranslation(
+  node: HTMLElement,
+  translatedText: string,
+  mode: TranslationMode
+): void {
+  if (node.classList.contains('fanyi-translated')) {
+    return;
+  }
+
+  const doc = node.ownerDocument;
+  if (!doc) return;
+
+  // 1) 找到最后一个"文本承载元素"（包含直接 text node 的最深叶子）
+  const textHost = findLastTextHost(node);
+  if (!textHost) return;
+
+  // 2) 包裹原文：把 textHost 的所有子节点移入 .fanyi-inline-original
+  const originalSpan = doc.createElement('span');
+  originalSpan.className = 'fanyi-inline-original';
+  while (textHost.firstChild) {
+    originalSpan.appendChild(textHost.firstChild);
+  }
+  textHost.appendChild(originalSpan);
+
+  // 3) 插入译文 span
+  const translationSpan = doc.createElement('span');
+  translationSpan.className = 'fanyi-inline-translation';
+  translationSpan.textContent = `（${translatedText}）`;
+  textHost.appendChild(translationSpan);
+
+  // 4) target 模式：隐藏原文，只显示译文（去掉括号）
+  if (mode === 'target') {
+    originalSpan.style.display = 'none';
+    translationSpan.textContent = translatedText; // 去掉括号
+  }
+
+  // 5) 标记宿主
+  node.classList.add('fanyi-translated');
+  node.dataset.originalText = originalSpan.textContent || '';
+}
+
+/**
+ * 找到 el 子树中"最后一个包含直接文本节点的元素"。
+ * 例如：
+ *   <li>text</li>              → <li>
+ *   <li><a>text</a></li>       → <a>
+ *   <li><button>ok</button></li> → <button>
+ *   <li><span></span></li>     → null（无文本）
+ */
+function findLastTextHost(el: Element): Element | null {
+  // DFS 找最后一个含直接 text node 的元素
+  let result: Element | null = null;
+
+  function dfs(current: Element): void {
+    const children = current.childNodes;
+    let hasDirectText = false;
+    for (let i = 0; i < children.length; i++) {
+      const n = children[i];
+      if (n.nodeType === 3 && (n.textContent || '').trim()) {
+        hasDirectText = true;
+      }
+      if (n.nodeType === 1) {
+        dfs(n as Element);
+      }
+    }
+    if (hasDirectText) {
+      result = current;
+    }
+  }
+
+  dfs(el);
+  return result;
+}
+
+// =============================================================================
+// 恢复与切换
+// =============================================================================
+
 export function restoreBlock(node: HTMLElement): void {
+  // inline 模式：移除 .fanyi-inline-original 和 .fanyi-inline-translation，
+  // 把 original 的子节点移回 textHost
+  const inlineOriginal = node.querySelector('.fanyi-inline-original');
+  const inlineTranslation = node.querySelector('.fanyi-inline-translation');
+
+  if (inlineOriginal && inlineTranslation) {
+    const textHost = inlineOriginal.parentElement;
+    if (textHost) {
+      while (inlineOriginal.firstChild) {
+        textHost.insertBefore(inlineOriginal.firstChild, inlineOriginal);
+      }
+      inlineOriginal.remove();
+      inlineTranslation.remove();
+    }
+    node.classList.remove('fanyi-translated');
+    node.classList.remove('fanyi-missing');
+    node.removeAttribute('title');
+    delete node.dataset.originalText;
+    return;
+  }
+
+  // block 模式：原有逻辑
   const originalText = node.dataset.originalText;
   const originalSpan = node.querySelector('.fanyi-original');
   if (originalSpan) {
@@ -72,6 +190,25 @@ export function restoreBlock(node: HTMLElement): void {
 }
 
 export function toggleBlockTranslation(node: HTMLElement): void {
+  // inline 模式
+  const inlineOriginal = node.querySelector('.fanyi-inline-original') as HTMLElement | null;
+  const inlineTranslation = node.querySelector('.fanyi-inline-translation') as HTMLElement | null;
+  if (inlineOriginal && inlineTranslation) {
+    const isHidden = inlineOriginal.style.display === 'none';
+    inlineOriginal.style.display = isHidden ? '' : 'none';
+    // 切换时同时切换括号： bilingual 显示括号，target 不显示
+    const rawText = inlineTranslation.textContent || '';
+    if (isHidden) {
+      // 从 target 切回 bilingual：加上括号
+      inlineTranslation.textContent = rawText.startsWith('（') ? rawText : `（${rawText}）`;
+    } else {
+      // 从 bilingual 切到 target：去掉括号
+      inlineTranslation.textContent = rawText.replace(/^（|）$/g, '');
+    }
+    return;
+  }
+
+  // block 模式：原有逻辑
   const translationSpan = node.querySelector('.fanyi-translation');
   if (translationSpan) {
     const el = translationSpan as HTMLElement;

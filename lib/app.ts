@@ -436,19 +436,19 @@ ${items ? `<ul>${items}</ul>` : '<p class="empty">暂无翻译记录</p>'}
         }, 500);
       }
 
-      // 写入 D1（force 模式用 INSERT OR REPLACE 覆盖已有记录）
+      // 写入 D1：SQLite UPSERT（ON CONFLICT DO UPDATE），不再需要 force 时先 DELETE
       // 用 cacheKey 存储：www 和非 www 共享同一缓存
       if (db) {
         try {
-          if (force) {
-            // 先删旧记录，再插入新记录（D1 没有 UPSERT，用 REPLACE 模拟）
-            await db.prepare(
-              'DELETE FROM translations WHERE url = ? AND source_lang = ? AND target_lang = ?'
-            ).bind(cacheKey, sourceStored, targetStored).run();
-          }
-          await db.prepare(
-            'INSERT OR IGNORE INTO translations (url, title, source_lang, target_lang, html) VALUES (?, ?, ?, ?, ?)'
-          ).bind(cacheKey, result.title || '', sourceStored, targetStored, result.html).run();
+          await db.prepare(`
+            INSERT INTO translations (url, title, source_lang, target_lang, html)
+            VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(url, source_lang, target_lang)
+            DO UPDATE SET
+              title = excluded.title,
+              html = excluded.html,
+              created_at = CURRENT_TIMESTAMP
+          `).bind(cacheKey, result.title || '', sourceStored, targetStored, result.html).run();
         } catch (e) {
           console.error('[D1] save error:', e);
         }

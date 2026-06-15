@@ -9,6 +9,10 @@ export interface TextBlock {
   xpath: string;
   tag: string;
   text: string;
+  /** 渲染提示：Walker 阶段只标记候选，Render 阶段再决定 */
+  renderHint?: {
+    inlineCandidate?: boolean;
+  };
   context?: {
     headingPath: string[];
     position: number;

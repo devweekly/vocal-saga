@@ -368,3 +368,44 @@ export function hasTranslateBlockClass(el: Element): boolean {
     el.classList.contains('notranslate')
   );
 }
+
+// =============================================================================
+// Inline 翻译候选判定
+// =============================================================================
+
+const INLINE_MAX_CHARS = 60;      // 原文最大字符数
+const INLINE_MAX_WORDS = 8;       // 原文最大单词数
+const BLOCK_LEVEL_TAGS = new Set([
+  'div', 'p', 'ul', 'ol', 'li', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
+  'pre', 'blockquote', 'table', 'section', 'article', 'header', 'footer', 'nav', 'aside'
+]);
+
+/**
+ * 判断元素是否适合作为 inline 翻译候选。
+ * 只基于 Extract 阶段已知信息，不读 DOM textContent（避免 hidden 子元素污染）。
+ */
+export function isInlineCandidate(el: Element, blockText: string): boolean {
+  const tag = el.tagName.toLowerCase();
+  const parent = el.parentElement;
+
+  // 条件1：列表上下文（li 或 ul/ol 的直接子元素）
+  const isListContext = tag === 'li' ||
+    (parent !== null && (parent.tagName.toLowerCase() === 'ul' || parent.tagName.toLowerCase() === 'ol'));
+  if (!isListContext) return false;
+
+  // 条件2：原文很短（用已经提取的 blockText，不是 el.textContent）
+  const text = blockText.trim();
+  if (text.length > INLINE_MAX_CHARS) return false;
+  const wordCount = text.split(/\s+/).length;
+  if (wordCount > INLINE_MAX_WORDS) return false;
+
+  // 条件3：内部没有 block-level 子元素
+  const children = el.children;
+  for (let i = 0; i < children.length; i++) {
+    if (BLOCK_LEVEL_TAGS.has(children[i].tagName.toLowerCase())) {
+      return false;
+    }
+  }
+
+  return true;
+}
