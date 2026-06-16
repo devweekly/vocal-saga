@@ -46,12 +46,23 @@ async function bootstrap(): Promise<BootstrapResponse> {
   }
 
   const data = JSON.parse(responseText) as BootstrapResponse;
-  if (!data.jwt || !data.exp) {
+  if (!data.jwt) {
     throw new Error(`MiMo bootstrap error: invalid response - ${responseText.substring(0, 200)}`);
   }
 
-  console.log('[MiMo] JWT acquired, expires at:', new Date(data.exp).toISOString());
-  return data;
+  // 优先使用响应中的 exp，否则从 JWT payload 中解析，最后兜底 1 小时
+  let exp = data.exp;
+  if (!exp) {
+    try {
+      const payload = JSON.parse(atob(data.jwt.split('.')[1]));
+      exp = payload.exp ? payload.exp * 1000 : Date.now() + 3600_000;
+    } catch {
+      exp = Date.now() + 3600_000;
+    }
+  }
+
+  console.log('[MiMo] JWT acquired, expires at:', new Date(exp).toISOString());
+  return { jwt: data.jwt, exp };
 }
 
 async function getJwt(): Promise<string> {
