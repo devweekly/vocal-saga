@@ -10,7 +10,12 @@
 import type { TranslationService, Glossary } from './_service';
 import { parseSSEStream } from './streamParser';
 import { getMimoClientId } from '../../config';
-import { buildTranslationBody, stripMarkdownCodeBlock, cleanJsonString } from './shared';
+import {
+  buildSystemContent,
+  estimateMaxTokens,
+  stripMarkdownCodeBlock,
+  cleanJsonString,
+} from './shared';
 
 const BOOTSTRAP_URL = 'https://api.xiaomimimo.com/api/free-ai/bootstrap';
 const CHAT_URL = 'https://api.xiaomimimo.com/api/free-ai/openai/chat';
@@ -150,6 +155,33 @@ async function callApi(body: string): Promise<string> {
   return cleaned;
 }
 
+/**
+ * 为 MiMo 构造干净的请求体。
+ * 不携带 DeepSeek 特有的字段（如 thinking、response_format、temperature），
+ * 避免 MiMo 返回 403 Illegal access。
+ */
+function buildMimoBody(
+  blocks: Array<{ id: string; text: string }>,
+  sourceLang: string,
+  targetLang: string,
+  glossary?: Glossary,
+) {
+  const blocksJson = JSON.stringify(
+    blocks.map((b) => ({ id: b.id, text: b.text })),
+    null,
+    2,
+  );
+  const systemContent = buildSystemContent(sourceLang, targetLang, glossary);
+  return {
+    model: MODEL,
+    messages: [
+      { role: 'system' as const, content: systemContent },
+      { role: 'user' as const, content: `JSON:\n\n${blocksJson}` },
+    ],
+    max_tokens: estimateMaxTokens(blocksJson),
+  };
+}
+
 export class MimoTranslationService implements TranslationService {
   async translate(
     jsonContent: string,
@@ -158,7 +190,7 @@ export class MimoTranslationService implements TranslationService {
     glossary?: Glossary,
   ): Promise<string> {
     const blocks = JSON.parse(jsonContent);
-    const body = buildTranslationBody(blocks, sourceLang, targetLang, glossary, MODEL);
+    const body = buildMimoBody(blocks, sourceLang, targetLang, glossary);
     const raw = await callApi(JSON.stringify(body));
     return raw;
   }
@@ -170,7 +202,7 @@ export class MimoTranslationService implements TranslationService {
     glossary?: Glossary,
   ): AsyncGenerator<string, string, unknown> {
     const blocks = JSON.parse(jsonContent);
-    const body = buildTranslationBody(blocks, sourceLang, targetLang, glossary, MODEL);
+    const body = buildMimoBody(blocks, sourceLang, targetLang, glossary);
     (body as any).stream = true;
 
     const jwt = await getJwt();

@@ -6,6 +6,8 @@
 
 原则3：添加足够的中文代码注释。
 
+原则4：如果script调用无法联通，使用proxy.sh的proxy设置。
+
 ## Project Architecture
 
 OpenAI-compatible LLM proxy + translation API，部署在 **Cloudflare Workers**。基于 **Hono**（edge-first，无 Node-only 依赖）。
