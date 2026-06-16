@@ -58,6 +58,13 @@ function startServer(): Promise<{ server: http.Server; baseUrl: string }> {
   <body><p>Hello</p></body>
 </html>`);
           break;
+        case '/article.html':
+          res.end(`<!doctype html>
+<html>
+  <head><title>Article with extension</title><link rel="stylesheet" href="style.css"></head>
+  <body><article><p>Hello from article</p></article></body>
+</html>`);
+          break;
         default:
           res.end(`<!doctype html>
 <html>
@@ -141,6 +148,13 @@ describe('translateUrl — end-to-end with linkedom', () => {
     const result = await translateUrl({ url: `${baseUrl}/base-no-href` });
     expect(baseTarget(result.html)).toBe('_blank');
     expect(baseHref(result.html)).toBe(`${baseUrl}/base-no-href/`);
+  });
+
+  it('uses parent directory for .html file URLs to fix relative CSS paths', async () => {
+    const result = await translateUrl({ url: `${baseUrl}/article.html` });
+    // .html 文件应视为文件而非目录，base 指向父目录，
+    // 这样相对路径 style.css 会被解析为 /style.css 而不是 /article.html/style.css
+    expect(baseHref(result.html)).toBe(`${baseUrl}/`);
   });
 
   it('does not throw when window is undefined (CF Workers env)', async () => {

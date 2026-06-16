@@ -448,8 +448,8 @@ export function hasTranslateBlockClass(el: Element): boolean {
 // Inline 翻译候选判定
 // =============================================================================
 
-const INLINE_MAX_CHARS = 60;      // 原文最大字符数
-const INLINE_MAX_WORDS = 8;       // 原文最大单词数
+const INLINE_MAX_CHARS = 70;      // 原文最大字符数
+const INLINE_MAX_WORDS = 10;       // 原文最大单词数
 const BLOCK_LEVEL_TAGS = new Set([
   'div', 'p', 'ul', 'ol', 'li', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
   'pre', 'blockquote', 'table', 'section', 'article', 'header', 'footer', 'nav', 'aside'
