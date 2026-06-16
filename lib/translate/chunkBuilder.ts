@@ -8,7 +8,7 @@ export interface Chunk {
 }
 
 const MAX_INPUT_TOKENS = 500000;
-const TARGET_TOKENS = 8000;
+const TARGET_TOKENS = 10000;
 
 /**
  * 估算 token 数：CJK 字符约 0.5 tokens/char，拉丁文约 0.25 tokens/char。

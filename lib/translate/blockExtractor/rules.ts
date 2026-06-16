@@ -253,6 +253,81 @@ export function isValidText(
 }
 
 // =============================================================================
+// 低优先级元素判定（视觉弱化）
+// =============================================================================
+
+const LOW_PRIORITY_PATTERNS = {
+  tags: new Set(['nav', 'footer', 'aside']),
+  // header 需额外判断：不含 h1-h6 才算低优先级
+  classTokens: /\bad\b|banner|sponsor|promo|affiliate|share|social|comment|related|recommend|sidebar|navbar|site-nav|global-nav|topbar|subscribe|newsletter|cookie|consent/i,
+  idTokens: /\bad\b|banner|sponsor|promo|affiliate|share|social|comment|related|recommend|sidebar|navbar|site-nav|global-nav|topbar|subscribe|newsletter|cookie|consent/i,
+};
+
+/**
+ * 判断元素是否为低优先级内容（footer/nav/aside/广告/社交/推荐等）。
+ * 这些元素会被保留在 DOM 中，但视觉上弱化（opacity + grayscale）。
+ */
+export function isLowPriorityElement(el: Element): boolean {
+  const tag = el.tagName.toLowerCase();
+
+  // nav / footer / aside 直接判定
+  if (LOW_PRIORITY_PATTERNS.tags.has(tag)) return true;
+
+  // header：不含 h1-h6 才算低优先级（避免弱化文章标题区）
+  if (tag === 'header') {
+    const hasHeading = el.querySelector('h1, h2, h3, h4, h5, h6') !== null;
+    return !hasHeading;
+  }
+
+  const cls = (el.getAttribute('class') || '').toLowerCase();
+  const id = (el.getAttribute('id') || '').toLowerCase();
+
+  if (LOW_PRIORITY_PATTERNS.classTokens.test(cls)) return true;
+  if (LOW_PRIORITY_PATTERNS.idTokens.test(id)) return true;
+
+  return false;
+}
+
+// =============================================================================
+// 弹窗 / Overlay / Cookie Banner 判定（直接隐藏）
+// =============================================================================
+
+const OVERLAY_PATTERNS = {
+  classTokens: /\bcookie\b|\bconsent\b|\bgdpr\b|privacy-banner|cookie-banner|\bpopup\b|\bmodal\b|overlay|dialog|backdrop|lightbox|subscription-popup|paywall|subscribe-popup|newsletter-modal/i,
+  idTokens: /\bcookie\b|\bconsent\b|\bgdpr\b|privacy|\bpopup\b|\bmodal\b|overlay|dialog/i,
+  roles: new Set(['dialog']),
+};
+
+/**
+ * 判断元素是否为弹窗 / Cookie Banner / Overlay 等遮挡层。
+ * 这些元素会被直接隐藏（display: none），不是页面内容的一部分。
+ */
+export function isOverlayElement(el: Element): boolean {
+  const tag = el.tagName.toLowerCase();
+  const cls = (el.getAttribute('class') || '').toLowerCase();
+  const id = (el.getAttribute('id') || '').toLowerCase();
+  const role = el.getAttribute('role') || '';
+
+  if (OVERLAY_PATTERNS.classTokens.test(cls)) return true;
+  if (OVERLAY_PATTERNS.idTokens.test(id)) return true;
+  if (OVERLAY_PATTERNS.roles.has(role)) return true;
+
+  // 固定定位的 div 也可能是干扰性 banner（但仅作为辅助信号，需结合其他特征）
+  // linkedom 中 HTMLElement.style 可能不可用，用 getAttribute 兜底
+  if (tag === 'div') {
+    const style = (el.getAttribute('style') || '').toLowerCase();
+    if (style.includes('position:fixed') || style.includes('position: sticky')) {
+      // 固定定位本身不足以判定为 overlay，需结合 class/id
+      // 但如果同时匹配了部分 overlay 关键词，则强化判定
+      const hasOverlayHint = /banner|bar|toast|notice|alert/i.test(cls + ' ' + id);
+      if (hasOverlayHint) return true;
+    }
+  }
+
+  return false;
+}
+
+// =============================================================================
 // 上下文判定 (parent chain / child walk)
 // =============================================================================
 

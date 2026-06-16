@@ -43,8 +43,10 @@ import {
   isElementHidden,
   isInlineCandidate,
   isInsideArticle,
+  isLowPriorityElement,
   isMetadataClass,
   isNonHTMLNamespace,
+  isOverlayElement,
   isValidText,
   shouldSkipByClass,
   shouldSkipBySiteRules,
@@ -253,6 +255,13 @@ function acceptWalkerNode(
     cache.rejected.add(el);
     counters.rejected++;
     return FILTER_REJECT;
+  }
+
+  // ⭐ 标记低优先级元素和弹窗（用于翻译结果页的视觉处理）
+  if (isOverlayElement(el)) {
+    el.setAttribute('data-fanyi-remove', 'true');
+  } else if (isLowPriorityElement(el)) {
+    el.setAttribute('data-fanyi-low-priority', 'true');
   }
 
   // 1) 硬性拒绝条件 (整棵子树拒绝,无例外)
