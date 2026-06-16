@@ -356,7 +356,7 @@ ${items ? `<ul>${items}</ul>` : '<p class="empty">暂无翻译记录</p>'}
    * @param service 翻译服务：'deepseek'（默认）、'openrouter' 或 'nvidia'
    * @param model 可选模型名（用于 NVIDIA 等多模型服务）
    */
-  async function handleTranslateRequest(c: any, rawPath: string, force = false, service: 'deepseek' | 'openrouter' | 'nvidia' | 'cloudflare' = 'deepseek', model?: string) {
+  async function handleTranslateRequest(c: any, rawPath: string, force = false, service: 'deepseek' | 'openrouter' | 'nvidia' | 'cloudflare' | 'mimo' = 'deepseek', model?: string) {
     if (!rawPath) {
       return c.json({ error: 'target url is required in path' }, 400);
     }
@@ -568,6 +568,12 @@ ${items ? `<ul>${items}</ul>` : '<p class="empty">暂无翻译记录</p>'}
       model = 'qwen/qwen3-next-80b-a3b-instruct';
     }
     return handleTranslateRequest(c, urlPath, /* force */ false, /* service */ 'nvidia', model);
+  });
+
+  // ── MiMo 翻译：使用 MiMo Auto 免费 API ──────────
+  app.get('/mimo/*', (c) => {
+    const raw = decodeURIComponent(c.req.path.slice('/mimo/'.length));
+    return handleTranslateRequest(c, raw, /* force */ false, /* service */ 'mimo');
   });
 
   // ── Cloudflare AI 翻译：使用 CF Workers AI 的免费模型 ──────────

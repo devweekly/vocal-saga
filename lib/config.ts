@@ -10,6 +10,7 @@ let _openrouterApiKey = '';
 let _nvidiaApiKey = '';
 let _authKey = '';
 let _ai: any = null;
+let _mimoClientId = 'fanyi-proxy';
 
 export function setDSApiKey(key: string) { _dsApiKey = key; }
 export function getDSApiKey(): string { return _dsApiKey; }
@@ -25,3 +26,6 @@ export function getAuthKey(): string { return _authKey; }
 
 export function setAI(ai: any) { _ai = ai; }
 export function getAI(): any { return _ai; }
+
+export function setMimoClientId(id: string) { _mimoClientId = id; }
+export function getMimoClientId(): string { return _mimoClientId; }

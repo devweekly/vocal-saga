@@ -213,7 +213,7 @@ export interface TranslateUrlInput {
   target?: string;
   mode?: 'bilingual' | 'target';
   glossary?: Glossary;
-  service?: 'deepseek' | 'openrouter' | 'nvidia' | 'cloudflare';
+  service?: 'deepseek' | 'openrouter' | 'nvidia' | 'cloudflare' | 'mimo';
   model?: string;
 }
 
@@ -261,6 +261,9 @@ export async function translateUrl(input: TranslateUrlInput): Promise<TranslateU
   } else if (serviceType === 'cloudflare') {
     const { CloudflareAITranslationService } = await import('./service/cloudflare');
     service = new CloudflareAITranslationService() as any;
+  } else if (serviceType === 'mimo') {
+    const { MimoTranslationService } = await import('./service/mimo');
+    service = new MimoTranslationService() as any;
   } else {
     service = new DeepSeekTranslationService();
   }
