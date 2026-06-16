@@ -311,7 +311,17 @@ export async function translateUrl(input: TranslateUrlInput): Promise<TranslateU
 
   // 用 <base> 标签让浏览器原生解析相对 URL，避免手动遍历 DOM
   // 优先更新已有的 <base>，否则在最前面插入一个新的
-  const baseUrl = page.finalUrl.replace(/\/?$/, '/');
+  // base href 必须是目录级别（以 / 结尾），否则相对路径会拼接到文件名后面。
+  // 对于有扩展名的文件 URL（如 .html），取父目录；对于无扩展名的路由 URL，保留路径并加 /。
+  const cleanUrl = page.finalUrl.split('?')[0].split('#')[0];
+  let baseUrl: string;
+  if (cleanUrl.endsWith('/')) {
+    baseUrl = cleanUrl;
+  } else if (/\.[a-zA-Z0-9]{1,10}$/.test(cleanUrl)) {
+    baseUrl = new URL('.', cleanUrl).href;
+  } else {
+    baseUrl = cleanUrl + '/';
+  }
   const existingBase = page.doc.querySelector('head > base');
   if (existingBase) {
     existingBase.setAttribute('href', baseUrl);
