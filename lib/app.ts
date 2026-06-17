@@ -249,26 +249,36 @@ ${items ? `<ul>${items}</ul>` : '<p class="empty">暂无翻译记录</p>'}
   });
 
   // ── POST /fanyi/page ─────────────────────────────────
-  // 浏览器扩展代理：接收扩展传来的预标记 HTML，使用扩展提供的 DeepSeek API Key
-  // 调用 DeepSeek 翻译，强制返回 bilingual 双语对照 HTML。
+  // 浏览器扩展代理：接收扩展传来的预标记 HTML，返回 bilingual 双语对照 HTML。
+  // service 可选 deepseek / openrouter / nvidia / cloudflare：
+  //   - 选择 deepseek 时，必须提供 apiKey，服务端用此 Key 调用 DeepSeek；
+  //   - 选择其他 service 时，使用服务端配置的对应 Key。
   // 用于绕过 Cloudflare Challenge 等反爬场景——扩展在真实浏览器中拿到 HTML，
-  // 传给服务端翻译，服务端不再直接 fetch 目标 URL，也不使用服务端配置的 API Key。
+  // 传给服务端翻译，服务端不再直接 fetch 目标 URL。
   app.post('/fanyi/page', async (c) => {
     const body = await c.req.json().catch(() => ({} as any));
-    const { html, url, apiKey } = body;
+    const { html, url } = body;
     if (!html || typeof html !== 'string' || html.length === 0) {
       return c.json({ error: 'html is required' }, 400);
     }
     if (!url || typeof url !== 'string') {
       return c.json({ error: 'url is required' }, 400);
     }
-    if (!apiKey || typeof apiKey !== 'string') {
-      return c.json({ error: 'apiKey is required' }, 400);
+
+    // /fanyi/page 固定为 bilingual 模式
+    const mode = 'bilingual' as const;
+
+    const service = body.service || c.req.query('service') || 'deepseek';
+    const VALID_SERVICES = ['deepseek', 'openrouter', 'nvidia', 'cloudflare'];
+    if (!VALID_SERVICES.includes(service)) {
+      return c.json({ error: 'service must be one of deepseek, openrouter, nvidia, cloudflare' }, 400);
     }
 
-    // /fanyi/page 固定为 bilingual 模式 + DeepSeek 服务
-    const mode = 'bilingual' as const;
-    const service = 'deepseek' as const;
+    // deepseek 必须提供 apiKey（客户端 Key），其他 service 使用服务端 Key
+    const apiKey = body.apiKey;
+    if (service === 'deepseek' && (!apiKey || typeof apiKey !== 'string')) {
+      return c.json({ error: 'apiKey is required' }, 400);
+    }
 
     const source = body.source || c.req.query('source');
     const target = body.target || c.req.query('target') || 'zh';
