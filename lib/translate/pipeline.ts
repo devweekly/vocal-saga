@@ -215,7 +215,8 @@ export interface TranslateUrlInput {
   target?: string;
   mode?: 'bilingual';
   glossary?: Glossary;
-  service?: 'deepseek' | 'openrouter' | 'nvidia' | 'cloudflare' | 'mimo';
+  /** LLM 提供方，统一字段名 provider（避免与 TranslationService 类混淆） */
+  provider?: 'deepseek' | 'openrouter' | 'nvidia' | 'cloudflare' | 'mimo';
   model?: string;
 }
 
@@ -237,7 +238,8 @@ export interface TranslateHtmlInput {
   target?: string;
   mode?: 'bilingual';
   glossary?: Glossary;
-  service?: 'deepseek' | 'openrouter' | 'nvidia' | 'cloudflare' | 'mimo';
+  /** LLM 提供方，统一字段名 provider（避免与 TranslationService 类混淆） */
+  provider?: 'deepseek' | 'openrouter' | 'nvidia' | 'cloudflare' | 'mimo';
   model?: string;
   /** 客户端传入的 DeepSeek API Key（/fanyi/page 使用） */
   apiKey?: string;
@@ -249,7 +251,7 @@ async function runTranslationPipeline(
   sourceLang: string,
   targetLang: string,
   mode: 'bilingual',
-  serviceType: 'deepseek' | 'openrouter' | 'nvidia' | 'cloudflare' | 'mimo',
+  provider: 'deepseek' | 'openrouter' | 'nvidia' | 'cloudflare' | 'mimo',
   model: string | undefined,
   glossary: Glossary | undefined,
   existingBlocks?: TextBlock[],
@@ -282,18 +284,18 @@ async function runTranslationPipeline(
     console.log(`[Pipeline] Extracted ${blocks.length} blocks → ${chunks.length} chunks`);
   }
 
-  // 根据 service 参数选择翻译服务
+  // 根据 provider 选择翻译服务实例（局部变量 service 指 TranslationService 实例）
   let service: DeepSeekTranslationService;
-  if (serviceType === 'openrouter') {
+  if (provider === 'openrouter') {
     const { OpenRouterTranslationService } = await import('./service/openrouter');
     service = new OpenRouterTranslationService() as any;
-  } else if (serviceType === 'nvidia') {
+  } else if (provider === 'nvidia') {
     const { NvidiaTranslationService } = await import('./service/nvidia');
     service = new NvidiaTranslationService(model) as any;
-  } else if (serviceType === 'cloudflare') {
+  } else if (provider === 'cloudflare') {
     const { CloudflareAITranslationService } = await import('./service/cloudflare');
     service = new CloudflareAITranslationService() as any;
-  } else if (serviceType === 'mimo') {
+  } else if (provider === 'mimo') {
     const { MimoTranslationService } = await import('./service/mimo');
     service = new MimoTranslationService() as any;
   } else {
@@ -436,7 +438,7 @@ export async function translateUrl(input: TranslateUrlInput): Promise<TranslateU
     sourceLang,
     targetLang,
     mode,
-    input.service || 'deepseek',
+    input.provider || 'deepseek',
     input.model,
     input.glossary,
   );
@@ -489,7 +491,7 @@ export async function translateHtml(input: TranslateHtmlInput): Promise<Translat
     sourceLang,
     targetLang,
     mode,
-    input.service || 'deepseek',
+    input.provider || 'deepseek',
     input.model,
     input.glossary,
     preExtractedBlocks,

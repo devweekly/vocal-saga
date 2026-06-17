@@ -250,9 +250,9 @@ ${items ? `<ul>${items}</ul>` : '<p class="empty">暂无翻译记录</p>'}
 
   // ── POST /fanyi/page ─────────────────────────────────
   // 浏览器扩展代理：接收扩展传来的预标记 HTML，返回 bilingual 双语对照 HTML。
-  // service 可选 deepseek / openrouter / nvidia / cloudflare：
+  // provider 可选 deepseek / openrouter / nvidia / cloudflare：
   //   - 选择 deepseek 时，必须提供 apiKey，服务端用此 Key 调用 DeepSeek；
-  //   - 选择其他 service 时，使用服务端配置的对应 Key。
+  //   - 选择其他 provider 时，使用服务端配置的对应 Key。
   // 用于绕过 Cloudflare Challenge 等反爬场景——扩展在真实浏览器中拿到 HTML，
   // 传给服务端翻译，服务端不再直接 fetch 目标 URL。
   app.post('/fanyi/page', async (c) => {
@@ -268,15 +268,16 @@ ${items ? `<ul>${items}</ul>` : '<p class="empty">暂无翻译记录</p>'}
     // /fanyi/page 固定为 bilingual 模式
     const mode = 'bilingual' as const;
 
-    const service = body.service || c.req.query('service') || 'deepseek';
-    const VALID_SERVICES = ['deepseek', 'openrouter', 'nvidia', 'cloudflare'];
-    if (!VALID_SERVICES.includes(service)) {
-      return c.json({ error: 'service must be one of deepseek, openrouter, nvidia, cloudflare' }, 400);
+    // provider 字段统一命名（扩展端 / 服务端一致），避免与 TranslationService 类混淆
+    const provider = body.provider || c.req.query('provider') || 'deepseek';
+    const VALID_PROVIDERS = ['deepseek', 'openrouter', 'nvidia', 'cloudflare'];
+    if (!VALID_PROVIDERS.includes(provider)) {
+      return c.json({ error: 'provider must be one of deepseek, openrouter, nvidia, cloudflare' }, 400);
     }
 
-    // deepseek 必须提供 apiKey（客户端 Key），其他 service 使用服务端 Key
+    // deepseek 必须提供 apiKey（客户端 Key），其他 provider 使用服务端 Key
     const apiKey = body.apiKey;
-    if (service === 'deepseek' && (!apiKey || typeof apiKey !== 'string')) {
+    if (provider === 'deepseek' && (!apiKey || typeof apiKey !== 'string')) {
       return c.json({ error: 'apiKey is required' }, 400);
     }
 
@@ -287,7 +288,7 @@ ${items ? `<ul>${items}</ul>` : '<p class="empty">暂无翻译记录</p>'}
     const sourceStored = source && VALID_LANG_RE.test(source) ? source : 'en';
     const targetStored = VALID_LANG_RE.test(target) ? target : 'zh';
 
-    console.log(`[fanyi/page] url=${url} src=${sourceStored} tgt=${targetStored} mode=${mode} html=${html.length} bytes`);
+    console.log(`[fanyi/page] url=${url} src=${sourceStored} tgt=${targetStored} mode=${mode} provider=${provider} html=${html.length} bytes`);
 
     // ── D1 缓存：同 URL+source+target 已存在则直接返回 ──
     const db = (c.env as any)?.DB999;
@@ -321,7 +322,7 @@ ${items ? `<ul>${items}</ul>` : '<p class="empty">暂无翻译记录</p>'}
         source: sourceStored,
         target: targetStored,
         mode,
-        service,
+        provider,
         apiKey,
       });
 
@@ -329,7 +330,7 @@ ${items ? `<ul>${items}</ul>` : '<p class="empty">暂无翻译记录</p>'}
       if (result.translatedBlocks === 0 && result.blocks > 0) {
         return c.json({
           error: 'Translation produced no results',
-          detail: `${result.blocks} blocks extracted but 0 translated — service may be unavailable or prompt was filtered`,
+          detail: `${result.blocks} blocks extracted but 0 translated — provider may be unavailable or prompt was filtered`,
         }, 500);
       }
 
@@ -408,10 +409,10 @@ ${items ? `<ul>${items}</ul>` : '<p class="empty">暂无翻译记录</p>'}
   /**
    * 公共翻译 handler，供 /translate/*、/s/*、/force/*、/openrt/*、/nvd/* 使用。
    * @param force 跳过 D1 缓存，强制重新翻译并覆盖写入
-   * @param service 翻译服务：'deepseek'（默认）、'openrouter' 或 'nvidia'
+   * @param provider LLM 提供方：'deepseek'（默认）、'openrouter'、'nvidia'、'cloudflare'、'mimo'
    * @param model 可选模型名（用于 NVIDIA 等多模型服务）
    */
-  async function handleTranslateRequest(c: any, rawPath: string, force = false, service: 'deepseek' | 'openrouter' | 'nvidia' | 'cloudflare' | 'mimo' = 'deepseek', model?: string) {
+  async function handleTranslateRequest(c: any, rawPath: string, force = false, provider: 'deepseek' | 'openrouter' | 'nvidia' | 'cloudflare' | 'mimo' = 'deepseek', model?: string) {
     if (!rawPath) {
       return c.json({ error: 'target url is required in path' }, 400);
     }
@@ -476,7 +477,7 @@ ${items ? `<ul>${items}</ul>` : '<p class="empty">暂无翻译记录</p>'}
         source,
         target,
         mode,
-        service,
+        provider,
         model,
       });
       console.log(`[translate/url-page] blocks=${result.blocks} translated=${result.translatedBlocks} chunks=${result.chunks} duration=${result.duration_ms}ms`);
@@ -602,7 +603,7 @@ ${items ? `<ul>${items}</ul>` : '<p class="empty">暂无翻译记录</p>'}
   // ── OpenRouter 免费模型翻译：使用 openrouter/free ──────────
   app.get('/openrt/*', (c) => {
     const raw = decodeURIComponent(c.req.path.slice('/openrt/'.length));
-    return handleTranslateRequest(c, raw, /* force */ false, /* service */ 'openrouter');
+    return handleTranslateRequest(c, raw, /* force */ false, /* provider */ 'openrouter');
   });
 
   // ── NVIDIA 翻译：使用 build.nvidia.com ──────────
@@ -620,13 +621,13 @@ ${items ? `<ul>${items}</ul>` : '<p class="empty">暂无翻译记录</p>'}
       urlPath = raw.slice('qwen/'.length);
       model = 'qwen/qwen3-next-80b-a3b-instruct';
     }
-    return handleTranslateRequest(c, urlPath, /* force */ false, /* service */ 'nvidia', model);
+    return handleTranslateRequest(c, urlPath, /* force */ false, /* provider */ 'nvidia', model);
   });
 
   // ── MiMo 翻译：使用 MiMo Auto 免费 API ──────────
   app.get('/mimo/*', (c) => {
     const raw = decodeURIComponent(c.req.path.slice('/mimo/'.length));
-    return handleTranslateRequest(c, raw, /* force */ false, /* service */ 'mimo');
+    return handleTranslateRequest(c, raw, /* force */ false, /* provider */ 'mimo');
   });
 
   // ── Cloudflare AI 翻译：使用 CF Workers AI 的免费模型 ──────────
@@ -639,7 +640,7 @@ ${items ? `<ul>${items}</ul>` : '<p class="empty">暂无翻译记录</p>'}
     // 设置模块级 AI binding
     const { setAI } = await import('./config');
     setAI(ai);
-    return handleTranslateRequest(c, raw, /* force */ false, /* service */ 'cloudflare');
+    return handleTranslateRequest(c, raw, /* force */ false, /* provider */ 'cloudflare');
   });
 
   // ── 原始页面：抓取 URL 并返回原始 HTML，不做翻译 ──────────

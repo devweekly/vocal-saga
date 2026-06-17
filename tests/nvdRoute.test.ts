@@ -7,8 +7,8 @@ import { describe, it, expect, beforeAll, beforeEach, vi } from 'vitest';
 
 // mock pipeline
 vi.mock('../lib/translate/pipeline', () => ({
-  translateUrl: vi.fn(async (args: { url: string; mode: string; service: string }) => ({
-    html: `<html><body>nvidia: ${args.url} (${args.service})</body></html>`,
+  translateUrl: vi.fn(async (args: { url: string; mode: string; provider: string }) => ({
+    html: `<html><body>nvidia: ${args.url} (${args.provider})</body></html>`,
     blocks: 3,
     chunks: 1,
     duration_ms: 50,
@@ -53,20 +53,20 @@ describe('GET /nvd/<target> — NVIDIA kimi-k2.6 (default)', () => {
     expect(res.headers.get('Content-Type')).toBe('text/html; charset=utf-8');
   });
 
-  it('uses nvidia service', async () => {
+  it('uses nvidia provider', async () => {
     const app = buildApp();
     await app.request(req('/nvd/example.com'));
     const { translateUrl } = await import('../lib/translate/pipeline');
     const call = (translateUrl as any).mock.calls[0][0];
-    expect(call.service).toBe('nvidia');
+    expect(call.provider).toBe('nvidia');
   });
 
-  it('uses nvidia service', async () => {
+  it('uses nvidia provider', async () => {
     const app = buildApp();
     await app.request(req('/nvd/example.com'));
     const { translateUrl } = await import('../lib/translate/pipeline');
     const call = (translateUrl as any).mock.calls[0][0];
-    expect(call.service).toBe('nvidia');
+    expect(call.provider).toBe('nvidia');
   });
 
   it('uses default model (kimi-k2.6) when no qwen prefix', async () => {
@@ -123,12 +123,12 @@ describe('GET /nvd/qwen/<target> — NVIDIA qwen/qwen3-next-80b-a3b-instruct', (
     expect(res.status).toBe(200);
   });
 
-  it('uses nvidia service with qwen model', async () => {
+  it('uses nvidia provider with qwen model', async () => {
     const app = buildApp();
     await app.request(req('/nvd/qwen/example.com'));
     const { translateUrl } = await import('../lib/translate/pipeline');
     const call = (translateUrl as any).mock.calls[0][0];
-    expect(call.service).toBe('nvidia');
+    expect(call.provider).toBe('nvidia');
     expect(call.model).toBe('qwen/qwen3-next-80b-a3b-instruct');
   });
 
@@ -156,12 +156,12 @@ describe('GET /nvd/deepseek/<target> — NVIDIA deepseek-ai/deepseek-v4-flash', 
     expect(res.status).toBe(200);
   });
 
-  it('uses nvidia service with deepseek model', async () => {
+  it('uses nvidia provider with deepseek model', async () => {
     const app = buildApp();
     await app.request(req('/nvd/deepseek/example.com'));
     const { translateUrl } = await import('../lib/translate/pipeline');
     const call = (translateUrl as any).mock.calls[0][0];
-    expect(call.service).toBe('nvidia');
+    expect(call.provider).toBe('nvidia');
     expect(call.model).toBe('deepseek-ai/deepseek-v4-flash');
   });
 

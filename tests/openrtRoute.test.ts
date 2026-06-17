@@ -7,8 +7,8 @@
 import { describe, it, expect, beforeAll, beforeEach, vi } from 'vitest';
 
 vi.mock('../lib/translate/pipeline', () => ({
-  translateUrl: vi.fn(async (args: { url: string; mode: string; service: string }) => ({
-    html: `<html><body>openrouter: ${args.url} (${args.service})</body></html>`,
+  translateUrl: vi.fn(async (args: { url: string; mode: string; provider: string }) => ({
+    html: `<html><body>openrouter: ${args.url} (${args.provider})</body></html>`,
     blocks: 3,
     chunks: 1,
     duration_ms: 50,
@@ -84,20 +84,20 @@ describe('GET /openrt/<target> — OpenRouter free model', () => {
     expect(res.headers.get('Content-Type')).toBe('text/html; charset=utf-8');
   });
 
-  it('uses openrouter service', async () => {
+  it('uses openrouter provider', async () => {
     const app = buildApp();
     await app.request(req('/openrt/example.com'));
     const { translateUrl } = await import('../lib/translate/pipeline');
     const call = (translateUrl as any).mock.calls[0][0];
-    expect(call.service).toBe('openrouter');
+    expect(call.provider).toBe('openrouter');
   });
 
-  it('uses openrouter service', async () => {
+  it('uses openrouter provider', async () => {
     const app = buildApp();
     await app.request(req('/openrt/example.com'));
     const { translateUrl } = await import('../lib/translate/pipeline');
     const call = (translateUrl as any).mock.calls[0][0];
-    expect(call.service).toBe('openrouter');
+    expect(call.provider).toBe('openrouter');
   });
 
   it('returns translated HTML', async () => {
