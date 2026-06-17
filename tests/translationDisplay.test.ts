@@ -45,25 +45,6 @@ describe('applyBlockTranslation', () => {
     });
   });
 
-  describe('target mode', () => {
-    it('hides original and shows translation in spans', () => {
-      const p = createP('Hello world');
-      applyBlockTranslation(p, '你好世界', 'target');
-
-      expect(p.classList.contains('fanyi-translated')).toBe(true);
-      expect(p.dataset.originalText).toBe('Hello world');
-
-      const originalSpan = p.querySelector('.fanyi-original') as HTMLElement;
-      const translationSpan = p.querySelector('.fanyi-translation');
-
-      expect(originalSpan).not.toBeNull();
-      expect(translationSpan).not.toBeNull();
-      expect(originalSpan.style.display).toBe('none');
-      expect(originalSpan.textContent).toBe('Hello world');
-      expect(translationSpan?.textContent).toBe('你好世界');
-    });
-  });
-
   describe('DOM preservation (regression for link/formatting breakage)', () => {
     it('bilingual: preserves nested <a> links and keeps them clickable', () => {
       const p = document.createElement('p');
@@ -84,21 +65,6 @@ describe('applyBlockTranslation', () => {
       expect(translation?.textContent).toBe('请阅读本指南');
     });
 
-    it('target: preserves nested <a> links and hides the original span', () => {
-      const p = document.createElement('p');
-      p.innerHTML = 'Read <a href="https://example.com">this guide</a> please';
-      const originalLink = p.querySelector('a')!;
-
-      applyBlockTranslation(p, '请阅读本指南', 'target');
-
-      const linkAfter = p.querySelector('.fanyi-original a');
-      expect(linkAfter).not.toBeNull();
-      expect(linkAfter).toBe(originalLink);
-      // Original span is hidden in target mode; link lives inside it.
-      const originalSpan = p.querySelector('.fanyi-original') as HTMLElement;
-      expect(originalSpan.style.display).toBe('none');
-    });
-
     it('bilingual: preserves <strong>, <em>, <code> children', () => {
       const p = document.createElement('p');
       p.innerHTML = 'Click <strong>here</strong> or <em>there</em> for <code>code</code>';
@@ -111,16 +77,6 @@ describe('applyBlockTranslation', () => {
       expect(original.querySelector('code')?.textContent).toBe('code');
     });
 
-    it('target: original span is hidden but children still exist', () => {
-      const p = document.createElement('p');
-      p.innerHTML = 'Hello <strong>world</strong>';
-
-      applyBlockTranslation(p, '你好世界', 'target');
-
-      const original = p.querySelector('.fanyi-original') as HTMLElement;
-      expect(original.querySelector('strong')?.textContent).toBe('world');
-      expect(original.style.display).toBe('none');
-    });
   });
 });
 
@@ -132,17 +88,6 @@ describe('restoreBlock', () => {
   it('restores original text and removes spans in bilingual mode', () => {
     const p = createP('Hello world');
     applyBlockTranslation(p, '你好世界', 'bilingual');
-    restoreBlock(p);
-
-    expect(p.textContent).toBe('Hello world');
-    expect(p.classList.contains('fanyi-translated')).toBe(false);
-    expect(p.querySelector('.fanyi-translation')).toBeNull();
-    expect(p.querySelector('.fanyi-original')).toBeNull();
-  });
-
-  it('restores original text and removes spans in target mode', () => {
-    const p = createP('Hello world');
-    applyBlockTranslation(p, '你好世界', 'target');
     restoreBlock(p);
 
     expect(p.textContent).toBe('Hello world');
@@ -176,17 +121,6 @@ describe('restoreBlock', () => {
     expect(p.querySelector('.fanyi-translation')).toBeNull();
   });
 
-  it('target: restores nested children after restore', () => {
-    const p = document.createElement('p');
-    p.innerHTML = 'Hello <strong>world</strong>';
-
-    applyBlockTranslation(p, '你好世界', 'target');
-    restoreBlock(p);
-
-    expect(p.querySelector('strong')?.textContent).toBe('world');
-    expect(p.children.length).toBe(1);
-    expect(p.children[0].tagName).toBe('STRONG');
-  });
 });
 
 describe('toggleBlockTranslation', () => {
@@ -216,12 +150,6 @@ describe('toggleBlockTranslation', () => {
     expect(translationSpan.style.display).toBe('');
   });
 
-  it('does nothing in target mode (no translation span)', () => {
-    const p = createP('Hello world');
-    applyBlockTranslation(p, '你好世界', 'target');
-
-    expect(() => toggleBlockTranslation(p)).not.toThrow();
-  });
 });
 
 describe('full workflow', () => {
@@ -244,19 +172,6 @@ describe('full workflow', () => {
 
     restoreBlock(p);
     expect(p.textContent).toBe('Hello world');
-    expect(p.querySelector('.fanyi-translation')).toBeNull();
-  });
-
-  it('target: apply → restore', () => {
-    const p = createP('Hello world');
-    document.body.appendChild(p);
-
-    applyBlockTranslation(p, '你好世界', 'target');
-    expect(p.querySelector('.fanyi-translation')?.textContent).toBe('你好世界');
-
-    restoreBlock(p);
-    expect(p.textContent).toBe('Hello world');
-    expect(p.querySelector('.fanyi-original')).toBeNull();
     expect(p.querySelector('.fanyi-translation')).toBeNull();
   });
 

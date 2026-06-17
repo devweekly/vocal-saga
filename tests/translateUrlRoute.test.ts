@@ -115,12 +115,13 @@ describe('GET /translate/<target> — path parsing', () => {
     expect(call.source).toBeUndefined();
   });
 
-  it('respects explicit mode and target', async () => {
+  it('respects explicit source and target, forces bilingual', async () => {
     const app = buildApp();
     await app.request(req('/translate/example.com?mode=target&target=en&source=zh'));
     const { translateUrl } = await import('../lib/translate/pipeline');
     const call = (translateUrl as any).mock.calls[0][0];
-    expect(call.mode).toBe('target');
+    // 全局只支持 bilingual，客户端传入的 mode=target 被忽略
+    expect(call.mode).toBe('bilingual');
     expect(call.target).toBe('en');
     expect(call.source).toBe('zh');
   });
@@ -139,12 +140,14 @@ describe('GET /translate/<target> — validation', () => {
     expect(res.status).toBe(400);
   });
 
-  it('400 when mode is invalid', async () => {
+  it('ignores invalid mode and uses bilingual', async () => {
     const app = buildApp();
     const res = await app.request(req('/translate/example.com?mode=wat'));
-    expect(res.status).toBe(400);
-    const body = (await res.json()) as { error: string };
-    expect(body.error).toMatch(/bilingual or target/);
+    // mode 不再校验，任何值都被忽略并固定为 bilingual
+    expect(res.status).toBe(200);
+    const { translateUrl } = await import('../lib/translate/pipeline');
+    const call = (translateUrl as any).mock.calls[0][0];
+    expect(call.mode).toBe('bilingual');
   });
 
   it('500 when translateUrl throws', async () => {

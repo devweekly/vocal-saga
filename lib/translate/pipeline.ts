@@ -213,7 +213,7 @@ export interface TranslateUrlInput {
   url: string;
   source?: string;
   target?: string;
-  mode?: 'bilingual' | 'target';
+  mode?: 'bilingual';
   glossary?: Glossary;
   service?: 'deepseek' | 'openrouter' | 'nvidia' | 'cloudflare' | 'mimo';
   model?: string;
@@ -235,10 +235,12 @@ export interface TranslateHtmlInput {
   url: string;
   source?: string;
   target?: string;
-  mode?: 'bilingual' | 'target';
+  mode?: 'bilingual';
   glossary?: Glossary;
   service?: 'deepseek' | 'openrouter' | 'nvidia' | 'cloudflare' | 'mimo';
   model?: string;
+  /** 客户端传入的 DeepSeek API Key（/fanyi/page 使用） */
+  apiKey?: string;
 }
 
 async function runTranslationPipeline(
@@ -246,12 +248,13 @@ async function runTranslationPipeline(
   finalUrl: string,
   sourceLang: string,
   targetLang: string,
-  mode: 'bilingual' | 'target',
+  mode: 'bilingual',
   serviceType: 'deepseek' | 'openrouter' | 'nvidia' | 'cloudflare' | 'mimo',
   model: string | undefined,
   glossary: Glossary | undefined,
   existingBlocks?: TextBlock[],
   existingChunks?: Chunk[],
+  apiKey?: string,
 ): Promise<{ title: string; html: string; blocks: number; translatedBlocks: number; chunks: number }> {
   const title =
     (doc.querySelector('title')?.textContent || '').trim().substring(0, 200) ||
@@ -294,7 +297,7 @@ async function runTranslationPipeline(
     const { MimoTranslationService } = await import('./service/mimo');
     service = new MimoTranslationService() as any;
   } else {
-    service = new DeepSeekTranslationService();
+    service = new DeepSeekTranslationService(apiKey);
   }
   const tTrans = performance.now();
   const translations = await translateChunksWithRetry(
@@ -490,6 +493,8 @@ export async function translateHtml(input: TranslateHtmlInput): Promise<Translat
     input.model,
     input.glossary,
     preExtractedBlocks,
+    undefined,
+    input.apiKey,
   );
 
   return {

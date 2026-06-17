@@ -348,7 +348,7 @@ describe('Glossary API', () => {
 
 // ─── POST /fanyi/page ──────────────────────────────────────
 describe('POST /fanyi/page', () => {
-  it('returns translated HTML when html and url provided', async () => {
+  it('returns translated HTML when html, url and apiKey provided', async () => {
     const app = buildApp();
     const res = await app.request(req('/fanyi/page', {
       method: 'POST',
@@ -356,6 +356,7 @@ describe('POST /fanyi/page', () => {
       body: JSON.stringify({
         html: '<html><head><title>Hello</title></head><body><p>Test</p></body></html>',
         url: 'https://example.com/article',
+        apiKey: 'sk-test-api-key',
       }),
     }));
     expect(res.status).toBe(200);
@@ -388,7 +389,22 @@ describe('POST /fanyi/page', () => {
     expect(body.error).toBe('url is required');
   });
 
-  it('passes source/target/mode/service to translateHtml', async () => {
+  it('returns 400 when apiKey is missing', async () => {
+    const app = buildApp();
+    const res = await app.request(req('/fanyi/page', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        html: '<html><body>test</body></html>',
+        url: 'https://example.com',
+      }),
+    }));
+    expect(res.status).toBe(400);
+    const body: any = await res.json();
+    expect(body.error).toBe('apiKey is required');
+  });
+
+  it('passes apiKey and fixed bilingual/deepseek to translateHtml', async () => {
     const { translateHtml } = await import('../lib/translate/pipeline');
     const app = buildApp();
     await app.request(req('/fanyi/page?source=ja&target=zh&mode=target', {
@@ -397,6 +413,7 @@ describe('POST /fanyi/page', () => {
       body: JSON.stringify({
         html: '<html><body>test</body></html>',
         url: 'https://example.com',
+        apiKey: 'sk-test-api-key',
         service: 'openrouter',
       }),
     }));
@@ -404,8 +421,10 @@ describe('POST /fanyi/page', () => {
     const arg = (translateHtml as any).mock.calls[0][0];
     expect(arg.source).toBe('ja');
     expect(arg.target).toBe('zh');
-    expect(arg.mode).toBe('target');
-    expect(arg.service).toBe('openrouter');
+    // /fanyi/page 固定为 bilingual / deepseek，忽略客户端传入的 mode / service
+    expect(arg.mode).toBe('bilingual');
+    expect(arg.service).toBe('deepseek');
+    expect(arg.apiKey).toBe('sk-test-api-key');
   });
 
   it('returns 500 when translateHtml throws', async () => {
@@ -419,6 +438,7 @@ describe('POST /fanyi/page', () => {
       body: JSON.stringify({
         html: '<html><body>test</body></html>',
         url: 'https://example.com',
+        apiKey: 'sk-test-api-key',
       }),
     }));
     expect(res.status).toBe(500);

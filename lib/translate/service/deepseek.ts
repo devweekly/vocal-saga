@@ -7,10 +7,10 @@ const API_URL = 'https://api.deepseek.com/v1/chat/completions';
 const MODEL = 'deepseek-v4-flash';
 const USER_ID = 'fanyi-extension';
 
-function buildHeaders(): Record<string, string> {
+function buildHeaders(apiKey?: string): Record<string, string> {
   return {
     'Content-Type': 'application/json',
-    Authorization: `Bearer ${getDSApiKey()}`,
+    Authorization: `Bearer ${apiKey || getDSApiKey()}`,
   };
 }
 
@@ -30,9 +30,9 @@ function buildDeepSeekBody(
   };
 }
 
-async function callApi(body: string): Promise<string> {
-  const apiKey = getDSApiKey();
-  if (!apiKey) throw new Error('DeepSeek API key not configured');
+async function callApi(body: string, apiKey?: string): Promise<string> {
+  const key = apiKey || getDSApiKey();
+  if (!key) throw new Error('DeepSeek API key not configured');
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 60_000);
@@ -41,7 +41,7 @@ async function callApi(body: string): Promise<string> {
   try {
     response = await fetch(API_URL, {
       method: 'POST',
-      headers: buildHeaders(),
+      headers: buildHeaders(apiKey),
       body,
       signal: controller.signal,
     });
@@ -86,6 +86,11 @@ async function callApi(body: string): Promise<string> {
 }
 
 export class DeepSeekTranslationService implements TranslationService {
+  private apiKey?: string;
+
+  constructor(apiKey?: string) {
+    this.apiKey = apiKey;
+  }
 
   async translate(
     jsonContent: string,
@@ -95,7 +100,7 @@ export class DeepSeekTranslationService implements TranslationService {
   ): Promise<string> {
     const blocks = JSON.parse(jsonContent);
     const body = buildDeepSeekBody(blocks, sourceLang, targetLang, glossary);
-    const raw = await callApi(JSON.stringify(body));
+    const raw = await callApi(JSON.stringify(body), this.apiKey);
     return raw;
   }
 
@@ -116,7 +121,7 @@ export class DeepSeekTranslationService implements TranslationService {
     try {
       response = await fetch(API_URL, {
         method: 'POST',
-        headers: buildHeaders(),
+        headers: buildHeaders(this.apiKey),
         body: JSON.stringify(body),
         signal: controller.signal,
       });

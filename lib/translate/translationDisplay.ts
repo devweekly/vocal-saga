@@ -1,4 +1,4 @@
-export type TranslationMode = 'bilingual' | 'target';
+export type TranslationMode = 'bilingual';
 
 // =============================================================================
 // Block 模式（默认）：译文作为独立段落插入
@@ -11,10 +11,10 @@ export type TranslationMode = 'bilingual' | 'target';
  * or `node.textContent = translatedText`, which destroyed any nested links,
  * images, inline formatting, etc. — making the original content unclickable.
  *
- * Now we move the existing child nodes into a `.fanyi-original` span (in
- * target mode we additionally hide it), and append a `.fanyi-translation`
- * span alongside. The original DOM tree is preserved untouched and can be
- * restored by moving the children back in `restoreBlock`.
+ * Now we move the existing child nodes into a `.fanyi-original` span, and
+ * append a `.fanyi-translation` span alongside. The original DOM tree is
+ * preserved untouched and can be restored by moving the children back in
+ * `restoreBlock`.
  */
 export function applyBlockTranslation(
   node: HTMLElement,
@@ -43,10 +43,6 @@ export function applyBlockTranslation(
   const translationSpan = doc.createElement('span');
   translationSpan.className = 'fanyi-translation';
   translationSpan.textContent = translatedText;
-
-  if (mode === 'target') {
-    originalSpan.style.display = 'none';
-  }
 
   node.appendChild(originalSpan);
   node.appendChild(translationSpan);
@@ -96,12 +92,7 @@ export function applyInlineTranslation(
   translationSpan.textContent = translatedText;
   textHost.appendChild(translationSpan);
 
-  // 4) target 模式：隐藏原文，只显示译文
-  if (mode === 'target') {
-    originalSpan.style.display = 'none';
-  }
-
-  // 5) 标记宿主
+  // 4) 标记宿主
   node.classList.add('fanyi-translated');
   node.dataset.originalText = originalSpan.textContent || '';
 }

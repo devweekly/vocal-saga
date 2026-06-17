@@ -20,7 +20,7 @@ parseHTML → walker 提取 blocks → chunkBuilder 分块 → LLM 翻译 → �
 
 ```
 POST /fanyi/page
-Body: { html, url, source, target, mode, service }
+Body: { html, url, apiKey, source, target }
 ```
 
 服务端行为分支：
@@ -44,10 +44,13 @@ interface FanyiPageRequest {
   /** 页面原始 URL，用于计算 <base> href 和相对路径解析 */
   url: string;
 
+  /** DeepSeek API Key，服务端用此 Key 调用 DeepSeek API（必填） */
+  apiKey: string;
+
   source?: string;   // 默认 'auto'
   target?: string;   // 默认 'zh'
-  mode?: 'bilingual' | 'target';  // 默认 'bilingual'
-  service?: 'deepseek' | 'openrouter' | 'nvidia' | 'cloudflare' | 'mimo';  // 默认 'deepseek'
+  // mode 固定为 'bilingual'，不接受其他值
+  // service 固定为 'deepseek'，不接受其他值
 }
 ```
 
@@ -57,10 +60,9 @@ interface FanyiPageRequest {
 {
   "html": "<!doctype html><html><body><article><h1 data-fanyi-block-id=\"b1\">How Anthropic Built Multi-Agent</h1><p data-fanyi-block-id=\"b2\">In this post we explore...</p></article></body></html>",
   "url": "https://theaiengineer.substack.com/p/how-anthropic-built-multi-agent-deep",
+  "apiKey": "sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
   "source": "en",
-  "target": "zh",
-  "mode": "bilingual",
-  "service": "deepseek"
+  "target": "zh"
 }
 ```
 
@@ -166,11 +168,13 @@ export async function translateHtml(input: TranslateHtmlInput): Promise<...> {
     input.url,
     sourceLang,
     targetLang,
-    mode,
-    input.service || 'deepseek',
-    input.model,
+    'bilingual',          // /fanyi/page 固定为双语对照模式
+    'deepseek',           // /fanyi/page 固定使用 DeepSeek
+    undefined,
     input.glossary,
     preExtractedBlocks,   // 预提取的 blocks（如果有）
+    undefined,
+    input.apiKey,         // 使用扩展端传入的 DeepSeek API Key
   );
   // ...
 }

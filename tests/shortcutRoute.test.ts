@@ -147,14 +147,15 @@ describe('GET /s/<domain-or-shorthand> — shorthand URL expansion', () => {
     expect(call.source).toBeUndefined();
   });
 
-  it('passes through source, target, mode query params', async () => {
+  it('passes through source and target, forces bilingual', async () => {
     const app = buildApp();
     await app.request(req('/s/example.com/article?source=en&target=fr&mode=target'));
     const { translateUrl } = await import('../lib/translate/pipeline');
     const call = (translateUrl as any).mock.calls[0][0];
     expect(call.source).toBe('en');
     expect(call.target).toBe('fr');
-    expect(call.mode).toBe('target');
+    // mode 被固定为 bilingual，忽略 mode=target
+    expect(call.mode).toBe('bilingual');
   });
 
   // ── 元数据 header ──

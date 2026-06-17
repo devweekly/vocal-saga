@@ -62,6 +62,7 @@ OpenAI-compatible LLM proxy + translation API，部署在 **Cloudflare Workers**
 | `GET /api/v1/models` | ✗ | 模型列表 |
 | `POST /api/v1/chat/completions` | ✓ | LLM 代理 |
 | `GET /api/v1/translate/text` | ✗ | 文本翻译 |
+| `POST /fanyi/page` | ✗ | 浏览器扩展：接收预标记 HTML，返回翻译后的双语 HTML |
 | `GET /translate/<url>` | ✗ | 翻译页面（浏览器直访） |
 | `GET /force/<url>` | ✗ | 强制重新翻译（跳过 D1 缓存） |
 | `GET /openrt/<url>` | ✗ | OpenRouter 免费模型翻译 |

@@ -248,94 +248,36 @@ ${items ? `<ul>${items}</ul>` : '<p class="empty">暂无翻译记录</p>'}
     }
   });
 
-  // ── POST /fanyi ───────────────────────────────────────
-  // fanyi-extension 代理：接收浏览器扩展的翻译请求，直接转发给 DeepSeek API，
-  // 不做任何额外处理（不鉴权、不改 prompt、不改参数）。
-  // 需要 DEEPSEEK_API_KEY 环境变量或 wrangler secret。
-  app.post('/fanyi', async (c) => {
-    const body = await c.req.json().catch(() => ({} as any));
-    const { stream, messages } = body;
-    if (!messages || !Array.isArray(messages) || messages.length === 0) {
-      return c.json({ error: 'messages is required' }, 400);
-    }
-    if (!getDSApiKey()) {
-      return c.json({ error: 'DeepSeek not configured' }, 500);
-    }
-
-    console.log(`[fanyi] stream=${!!stream} msgs=${messages.length}`);
-
-    const startedAt = Date.now();
-    try {
-      const upstream = await fetch(`${DS_BASE}/v1/chat/completions`, {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${getDSApiKey()}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(body),
-      });
-
-      const latency = Date.now() - startedAt;
-
-      if (!upstream.ok) {
-        const errText = await upstream.text();
-        console.error(`[fanyi] status=${upstream.status} latency=${latency}ms err=${errText}`);
-        return c.json(
-          { error: 'Upstream DeepSeek error', detail: errText },
-          upstream.status as 400 | 401 | 403 | 404 | 429 | 500 | 502 | 503
-        );
-      }
-
-      if (stream && upstream.body) {
-        console.log(`[fanyi] status=${upstream.status} latency=${latency}ms stream=started`);
-        return new Response(upstream.body, {
-          status: 200,
-          headers: {
-            'Content-Type': 'text/event-stream',
-            'Cache-Control': 'no-cache',
-            'Connection': 'keep-alive',
-            'X-Accel-Buffering': 'no',
-          },
-        });
-      }
-
-      // 非流式：透传完整 JSON 响应
-      const data = (await upstream.json()) as Record<string, any>;
-      const usage = data.usage;
-      console.log(`[fanyi] status=${upstream.status} latency=${latency}ms` +
-        (usage ? ` tokens_in=${usage.prompt_tokens} tokens_out=${usage.completion_tokens}` : ''));
-      return c.json(data);
-    } catch (err) {
-      console.error(`[fanyi] error="${(err as Error).message}" latency=${Date.now() - startedAt}ms`);
-      return c.json({ error: 'Upstream request failed', detail: (err as Error).message }, 502);
-    }
-  });
-
   // ── POST /fanyi/page ─────────────────────────────────
-  // 浏览器扩展代理：接收扩展传来的原始 HTML，直接翻译后返回。
+  // 浏览器扩展代理：接收扩展传来的预标记 HTML，使用扩展提供的 DeepSeek API Key
+  // 调用 DeepSeek 翻译，强制返回 bilingual 双语对照 HTML。
   // 用于绕过 Cloudflare Challenge 等反爬场景——扩展在真实浏览器中拿到 HTML，
-  // 传给服务端翻译，服务端不再直接 fetch 目标 URL。
+  // 传给服务端翻译，服务端不再直接 fetch 目标 URL，也不使用服务端配置的 API Key。
   app.post('/fanyi/page', async (c) => {
     const body = await c.req.json().catch(() => ({} as any));
-    const { html, url } = body;
+    const { html, url, apiKey } = body;
     if (!html || typeof html !== 'string' || html.length === 0) {
       return c.json({ error: 'html is required' }, 400);
     }
     if (!url || typeof url !== 'string') {
       return c.json({ error: 'url is required' }, 400);
     }
+    if (!apiKey || typeof apiKey !== 'string') {
+      return c.json({ error: 'apiKey is required' }, 400);
+    }
+
+    // /fanyi/page 固定为 bilingual 模式 + DeepSeek 服务
+    const mode = 'bilingual' as const;
+    const service = 'deepseek' as const;
 
     const source = body.source || c.req.query('source');
     const target = body.target || c.req.query('target') || 'zh';
-    const mode = body.mode || c.req.query('mode') || 'bilingual';
-    const service = body.service || 'deepseek';
 
     const VALID_LANG_RE = /^(auto|[a-zA-Z]{2,3})(-[a-zA-Z]{2,3})?$/;
     const sourceStored = source && VALID_LANG_RE.test(source) ? source : 'en';
     const targetStored = VALID_LANG_RE.test(target) ? target : 'zh';
-    const modeStored = mode === 'bilingual' || mode === 'target' ? mode : 'bilingual';
 
-    console.log(`[fanyi/page] url=${url} src=${sourceStored} tgt=${targetStored} mode=${modeStored} html=${html.length} bytes`);
+    console.log(`[fanyi/page] url=${url} src=${sourceStored} tgt=${targetStored} mode=${mode} html=${html.length} bytes`);
 
     try {
       const result = await translateHtml({
@@ -343,8 +285,9 @@ ${items ? `<ul>${items}</ul>` : '<p class="empty">暂无翻译记录</p>'}
         url,
         source: sourceStored,
         target: targetStored,
-        mode: modeStored,
+        mode,
         service,
+        apiKey,
       });
 
       return new Response(result.html, {
@@ -421,7 +364,8 @@ ${items ? `<ul>${items}</ul>` : '<p class="empty">暂无翻译记录</p>'}
 
     const source = c.req.query('source');
     const target = c.req.query('target') || 'zh';
-    const mode = c.req.query('mode') || 'bilingual';
+    // 全局只支持双语对照模式
+    const mode = 'bilingual' as const;
 
     // source / target 必须是合法语言代码（auto、ISO 639-1/2 字母码、或带区域子标签）
     const VALID_LANG_RE = /^(auto|[a-zA-Z]{2,3})(-[a-zA-Z]{2,3})?$/;
@@ -437,9 +381,6 @@ ${items ? `<ul>${items}</ul>` : '<p class="empty">暂无翻译记录</p>'}
     if (parsed.protocol !== 'https:') {
       // 强制 https（用户输入 http:// 也强制升 https，避免明文抓取）
       return c.json({ error: 'url must be https' }, 400);
-    }
-    if (mode !== 'bilingual' && mode !== 'target') {
-      return c.json({ error: 'mode must be bilingual or target' }, 400);
     }
     console.log(`[translate/url-page] url=${url} src=${sourceStored} tgt=${targetStored} mode=${mode} force=${force}`);
 
@@ -474,7 +415,7 @@ ${items ? `<ul>${items}</ul>` : '<p class="empty">暂无翻译记录</p>'}
         url,
         source,
         target,
-        mode: mode as 'bilingual' | 'target',
+        mode,
         service,
         model,
       });
@@ -562,9 +503,9 @@ ${items ? `<ul>${items}</ul>` : '<p class="empty">暂无翻译记录</p>'}
    *   - /translate/https%3A%2F%2Fx.com%2Fy  → https://x.com/y （含 scheme 的 URL 自动剥）
    *
    * Query params（可选）：
-   *   - source / target: ISO 代码，默认 auto / zh
-   *   - mode: bilingual（默认）| target（仅译）
-   *
+ *   - source / target: ISO 代码，默认 auto / zh
+ *   - mode: 已废弃，全局固定为 bilingual
+ *
    * Auth: 故意不校验。原因：浏览器直访是核心使用场景，Authorization header
    *       没法在地址栏导航时附带。这个端点等同于「公开代理」，信任部署在
    *       自己域上、需要谨慎开放（建议加 Cloudflare Access / WAF 限流）。
