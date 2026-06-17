@@ -279,6 +279,31 @@ ${items ? `<ul>${items}</ul>` : '<p class="empty">暂无翻译记录</p>'}
 
     console.log(`[fanyi/page] url=${url} src=${sourceStored} tgt=${targetStored} mode=${mode} html=${html.length} bytes`);
 
+    // ── D1 缓存：同 URL+source+target 已存在则直接返回 ──
+    const db = (c.env as any)?.DB999;
+    const cacheKey = cacheKeyUrl(url);
+    if (db) {
+      try {
+        const existing: any = await db.prepare(
+          'SELECT html FROM translations WHERE url = ? AND source_lang = ? AND target_lang = ? LIMIT 1'
+        ).bind(cacheKey, sourceStored, targetStored).first();
+        if (existing) {
+          console.log(`[fanyi/page] D1 cache hit for ${url}`);
+          return new Response(existing.html, {
+            status: 200,
+            headers: {
+              'Content-Type': 'text/html; charset=utf-8',
+              'Cache-Control': 'public, max-age=3600',
+              'X-Translate-Source': 'd1-cache',
+            },
+          });
+        }
+      } catch (e) {
+        console.error('[D1] lookup error:', e);
+        // 查询失败不阻塞翻译，继续走正常流程
+      }
+    }
+
     try {
       const result = await translateHtml({
         html,
@@ -289,6 +314,31 @@ ${items ? `<ul>${items}</ul>` : '<p class="empty">暂无翻译记录</p>'}
         service,
         apiKey,
       });
+
+      // 翻译 0 个 block → 不缓存 D1，直接返回错误
+      if (result.translatedBlocks === 0 && result.blocks > 0) {
+        return c.json({
+          error: 'Translation produced no results',
+          detail: `${result.blocks} blocks extracted but 0 translated — service may be unavailable or prompt was filtered`,
+        }, 500);
+      }
+
+      // 写入 D1：SQLite UPSERT，www 和非 www 共享同一缓存
+      if (db) {
+        try {
+          await db.prepare(`
+            INSERT INTO translations (url, title, source_lang, target_lang, html)
+            VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(url, source_lang, target_lang)
+            DO UPDATE SET
+              title = excluded.title,
+              html = excluded.html,
+              created_at = CURRENT_TIMESTAMP
+          `).bind(cacheKey, result.title || '', sourceStored, targetStored, result.html).run();
+        } catch (e) {
+          console.error('[D1] save error:', e);
+        }
+      }
 
       return new Response(result.html, {
         status: 200,

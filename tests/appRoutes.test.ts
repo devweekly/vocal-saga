@@ -59,6 +59,76 @@ function req(path: string, init?: RequestInit): Request {
   return new Request(`http://test${path}`, init || {});
 }
 
+// ── mock D1 ──────────────────────────────────────────────────
+interface MockRow {
+  id: number;
+  url: string;
+  title: string;
+  source_lang: string;
+  target_lang: string;
+  html: string;
+  created_at: string;
+}
+
+function createMockDb() {
+  const rows: MockRow[] = [];
+  let nextId = 1;
+
+  return {
+    _rows: rows,
+    prepare: (_sql: string) => {
+      const sql = _sql;
+      return {
+        bind: (...args: any[]) => ({
+          run: async () => {
+            if (sql.trim().startsWith('INSERT')) {
+              const url = args[0] as string;
+              const title = args[1] as string;
+              const sourceLang = args[2] as string;
+              const targetLang = args[3] as string;
+              const html = args[4] as string;
+              const idx = rows.findIndex(
+                (r) => r.url === url && r.source_lang === sourceLang && r.target_lang === targetLang,
+              );
+              if (idx >= 0) {
+                rows[idx].title = title;
+                rows[idx].html = html;
+                rows[idx].created_at = new Date().toISOString();
+              } else {
+                rows.push({
+                  id: nextId++,
+                  url,
+                  title,
+                  source_lang: sourceLang,
+                  target_lang: targetLang,
+                  html,
+                  created_at: new Date().toISOString(),
+                });
+              }
+            }
+            return { results: rows, success: true };
+          },
+          first: async () => {
+            if (sql.includes('WHERE url = ? AND source_lang = ? AND target_lang = ?')) {
+              const [url, sourceLang, targetLang] = args;
+              return (
+                rows.find(
+                  (r) => r.url === url && r.source_lang === sourceLang && r.target_lang === targetLang,
+                ) || null
+              );
+            }
+            return null;
+          },
+        }),
+      };
+    },
+  };
+}
+
+function envWithDb(db: any): object {
+  return { DB999: db };
+}
+
 // ─── GET /api/hello ──────────────────────────────────────────
 describe('GET /api/hello', () => {
   it('returns default greeting', async () => {
@@ -444,5 +514,66 @@ describe('POST /fanyi/page', () => {
     expect(res.status).toBe(500);
     const body: any = await res.json();
     expect(body.error).toBe('translation failed');
+  });
+
+  it('returns D1 cache directly when url+source+target exists', async () => {
+    const { translateHtml } = await import('../lib/translate/pipeline');
+    const db = createMockDb();
+    db._rows.push({
+      id: 1,
+      url: 'https://example.com',
+      title: 'Cached',
+      source_lang: 'en',
+      target_lang: 'zh',
+      html: '<html><body>cached from d1</body></html>',
+      created_at: new Date().toISOString(),
+    });
+
+    const app = buildApp();
+    const res = await app.request(
+      req('/fanyi/page', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          html: '<html><body>new</body></html>',
+          url: 'https://example.com',
+          apiKey: 'sk-test-api-key',
+        }),
+      }),
+      {},
+      envWithDb(db),
+    );
+    expect(res.status).toBe(200);
+    expect(res.headers.get('X-Translate-Source')).toBe('d1-cache');
+    const html = await res.text();
+    expect(html).toBe('<html><body>cached from d1</body></html>');
+    expect(translateHtml).not.toHaveBeenCalled();
+  });
+
+  it('saves translation result to D1 when cache miss', async () => {
+    const { translateHtml } = await import('../lib/translate/pipeline');
+    const db = createMockDb();
+
+    const app = buildApp();
+    const res = await app.request(
+      req('/fanyi/page', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          html: '<html><body>new</body></html>',
+          url: 'https://example.com',
+          apiKey: 'sk-test-api-key',
+        }),
+      }),
+      {},
+      envWithDb(db),
+    );
+    expect(res.status).toBe(200);
+    expect(translateHtml).toHaveBeenCalledOnce();
+    expect(db._rows).toHaveLength(1);
+    expect(db._rows[0].url).toBe('https://example.com');
+    expect(db._rows[0].source_lang).toBe('en');
+    expect(db._rows[0].target_lang).toBe('zh');
+    expect(db._rows[0].html).toContain('translated');
   });
 });
