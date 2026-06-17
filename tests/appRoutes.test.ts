@@ -472,7 +472,7 @@ describe('POST /fanyi/page', () => {
     }));
     expect(res.status).toBe(400);
     const body: any = await res.json();
-    expect(body.error).toBe('apiKey is required when service is deepseek');
+    expect(body.error).toBe('apiKey is required');
   });
 
   it('allows non-deepseek service without apiKey', async () => {
