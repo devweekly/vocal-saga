@@ -8,6 +8,7 @@ import { describe, it, expect, beforeAll, beforeEach, afterEach, vi } from 'vite
 vi.mock('../lib/translate/pipeline', () => ({
   translateUrl: vi.fn(),
   translateText: vi.fn(),
+  translateHtml: vi.fn(),
 }));
 
 vi.mock('../lib/translate/glossaryStore', () => ({
@@ -33,12 +34,17 @@ beforeAll(() => {
 
 beforeEach(async () => {
   setDefaultStorage(new MapStorage('test:app-routes-' + Math.random().toString(36).slice(2)));
-  const { translateUrl, translateText } = await import('../lib/translate/pipeline');
-  mockClearAll(translateUrl, translateText);
+  const { translateUrl, translateText, translateHtml } = await import('../lib/translate/pipeline');
+  mockClearAll(translateUrl, translateText, translateHtml);
   (translateUrl as any).mockResolvedValue({
     html: '<html><body>ok</body></html>',
     title: 'Test',
     blocks: 1, chunks: 1, duration_ms: 10,
+  });
+  (translateHtml as any).mockResolvedValue({
+    html: '<html><body>translated</body></html>',
+    title: 'Translated',
+    blocks: 2, chunks: 1, duration_ms: 20,
   });
 
   const gs = await import('../lib/translate/glossaryStore');
@@ -337,5 +343,86 @@ describe('Glossary API', () => {
     const app = buildApp();
     const res = await app.request(req('/api/nonexistent'));
     expect(res.status).toBe(404);
+  });
+});
+
+// ─── POST /fanyi/page ──────────────────────────────────────
+describe('POST /fanyi/page', () => {
+  it('returns translated HTML when html and url provided', async () => {
+    const app = buildApp();
+    const res = await app.request(req('/fanyi/page', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        html: '<html><head><title>Hello</title></head><body><p>Test</p></body></html>',
+        url: 'https://example.com/article',
+      }),
+    }));
+    expect(res.status).toBe(200);
+    expect(res.headers.get('Content-Type')).toBe('text/html; charset=utf-8');
+    const html = await res.text();
+    expect(html).toContain('translated');
+  });
+
+  it('returns 400 when html is missing', async () => {
+    const app = buildApp();
+    const res = await app.request(req('/fanyi/page', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url: 'https://example.com' }),
+    }));
+    expect(res.status).toBe(400);
+    const body: any = await res.json();
+    expect(body.error).toBe('html is required');
+  });
+
+  it('returns 400 when url is missing', async () => {
+    const app = buildApp();
+    const res = await app.request(req('/fanyi/page', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ html: '<p>test</p>' }),
+    }));
+    expect(res.status).toBe(400);
+    const body: any = await res.json();
+    expect(body.error).toBe('url is required');
+  });
+
+  it('passes source/target/mode/service to translateHtml', async () => {
+    const { translateHtml } = await import('../lib/translate/pipeline');
+    const app = buildApp();
+    await app.request(req('/fanyi/page?source=ja&target=zh&mode=target', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        html: '<html><body>test</body></html>',
+        url: 'https://example.com',
+        service: 'openrouter',
+      }),
+    }));
+    expect(translateHtml).toHaveBeenCalledOnce();
+    const arg = (translateHtml as any).mock.calls[0][0];
+    expect(arg.source).toBe('ja');
+    expect(arg.target).toBe('zh');
+    expect(arg.mode).toBe('target');
+    expect(arg.service).toBe('openrouter');
+  });
+
+  it('returns 500 when translateHtml throws', async () => {
+    const { translateHtml } = await import('../lib/translate/pipeline');
+    (translateHtml as any).mockRejectedValueOnce(new Error('translation failed'));
+
+    const app = buildApp();
+    const res = await app.request(req('/fanyi/page', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        html: '<html><body>test</body></html>',
+        url: 'https://example.com',
+      }),
+    }));
+    expect(res.status).toBe(500);
+    const body: any = await res.json();
+    expect(body.error).toBe('translation failed');
   });
 });

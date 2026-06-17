@@ -9,7 +9,7 @@
 
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
-import { translateText, translateUrl } from './translate/pipeline';
+import { translateText, translateUrl, translateHtml } from './translate/pipeline';
 import {
   getGlossary,
   addUserTerms,
@@ -308,6 +308,58 @@ ${items ? `<ul>${items}</ul>` : '<p class="empty">暂无翻译记录</p>'}
     } catch (err) {
       console.error(`[fanyi] error="${(err as Error).message}" latency=${Date.now() - startedAt}ms`);
       return c.json({ error: 'Upstream request failed', detail: (err as Error).message }, 502);
+    }
+  });
+
+  // ── POST /fanyi/page ─────────────────────────────────
+  // 浏览器扩展代理：接收扩展传来的原始 HTML，直接翻译后返回。
+  // 用于绕过 Cloudflare Challenge 等反爬场景——扩展在真实浏览器中拿到 HTML，
+  // 传给服务端翻译，服务端不再直接 fetch 目标 URL。
+  app.post('/fanyi/page', async (c) => {
+    const body = await c.req.json().catch(() => ({} as any));
+    const { html, url } = body;
+    if (!html || typeof html !== 'string' || html.length === 0) {
+      return c.json({ error: 'html is required' }, 400);
+    }
+    if (!url || typeof url !== 'string') {
+      return c.json({ error: 'url is required' }, 400);
+    }
+
+    const source = body.source || c.req.query('source');
+    const target = body.target || c.req.query('target') || 'zh';
+    const mode = body.mode || c.req.query('mode') || 'bilingual';
+    const service = body.service || 'deepseek';
+
+    const VALID_LANG_RE = /^(auto|[a-zA-Z]{2,3})(-[a-zA-Z]{2,3})?$/;
+    const sourceStored = source && VALID_LANG_RE.test(source) ? source : 'en';
+    const targetStored = VALID_LANG_RE.test(target) ? target : 'zh';
+    const modeStored = mode === 'bilingual' || mode === 'target' ? mode : 'bilingual';
+
+    console.log(`[fanyi/page] url=${url} src=${sourceStored} tgt=${targetStored} mode=${modeStored} html=${html.length} bytes`);
+
+    try {
+      const result = await translateHtml({
+        html,
+        url,
+        source: sourceStored,
+        target: targetStored,
+        mode: modeStored,
+        service,
+      });
+
+      return new Response(result.html, {
+        status: 200,
+        headers: {
+          'Content-Type': 'text/html; charset=utf-8',
+          'Cache-Control': 'public, max-age=3600',
+          'X-Translate-Blocks': String(result.blocks),
+          'X-Translate-Chunks': String(result.chunks),
+          'X-Translate-Duration-Ms': String(result.duration_ms),
+        },
+      });
+    } catch (err) {
+      console.error('[fanyi/page] error:', err);
+      return c.json({ error: (err as Error).message }, 500);
     }
   });
 

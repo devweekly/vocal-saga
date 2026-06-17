@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { extractBlocks, findBlockNode, buildNodeMap } from '../lib/translate/blockExtractor';
+import { extractBlocks, findBlockNode, buildNodeMap, extractBlocksFromMarkedHtml } from '../lib/translate/blockExtractor';
 
 // Mock matchSiteRule for shouldSkipBySiteRules tests
 vi.mock('../lib/translate/rules', () => ({
@@ -5709,6 +5709,118 @@ describe('blockExtractor - MDN coverage: form text is translatable (regression)'
     expect(texts.some((t) => t.includes('JavaScript option label'))).toBe(true);
     expect(texts.some((t) => t.includes('TypeScript option label'))).toBe(true);
     expect(texts.some((t) => t.includes('Python option label'))).toBe(true);
+  });
+});
+
+// =============================================================================
+// extractBlocksFromMarkedHtml — 预标记 HTML 直接提取
+// =============================================================================
+
+describe('extractBlocksFromMarkedHtml', () => {
+  beforeEach(() => {
+    document.body.innerHTML = '';
+  });
+
+  it('从已标记 data-fanyi-block-id 的 HTML 中提取 blocks', () => {
+    setupHTML(`
+      <article>
+        <p data-fanyi-block-id="b1">First paragraph text for translation.</p>
+        <p data-fanyi-block-id="b2">Second paragraph text for translation.</p>
+        <p data-fanyi-block-id="b3">Third paragraph text for translation.</p>
+      </article>
+    `);
+
+    const blocks = extractBlocksFromMarkedHtml(document);
+    expect(blocks).toHaveLength(3);
+    expect(blocks[0].id).toBe('b1');
+    expect(blocks[0].text).toBe('First paragraph text for translation.');
+    expect(blocks[0].tag).toBe('p');
+    expect(blocks[1].id).toBe('b2');
+    expect(blocks[2].id).toBe('b3');
+  });
+
+  it('按数值顺序排序（b10 在 b2 之后）', () => {
+    setupHTML(`
+      <article>
+        <p data-fanyi-block-id="b10">Tenth paragraph text here.</p>
+        <p data-fanyi-block-id="b1">First paragraph text here.</p>
+        <p data-fanyi-block-id="b2">Second paragraph text here.</p>
+      </article>
+    `);
+
+    const blocks = extractBlocksFromMarkedHtml(document);
+    expect(blocks.map((b) => b.id)).toEqual(['b1', 'b2', 'b10']);
+  });
+
+  it('跳过重复 id（只保留第一个）', () => {
+    setupHTML(`
+      <article>
+        <p data-fanyi-block-id="b1">First occurrence.</p>
+        <p data-fanyi-block-id="b1">Duplicate id should be ignored.</p>
+      </article>
+    `);
+
+    const blocks = extractBlocksFromMarkedHtml(document);
+    expect(blocks).toHaveLength(1);
+    expect(blocks[0].text).toBe('First occurrence.');
+  });
+
+  it('跳过空文本元素', () => {
+    setupHTML(`
+      <article>
+        <p data-fanyi-block-id="b1">Valid paragraph text here.</p>
+        <p data-fanyi-block-id="b2">   </p>
+        <p data-fanyi-block-id="b3"></p>
+      </article>
+    `);
+
+    const blocks = extractBlocksFromMarkedHtml(document);
+    expect(blocks).toHaveLength(1);
+    expect(blocks[0].id).toBe('b1');
+  });
+
+  it('没有标记时返回空数组', () => {
+    setupHTML(`
+      <article>
+        <p>No data attributes here.</p>
+      </article>
+    `);
+
+    const blocks = extractBlocksFromMarkedHtml(document);
+    expect(blocks).toHaveLength(0);
+  });
+
+  it('生成 xpath 作为回退定位', () => {
+    setupHTML(`
+      <article>
+        <p data-fanyi-block-id="b1">Paragraph with xpath fallback.</p>
+      </article>
+    `);
+
+    const blocks = extractBlocksFromMarkedHtml(document);
+    expect(blocks[0].xpath).toBeTruthy();
+    expect(blocks[0].xpath.startsWith('/')).toBe(true);
+  });
+
+  it('支持混合标签（p, h1, li, div）', () => {
+    setupHTML(`
+      <article>
+        <h1 data-fanyi-block-id="b1">Article Title</h1>
+        <p data-fanyi-block-id="b2">First paragraph.</p>
+        <ul>
+          <li data-fanyi-block-id="b3">List item one.</li>
+          <li data-fanyi-block-id="b4">List item two.</li>
+        </ul>
+        <div data-fanyi-block-id="b5">Div block content.</div>
+      </article>
+    `);
+
+    const blocks = extractBlocksFromMarkedHtml(document);
+    expect(blocks).toHaveLength(5);
+    expect(blocks[0].tag).toBe('h1');
+    expect(blocks[1].tag).toBe('p');
+    expect(blocks[2].tag).toBe('li');
+    expect(blocks[4].tag).toBe('div');
   });
 });
 

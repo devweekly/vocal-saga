@@ -19,7 +19,7 @@
  *     方案,这是行业标准。
  */
 
-import { collectBlocks } from './walker';
+import { collectBlocks, getXPath } from './walker';
 import type { TextBlock } from './types';
 
 export type { TextBlock };
@@ -69,6 +69,45 @@ export function findBlockNode(block: TextBlock, root: Document): Node | null {
   } catch {
     return null;
   }
+}
+
+/**
+ * 从已标记 data-fanyi-block-id 的 HTML 中直接提取 blocks。
+ * 扩展端 walker 在浏览器中执行时已经给 DOM 元素设置了 data-fanyi-block-id，
+ * 序列化后的 HTML 会保留这些属性。服务端收到后无需重新 walk，直接收集即可。
+ */
+export function extractBlocksFromMarkedHtml(doc: Document): TextBlock[] {
+  const blocks: TextBlock[] = [];
+  const seenIds = new Set<string>();
+
+  doc.querySelectorAll('[data-fanyi-block-id]').forEach((el) => {
+    const id = el.getAttribute('data-fanyi-block-id');
+    if (!id || seenIds.has(id)) return;
+    seenIds.add(id);
+
+    const text = el.textContent?.trim() || '';
+    if (!text) return;
+
+    blocks.push({
+      id,
+      xpath: getXPath(el),
+      tag: el.tagName.toLowerCase(),
+      text,
+      // renderHint 和 context 信息在扩展端 walker 中已丢失，
+      // 但回填时只需要 id 即可定位元素，不影响核心功能。
+      // 如需完整 renderHint，扩展端可通过 data-fanyi-inline-candidate 属性传递。
+    });
+  });
+
+  // 按 b1, b2, b10... 的数值顺序排序，避免字典序 b10 < b2
+  blocks.sort((a, b) => {
+    const na = parseInt(a.id.replace(/^b/, ''), 10) || 0;
+    const nb = parseInt(b.id.replace(/^b/, ''), 10) || 0;
+    return na - nb;
+  });
+
+  console.log(`[BlockExtractor] Extracted ${blocks.length} blocks from pre-marked HTML`);
+  return blocks;
 }
 
 /** 批量构建 blockId → Node 映射, 用于翻译应用阶段。 */

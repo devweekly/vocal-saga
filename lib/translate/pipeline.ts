@@ -13,7 +13,8 @@
  */
 
 import { prepareDocument } from './contentHelper';
-import { buildChunks } from './chunkBuilder';
+import { buildChunks, type Chunk } from './chunkBuilder';
+import { extractBlocksFromMarkedHtml, type TextBlock } from './blockExtractor';
 import {
   buildRetryChunk,
   diffMissingIds,
@@ -28,6 +29,7 @@ import { generateTranslationCacheKey } from './cacheKey';
 import { DeepSeekTranslationService } from './service/deepseek';
 import type { Glossary } from './service/_service';
 import { fetchPage } from './urlFetcher';
+import { parseHTML } from 'linkedom';
 
 // =============================================================================
 // 性能日志
@@ -228,36 +230,63 @@ export interface TranslateUrlResult {
   duration_ms: number;
 }
 
-export async function translateUrl(input: TranslateUrlInput): Promise<TranslateUrlResult> {
-  const start = Date.now();
-  const sourceLang = input.source || 'auto';
-  const targetLang = input.target || 'zh';
-  const mode = input.mode || 'bilingual';
+export interface TranslateHtmlInput {
+  html: string;
+  url: string;
+  source?: string;
+  target?: string;
+  mode?: 'bilingual' | 'target';
+  glossary?: Glossary;
+  service?: 'deepseek' | 'openrouter' | 'nvidia' | 'cloudflare' | 'mimo';
+  model?: string;
+}
 
-  const tFetch = performance.now();
-  const page = await fetchPage(input.url);
-
-  // 从页面 <title> 提取标题
+async function runTranslationPipeline(
+  doc: Document,
+  finalUrl: string,
+  sourceLang: string,
+  targetLang: string,
+  mode: 'bilingual' | 'target',
+  serviceType: 'deepseek' | 'openrouter' | 'nvidia' | 'cloudflare' | 'mimo',
+  model: string | undefined,
+  glossary: Glossary | undefined,
+  existingBlocks?: TextBlock[],
+  existingChunks?: Chunk[],
+): Promise<{ title: string; html: string; blocks: number; translatedBlocks: number; chunks: number }> {
   const title =
-    (page.doc.querySelector('title')?.textContent || '').trim().substring(0, 200) ||
-    page.finalUrl;
-
-  console.log(`[Pipeline] Fetched ${input.url} → ${page.finalUrl} (${page.status}, ${page.html.length} bytes) title="${title}"`);
+    (doc.querySelector('title')?.textContent || '').trim().substring(0, 200) ||
+    finalUrl;
 
   const tPrep = performance.now();
-  const { blocks, chunks } = prepareDocument(page.doc, page.finalUrl);
+  let blocks: TextBlock[];
+  let chunks: Chunk[];
 
-  console.log(`[Pipeline] Extracted ${blocks.length} blocks → ${chunks.length} chunks`);
+  if (existingChunks && existingChunks.length > 0) {
+    // 扩展端已分块，直接使用
+    chunks = existingChunks;
+    blocks = existingBlocks || chunks.flatMap((c) => c.blocks);
+    console.log(`[Pipeline] Using ${blocks.length} pre-extracted blocks → ${chunks.length} pre-built chunks`);
+  } else if (existingBlocks && existingBlocks.length > 0) {
+    // 扩展端提供了 blocks，服务端分块
+    blocks = existingBlocks;
+    chunks = buildChunks(blocks);
+    console.log(`[Pipeline] Using ${blocks.length} pre-extracted blocks → ${chunks.length} chunks`);
+  } else {
+    // 原有流程：从 HTML 提取
+    const result = prepareDocument(doc, finalUrl);
+    blocks = result.blocks;
+    chunks = result.chunks;
+    console.log(`[Pipeline] Extracted ${blocks.length} blocks → ${chunks.length} chunks`);
+  }
 
   // 根据 service 参数选择翻译服务
-  const serviceType = input.service || 'deepseek';
   let service: DeepSeekTranslationService;
   if (serviceType === 'openrouter') {
     const { OpenRouterTranslationService } = await import('./service/openrouter');
     service = new OpenRouterTranslationService() as any;
   } else if (serviceType === 'nvidia') {
     const { NvidiaTranslationService } = await import('./service/nvidia');
-    service = new NvidiaTranslationService(input.model) as any;
+    service = new NvidiaTranslationService(model) as any;
   } else if (serviceType === 'cloudflare') {
     const { CloudflareAITranslationService } = await import('./service/cloudflare');
     service = new CloudflareAITranslationService() as any;
@@ -273,7 +302,7 @@ export async function translateUrl(input: TranslateUrlInput): Promise<TranslateU
     chunks,
     sourceLang,
     targetLang,
-    input.glossary,
+    glossary,
     /* concurrency */ 6
   );
 
@@ -281,7 +310,7 @@ export async function translateUrl(input: TranslateUrlInput): Promise<TranslateU
   const tApply = performance.now();
   const { applyBlockTranslation, applyInlineTranslation } = await import('./translationDisplay');
   const blockMap = new Map<string, Element>();
-  page.doc.querySelectorAll('[data-fanyi-block-id]').forEach((el) => {
+  doc.querySelectorAll('[data-fanyi-block-id]').forEach((el) => {
     const id = el.getAttribute('data-fanyi-block-id');
     if (id) blockMap.set(id, el);
   });
@@ -310,10 +339,7 @@ export async function translateUrl(input: TranslateUrlInput): Promise<TranslateU
   const tSer = performance.now();
 
   // 用 <base> 标签让浏览器原生解析相对 URL，避免手动遍历 DOM
-  // 优先更新已有的 <base>，否则在最前面插入一个新的
-  // base href 必须是目录级别（以 / 结尾），否则相对路径会拼接到文件名后面。
-  // 对于有扩展名的文件 URL（如 .html），取父目录；对于无扩展名的路由 URL，保留路径并加 /。
-  const cleanUrl = page.finalUrl.split('?')[0].split('#')[0];
+  const cleanUrl = finalUrl.split('?')[0].split('#')[0];
   let baseUrl: string;
   if (cleanUrl.endsWith('/')) {
     baseUrl = cleanUrl;
@@ -322,20 +348,20 @@ export async function translateUrl(input: TranslateUrlInput): Promise<TranslateU
   } else {
     baseUrl = cleanUrl + '/';
   }
-  const existingBase = page.doc.querySelector('head > base');
+  const existingBase = doc.querySelector('head > base');
   if (existingBase) {
     existingBase.setAttribute('href', baseUrl);
   } else {
-    const base = page.doc.createElement('base');
+    const base = doc.createElement('base');
     base.setAttribute('href', baseUrl);
-    const head = page.doc.head;
+    const head = doc.head;
     if (head) head.insertBefore(base, head.firstChild);
   }
 
   // 注入双语显示 CSS —— 只针对我们注入的 span，不覆盖原页面任何已有元素的样式。
-  const head = page.doc.head;
+  const head = doc.head;
   if (head && !head.querySelector('#fanyi-bilingual-styles')) {
-    const style = page.doc.createElement('style');
+    const style = doc.createElement('style');
     style.id = 'fanyi-bilingual-styles';
     style.textContent = [
       '/* 双语对照样式 —— 仅作用于翻译注入的 span，不覆盖原页面 */',
@@ -376,20 +402,104 @@ export async function translateUrl(input: TranslateUrlInput): Promise<TranslateU
     head.appendChild(style);
   }
 
-  const html = '<!doctype html>\n' + page.doc.documentElement.outerHTML;
+  const html = '<!doctype html>\n' + doc.documentElement.outerHTML;
 
-  const logDuration = performance.now() - tFetch;
+  const logDuration = performance.now() - tPrep;
   function us(v: number): string { return `${Math.round(v * 1000)}µs`; }
-  console.log(`[PERF] total ${us(logDuration)} fetch=${us(tPrep - tFetch)} prep=${us(tTrans - tPrep)} trans=${us(tApply - tTrans)} apply=${us(tApplyEnd - tApply)} ser=${us(performance.now() - tSer)}`);
+  console.log(`[PERF] total ${us(logDuration)} prep=${us(tTrans - tPrep)} trans=${us(tApply - tTrans)} apply=${us(tApplyEnd - tApply)} ser=${us(performance.now() - tSer)}`);
 
   return {
-    url: input.url,
-    finalUrl: page.finalUrl,
     title,
     html,
     blocks: blocks.length,
     translatedBlocks: translations.size,
     chunks: chunks.length,
+  };
+}
+
+export async function translateUrl(input: TranslateUrlInput): Promise<TranslateUrlResult> {
+  const start = Date.now();
+  const sourceLang = input.source || 'auto';
+  const targetLang = input.target || 'zh';
+  const mode = input.mode || 'bilingual';
+
+  const page = await fetchPage(input.url);
+
+  console.log(`[Pipeline] Fetched ${input.url} → ${page.finalUrl} (${page.status}, ${page.html.length} bytes)`);
+
+  const result = await runTranslationPipeline(
+    page.doc,
+    page.finalUrl,
+    sourceLang,
+    targetLang,
+    mode,
+    input.service || 'deepseek',
+    input.model,
+    input.glossary,
+  );
+
+  return {
+    url: input.url,
+    finalUrl: page.finalUrl,
+    title: result.title,
+    html: result.html,
+    blocks: result.blocks,
+    translatedBlocks: result.translatedBlocks,
+    chunks: result.chunks,
+    duration_ms: Date.now() - start,
+  };
+}
+
+export async function translateHtml(input: TranslateHtmlInput): Promise<TranslateUrlResult> {
+  const start = Date.now();
+  const sourceLang = input.source || 'auto';
+  const targetLang = input.target || 'zh';
+  const mode = input.mode || 'bilingual';
+
+  // 用 linkedom 解析扩展传来的 HTML
+  const { document: doc } = parseHTML(input.html) as unknown as { document: Document };
+
+  // 设置 baseURI，让相对 URL 能正确解析
+  try {
+    if (doc.documentElement) {
+      (doc.documentElement as unknown as { baseURI?: string }).baseURI = input.url;
+    }
+  } catch {
+    /* ignore */
+  }
+
+  // 检测扩展端是否已在 HTML 中标记了 data-fanyi-block-id
+  // 如果标记了，说明扩展端已在浏览器中执行过 walker，服务端无需重新 walk
+  const hasMarkedBlocks = doc.querySelector('[data-fanyi-block-id]') !== null;
+  let preExtractedBlocks: TextBlock[] | undefined;
+
+  if (hasMarkedBlocks) {
+    preExtractedBlocks = extractBlocksFromMarkedHtml(doc);
+    console.log(`[Pipeline] Received pre-marked HTML from extension: ${input.url} (${input.html.length} bytes, ${preExtractedBlocks.length} blocks)`);
+  } else {
+    console.log(`[Pipeline] Received HTML from extension: ${input.url} (${input.html.length} bytes, no pre-marked blocks)`);
+  }
+
+  const result = await runTranslationPipeline(
+    doc,
+    input.url,
+    sourceLang,
+    targetLang,
+    mode,
+    input.service || 'deepseek',
+    input.model,
+    input.glossary,
+    preExtractedBlocks,
+  );
+
+  return {
+    url: input.url,
+    finalUrl: input.url,
+    title: result.title,
+    html: result.html,
+    blocks: result.blocks,
+    translatedBlocks: result.translatedBlocks,
+    chunks: result.chunks,
     duration_ms: Date.now() - start,
   };
 }
