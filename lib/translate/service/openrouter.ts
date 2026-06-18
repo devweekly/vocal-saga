@@ -101,7 +101,7 @@ export class OpenRouterTranslationService implements TranslationService {
     const blocks = JSON.parse(jsonContent);
 
     const body = buildTranslationBody(blocks, sourceLang, targetLang, glossary, MODEL);
-    const raw = await callApi(JSON.stringify({ ...body, reasoning: { effort: 'low' } }));
+    const raw = await callApi(JSON.stringify({ ...body, reasoning: { enabled: false} }));
 
     // 简单的 unchanged 检测
     try {
@@ -141,7 +141,7 @@ export class OpenRouterTranslationService implements TranslationService {
       response = await fetch(API_URL, {
         method: 'POST',
         headers: buildHeaders(),
-        body: JSON.stringify({ ...body, stream: true, reasoning: { effort: 'low' } }),
+        body: JSON.stringify({ ...body, stream: true, reasoning: { effort: 'none' } }),
         signal: controller.signal,
       });
     } catch (err) {
