@@ -26,7 +26,7 @@ async function callApi(body: string): Promise<string> {
   if (!apiKey) throw new Error('OpenRouter API key not configured');
 
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 60_000);
+  const timeout = setTimeout(() => controller.abort(), 90_000);
 
   let response: Response;
   try {
@@ -39,7 +39,7 @@ async function callApi(body: string): Promise<string> {
   } catch (err) {
     clearTimeout(timeout);
     if (err instanceof DOMException && err.name === 'AbortError') {
-      throw new Error('OpenRouter API timeout (60s)');
+      throw new Error('OpenRouter API timeout (90s)');
     }
     throw err;
   }

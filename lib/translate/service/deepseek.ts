@@ -35,7 +35,7 @@ async function callApi(body: string, apiKey?: string): Promise<string> {
   if (!key) throw new Error('DeepSeek API key not configured');
 
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 60_000);
+  const timeout = setTimeout(() => controller.abort(), 80_000);
 
   let response: Response;
   try {
@@ -48,7 +48,7 @@ async function callApi(body: string, apiKey?: string): Promise<string> {
   } catch (err) {
     clearTimeout(timeout);
     if (err instanceof DOMException && err.name === 'AbortError') {
-      throw new Error('DeepSeek API timeout (60s)');
+      throw new Error('DeepSeek API timeout (80s)');
     }
     throw err;
   }
