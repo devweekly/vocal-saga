@@ -85,14 +85,16 @@ Return ONLY the final JSON object. No prose, no explanation, no markdown outside
 
     console.log('[CloudAI] raw response:', JSON.stringify(parsedResponse)?.slice(0, 2000));
 
-    // Workers AI REST 返回 OpenAI 兼容格式：
-    //   { choices: [{ message: { role, content, reasoning? } }] }
+    // Workers AI REST 返回格式：
+    //   { result: { choices: [{ message: { role, content, reasoning? } }] } }
     // message.content 是真正的 LLM 输出（可能带 ```json``` 包装），
     // message.reasoning 是思考过程，忽略。
     let content: string;
-    const choice = parsedResponse?.choices?.[0]?.message;
+    const choice = parsedResponse?.result?.choices?.[0]?.message ?? parsedResponse?.choices?.[0]?.message;
     if (typeof choice?.content === 'string') {
       content = choice.content;
+    } else if (typeof parsedResponse?.result?.response === 'string') {
+      content = parsedResponse.result.response;
     } else if (typeof parsedResponse?.response === 'string') {
       content = parsedResponse.response;
     } else if (typeof parsedResponse === 'string') {

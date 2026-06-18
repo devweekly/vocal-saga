@@ -33,13 +33,15 @@ describe('CloudflareAITranslationService', () => {
       status: 200,
       text: async () =>
         JSON.stringify({
-          choices: [
-            {
-              message: {
-                content: '```json\n{"translations":[{"id":"1","translated_text":"你好"}]}\n```',
+          result: {
+            choices: [
+              {
+                message: {
+                  content: '```json\n{"translations":[{"id":"1","translated_text":"你好"}]}\n```',
+                },
               },
-            },
-          ],
+            ],
+          },
         }),
     });
     globalThis.fetch = fetchMock;
@@ -55,6 +57,30 @@ describe('CloudflareAITranslationService', () => {
       'Content-Type': 'application/json',
       Authorization: 'Bearer test-token',
     });
+
+    const parsed = JSON.parse(result);
+    expect(parsed.translations[0].translated_text).toBe('你好');
+  });
+
+  it('also supports top-level choices response', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      text: async () =>
+        JSON.stringify({
+          choices: [
+            {
+              message: {
+                content: '{"translations":[{"id":"1","translated_text":"你好"}]}',
+              },
+            },
+          ],
+        }),
+    });
+    globalThis.fetch = fetchMock;
+
+    const service = new CloudflareAITranslationService();
+    const result = await service.translate('[{"id":"1","text":"hello"}]', 'en', 'zh');
 
     const parsed = JSON.parse(result);
     expect(parsed.translations[0].translated_text).toBe('你好');
@@ -80,7 +106,9 @@ describe('CloudflareAITranslationService', () => {
       status: 200,
       text: async () =>
         JSON.stringify({
-          choices: [{ message: { content: '{"translations":[{"id":"1","translated_text":"你好"}]}' } }],
+          result: {
+            choices: [{ message: { content: '{"translations":[{"id":"1","translated_text":"你好"}]}' } }],
+          },
         }),
     });
     globalThis.fetch = fetchMock;
