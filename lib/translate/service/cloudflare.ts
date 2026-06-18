@@ -1,12 +1,11 @@
 /**
- * Cloudflare AI 翻译服务：使用 CF Workers AI 的 openai/gpt-5-nano 模型。
+ * Cloudflare AI 翻译服务：通过 CF REST API 调用 Workers AI。
  *
- * 128K context window，足够处理大段文章。
- * 通过 env.AI999.run() 调用，无需 HTTP fetch。
+ * 使用账号级 API：`https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/run/{model}`
+ * 需要环境变量 CLOUDFLARE_ACCOUNT_ID 与 CLOUDFLARE_API_TOKEN。
  */
 import type { TranslationService, Glossary } from './_service';
-import { getAI } from '../../config';
-import { buildSystemContent, stripMarkdownCodeBlock, cleanJsonString, repairTruncatedJson } from './shared';
+import { buildSystemContent, stripMarkdownCodeBlock, cleanJsonString, repairTruncatedJson, estimateMaxTokens } from './shared';
 
 const MODEL = '@cf/moonshotai/kimi-k2.6';
 
@@ -49,28 +48,57 @@ export class CloudflareAITranslationService implements TranslationService {
 Do NOT output any reasoning, thinking, chain-of-thought, or analysis.
 Return ONLY the final JSON object. No prose, no explanation, no markdown outside the JSON block.`;
 
-    const ai = getAI();
-    if (!ai) throw new Error('Cloudflare AI not configured');
+    const accountId = process.env.CLOUDFLARE_ACCOUNT_ID;
+    const apiToken = process.env.CLOUDFLARE_API_TOKEN;
+    if (!accountId || !apiToken) {
+      throw new Error('Cloudflare AI not configured');
+    }
+
+    const apiUrl = `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/run/${MODEL}`;
 
     console.log(`[CloudAI] Calling ${MODEL}, ${blocks.length} blocks`);
-    const response = await ai.run(MODEL, body);
-    console.log('[CloudAI] raw response:', JSON.stringify(response)?.slice(0, 2000));
+    const response = await fetch(apiUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${apiToken}`,
+      },
+      body: JSON.stringify({
+        ...body,
+        max_tokens: estimateMaxTokens(JSON.stringify(body.messages)),
+      }),
+    });
 
-    // @cf/zai-org/glm-4.7-flash 走 OpenAI 兼容返回：
+    const responseText = await response.text().catch(() => '');
+    if (!response.ok) {
+      throw new Error(
+        `Cloudflare AI API error: HTTP ${response.status} - ${responseText.slice(0, 200)}`
+      );
+    }
+
+    let parsedResponse: any;
+    try {
+      parsedResponse = JSON.parse(responseText);
+    } catch {
+      throw new Error(`Cloudflare AI returned invalid JSON: ${responseText.slice(0, 200)}`);
+    }
+
+    console.log('[CloudAI] raw response:', JSON.stringify(parsedResponse)?.slice(0, 2000));
+
+    // Workers AI REST 返回 OpenAI 兼容格式：
     //   { choices: [{ message: { role, content, reasoning? } }] }
     // message.content 是真正的 LLM 输出（可能带 ```json``` 包装），
     // message.reasoning 是思考过程，忽略。
-    // 老一点的 @cf/ 模型可能返回 { response: "..." }；两种都认。
     let content: string;
-    const choice = (response as any)?.choices?.[0]?.message;
+    const choice = parsedResponse?.choices?.[0]?.message;
     if (typeof choice?.content === 'string') {
       content = choice.content;
-    } else if (typeof (response as any)?.response === 'string') {
-      content = (response as any).response;
-    } else if (typeof response === 'string') {
-      content = response;
+    } else if (typeof parsedResponse?.response === 'string') {
+      content = parsedResponse.response;
+    } else if (typeof parsedResponse === 'string') {
+      content = parsedResponse;
     } else {
-      content = JSON.stringify(response);
+      content = JSON.stringify(parsedResponse);
     }
 
     // 清理 markdown 代码块 + 修复 JSON

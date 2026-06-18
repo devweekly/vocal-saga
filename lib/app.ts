@@ -630,16 +630,9 @@ ${items ? `<ul>${items}</ul>` : '<p class="empty">暂无翻译记录</p>'}
     return handleTranslateRequest(c, raw, /* force */ false, /* provider */ 'mimo');
   });
 
-  // ── Cloudflare AI 翻译：使用 CF Workers AI 的免费模型 ──────────
-  app.get('/cf/*', async (c) => {
+  // ── Cloudflare AI 翻译：通过 CF REST API 调用 Workers AI ──────────
+  app.get('/cf/*', (c) => {
     const raw = decodeURIComponent(c.req.path.slice('/cf/'.length));
-    const ai = (c.env as any)?.AI999;
-    if (!ai) {
-      return c.json({ error: 'Cloudflare AI not configured' }, 500);
-    }
-    // 设置模块级 AI binding
-    const { setAI } = await import('./config');
-    setAI(ai);
     return handleTranslateRequest(c, raw, /* force */ false, /* provider */ 'cloudflare');
   });
 

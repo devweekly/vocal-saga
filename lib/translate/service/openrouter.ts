@@ -10,7 +10,7 @@ import { getOpenrouterApiKey } from '../../config';
 import { buildTranslationBody, stripMarkdownCodeBlock, cleanJsonString, repairTruncatedJson } from './shared';
 
 const API_URL = 'https://openrouter.ai/api/v1/chat/completions';
-const MODEL = 'nex-agi/nex-n2-pro:free';
+const MODEL = 'openai/gpt-oss-20b:free';
 
 function buildHeaders(): Record<string, string> {
   return {
@@ -101,7 +101,7 @@ export class OpenRouterTranslationService implements TranslationService {
     const blocks = JSON.parse(jsonContent);
 
     const body = buildTranslationBody(blocks, sourceLang, targetLang, glossary, MODEL);
-    const raw = await callApi(JSON.stringify({ ...body, reasoning: { enabled: false} }));
+    const raw = await callApi(JSON.stringify({ ...body, reasoning: { effort: 'none' } }));
 
     // 简单的 unchanged 检测
     try {
