@@ -10,7 +10,7 @@ import { getOpenrouterApiKey } from '../../config';
 import { buildTranslationBody, stripMarkdownCodeBlock, cleanJsonString } from './shared';
 
 const API_URL = 'https://openrouter.ai/api/v1/chat/completions';
-const MODEL = 'openrouter/free';
+const MODEL = 'openai/gpt-oss-20b:free';
 
 function buildHeaders(): Record<string, string> {
   return {
