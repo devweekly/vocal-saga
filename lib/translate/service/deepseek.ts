@@ -1,7 +1,7 @@
 import type { TranslationService } from './_service';
 import { parseSSEStream } from './streamParser';
 import { getDSApiKey } from '../../config';
-import { buildTranslationBody, stripMarkdownCodeBlock } from './shared';
+import { buildTranslationBody, stripMarkdownCodeBlock, repairTruncatedJson } from './shared';
 
 const API_URL = 'https://api.deepseek.com/v1/chat/completions';
 const MODEL = 'deepseek-v4-flash';
@@ -82,7 +82,17 @@ async function callApi(body: string, apiKey?: string): Promise<string> {
     throw new Error('DeepSeek returned invalid response: missing choices[0].message.content');
   }
 
-  return content;
+  // DeepSeek 使用 response_format: json_object，但 max_tokens 仍可能截断长输出
+  let cleaned = stripMarkdownCodeBlock(content);
+  try {
+    JSON.parse(cleaned);
+    return cleaned;
+  } catch {
+    cleaned = repairTruncatedJson(cleaned);
+    // 让调用方在仍无法解析时抛出，保留原始错误上下文
+    JSON.parse(cleaned);
+    return cleaned;
+  }
 }
 
 export class DeepSeekTranslationService implements TranslationService {

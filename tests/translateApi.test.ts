@@ -23,6 +23,7 @@ import {
   cacheTranslation,
   clearAllCache,
 } from '../lib/translate/translateApi';
+import { repairTruncatedJson } from '../lib/translate/service/shared';
 
 describe('processTranslationResult', () => {
   it('parses JSON with translations array', () => {
@@ -324,6 +325,67 @@ describe('processTranslationWithCheck — JSON cleanup', () => {
     const json = '{"translations":[{"id":"b1","translated_text":"你好"}]}';
     const result = processTranslationWithCheck(json);
     expect(result.get('b1')).toBe('你好');
+  });
+
+  it('repairs truncated JSON with unclosed last string', () => {
+    const json = '{"translations":[{"id":"b1","translated_text":"你好"},{"id":"b2","translated_text":"世';
+    const result = processTranslationWithCheck(json);
+    expect(result.get('b1')).toBe('你好');
+    expect(result.has('b2')).toBe(false);
+  });
+
+  it('repairs truncated JSON with unclosed object and array', () => {
+    const json = '{"translations":[{"id":"b1","translated_text":"你好"},{"id":"b2","translated_text":"世界"';
+    const result = processTranslationWithCheck(json);
+    expect(result.get('b1')).toBe('你好');
+    expect(result.has('b2')).toBe(false);
+  });
+
+  it('repairs truncated JSON after a complete earlier item', () => {
+    const json = '{"translations":[{"id":"b1","translated_text":"你好"},{"id":"b2","translated_text":"世界"}, {"id":"b3","translated_text":"foo';
+    const result = processTranslationWithCheck(json);
+    expect(result.get('b1')).toBe('你好');
+    expect(result.get('b2')).toBe('世界');
+    expect(result.has('b3')).toBe(false);
+  });
+
+  it('repairs bare array truncated JSON', () => {
+    const json = '[{"id":"b1","translated_text":"你好"},{"id":"b2","translated_text":"世界"';
+    const result = processTranslationWithCheck(json);
+    expect(result.get('b1')).toBe('你好');
+    expect(result.has('b2')).toBe(false);
+  });
+});
+
+describe('repairTruncatedJson', () => {
+  it('returns valid JSON unchanged', () => {
+    const json = '{"translations":[{"id":"b1","translated_text":"你好"}]}';
+    expect(repairTruncatedJson(json)).toBe(json);
+  });
+
+  it('repairs unclosed trailing string', () => {
+    const raw = '{"translations":[{"id":"b1","translated_text":"你好"},{"id":"b2","translated_text":"世';
+    const repaired = repairTruncatedJson(raw);
+    expect(JSON.parse(repaired)).toEqual({ translations: [{ id: 'b1', translated_text: '你好' }] });
+  });
+
+  it('repairs unclosed object and outer array/object', () => {
+    const raw = '{"translations":[{"id":"b1","translated_text":"你好"},{"id":"b2","translated_text":"世界"';
+    const repaired = repairTruncatedJson(raw);
+    expect(JSON.parse(repaired)).toEqual({
+      translations: [{ id: 'b1', translated_text: '你好' }],
+    });
+  });
+
+  it('repairs trailing comma before truncation', () => {
+    const raw = '{"translations":[{"id":"b1","translated_text":"你好"},';
+    const repaired = repairTruncatedJson(raw);
+    expect(JSON.parse(repaired)).toEqual({ translations: [{ id: 'b1', translated_text: '你好' }] });
+  });
+
+  it('gives up when no recognizable structure', () => {
+    const raw = 'not json at all';
+    expect(repairTruncatedJson(raw)).toBe(raw);
   });
 });
 

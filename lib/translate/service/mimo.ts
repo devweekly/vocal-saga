@@ -15,6 +15,7 @@ import {
   estimateMaxTokens,
   stripMarkdownCodeBlock,
   cleanJsonString,
+  repairTruncatedJson,
 } from './shared';
 
 const BOOTSTRAP_URL = 'https://api.xiaomimimo.com/api/free-ai/bootstrap';
@@ -151,6 +152,12 @@ async function callApi(body: string): Promise<string> {
     JSON.parse(cleaned);
   } catch {
     cleaned = cleanJsonString(cleaned);
+    try {
+      JSON.parse(cleaned);
+    } catch {
+      // LLM 输出可能因 max_tokens 被截断，尝试修复未闭合的 JSON
+      cleaned = repairTruncatedJson(cleaned);
+    }
   }
   return cleaned;
 }

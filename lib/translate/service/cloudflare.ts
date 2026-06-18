@@ -6,7 +6,7 @@
  */
 import type { TranslationService, Glossary } from './_service';
 import { getAI } from '../../config';
-import { buildSystemContent, stripMarkdownCodeBlock, cleanJsonString } from './shared';
+import { buildSystemContent, stripMarkdownCodeBlock, cleanJsonString, repairTruncatedJson } from './shared';
 
 const MODEL = '@cf/moonshotai/kimi-k2.6';
 
@@ -79,6 +79,12 @@ Return ONLY the final JSON object. No prose, no explanation, no markdown outside
       JSON.parse(cleaned);
     } catch {
       cleaned = cleanJsonString(cleaned);
+      try {
+        JSON.parse(cleaned);
+      } catch {
+        // LLM 输出可能因 max_tokens 被截断，尝试修复未闭合的 JSON
+        cleaned = repairTruncatedJson(cleaned);
+      }
     }
 
     // 防御：下游 processTranslationWithCheck 会做 `for (const item of translations)`，

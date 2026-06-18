@@ -7,7 +7,7 @@
 import type { TranslationService, Glossary } from './_service';
 import { parseSSEStream } from './streamParser';
 import { getNvidiaApiKey } from '../../config';
-import { buildTranslationBody, stripMarkdownCodeBlock, cleanJsonString } from './shared';
+import { buildTranslationBody, stripMarkdownCodeBlock, cleanJsonString, repairTruncatedJson } from './shared';
 
 const API_URL = 'https://integrate.api.nvidia.com/v1/chat/completions';
 const DEFAULT_MODEL = 'moonshotai/kimi-k2.6';
@@ -77,6 +77,12 @@ async function callApi(body: string): Promise<string> {
     JSON.parse(cleaned);
   } catch {
     cleaned = cleanJsonString(cleaned);
+    try {
+      JSON.parse(cleaned);
+    } catch {
+      // LLM 输出可能因 max_tokens 被截断，尝试修复未闭合的 JSON
+      cleaned = repairTruncatedJson(cleaned);
+    }
   }
 
   return cleaned;
