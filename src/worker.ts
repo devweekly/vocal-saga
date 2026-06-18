@@ -23,11 +23,13 @@
 /// <reference types="@cloudflare/workers-types" />
 
 import { createApp, CloudflareKVStorage, setDefaultStorage } from '../lib/dist/index.js';
+import { setAI } from '../lib/config';
 import type { Hono } from 'hono';
 
 interface Env {
   VOCAL_SAGA_KV: KVNamespace;
   ASSETS: Fetcher;
+  AI999?: Ai;
   [key: string]: unknown;
 }
 
@@ -37,6 +39,7 @@ let _app: Hono | null = null;
 function getApp(env: Env): Hono {
   if (_app) return _app;
   setDefaultStorage(new CloudflareKVStorage(env.VOCAL_SAGA_KV));
+  if (env.AI999) setAI(env.AI999);
   _app = createApp();
   return _app;
 }
