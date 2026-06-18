@@ -150,7 +150,7 @@ export function repairTruncatedJson(str: string): string {
 /**
  * 估算 max output tokens。
  * 翻译 ratio 约 1:1（JSON 格式输入 → JSON 格式输出），
- * 留 4x 余量应对中文扩词以及 JSON 字段包装（id、translated_text 等），上限 131072。
+ * 留 6x 余量应对中文扩词以及 JSON 字段包装（id、translated_text 等），上限 131072。
  */
 export function estimateMaxTokens(inputJson: string): number {
   const estimatedInputTokens = Math.ceil(inputJson.length * 0.5);
