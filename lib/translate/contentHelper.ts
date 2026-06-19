@@ -182,12 +182,27 @@ function expandIfFragmented(el: Element): Element {
   return current;
 }
 
+function hasMeaningfulContent(el: Element): boolean {
+  return (el.textContent || '').trim().length > 0;
+}
+
 function findArticleRoot(doc: Document): Element {
   // Layer 1: 选择器快速匹配（处理已知站点）
+  // 对每个选择器：先取内容最多的匹配项（避免空占位符/短摘要），
+  // 再 refine，最后 expandIfFragmented（处理标题在外、正文拆成多容器）。
   for (const selector of ARTICLE_SELECTORS) {
-    const el = doc.querySelector(selector);
-    if (el) {
-      const refined = refineArticleRoot(el);
+    const els = Array.from(doc.querySelectorAll(selector));
+    let bestInSelector: Element | null = null;
+    let bestLen = 0;
+    for (const el of els) {
+      const len = (el.textContent || '').trim().length;
+      if (len > 0 && len > bestLen) {
+        bestLen = len;
+        bestInSelector = el;
+      }
+    }
+    if (bestInSelector) {
+      const refined = refineArticleRoot(bestInSelector);
       // 如果 refine 后只覆盖碎片内容（如 Webflow 多个 .u-rich-text-blog），
       // 自动向上展开到包含所有片段的最近祖先
       const expanded = expandIfFragmented(refined);
@@ -202,7 +217,7 @@ function findArticleRoot(doc: Document): Element {
 
   // Layer 2: 智能评分（处理未知站点）
   const detected = detectArticleRoot(doc);
-  if (detected) return detected;
+  if (detected && hasMeaningfulContent(detected)) return detected;
 
   // Layer 3: 兜底 — 直接遍历 body 抓取所有符合规则的 TextNode
   // 适用于：无明显文章容器（搜索结果、列表页、评论流）的场景
