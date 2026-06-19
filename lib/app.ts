@@ -82,7 +82,7 @@ export function createApp(storage?: StorageAdapter): Hono {
     if (db) {
       try {
         const result = await db.prepare(
-          'SELECT id, url, title, source_lang, target_lang FROM translations ORDER BY id DESC LIMIT 10'
+          'SELECT id, url, title, source_lang, target_lang FROM translations ORDER BY id DESC LIMIT 30'
         ).all();
         if (result.results) rows.push(...result.results);
       } catch (e) {
@@ -94,10 +94,8 @@ export function createApp(storage?: StorageAdapter): Hono {
     const items = rows.map((r: any) => {
       const url = `${r.url}`;
       const displayTitle = r.title || r.url;
-      const lang = `${r.source_lang || 'en'} → ${r.target_lang || 'zh'}`;
       return `<li style="margin-bottom:16px;line-height:1.6">
         <a href="/${r.id}" style="font-size:16px;text-decoration:none;color:#2563eb;font-weight:500">${escapeHtml(displayTitle)}</a>
-        <span style="color:#6b7280;margin-left:8px;font-size:13px">${lang}</span>
         <br><a href="${url}" target="_blank" rel="noopener" style="color:#9ca3af;font-size:12px;text-decoration:none">${r.url}</a>
       </li>`;
     }).join('\n');
