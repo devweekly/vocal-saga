@@ -82,7 +82,7 @@ export function createApp(storage?: StorageAdapter): Hono {
     if (db) {
       try {
         const result = await db.prepare(
-          'SELECT id, url, title, source_lang, target_lang FROM translations ORDER BY id DESC LIMIT 30'
+          'SELECT id, url, title, source_lang, target_lang FROM translations ORDER BY id DESC LIMIT 50'
         ).all();
         if (result.results) rows.push(...result.results);
       } catch (e) {
