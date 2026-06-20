@@ -261,8 +261,20 @@ export function prepareDocument(
   // 优先使用文章容器，减少 TreeWalker 遍历范围
   // rootNode 是 Document 时找主文章容器 (article / main / [role=main])；
   // 否则直接用 rootNode (linkedom / jsdom 的 Document 是不同 class，不能 instanceof)
-  const effectiveRoot = root.nodeType === 9 ? findArticleRoot(root as Document) : root;
-  const blocks = extractBlocks(effectiveRoot, pageUrl);
+  const isDoc = root.nodeType === 9;
+  const effectiveRoot: Element = isDoc ? findArticleRoot(root as Document) : (root as Element);
+  let blocks = extractBlocks(effectiveRoot, pageUrl);
+
+  // 防御性回退: 当 detectArticleRoot 误判 (e.g. 选了一个高密度但被 walker 整棵
+  // 剪枝的容器, 如 cookie banner) 导致 0 块时, 从整个 body 重试。
+  // 走到 body 后, walker 仍会用 overlay/cookie 规则过滤掉同意 SDK, 真正的正文
+  // 会被抓到。回归 case: databricks.com 博客。
+  if (blocks.length === 0 && isDoc && effectiveRoot !== (root as Document).body) {
+    console.warn(
+      `[ContentHelper] Detected root <${effectiveRoot.tagName}> yielded 0 blocks, falling back to <body>`,
+    );
+    blocks = extractBlocks((root as Document).body || (root as Document).documentElement, pageUrl);
+  }
 
   if (blocks.length === 0) {
     throw new Error('No translatable content found');

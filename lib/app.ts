@@ -248,6 +248,52 @@ ${items ? `<ul>${items}</ul>` : '<p class="empty">暂无翻译记录</p>'}
     }
   });
 
+  // ── GET /fanyi/page/check ────────────────────────────
+  // 浏览器扩展代理：先查询服务端是否已有该 URL 的翻译缓存，
+  // 命中则直接返回缓存的 bilingual HTML，未命中返回 204。
+  // 这样扩展端在 cache 命中时可以避免本地 prepareHtmlForServer 等重计算。
+  app.get('/fanyi/page/check', async (c) => {
+    const url = c.req.query('url');
+    if (!url || typeof url !== 'string') {
+      return c.json({ error: 'url is required' }, 400);
+    }
+
+    const source = c.req.query('source') || 'en';
+    const target = c.req.query('target') || 'zh';
+
+    const VALID_LANG_RE = /^(auto|[a-zA-Z]{2,3})(-[a-zA-Z]{2,3})?$/;
+    const sourceStored = source && VALID_LANG_RE.test(source) ? source : 'en';
+    const targetStored = VALID_LANG_RE.test(target) ? target : 'zh';
+
+    const db = (c.env as any)?.DB999;
+    if (db) {
+      try {
+        const existing: any = await db
+          .prepare(
+            'SELECT html FROM translations WHERE url = ? AND source_lang = ? AND target_lang = ? LIMIT 1',
+          )
+          .bind(cacheKeyUrl(url), sourceStored, targetStored)
+          .first();
+        if (existing) {
+          console.log(`[fanyi/page/check] D1 cache hit for ${url}`);
+          return new Response(existing.html, {
+            status: 200,
+            headers: {
+              'Content-Type': 'text/html; charset=utf-8',
+              'Cache-Control': 'public, max-age=3600',
+              'X-Translate-Source': 'd1-cache',
+            },
+          });
+        }
+      } catch (e) {
+        console.error('[D1] lookup error:', e);
+        // 查询失败不阻塞翻译，让扩展端 fallback 到 POST /fanyi/page
+      }
+    }
+
+    return new Response(null, { status: 204 });
+  });
+
   // ── POST /fanyi/page ─────────────────────────────────
   // 浏览器扩展代理：接收扩展传来的预标记 HTML，返回 bilingual 双语对照 HTML。
   // provider 可选 deepseek / openrouter / nvidia / cloudflare：

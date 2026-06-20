@@ -22,6 +22,7 @@ vi.mock('../lib/translate/glossaryStore', () => ({
 
 import { createApp } from '../lib/app';
 import { MapStorage, setDefaultStorage } from '../lib/storage';
+import { cacheKeyUrl } from '../lib/urlUtils';
 
 function mockClearAll(...mocks: any[]) {
   for (const m of mocks) m.mockClear();
@@ -413,6 +414,73 @@ describe('Glossary API', () => {
     const app = buildApp();
     const res = await app.request(req('/api/nonexistent'));
     expect(res.status).toBe(404);
+  });
+});
+
+// ─── GET /fanyi/page/check ─────────────────────────────────
+describe('GET /fanyi/page/check', () => {
+  it('returns cached HTML when cache exists', async () => {
+    const app = buildApp();
+    const db = createMockDb();
+    db._rows.push({
+      id: 1,
+      url: cacheKeyUrl('https://example.com/article'),
+      title: 'Test',
+      source_lang: 'en',
+      target_lang: 'zh',
+      html: '<html><body>cached translation</body></html>',
+      created_at: new Date().toISOString(),
+    });
+
+    const res = await app.request(
+      req('/fanyi/page/check?url=https://example.com/article&source=en&target=zh'),
+      {},
+      envWithDb(db),
+    );
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get('X-Translate-Source')).toBe('d1-cache');
+    const html = await res.text();
+    expect(html).toContain('cached translation');
+  });
+
+  it('returns 204 when cache miss', async () => {
+    const app = buildApp();
+    const res = await app.request(
+      req('/fanyi/page/check?url=https://example.com/article&source=en&target=zh'),
+    );
+
+    expect(res.status).toBe(204);
+  });
+
+  it('returns 204 when db query fails', async () => {
+    const app = buildApp();
+    const badDb = {
+      prepare: () => ({
+        bind: () => ({
+          first: async () => {
+            throw new Error('db down');
+          },
+        }),
+      }),
+    };
+
+    const res = await app.request(
+      req('/fanyi/page/check?url=https://example.com/article&source=en&target=zh'),
+      {},
+      envWithDb(badDb),
+    );
+
+    expect(res.status).toBe(204);
+  });
+
+  it('returns 400 when url is missing', async () => {
+    const app = buildApp();
+    const res = await app.request(req('/fanyi/page/check?source=en&target=zh'));
+
+    expect(res.status).toBe(400);
+    const body: any = await res.json();
+    expect(body.error).toBe('url is required');
   });
 });
 
