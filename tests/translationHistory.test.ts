@@ -128,7 +128,9 @@ describe('GET /<id> — D1 translation history', () => {
     expect(res.status).toBe(200);
     expect(res.headers.get('Content-Type')).toBe('text/html; charset=utf-8');
     const text = await res.text();
-    expect(text).toBe('<html><body>translated page</body></html>');
+    // 注入了重定向守卫脚本，但仍包含原始翻译内容
+    expect(text).toContain('translated page');
+    expect(text).toContain('__vsRedirectGuard');
   });
 
   it('saves to D1 after /s/* and retrieves via /<id>', async () => {
@@ -144,7 +146,8 @@ describe('GET /<id> — D1 translation history', () => {
     const res = await app.request(req('/1'), {}, envWithDb(db));
     expect(res.status).toBe(200);
     const text = await res.text();
-    expect(text).toBe('<html><body>translated page</body></html>');
+    expect(text).toContain('translated page');
+    expect(text).toContain('__vsRedirectGuard');
   });
 
   it('auto-increments id across multiple translations', async () => {
@@ -171,10 +174,14 @@ describe('GET /<id> — D1 translation history', () => {
     expect(db._rows[1].id).toBe(2);
 
     const r1 = await app.request(req('/1'), {}, envWithDb(db));
-    expect(await r1.text()).toBe('<html><body>first</body></html>');
+    const t1 = await r1.text();
+    expect(t1).toContain('first');
+    expect(t1).toContain('__vsRedirectGuard');
 
     const r2 = await app.request(req('/2'), {}, envWithDb(db));
-    expect(await r2.text()).toBe('<html><body>second</body></html>');
+    const t2 = await r2.text();
+    expect(t2).toContain('second');
+    expect(t2).toContain('__vsRedirectGuard');
   });
 
   it('non-numeric :id returns 404 (notFound)', async () => {

@@ -21,6 +21,7 @@ import {
 import { setDefaultStorage, type StorageAdapter } from './storage';
 import { requireAuth } from './auth';
 import { normalizeUrl, cacheKeyUrl } from './urlUtils';
+import { injectRedirectGuard } from './redirectGuard';
 import {
   CF_ACCOUNT_ID,
   CF_API_TOKEN,
@@ -137,7 +138,8 @@ ${items ? `<ul>${items}</ul>` : '<p class="empty">暂无翻译记录</p>'}
         'SELECT html FROM translations WHERE id = ?'
       ).bind(Number(id)).first();
       if (!row) return c.json({ error: 'translation not found' }, 404);
-      return new Response(row.html, {
+      // 注入重定向守卫：原站 SPA 脚本会把用户带离翻译页（详见 redirectGuard.ts）
+      return new Response(injectRedirectGuard(row.html), {
         status: 200,
         headers: { 'Content-Type': 'text/html; charset=utf-8' },
       });
@@ -298,7 +300,7 @@ ${items ? `<ul>${items}</ul>` : '<p class="empty">暂无翻译记录</p>'}
         ).bind(cacheKey, sourceStored, targetStored).first();
         if (existing) {
           console.log(`[fanyi/page] D1 cache hit for ${url}`);
-          return new Response(existing.html, {
+          return new Response(injectRedirectGuard(existing.html), {
             status: 200,
             headers: {
               'Content-Type': 'text/html; charset=utf-8',
@@ -349,7 +351,7 @@ ${items ? `<ul>${items}</ul>` : '<p class="empty">暂无翻译记录</p>'}
         }
       }
 
-      return new Response(result.html, {
+      return new Response(injectRedirectGuard(result.html), {
         status: 200,
         headers: {
           'Content-Type': 'text/html; charset=utf-8',
@@ -454,7 +456,7 @@ ${items ? `<ul>${items}</ul>` : '<p class="empty">暂无翻译记录</p>'}
         ).bind(cacheKey, sourceStored, targetStored).first();
         if (existing) {
           console.log(`[translate/url-page] D1 cache hit for ${url}`);
-          return new Response(existing.html, {
+          return new Response(injectRedirectGuard(existing.html), {
             status: 200,
             headers: {
               'Content-Type': 'text/html; charset=utf-8',
@@ -505,7 +507,7 @@ ${items ? `<ul>${items}</ul>` : '<p class="empty">暂无翻译记录</p>'}
           console.error('[D1] save error:', e);
         }
       }
-      return new Response(result.html, {
+      return new Response(injectRedirectGuard(result.html), {
         status: 200,
         headers: {
           'Content-Type': 'text/html; charset=utf-8',

@@ -583,7 +583,9 @@ describe('POST /fanyi/page', () => {
     expect(res.status).toBe(200);
     expect(res.headers.get('X-Translate-Source')).toBe('d1-cache');
     const html = await res.text();
-    expect(html).toBe('<html><body>cached from d1</body></html>');
+    // 注入了重定向守卫脚本，但仍包含原始缓存内容
+    expect(html).toContain('cached from d1');
+    expect(html).toContain('__vsRedirectGuard');
     expect(translateHtml).not.toHaveBeenCalled();
   });
 

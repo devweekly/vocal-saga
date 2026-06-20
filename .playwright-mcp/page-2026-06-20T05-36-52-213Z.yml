@@ -1,0 +1,75 @@
+- generic [ref=e2]:
+  - banner [ref=e4]:
+    - link "X" [ref=e6] [cursor=pointer]:
+      - /url: /
+      - img [ref=e7]
+  - main [ref=e9]
+  - complementary [ref=e11]:
+    - generic [ref=e13]:
+      - generic [ref=e14]:
+        - heading "New to X?" [level=2] [ref=e15]
+        - generic [ref=e16]:
+          - paragraph [ref=e17]: Sign up now to get your own personalized timeline!
+          - generic [ref=e18]:
+            - generic [ref=e19]:
+              - generic [ref=e21]:
+                - button "Sign up with Google. Opens in new tab" [ref=e23] [cursor=pointer]:
+                  - generic [ref=e25]:
+                    - img [ref=e27]
+                    - generic [ref=e34]: Sign up with Google
+                - generic [ref=e35]:
+                  - iframe [ref=e36]:
+                    
+                  - button "Sign in with Google. Opens in new tab" [ref=e37] [cursor=pointer]
+              - generic:
+                - img
+                - text: Sign up with Google
+            - button "Sign up with Apple" [ref=e38] [cursor=pointer]:
+              - img [ref=e39]
+              - text: Sign up with Apple
+            - link "Create account" [ref=e41] [cursor=pointer]:
+              - /url: /i/jf/onboarding/web?mode=signup
+          - paragraph [ref=e42]:
+            - text: By signing up, you agree to the
+            - link "Terms of Service" [ref=e43] [cursor=pointer]:
+              - /url: https://x.com/tos
+            - text: and
+            - link "Privacy Policy" [ref=e44] [cursor=pointer]:
+              - /url: https://x.com/privacy
+            - text: ", including"
+            - link "Cookie Use." [ref=e45] [cursor=pointer]:
+              - /url: https://support.x.com/articles/20170514
+      - navigation "Footer" [ref=e46]:
+        - generic [ref=e47]:
+          - link "Terms" [ref=e48] [cursor=pointer]:
+            - /url: https://x.com/tos
+          - generic [ref=e49]: ·
+        - generic [ref=e50]:
+          - link "Privacy" [ref=e51] [cursor=pointer]:
+            - /url: https://x.com/privacy
+          - generic [ref=e52]: ·
+        - generic [ref=e53]:
+          - link "Cookies" [ref=e54] [cursor=pointer]:
+            - /url: https://support.x.com/articles/20170514
+          - generic [ref=e55]: ·
+        - generic [ref=e56]:
+          - link "Accessibility" [ref=e57] [cursor=pointer]:
+            - /url: https://help.x.com/resources/accessibility
+          - generic [ref=e58]: ·
+        - generic [ref=e59]:
+          - link "Ads Info" [ref=e60] [cursor=pointer]:
+            - /url: https://business.x.com/en/help/troubleshooting/how-twitter-ads-work.html?ref=web-twc-ao-gbl-adsinfo&utm_source=twc&utm_medium=web&utm_campaign=ao&utm_content=adsinfo
+          - generic [ref=e61]: ·
+        - button "More" [ref=e62] [cursor=pointer]:
+          - text: More
+          - img [ref=e63]
+        - generic [ref=e65]: © 2026 X Corp.
+  - generic [ref=e68]:
+    - generic [ref=e69]:
+      - generic [ref=e70]: Don't miss what's happening
+      - generic [ref=e71]: People on X are the first to know.
+    - generic [ref=e72]:
+      - link "Log in" [ref=e73] [cursor=pointer]:
+        - /url: /i/jf/onboarding/web?mode=login
+      - link "Sign up" [ref=e74] [cursor=pointer]:
+        - /url: /i/jf/onboarding/web?mode=signup
