@@ -9,8 +9,9 @@
  *   → 读 location.pathname("/97") 当作 screenName → fetch api.x.com → CORS 失败
  *
  * 解决思路：vocal-saga 在返回 HTML 前，注入一段自己的 monkey-patch 脚本到
- * <head> 最前面（早于原站任何脚本执行），把所有会导致"离开当前页"的导航 API
- * 硬拦截掉。原站的展示性脚本（折叠、懒加载等）照常运行，只是无法把用户带走。
+ * <head> 最前面（早于原站任何脚本执行），把会导致"离开当前翻译页"的导航 API
+ * 拦截掉。同页 hash 导航、外部链接在新标签页打开、用户主动点击等正常行为
+ * 尽量保留。
  *
  * 注意：这段脚本由 vocal-saga 注入，不是原站点自带的。
  */
@@ -20,9 +21,10 @@
  *
  * 设计要点：
  *   1. 在 try/catch 里逐项 patch，任何一项失败不影响其它项
- *   2. 同时拦截「编程式导航」（location / history / window.open）和
- *      「文档级跳转」（meta refresh）
- *   3. 静默吞掉，不抛错——原站 SPA 跑挂也无所谓，用户留在翻译页即可
+ *   2. 只拦截「跨页跳转」（不同 origin 或不同 pathname），保留同页 hash 跳转
+ *   3. window.open 的外部链接 / _blank 保持原行为，仅拦截在当前窗口打开的内部链接
+ *   4. 静默吞掉自动跳转，不抛错——原站 SPA 跑挂也无所谓，用户留在翻译页即可
+ *   5. MutationObserver 优先监听 <head>，降低性能开销
  *
  * 导出供测试直接执行验证（生产环境通过 injectRedirectGuard 注入 <script>）。
  */
@@ -31,42 +33,143 @@ export const REDIRECT_GUARD_SCRIPT = `
   if (window.__vsRedirectGuard) return; // 防重复注入
   window.__vsRedirectGuard = true;
 
+  var currentHref = window.location.href;
+  var currentOrigin = window.location.origin;
+  var currentPathname = window.location.pathname;
+
+  /**
+   * 判断 url 是否会导致离开当前页面（不同 origin 或不同 pathname）。
+   * 空值/非法值视为不跳转。
+   */
+  function isCrossPage(url) {
+    if (!url) return false;
+    try {
+      var parsed = new URL(url, currentHref);
+      return parsed.origin !== currentOrigin || parsed.pathname !== currentPathname;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  /**
+   * 判断 url 是否为外部链接（不同 origin）。
+   */
+  function isExternal(url) {
+    if (!url) return false;
+    try {
+      return new URL(url, currentHref).origin !== currentOrigin;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  /**
+   * 判断 url 是否只是同页 hash 跳转。
+   */
+  function isHashOnly(url) {
+    if (!url) return false;
+    try {
+      var parsed = new URL(url, currentHref);
+      return parsed.origin === currentOrigin &&
+             parsed.pathname === currentPathname &&
+             parsed.hash !== '';
+    } catch (e) {
+      return false;
+    }
+  }
+
   // ── 1. 编程式导航：location 写入 / assign / replace ──
+  // 只拦截跨页跳转；同页 hash 跳转允许（原站 SPA 常用 hash 做状态，保留行为）。
   try {
-    window.location.assign = function () { /* vocal-saga: 已拦截 location.assign */ };
-    window.location.replace = function () { /* vocal-saga: 已拦截 location.replace */ };
-    // location.href 是访问器属性，尝试重定义 setter 吞掉写操作；
+    var loc = window.location;
+    loc.assign = function (url) {
+      if (isCrossPage(url)) {
+        console.log('[vocal-saga] 拦截 location.assign:', url);
+        return;
+      }
+      if (isHashOnly(url)) {
+        try {
+          loc.hash = new URL(url, currentHref).hash;
+        } catch (e) {}
+      }
+    };
+    loc.replace = function (url) {
+      if (isCrossPage(url)) {
+        console.log('[vocal-saga] 拦截 location.replace:', url);
+        return;
+      }
+      if (isHashOnly(url)) {
+        try {
+          loc.hash = new URL(url, currentHref).hash;
+        } catch (e) {}
+      }
+    };
+    // location.href 是访问器属性，尝试重定义 setter 吞掉跨页写操作；
     // 某些浏览器（如 Firefox）不允许重定义 location.href，失败时静默忽略。
     try {
-      var origHref = window.location.href;
-      Object.defineProperty(window.location, 'href', {
+      Object.defineProperty(loc, 'href', {
         configurable: true,
-        get: function () { return origHref; },
-        set: function () { /* vocal-saga: 已拦截 location.href 跳转 */ }
+        get: function () { return currentHref; },
+        set: function (url) {
+          if (isCrossPage(url)) {
+            console.log('[vocal-saga] 拦截 location.href 跳转:', url);
+            return;
+          }
+          if (isHashOnly(url)) {
+            try {
+              loc.hash = new URL(url, currentHref).hash;
+              currentHref = loc.href;
+            } catch (e) {}
+          }
+        }
       });
     } catch (e) {}
   } catch (e) {}
 
   // ── 2. History API：pushState / replaceState ──
   // 这些不会真的离开页面，但原站 SPA 会借它做客户端路由初始化，
-  // 进而触发后续 API 调用。直接吞掉，保持地址栏不变。
+  // 进而触发后续 API 调用。跨 pathname 时拦截；同 pathname/hash 保持原行为。
   try {
     if (window.history) {
       ['pushState', 'replaceState'].forEach(function (m) {
-        window.history[m] = function () { /* vocal-saga: 已拦截 history. */ + m; };
+        var orig = window.history[m];
+        window.history[m] = function (state, title, url) {
+          if (url && isCrossPage(url)) {
+            console.log('[vocal-saga] 拦截 history.' + m + ':', url);
+            return;
+          }
+          return orig.apply(window.history, arguments);
+        };
       });
     }
   } catch (e) {}
 
   // ── 3. window.open ──
+  // 保留外部链接和 _blank 新窗口行为（用户主动打开），
+  // 仅拦截在当前窗口打开且会导致离开翻译页的内部链接。
   try {
-    window.open = function () { return null; };
+    var origOpen = window.open;
+    window.open = function (url, target, features) {
+      if (!url) return origOpen.apply(window, arguments);
+      if (target === '_blank' || isExternal(url)) {
+        return origOpen.apply(window, arguments);
+      }
+      if (isCrossPage(url)) {
+        console.log('[vocal-saga] 拦截 window.open:', url);
+        return null;
+      }
+      return origOpen.apply(window, arguments);
+    };
   } catch (e) {}
 
   // ── 4. 文档级跳转：<meta http-equiv="refresh"> ──
-  // 删除已存在的，并监控后续注入
+  // 删除已存在的，并监控后续注入（优先只监听 <head>，降低开销）。
   try {
-    document.querySelectorAll('meta[http-equiv="refresh" i]').forEach(function (m) { m.remove(); });
+    function removeRefreshMeta() {
+      document.querySelectorAll('meta[http-equiv="refresh" i]').forEach(function (m) { m.remove(); });
+    }
+    removeRefreshMeta();
+    var observerTarget = document.head || document.documentElement;
     new MutationObserver(function (records) {
       records.forEach(function (r) {
         r.addedNodes.forEach(function (n) {
@@ -75,7 +178,7 @@ export const REDIRECT_GUARD_SCRIPT = `
           }
         });
       });
-    }).observe(document.documentElement, { childList: true, subtree: true });
+    }).observe(observerTarget, { childList: true, subtree: true });
   } catch (e) {}
 })();
 `;

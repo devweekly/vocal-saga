@@ -4,8 +4,8 @@
  * 验证两件事：
  *   1. injectRedirectGuard 把守卫脚本注入到 <head> 最前面（含多种 HTML 结构的边界情况）
  *   2. 注入的守卫脚本在 jsdom（会自动执行 <script>）里真正生效——
- *      location.assign/replace、history.pushState/replaceState、window.open、
- *      meta refresh 全部被静默吞掉，URL 不变。
+ *      仅拦截会导致离开当前翻译页的跨 origin / 跨 pathname 跳转，
+ *      同页 hash 跳转与外部新窗口行为尽量保留。
  *
  * vitest 已配置 environment: 'jsdom'，<script> 会被执行。
  */
@@ -74,37 +74,61 @@ describe('守卫脚本运行时行为', () => {
     (0, eval)(REDIRECT_GUARD_SCRIPT);
   }
 
-  it('拦截 location.assign（不抛错、URL 不变）', () => {
+  it('拦截跨页 location.assign（不抛错、URL 不变）', () => {
     runGuard();
     expect((window as any)[GUARD_MARKER]).toBe(true);
-    // assign 已被替换为空操作；调用不应抛错
-    expect(() => window.location.assign('https://evil.com')).not.toThrow();
-    expect(window.location.href).not.toContain('evil.com');
+    const before = window.location.href;
+    expect(() => window.location.assign('https://evil.com/hijack')).not.toThrow();
+    expect(window.location.href).toBe(before);
   });
 
-  it('拦截 location.replace（不抛错、URL 不变）', () => {
+  it('拦截跨页 location.replace（不抛错、URL 不变）', () => {
     runGuard();
-    expect(() => window.location.replace('https://evil.com')).not.toThrow();
-    expect(window.location.href).not.toContain('evil.com');
+    const before = window.location.href;
+    expect(() => window.location.replace('https://evil.com/hijack')).not.toThrow();
+    expect(window.location.href).toBe(before);
   });
 
-  it('拦截 history.pushState（地址栏不变）', () => {
+  it('同页 hash location.assign 允许', () => {
+    runGuard();
+    const before = window.location.href;
+    window.location.assign('#section-1');
+    expect(window.location.hash).toBe('#section-1');
+    expect(window.location.pathname).toBe(new URL(before).pathname);
+  });
+
+  it('拦截跨页 history.pushState（地址栏 pathname 不变）', () => {
     runGuard();
     const before = window.location.pathname;
     window.history.pushState({}, '', '/hijacked');
     expect(window.location.pathname).toBe(before);
   });
 
-  it('拦截 history.replaceState（地址栏不变）', () => {
+  it('拦截跨页 history.replaceState（地址栏 pathname 不变）', () => {
     runGuard();
     const before = window.location.pathname;
     window.history.replaceState({}, '', '/hijacked');
     expect(window.location.pathname).toBe(before);
   });
 
-  it('拦截 window.open（返回 null，不打开新窗口）', () => {
+  it('同页 hash history.pushState 允许', () => {
     runGuard();
-    const result = window.open('https://evil.com', '_blank');
+    const before = window.location.pathname;
+    window.history.pushState({}, '', '#section-2');
+    expect(window.location.hash).toBe('#section-2');
+    expect(window.location.pathname).toBe(before);
+  });
+
+  it('window.open 外部 _blank 链接不拦截且当前页不跳转', () => {
+    runGuard();
+    const before = window.location.href;
+    expect(() => window.open('https://external-example.com/', '_blank')).not.toThrow();
+    expect(window.location.href).toBe(before);
+  });
+
+  it('window.open 当前窗口内部跨页链接被拦截（返回 null）', () => {
+    runGuard();
+    const result = window.open('/hijacked', '_self');
     expect(result).toBeNull();
   });
 
@@ -113,5 +137,20 @@ describe('守卫脚本运行时行为', () => {
     document.head.innerHTML = '<meta http-equiv="refresh" content="0;url=https://evil.com">';
     runGuard();
     expect(document.querySelector('meta[http-equiv="refresh" i]')).toBeNull();
+  });
+
+  it('动态注入的 <meta http-equiv="refresh"> 会被移除', () => {
+    runGuard();
+    const meta = document.createElement('meta');
+    meta.setAttribute('http-equiv', 'refresh');
+    meta.setAttribute('content', '0;url=https://evil.com');
+    document.head.appendChild(meta);
+    // MutationObserver 是异步的，需要等一轮微任务
+    return new Promise<void>((resolve) => {
+      setTimeout(() => {
+        expect(document.querySelector('meta[http-equiv="refresh" i]')).toBeNull();
+        resolve();
+      }, 0);
+    });
   });
 });
