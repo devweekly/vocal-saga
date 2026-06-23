@@ -75,11 +75,32 @@ function createMockDb() {
   const rows: MockRow[] = [];
   let nextId = 1;
 
+  /** 按 id DESC 排序后的只读副本 */
+  function sortedRows(): MockRow[] {
+    return [...rows].sort((a, b) => b.id - a.id);
+  }
+
   return {
     _rows: rows,
     prepare: (_sql: string) => {
       const sql = _sql;
+      // 无 bind 的查询（如 COUNT(*)、全量列表）
+      const unbound = {
+        all: async () => {
+          if (/COUNT\(\*\)/i.test(sql)) {
+            return { results: [{ total: rows.length }], success: true };
+          }
+          return { results: sortedRows(), success: true };
+        },
+        first: async () => {
+          if (/COUNT\(\*\)/i.test(sql)) {
+            return { total: rows.length };
+          }
+          return null;
+        },
+      };
       return {
+        ...unbound,
         bind: (...args: any[]) => ({
           run: async () => {
             if (sql.trim().startsWith('INSERT')) {
@@ -119,6 +140,15 @@ function createMockDb() {
               );
             }
             return null;
+          },
+          all: async () => {
+            // 分页查询：SELECT ... LIMIT ? OFFSET ?
+            if (/LIMIT\s+\?\s+OFFSET\s+\?/i.test(sql)) {
+              const limit = args[0] as number;
+              const offset = args[1] as number;
+              return { results: sortedRows().slice(offset, offset + limit), success: true };
+            }
+            return { results: sortedRows(), success: true };
           },
         }),
       };
@@ -682,5 +712,129 @@ describe('POST /fanyi/page', () => {
     expect(db._rows[0].source_lang).toBe('en');
     expect(db._rows[0].target_lang).toBe('zh');
     expect(db._rows[0].html).toContain('translated');
+  });
+});
+
+// ─── 分页列表 GET / 和 GET /page/:page ──────────────────────
+describe('分页列表', () => {
+  /** 向 mock D1 批量插入 n 条记录 */
+  function seedDb(db: any, n: number) {
+    for (let i = 1; i <= n; i++) {
+      db._rows.push({
+        id: i,
+        url: `https://example.com/post-${i}`,
+        title: `Post ${i}`,
+        source_lang: 'en',
+        target_lang: 'zh',
+        html: '<html></html>',
+        created_at: new Date().toISOString(),
+      });
+    }
+  }
+
+  it('首页 / 渲染第 1 页，包含分页导航', async () => {
+    const app = buildApp();
+    const db = createMockDb();
+    seedDb(db, 120); // 120 条 → 4 页（30×4）
+
+    const res = await app.request(req('/'), {}, envWithDb(db));
+    expect(res.status).toBe(200);
+    const html = await res.text();
+    // 第 1 页应包含最新记录 Post 120
+    expect(html).toContain('Post 120');
+    // 不应包含第 2 页的记录 Post 90（第 1 页 30 条：120~91）
+    expect(html).not.toContain('Post 90');
+    // 分页导航：当前页 1/4，有下一页链接，上一页不可点
+    expect(html).toContain('1 / 4');
+    expect(html).toContain('href="/page/2"');
+    expect(html).not.toContain('href="/page/0"');
+  });
+
+  it('GET /page/2 返回第 2 页记录', async () => {
+    const app = buildApp();
+    const db = createMockDb();
+    seedDb(db, 120);
+
+    const res = await app.request(req('/page/2'), {}, envWithDb(db));
+    expect(res.status).toBe(200);
+    const html = await res.text();
+    // 第 2 页：Post 90 ~ Post 61
+    expect(html).toContain('Post 90');
+    expect(html).toContain('Post 61');
+    // 不应包含第 1 页和第 3 页的记录
+    expect(html).not.toContain('Post 120');
+    expect(html).not.toContain('Post 60');
+    // 导航：2/4，有上一页和下一页
+    expect(html).toContain('2 / 4');
+    expect(html).toContain('href="/page/1"');
+    expect(html).toContain('href="/page/3"');
+  });
+
+  it('最后一页只有剩余记录，无下一页链接', async () => {
+    const app = buildApp();
+    const db = createMockDb();
+    seedDb(db, 120); // 4 页：30 + 30 + 30 + 30
+
+    const res = await app.request(req('/page/4'), {}, envWithDb(db));
+    expect(res.status).toBe(200);
+    const html = await res.text();
+    // 第 4 页：Post 30 ~ Post 1
+    expect(html).toContain('Post 30');
+    expect(html).toContain('Post 1');
+    expect(html).not.toContain('Post 31');
+    // 最后一页：4/4，有上一页，无下一页
+    expect(html).toContain('4 / 4');
+    expect(html).toContain('href="/page/3"');
+    expect(html).not.toContain('href="/page/5"');
+  });
+
+  it('无记录时显示空提示，无分页导航', async () => {
+    const app = buildApp();
+    const db = createMockDb();
+
+    const res = await app.request(req('/'), {}, envWithDb(db));
+    expect(res.status).toBe(200);
+    const html = await res.text();
+    expect(html).toContain('暂无翻译记录');
+    expect(html).not.toContain('上一页');
+    expect(html).not.toContain('下一页');
+  });
+
+  it('无 D1 时返回空列表页', async () => {
+    const app = buildApp();
+    const res = await app.request(req('/'));
+    expect(res.status).toBe(200);
+    const html = await res.text();
+    expect(html).toContain('暂无翻译记录');
+  });
+
+  it('非法页码 /page/0 返回 404', async () => {
+    const app = buildApp();
+    const db = createMockDb();
+    seedDb(db, 10);
+
+    const res = await app.request(req('/page/0'), {}, envWithDb(db));
+    expect(res.status).toBe(404);
+  });
+
+  it('非法页码 /page/abc 返回 404', async () => {
+    const app = buildApp();
+    const db = createMockDb();
+    seedDb(db, 10);
+
+    const res = await app.request(req('/page/abc'), {}, envWithDb(db));
+    expect(res.status).toBe(404);
+  });
+
+  it('页码超出总页数时仍渲染（空列表）', async () => {
+    const app = buildApp();
+    const db = createMockDb();
+    seedDb(db, 10); // 只有 1 页
+
+    const res = await app.request(req('/page/99'), {}, envWithDb(db));
+    expect(res.status).toBe(200);
+    const html = await res.text();
+    // 超出页数，无记录显示
+    expect(html).toContain('暂无翻译记录');
   });
 });

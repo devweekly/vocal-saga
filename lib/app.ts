@@ -76,20 +76,20 @@ export function createApp(storage?: StorageAdapter): Hono {
   const app = new Hono();
   app.use('*', cors());
 
-  app.get('/', async (c) => {
-    const db = (c.env as any)?.DB999;
-    const rows: any[] = [];
+  // 每页记录数
+  const PAGE_SIZE = 30;
 
-    if (db) {
-      try {
-        const result = await db.prepare(
-          'SELECT id, url, title, source_lang, target_lang FROM translations ORDER BY id DESC LIMIT 50'
-        ).all();
-        if (result.results) rows.push(...result.results);
-      } catch (e) {
-        console.error('[D1] list error:', e);
-      }
-    }
+  /**
+   * 渲染翻译记录列表页（带分页导航）。
+   * 供 GET / 和 GET /page/:page 共用。
+   *
+   * @param page 当前页码（从 1 开始）
+   * @param rows 当前页的记录数组
+   * @param total 总记录数（用于计算总页数）
+   */
+  function renderListPage(page: number, rows: any[], total: number): Response {
+    const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+    const safePage = Math.min(Math.max(1, page), totalPages);
 
     // 构建 HTML 列表页
     const items = rows.map((r: any) => {
@@ -101,12 +101,23 @@ export function createApp(storage?: StorageAdapter): Hono {
       </li>`;
     }).join('\n');
 
+    // 分页导航：上一页 / 页码 / 下一页
+    const prevLink = safePage > 1
+      ? `<a href="/page/${safePage - 1}" style="margin:0 6px;text-decoration:none;color:#2563eb">← 上一页</a>`
+      : `<span style="margin:0 6px;color:#d1d5db">← 上一页</span>`;
+    const nextLink = safePage < totalPages
+      ? `<a href="/page/${safePage + 1}" style="margin:0 6px;text-decoration:none;color:#2563eb">下一页 →</a>`
+      : `<span style="margin:0 6px;color:#d1d5db">下一页 →</span>`;
+    const pager = total > 0
+      ? `<div style="margin-top:32px;text-align:center;font-size:14px">${prevLink}<span style="margin:0 6px;color:#6b7280">${safePage} / ${totalPages}</span>${nextLink}</div>`
+      : '';
+
     const html = `<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>翻译记录</title>
+<title>翻译记录${safePage > 1 ? ` · 第 ${safePage} 页` : ''}</title>
 <style>
   body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 720px; margin: 40px auto; padding: 0 20px; color: #1f2937; }
   h1 { font-size: 24px; margin-bottom: 24px; }
@@ -118,6 +129,7 @@ export function createApp(storage?: StorageAdapter): Hono {
 <body>
 <h1>翻译记录</h1>
 ${items ? `<ul>${items}</ul>` : '<p class="empty">暂无翻译记录</p>'}
+${pager}
 </body>
 </html>`;
 
@@ -125,6 +137,48 @@ ${items ? `<ul>${items}</ul>` : '<p class="empty">暂无翻译记录</p>'}
       status: 200,
       headers: { 'Content-Type': 'text/html; charset=utf-8' },
     });
+  }
+
+  /**
+   * 从 D1 查询指定页的记录 + 总数。
+   * 返回 { rows, total }，查询失败时 rows 为空数组。
+   */
+  async function fetchListPage(db: any, page: number): Promise<{ rows: any[]; total: number }> {
+    if (!db) return { rows: [], total: 0 };
+    const offset = (page - 1) * PAGE_SIZE;
+    try {
+      const [dataResult, countResult] = await Promise.all([
+        db.prepare(
+          'SELECT id, url, title, source_lang, target_lang FROM translations ORDER BY id DESC LIMIT ? OFFSET ?'
+        ).bind(PAGE_SIZE, offset).all(),
+        db.prepare('SELECT COUNT(*) as total FROM translations').first(),
+      ]);
+      return {
+        rows: dataResult.results || [],
+        total: countResult?.total || 0,
+      };
+    } catch (e) {
+      console.error('[D1] list error:', e);
+      return { rows: [], total: 0 };
+    }
+  }
+
+  // ── GET / — 首页，渲染第 1 页 ────────────────────────
+  app.get('/', async (c) => {
+    const db = (c.env as any)?.DB999;
+    const { rows, total } = await fetchListPage(db, 1);
+    return renderListPage(1, rows, total);
+  });
+
+  // ── GET /page/:page — 分页列表 ──────────────────────
+  // 必须在 /:id 之前注册，否则 /page/1 会被 :id 捕获
+  app.get('/page/:page', async (c) => {
+    const pageStr = c.req.param('page');
+    const page = parseInt(pageStr, 10);
+    if (!Number.isFinite(page) || page < 1) return c.notFound();
+    const db = (c.env as any)?.DB999;
+    const { rows, total } = await fetchListPage(db, page);
+    return renderListPage(page, rows, total);
   });
 
   // ── GET /<id> — 从 D1 取出第 N 次翻译结果展示 ────────
