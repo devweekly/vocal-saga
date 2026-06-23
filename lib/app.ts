@@ -96,7 +96,7 @@ export function createApp(storage?: StorageAdapter): Hono {
       const url = `${r.url}`;
       const displayTitle = r.title || r.url;
       return `<li style="margin-bottom:16px;line-height:1.6">
-        <a href="/${r.id}" style="font-size:16px;text-decoration:none;color:#2563eb;font-weight:500">${escapeHtml(displayTitle)}</a>
+        <a href="/article/${r.id}" style="font-size:16px;text-decoration:none;color:#2563eb;font-weight:500">${escapeHtml(displayTitle)}</a>
         <br><a href="${url}" target="_blank" rel="noopener" style="color:#9ca3af;font-size:12px;text-decoration:none">${r.url}</a>
       </li>`;
     }).join('\n');
@@ -181,8 +181,8 @@ ${pager}
     return renderListPage(page, rows, total);
   });
 
-  // ── GET /<id> — 从 D1 取出第 N 次翻译结果展示 ────────
-  app.get('/:id', async (c) => {
+  // ── GET /article/:id — 从 D1 取出第 N 次翻译结果展示 ────────
+  app.get('/article/:id', async (c) => {
     const id = c.req.param('id');
     if (!/^\d+$/.test(id)) return c.notFound();
     const db = (c.env as any)?.DB999;

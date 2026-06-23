@@ -1,5 +1,5 @@
 /**
- * 翻译历史持久化（D1）和 GET /<id> 路由单测。
+ * 翻译历史持久化（D1）和 GET /article/:id 路由单测。
  *
  * 每次 /translate/* 或 /s/* 成功后将结果写入 D1，
  * /<id> 从 D1 取出对应记录并渲染。
@@ -93,10 +93,10 @@ function envWithDb(db: any): object {
   return { DB999: db };
 }
 
-describe('GET /<id> — D1 translation history', () => {
+describe('GET /article/:id — D1 translation history', () => {
   it('500 when D1 binding is missing', async () => {
     const app = buildApp();
-    const res = await app.request(req('/1'));
+    const res = await app.request(req('/article/1'));
     expect(res.status).toBe(500);
     const body = (await res.json()) as { error: string };
     expect(body.error).toMatch(/D1 not available/);
@@ -105,13 +105,13 @@ describe('GET /<id> — D1 translation history', () => {
   it('404 for non-existent id', async () => {
     const app = buildApp();
     const db = createMockDb();
-    const res = await app.request(req('/999'), {}, envWithDb(db));
+    const res = await app.request(req('/article/999'), {}, envWithDb(db));
     expect(res.status).toBe(404);
     const body = (await res.json()) as { error: string };
     expect(body.error).toMatch(/translation not found/);
   });
 
-  it('saves url and html to D1 after /translate/* and retrieves via /<id>', async () => {
+  it('saves url and html to D1 after /translate/* and retrieves via /article/:id', async () => {
     const app = buildApp();
     const db = createMockDb();
 
@@ -123,8 +123,8 @@ describe('GET /<id> — D1 translation history', () => {
     expect(db._rows[0].html).toBe('<html><body>translated page</body></html>');
     expect(db._rows[0].source_lang).toBe('en');
 
-    // 通过 /1 取回
-    const res = await app.request(req('/1'), {}, envWithDb(db));
+    // 通过 /article/1 取回
+    const res = await app.request(req('/article/1'), {}, envWithDb(db));
     expect(res.status).toBe(200);
     expect(res.headers.get('Content-Type')).toBe('text/html; charset=utf-8');
     const text = await res.text();
@@ -133,7 +133,7 @@ describe('GET /<id> — D1 translation history', () => {
     expect(text).toContain('__vsRedirectGuard');
   });
 
-  it('saves to D1 after /s/* and retrieves via /<id>', async () => {
+  it('saves to D1 after /s/* and retrieves via /article/:id', async () => {
     const app = buildApp();
     const db = createMockDb();
 
@@ -143,7 +143,7 @@ describe('GET /<id> — D1 translation history', () => {
     // www. 保留，所以存储的是 www.medium.com
     expect(db._rows[0].url).toBe('https://www.medium.com/article');
 
-    const res = await app.request(req('/1'), {}, envWithDb(db));
+    const res = await app.request(req('/article/1'), {}, envWithDb(db));
     expect(res.status).toBe(200);
     const text = await res.text();
     expect(text).toContain('translated page');
@@ -173,12 +173,12 @@ describe('GET /<id> — D1 translation history', () => {
     expect(db._rows[0].id).toBe(1);
     expect(db._rows[1].id).toBe(2);
 
-    const r1 = await app.request(req('/1'), {}, envWithDb(db));
+    const r1 = await app.request(req('/article/1'), {}, envWithDb(db));
     const t1 = await r1.text();
     expect(t1).toContain('first');
     expect(t1).toContain('__vsRedirectGuard');
 
-    const r2 = await app.request(req('/2'), {}, envWithDb(db));
+    const r2 = await app.request(req('/article/2'), {}, envWithDb(db));
     const t2 = await r2.text();
     expect(t2).toContain('second');
     expect(t2).toContain('__vsRedirectGuard');
@@ -187,7 +187,7 @@ describe('GET /<id> — D1 translation history', () => {
   it('non-numeric :id returns 404 (notFound)', async () => {
     const app = buildApp();
     const db = createMockDb();
-    const res = await app.request(req('/foo'), {}, envWithDb(db));
+    const res = await app.request(req('/article/foo'), {}, envWithDb(db));
     expect(res.status).toBe(404);
   });
 
