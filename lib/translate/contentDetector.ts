@@ -185,9 +185,9 @@ const META_ID_RE = /(?:author|byline|timestamp|tag|category|topic|date|meta)/i;
 // 命中任一 token 的元素 (含其祖先) 直接从候选里剔除, 不参与评分。
 
 const CONSENT_SDK_ID_RE =
-  /(?:onetrust|cookiebot|trustarc|quantcast|consent|gdpr|cookielaw|cookie-law|privacy)/i;
+  /(?:onetrust|cookiebot|trustarc|quantcast|consent|gdpr|cookielaw|cookie-law|cookie|privacy)/i;
 const CONSENT_SDK_CLASS_RE =
-  /(?:onetrust|\bot-sdk|ot-pc|ot-cookie|cookiebot|trustarc|quantcast|qc-cmp|cookie-banner|consent-banner|gdpr-banner|privacy-banner)/i;
+  /(?:onetrust|\bot-sdk|ot-pc|ot-cookie|cookiebot|trustarc|quantcast|qc-cmp|cookie-banner|consent-banner|gdpr-banner|privacy-banner|\bcookie[s]?\b)/i;
 
 /**
  * 元素 (或其任意祖先) 是否是隐私同意 / Cookie / 广告 SDK 容器。
