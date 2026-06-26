@@ -193,9 +193,8 @@
 - **同步建议**：文章根节点选择逻辑必须同步；`hideBodyOverlays` 不需要同步到 vocal-saga
 
 ### 10. `rules/types.ts`
-- **差异**：vocal-saga 的 `SiteRule` 接口多了 `documentTerms?: string[]` 字段
-- **注意**：fanyi-extension 的 `github-rules.ts` / `fortune-rules.ts` / `hackernews-rules.ts` **实际已经使用了** `documentTerms` 字段，但 `types.ts` 没有声明！这是 fanyi-extension 的类型定义缺失。
-- **同步建议**：fanyi-extension 的 `types.ts` 应该补上 `documentTerms` 字段声明
+- **一致**：`SiteRule` 接口字段完全一致（含 `documentTerms?: string[]`）
+- **历史**：fanyi-extension 曾缺少 `documentTerms` 字段声明（实际代码已使用），已修复
 
 ### 11. `rules/index.ts`
 - **一致**：`matchSiteRule(url)` 函数、`hostMatches` 函数
@@ -281,22 +280,20 @@
 
 ---
 
-## 五、已知差异（待处理）
+## 五、已知差异（设计性，无需统一）
 
-1. **fanyi-extension 的 `rules/types.ts` 缺少 `documentTerms` 字段声明**
-   - 实际代码已使用，但类型未声明
-   - 应该从 vocal-saga 同步过来
-
-2. **`chunkBuilder.ts` 的 `TARGET_TOKENS` 和 `estimateTokens` 差异**
+1. **`chunkBuilder.ts` 的 `TARGET_TOKENS` 和 `estimateTokens` 差异**
    - fanyi-extension: `TARGET_TOKENS=800`，`estimateTokens=text.length/4`
    - vocal-saga: `TARGET_TOKENS=10000`，`estimateTokens` CJK 感知
-   - 这是有意为之的设计差异，不需要统一
+   - 这是有意为之的设计差异：扩展端 chunk 小以降低单次失败影响，服务端 chunk 大以提升吞吐
 
-3. **`contentDetector.ts` 的评分算法差异**
-   - fanyi-extension: v2 评分模型
-   - vocal-saga: Text Density 评分
+2. **`contentDetector.ts` 的评分算法差异**
+   - fanyi-extension: v2 评分模型（绝对分数排名 + structure boost + container penalty + sibling normalization + depth normalization）
+   - vocal-saga: Text Density 评分（`density = (bodyTextLength / (linkCount + 1)) * log(textLength + 1)`）
    - 两边都在独立迭代，不需要统一
 
-4. **`isOverlayElement` 实现差异**
-   - 两边都能识别同类元素，但实现方式不同
+3. **`isOverlayElement` 实现差异**
+   - fanyi-extension 用 `OVERLAY_PATTERNS` 数组 + `matchSelectorRule`，含 `styleCheck`（fixed/sticky 定位），且 `article/main` 内部的容器返回 false
+   - vocal-saga 用 `OVERLAY_PATTERNS.classTokens` / `idTokens` / `roles`，含 `position:fixed` + `hasOverlayHint` 辅助判定
+   - 两边 token 列表已对齐，实现方式根据环境适配
    - 如果发现新的 overlay 模式，需要两边同步 token
