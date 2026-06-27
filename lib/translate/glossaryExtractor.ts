@@ -142,6 +142,62 @@ function extractAcronyms(text: string): string[] {
   return result;
 }
 
+// =============================================================================
+// Context-aware Product Name Extraction
+// =============================================================================
+//
+// 识别 AI 厂商的完整产品名（Named Entity），而非单个普通词。
+// 核心思路：以 vendor prefix（Claude/GPT/Gemini/Llama/...）为锚，向右吸收
+// 0-3 个"产品 token"（大写词 / 版本号 / 参数规模），组成完整产品名加入 glossary。
+//
+// 这样 "Claude Sonnet 4.5" 作为整体保留，而 "A sonnet consists of..."
+// 里的 "sonnet"（小写、非 prefix）不会被误伤，仍翻译为"十四行诗"。
+//
+// 覆盖：Claude Sonnet/Opus/Haiku、GPT-5、Gemini 2.5 Pro、Llama 4 Scout、
+// Qwen3-235B、DeepSeek R1、Mistral Large、Command A 等。
+
+const AI_VENDOR_PREFIXES = [
+  'Claude', 'GPT', 'Gemini', 'Llama', 'Qwen',
+  'Mistral', 'DeepSeek', 'Grok', 'Nova', 'Command', 'Phi',
+];
+
+let compiledProductRe: RegExp | null = null;
+function getProductRe(): RegExp {
+  if (compiledProductRe) return compiledProductRe;
+  const escaped = AI_VENDOR_PREFIXES
+    .map((p) => p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+    .sort((a, b) => b.length - a.length);
+  // tail token：
+  //   - prefix 直接跟数字版本（Qwen3 / GPT5）
+  //   - 空格或连字符 + 大写词（Sonnet / Opus / Pro / Flash / Scout / Large / Code / Desktop）
+  //   - 空格或连字符 + 版本号（4 / 4.1 / 2.5 / 5）
+  //   - 空格或连字符 + 参数规模（235B / 70B）
+  const tailToken =
+    '[0-9]+(?:\\.[0-9]+)?[A-Za-z]*' +                         // 直接跟数字（Qwen3）
+    '|[\\s\\-]+(?:[A-Z][A-Za-z]*|[0-9]+(?:\\.[0-9]+)?[A-Za-z]*)'; // 空格/连字符 + token
+  compiledProductRe = new RegExp(
+    `\\b(?:${escaped.join('|')})(?:${tailToken}){0,3}`,
+    'g'
+  );
+  return compiledProductRe;
+}
+
+/**
+ * 从文本中提取 AI 产品名（上下文感知）。
+ * 只匹配以 vendor prefix 开头的完整产品名，不会误伤普通英文词。
+ */
+function extractProductNames(text: string): string[] {
+  const re = getProductRe();
+  const results = new Set<string>();
+  for (const m of text.matchAll(re)) {
+    const name = m[0].replace(/[\s\-]+$/, '').trim();
+    if (name.length >= 3) {
+      results.add(name);
+    }
+  }
+  return [...results];
+}
+
 function extractNamedEntities(doc: any): string[] {
   const entities = new Set<string>();
   const fullText = doc.text();
@@ -526,6 +582,14 @@ export function extractGlossaryLocal(
   const acronyms = extractAcronyms(safeText);
   for (const acronym of acronyms) {
     termSet.add(acronym);
+  }
+
+  // Context-aware AI 产品名提取（Claude Sonnet 4.5 / GPT-5 / Gemini 2.5 Pro ...）
+  // 在 nlp 之前提取，确保完整产品名作为整体加入 glossary，
+  // 避免被后续 nlp 拆分成 Claude / Sonnet / 4.5 单个词。
+  const productNames = extractProductNames(safeText);
+  for (const name of productNames) {
+    termSet.add(name);
   }
 
   {

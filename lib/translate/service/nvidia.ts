@@ -10,7 +10,7 @@ import { getNvidiaApiKey } from '../../config';
 import { buildTranslationBody, stripMarkdownCodeBlock, cleanJsonString, repairTruncatedJson } from './shared';
 
 const API_URL = 'https://integrate.api.nvidia.com/v1/chat/completions';
-const DEFAULT_MODEL = 'moonshotai/kimi-k2.6';
+const DEFAULT_MODEL = 'stepfun-ai/step-3.7-flash';
 
 function buildHeaders(): Record<string, string> {
   return {

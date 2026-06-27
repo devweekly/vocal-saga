@@ -74,6 +74,24 @@ describe('stripMarkdownCodeBlock', () => {
     const result = stripMarkdownCodeBlock(input);
     expect(result).toBe('[{"id":"b1"}]');
   });
+
+  it('strips opening ```json when closing ``` is missing (truncated output)', async () => {
+    // NVIDIA 模型可能因 max_tokens 截断，只输出开头的 ```json 没有结尾 ```
+    const { stripMarkdownCodeBlock } = await import('../lib/translate/service/shared');
+    const input = '```json\n{"translations":[{"id":"b1","translated_text":"你好"}]}';
+    const result = stripMarkdownCodeBlock(input);
+    expect(result).toBe('{"translations":[{"id":"b1","translated_text":"你好"}]}');
+    // 结果必须是合法 JSON
+    expect(() => JSON.parse(result)).not.toThrow();
+  });
+
+  it('strips opening ``` when closing ``` is missing (truncated, no json label)', async () => {
+    const { stripMarkdownCodeBlock } = await import('../lib/translate/service/shared');
+    const input = '```\n{"translations":[]}';
+    const result = stripMarkdownCodeBlock(input);
+    expect(result).toBe('{"translations":[]}');
+    expect(() => JSON.parse(result)).not.toThrow();
+  });
 });
 
 describe('GET /openrt/<target> — OpenRouter free model', () => {

@@ -713,7 +713,7 @@ ${pager}
   app.get('/nvd/*', (c) => {
     const raw = decodeURIComponent(c.req.path.slice('/nvd/'.length));
     let urlPath = raw;
-    let model: string | undefined = 'moonshotai/kimi-k2.6';
+    let model: string | undefined = 'stepfun-ai/step-3.7-flash';
     if (raw.startsWith('deepseek/')) {
       urlPath = raw.slice('deepseek/'.length);
       model = 'deepseek-ai/deepseek-v4-flash';

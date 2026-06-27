@@ -1057,3 +1057,81 @@ describe('extractGlossaryLocal - TAGGING INTERVENTION + NOUN_CHAIN_BREAKERS (Pla
     )).toBe(true);
   });
 });
+
+describe('extractGlossaryLocal - Context-aware Product Name Extraction (方案 D)', () => {
+  it('extracts "Claude Sonnet 4.5" as a whole product name', () => {
+    const text = 'Pair Claude Sonnet 4.5 as an advisor with Claude Haiku as an executor.';
+    const terms = extractGlossaryLocal(text).document_terms;
+    expect(terms).toContain('Claude Sonnet 4.5');
+  });
+
+  it('extracts "Claude Opus 4.1" as a whole product name', () => {
+    const text = 'Claude Opus 4.1 was released with improved reasoning.';
+    const terms = extractGlossaryLocal(text).document_terms;
+    expect(terms).toContain('Claude Opus 4.1');
+  });
+
+  it('extracts "Claude Code" and "Claude Desktop" as product names', () => {
+    const text = 'Claude Code runs in your terminal. Claude Desktop is a GUI app.';
+    const terms = extractGlossaryLocal(text).document_terms;
+    expect(terms).toContain('Claude Code');
+    expect(terms).toContain('Claude Desktop');
+  });
+
+  it('extracts "GPT-5" with hyphenated version', () => {
+    const text = 'OpenAI released GPT-5 with multimodal capabilities.';
+    const terms = extractGlossaryLocal(text).document_terms;
+    expect(terms).toContain('GPT-5');
+  });
+
+  it('extracts "Gemini 2.5 Pro" as a whole product name', () => {
+    const text = 'Gemini 2.5 Pro outperforms previous versions.';
+    const terms = extractGlossaryLocal(text).document_terms;
+    expect(terms).toContain('Gemini 2.5 Pro');
+  });
+
+  it('extracts "Llama 4 Scout" as a whole product name', () => {
+    const text = 'Meta released Llama 4 Scout and Llama 4 Maverick.';
+    const terms = extractGlossaryLocal(text).document_terms;
+    expect(terms).toContain('Llama 4 Scout');
+  });
+
+  it('extracts "DeepSeek R1" as a whole product name', () => {
+    const text = 'DeepSeek R1 achieved strong results on math benchmarks.';
+    const terms = extractGlossaryLocal(text).document_terms;
+    expect(terms).toContain('DeepSeek R1');
+  });
+
+  it('extracts "Qwen3-235B" with direct digit suffix', () => {
+    const text = 'Qwen3-235B is a large open-weight model.';
+    const terms = extractGlossaryLocal(text).document_terms;
+    expect(terms).toContain('Qwen3-235B');
+  });
+
+  it('does NOT extract lowercase "sonnet" from poetry context', () => {
+    // 关键：单独 "sonnet"（小写、非 prefix）不应被作为产品名保留
+    const text = 'A sonnet consists of fourteen lines. He wrote a sonnet about love.';
+    const terms = extractGlossaryLocal(text).document_terms;
+    // "sonnet" 不应作为产品名出现在 glossary（应被翻译为"十四行诗"）
+    expect(terms.every(t => t.toLowerCase() !== 'sonnet')).toBe(true);
+  });
+
+  it('does NOT extract standalone "haiku" or "opus" from non-AI context', () => {
+    const text = 'The haiku is a Japanese poetic form. Opus is a Latin word for work.';
+    const terms = extractGlossaryLocal(text).document_terms;
+    expect(terms.every(t => t.toLowerCase() !== 'haiku')).toBe(true);
+    expect(terms.every(t => t.toLowerCase() !== 'opus')).toBe(true);
+  });
+
+  it('extracts multiple product names from a realistic Claude blog paragraph', () => {
+    const text = `Claude Sonnet 4.5 pairs well with Claude Opus 4.1. The advisor strategy
+      uses Claude Sonnet as executor and Claude Opus as advisor. GPT-5 and Gemini 2.5 Pro
+      are competitors. DeepSeek R1 is an open alternative.`;
+    const terms = extractGlossaryLocal(text).document_terms;
+    expect(terms).toContain('Claude Sonnet 4.5');
+    expect(terms).toContain('Claude Opus 4.1');
+    expect(terms).toContain('GPT-5');
+    expect(terms).toContain('Gemini 2.5 Pro');
+    expect(terms).toContain('DeepSeek R1');
+  });
+});

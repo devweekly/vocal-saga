@@ -234,14 +234,21 @@ export function buildTranslationBody(
 
 /**
  * 清理 LLM 返回的 JSON：移除 markdown 代码块包裹。
+ *
+ * 处理两种情况：
+ * 1. 完整包裹：```json\n{...}\n```（正常情况）
+ * 2. 只有开头 ```json 没有结尾 ```（模型截断/max_tokens 不足）
+ *
+ * 旧正则要求结尾 ```，截断时不匹配，导致 JSON.parse("```json\n{...") 报
+ * "Unexpected token '`'"。改为先去开头再去结尾，两种情况都能处理。
  */
 export function stripMarkdownCodeBlock(text: string): string {
-  const trimmed = text.trim();
-  const match = trimmed.match(/^```(?:json)?\s*\n?([\s\S]*?)\n?\s*```$/);
-  if (match) {
-    return match[1].trim();
-  }
-  return trimmed;
+  let trimmed = text.trim();
+  // 去除开头的 ```json 或 ```（无论有没有结尾 ```）
+  trimmed = trimmed.replace(/^```(?:json)?\s*\n?/, '');
+  // 去除结尾的 ```（如果有）
+  trimmed = trimmed.replace(/\s*```\s*$/, '');
+  return trimmed.trim();
 }
 
 /**

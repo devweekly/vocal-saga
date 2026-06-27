@@ -1,7 +1,7 @@
 /**
  * GET /nvd/<target-without-scheme> 路由单测。
  *
- * NVIDIA 翻译路由，使用 build.nvidia.com 的 moonshotai/kimi-k2.6 模型。
+ * NVIDIA 翻译路由，使用 build.nvidia.com 的 stepfun-ai/step-3.7-flash 模型。
  */
 import { describe, it, expect, beforeAll, beforeEach, vi } from 'vitest';
 
@@ -45,7 +45,7 @@ function req(path: string): Request {
   return new Request(`http://test${path}`);
 }
 
-describe('GET /nvd/<target> — NVIDIA kimi-k2.6 (default)', () => {
+describe('GET /nvd/<target> — (default)', () => {
   it('200 with valid request', async () => {
     const app = buildApp();
     const res = await app.request(req('/nvd/example.com'));
@@ -69,12 +69,12 @@ describe('GET /nvd/<target> — NVIDIA kimi-k2.6 (default)', () => {
     expect(call.provider).toBe('nvidia');
   });
 
-  it('uses default model (kimi-k2.6) when no qwen prefix', async () => {
+  it('uses default model when no qwen prefix', async () => {
     const app = buildApp();
     await app.request(req('/nvd/example.com'));
     const { translateUrl } = await import('../lib/translate/pipeline');
     const call = (translateUrl as any).mock.calls[0][0];
-    expect(call.model).toBe('moonshotai/kimi-k2.6');
+    expect(call.model).toBe('stepfun-ai/step-3.7-flash');
   });
 
   it('returns translated HTML', async () => {

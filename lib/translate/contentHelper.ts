@@ -1,6 +1,7 @@
 import { extractBlocks, type TextBlock } from './blockExtractor';
 import { buildChunks, type Chunk } from './chunkBuilder';
 import { detectArticleRoot } from './contentDetector';
+import { matchSiteRule } from './rules';
 
 // 优先级：先 class 后标签，先更具体的子容器再更通用的包裹元素。
 // 像 bankingdive.com 把 <article> 用作整页 wrapper、正文放在
@@ -110,17 +111,12 @@ function refineArticleRoot(candidate: Element): Element {
 }
 
 /**
- * Webflow 等 CMS 常把一篇博客拆到多个 .u-rich-text-blog / .rich-text 容器。
- * 第一个命中后只覆盖开篇，后续内容在同级兄弟容器中。
+ * 穿透纯包装层：当 parent 的文本和 child 相同（parent 只是 wrapper）时向上穿。
+ * 不负责"hero/content 是否同一篇文章"等业务判断 —— 那是 chooseBestRoot 的事。
  *
- * 策略：逐层向上检查 ancestor 是否包含其他有实质文本的兄弟节点。
- * 如果有（且 ancestor 不是 nav/body），说明当前元素只是碎片，
- * 向上扩展到该 ancestor。
- *
- * 特殊处理 <main>：如果当前元素不包含 h1/h2 标题，继续向上扩展到 <main>，
- * 因为标题可能在 <main> 内但在 .entry-content 外。
+ * 保留 nav/footer/header 等 class 的守卫：这些不是 wrapper，遇到就停。
  */
-function expandIfFragmented(el: Element): Element {
+function expandWrappers(el: Element): Element {
   let current: Element = el;
   const MAX_UP = 6;
   for (let i = 0; i < MAX_UP; i++) {
@@ -133,29 +129,6 @@ function expandIfFragmented(el: Element): Element {
     const classes = `${parent.className || ''} ${parent.id || ''}`;
     if (/nav|menu|sidebar|footer|header|comment|widget/i.test(classes)) break;
 
-    // 当前元素不包含 h1/h2 标题 → 可能需要向上扩展来包含标题
-    const hasHeading = current.querySelector('h1, h2') !== null;
-    if (!hasHeading) {
-      // 向上检查最多 3 级祖先，看标题是否在当前元素之外
-      let ancestor: Element | null = parent;
-      let foundHeadingOutside = false;
-      for (let j = 0; j < 3 && ancestor; j++) {
-        const ancTag = ancestor.tagName.toLowerCase();
-        if (ancTag === 'body' || ancTag === 'html') break;
-        // 检查 ancestor 的兄弟节点是否有标题
-        const ancSiblings = Array.from(ancestor.parentElement?.children || []);
-        foundHeadingOutside = ancSiblings.some(
-          (s) => s !== ancestor && (s.tagName === 'H1' || s.tagName === 'H2' || s.querySelector?.('h1, h2'))
-        );
-        if (foundHeadingOutside) break;
-        ancestor = ancestor.parentElement;
-      }
-      if (foundHeadingOutside) {
-        current = parent;
-        continue;
-      }
-    }
-
     const parentLen = (parent.textContent || '').trim().length;
     const currentLen = (current.textContent || '').trim().length;
 
@@ -164,32 +137,200 @@ function expandIfFragmented(el: Element): Element {
       current = parent;
       continue;
     }
-
-    // parent 有额外文本：检查是否来自有实质内容的兄弟节点
-    const siblings = Array.from(parent.children).filter((c) => c !== current);
-    const hasRichSibling = siblings.some((s) => {
-      const text = (s.textContent || '').trim();
-      if (text.length > 200) return true;
-      const sTag = s.tagName?.toLowerCase();
-      if (sTag === 'h1' || sTag === 'h2') return true;
-      if (s.querySelector('h1, h2')) return true;
-      return false;
-    });
-    if (!hasRichSibling) break;
-
-    current = parent;
+    break;
   }
   return current;
+}
+
+// =============================================================================
+// ArticleRootScorer —— 基于启发式评分的根节点选择
+// =============================================================================
+//
+// 把"hero 和正文是否同一篇文章""parent 是否比 candidate 更适合做根"等判断
+// 从 ad-hoc 规则（expandIfFragmented 的兄弟文本检测）改为统一的评分函数。
+// chooseBestRoot 对 candidate / parent / grandParent 三层评分，选最高分。
+// 随着评分因子积累，绝大多数博客（Webflow / WordPress / Ghost / Medium /
+// Hugo / Substack / OpenAI / Anthropic / Cloudflare）都能通过统一逻辑识别，
+// 无需为每个站点写 site rule。
+
+interface RootScore {
+  score: number;
+  reasons: string[];
+}
+
+const scoreCache = new WeakMap<Element, RootScore>();
+
+/**
+ * 对一个候选容器评分。评分不是黑盒：reasons 记录每个因子的贡献，
+ * 日志一眼看出为什么选了/没选这个节点。
+ */
+function scoreArticleContainer(container: Element): RootScore {
+  const cached = scoreCache.get(container);
+  if (cached) return cached;
+
+  let score = 0;
+  const reasons: string[] = [];
+
+  // 1) h1：单 h1 是文章标志，多 h1 可能是列表页
+  const h1Count = container.querySelectorAll('h1').length;
+  if (h1Count === 1) {
+    score += 20;
+    reasons.push('+20 single h1');
+  } else if (h1Count > 1) {
+    score -= 10;
+    reasons.push(`-10 multiple h1 (${h1Count})`);
+  }
+
+  // 2) h2 >= 2：说明有多个小节，像正文
+  const h2Count = container.querySelectorAll('h2').length;
+  if (h2Count >= 2) {
+    score += 10;
+    reasons.push(`+10 sections (h2=${h2Count})`);
+  }
+
+  // 3) 正文长度：800 字 +1，8000 字 +10，24000 字 +30（封顶）
+  const textLength = (container.textContent ?? '').trim().length;
+  const textScore = Math.min(30, textLength / 800);
+  score += textScore;
+  reasons.push(`+${textScore.toFixed(1)} text length (${textLength})`);
+
+  // 4) 段落数：越多越像正文（封顶 20）
+  const pCount = container.querySelectorAll('p').length;
+  const pScore = Math.min(20, pCount);
+  score += pScore;
+  reasons.push(`+${pScore} paragraphs (${pCount})`);
+
+  // 5) 图片：博客一般都有图（封顶 5）
+  const figures = container.querySelectorAll('img, figure').length;
+  const figScore = Math.min(5, figures);
+  score += figScore;
+  reasons.push(`+${figScore} images (${figures})`);
+
+  // 6) 作者署名
+  const author = container.querySelector(
+    '[rel=author], .author, .byline, [class*=author]',
+  );
+  if (author) {
+    score += 8;
+    reasons.push('+8 author');
+  }
+
+  // 7) 发布时间
+  const time = container.querySelector('time, [class*=date], [class*=publish]');
+  if (time) {
+    score += 6;
+    reasons.push('+6 time');
+  }
+
+  // 8) 导航类元素扣分（nav/menu/sidebar/footer/header）
+  const navCount = container.querySelectorAll(
+    'nav, .menu, .sidebar, footer, header',
+  ).length;
+  if (navCount > 0) {
+    const penalty = navCount * 8;
+    score -= penalty;
+    reasons.push(`-${penalty} nav elements (${navCount})`);
+  }
+
+  // 9) 按钮过多：CTA 页面特征
+  const buttons = container.querySelectorAll('button, a.btn').length;
+  if (buttons > 10) {
+    score -= 15;
+    reasons.push(`-15 too many buttons (${buttons})`);
+  }
+
+  // 10) 相关推荐区域扣分
+  const related = container.querySelector('[class*=related], [class*=recommend]');
+  if (related) {
+    score -= 8;
+    reasons.push('-8 related/recommend section');
+  }
+
+  // 11) 列表项过多：可能是导航/目录页
+  const liCount = container.querySelectorAll('li').length;
+  if (liCount > 80) {
+    score -= 10;
+    reasons.push(`-10 too many li (${liCount})`);
+  }
+
+  const result: RootScore = { score, reasons };
+  scoreCache.set(container, result);
+  return result;
+}
+
+/**
+ * 对 candidate / parent / grandParent 三层评分，选最高分。
+ * 把"hero 和正文分属兄弟 section"这类判断从规则改为评分：
+ * 如果 parent（包含 hero + 正文）的分数比 candidate（只含正文）高，就选 parent。
+ *
+ * 守卫：candidate 已有 h1 时直接返回。h1 是文章主标题，candidate 有 h1
+ * 说明它就是文章根（如 .post-content 自己带 h1），不需要向上找。
+ * 只有 candidate 缺 h1（如 claude.com 的 h1 在 hero section）时才向上评分。
+ */
+function chooseBestRoot(candidate: Element): Element {
+  // h1 守卫：candidate 已有 h1（文章主标题），直接返回。
+  // 如 Jane Street 的 .post-content 自带 h1，说明它就是文章根。
+  if (candidate.querySelector('h1')) {
+    return candidate;
+  }
+
+  // candidate 缺 h1 时（如 claude.com 的 h1 在 hero section，正文 section 缺 h1），
+  // 向上扫描直到遇到含 h1 的祖先或 body/html，收集所有候选后评分选最高分。
+  // 固定 3 层不够：claude.com 的 .u-rich-text-blog 到 main.page_main 有 7 层嵌套。
+  const list: Element[] = [];
+  let p: Element | null = candidate;
+  while (p) {
+    const tag = p.tagName.toLowerCase();
+    if (tag === 'body' || tag === 'html') break;
+    list.push(p);
+    // 遇到含 h1 的祖先就停止向上 —— h1 是文章主标题的标志，
+    // 更上层的容器（如 page_wrap 含整个页面）只会引入噪声。
+    if (p.querySelector('h1')) break;
+    p = p.parentElement;
+  }
+
+  let best = list[0];
+  let bestScore = -Infinity;
+  for (const node of list) {
+    const result = scoreArticleContainer(node);
+    console.log(
+      `[ContentHelper] Candidate <${node.tagName}> .${(node.className || '').slice(0, 40)} score=${result.score.toFixed(1)}`,
+      result.reasons,
+    );
+    if (result.score > bestScore) {
+      best = node;
+      bestScore = result.score;
+    }
+  }
+  return best;
 }
 
 function hasMeaningfulContent(el: Element): boolean {
   return (el.textContent || '').trim().length > 0;
 }
 
-function findArticleRoot(doc: Document): Element {
+function findArticleRoot(doc: Document, pageUrl: string): Element {
+  // Layer 0: 站点特定 articleRootSelector（最高优先级）
+  // 当通用选择器无法正确定位正文根时（如 claude.com 的 hero 和正文
+  // 分属兄弟 section），用站点规则的 articleRootSelector 直接指定。
+  const siteRule = matchSiteRule(pageUrl)?.siteRule;
+  if (siteRule?.articleRootSelector) {
+    const el = doc.querySelector(siteRule.articleRootSelector);
+    if (el && hasMeaningfulContent(el)) {
+      console.log(
+        `[ContentHelper] Site rule articleRootSelector: ${siteRule.articleRootSelector} → <${el.tagName}> .${(el.className || '').slice(0, 40)}`,
+      );
+      return el;
+    }
+    console.warn(
+      `[ContentHelper] Site rule articleRootSelector "${siteRule.articleRootSelector}" matched no meaningful element, falling back to Layer 1`,
+    );
+  }
+
   // Layer 1: 选择器快速匹配（处理已知站点）
   // 对每个选择器：先取内容最多的匹配项（避免空占位符/短摘要），
-  // 再 refine，最后 expandIfFragmented（处理标题在外、正文拆成多容器）。
+  // 再 refine，再 expandWrappers（穿透纯包装层），最后 chooseBestRoot
+  //（对 candidate/parent/grandParent 评分，选最高分）。
   for (const selector of ARTICLE_SELECTORS) {
     const els = Array.from(doc.querySelectorAll(selector));
     let bestInSelector: Element | null = null;
@@ -203,15 +344,14 @@ function findArticleRoot(doc: Document): Element {
     }
     if (bestInSelector) {
       const refined = refineArticleRoot(bestInSelector);
-      // 如果 refine 后只覆盖碎片内容（如 Webflow 多个 .u-rich-text-blog），
-      // 自动向上展开到包含所有片段的最近祖先
-      const expanded = expandIfFragmented(refined);
-      if (expanded !== refined) {
+      const expanded = expandWrappers(refined);
+      const best = chooseBestRoot(expanded);
+      if (best !== expanded) {
         console.log(
-          `[ContentHelper] Expanded from <${refined.tagName}> .${(refined.className || '').slice(0, 40)} to <${expanded.tagName}> .${(expanded.className || '').slice(0, 40)}`,
+          `[ContentHelper] Chose <${best.tagName}> .${(best.className || '').slice(0, 40)} over <${expanded.tagName}> .${(expanded.className || '').slice(0, 40)} by scoring`,
         );
       }
-      return expanded;
+      return best;
     }
   }
 
@@ -262,7 +402,7 @@ export function prepareDocument(
   // rootNode 是 Document 时找主文章容器 (article / main / [role=main])；
   // 否则直接用 rootNode (linkedom / jsdom 的 Document 是不同 class，不能 instanceof)
   const isDoc = root.nodeType === 9;
-  const effectiveRoot: Element = isDoc ? findArticleRoot(root as Document) : (root as Element);
+  const effectiveRoot: Element = isDoc ? findArticleRoot(root as Document, pageUrl) : (root as Element);
   let blocks = extractBlocks(effectiveRoot, pageUrl);
 
   // 防御性回退: 当 detectArticleRoot 误判 (e.g. 选了一个高密度但被 walker 整棵
