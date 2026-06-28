@@ -7,7 +7,7 @@
 import type { TranslationService, Glossary } from './_service';
 import { parseSSEStream } from './streamParser';
 import { getOpenrouterApiKey } from '../../config';
-import { buildTranslationBody, stripMarkdownCodeBlock, cleanJsonString, repairTruncatedJson } from './shared';
+import { buildTranslationBody, stripThinkingTags, stripMarkdownCodeBlock, cleanJsonString, repairTruncatedJson } from './shared';
 
 const API_URL = 'https://openrouter.ai/api/v1/chat/completions';
 const MODEL = 'openai/gpt-oss-120b:free';
@@ -73,7 +73,8 @@ async function callApi(body: string): Promise<string> {
     throw new Error('OpenRouter returned invalid response: missing choices[0].message.content');
   }
 
-  let cleaned = stripMarkdownCodeBlock(content);
+  let cleaned = stripThinkingTags(content);
+  cleaned = stripMarkdownCodeBlock(cleaned);
   try {
     JSON.parse(cleaned);
   } catch {

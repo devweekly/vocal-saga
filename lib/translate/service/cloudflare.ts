@@ -5,7 +5,7 @@
  * 需要环境变量 CLOUDFLARE_ACCOUNT_ID 与 CLOUDFLARE_API_TOKEN。
  */
 import type { TranslationService, Glossary } from './_service';
-import { buildSystemContent, stripMarkdownCodeBlock, cleanJsonString, repairTruncatedJson, estimateMaxTokens } from './shared';
+import { buildSystemContent, stripThinkingTags, stripMarkdownCodeBlock, cleanJsonString, repairTruncatedJson, estimateMaxTokens } from './shared';
 
 const MODEL = '@cf/moonshotai/kimi-k2.6';
 
@@ -103,8 +103,9 @@ Return ONLY the final JSON object. No prose, no explanation, no markdown outside
       content = JSON.stringify(parsedResponse);
     }
 
-    // 清理 markdown 代码块 + 修复 JSON
-    let cleaned = stripMarkdownCodeBlock(content);
+    // 清理 thinking 标签 + markdown 代码块 + 修复 JSON
+    let cleaned = stripThinkingTags(content);
+    cleaned = stripMarkdownCodeBlock(cleaned);
     try {
       JSON.parse(cleaned);
     } catch {

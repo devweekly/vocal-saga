@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { extractBlocks, findBlockNode, buildNodeMap, extractBlocksFromMarkedHtml, collapseSpacedText } from '../lib/translate/blockExtractor';
+import { shouldSkipByClass, isLowPriorityElement, isOverlayElement } from '../lib/translate/blockExtractor/rules';
 
 // Mock matchSiteRule for shouldSkipBySiteRules tests
 vi.mock('../lib/translate/rules', () => ({
@@ -5945,6 +5946,129 @@ describe('extractBlocks - collapseSpacedText integration', () => {
 
     // 中文保持原样
     expect(texts.some((t) => t === '开 始 使 用 产 品')).toBe(true);
+  });
+});
+
+// =============================================================================
+// 噪声三层策略 (webclaw 借鉴)
+// =============================================================================
+//
+// 1. 精确 token 匹配: matchesSkipClass 已实现 (精确 + '-'/'_' 前后缀边界)
+// 2. ≤6 字符 word-boundary 正则: LOW_PRIORITY_PATTERNS / OVERLAY_PATTERNS 用 \b
+// 3. 5000 字符安全阀: 噪声类元素 textContent > 5000 时不视为噪声
+
+describe('blockExtractor - noise safe valve (5000 chars)', () => {
+  // shouldSkipByClass 安全阀：class 命中噪声模式但 textContent > 5000 时不跳过，
+  // 防误杀长 FAQ / 长隐私政策正文。
+  // 回归 case: #cookiesModal 50k 字符的 cookie policy 被整棵跳过。
+
+  function makeEl(classAttr: string, text: string): HTMLElement {
+    const el = document.createElement('div');
+    el.className = classAttr;
+    el.textContent = text;
+    return el;
+  }
+
+  it('shouldSkipByClass returns true for noise class with short text', () => {
+    // 'cookie-banner' 在 SKIP_CLASS_PATTERNS 里，短文本应被跳过
+    const el = makeEl('cookie-banner', 'Accept cookies for the best experience.');
+    expect(shouldSkipByClass(el)).toBe(true);
+  });
+
+  it('shouldSkipByClass returns false for noise class with >5000 chars text (safe valve)', () => {
+    // 长文本应触发安全阀，不被跳过
+    const longText = 'This is a long FAQ paragraph. '.repeat(200); // ~5800 chars
+    const el = makeEl('cookie-banner', longText);
+    expect(shouldSkipByClass(el)).toBe(false);
+  });
+
+  it('shouldSkipByClass safe valve caches result via WeakSet (idempotent)', () => {
+    // 重复调用应一致返回 false，不重新计算 textContent
+    const longText = 'A'.repeat(5001);
+    const el = makeEl('footer-wrap', longText);
+    expect(shouldSkipByClass(el)).toBe(false);
+    expect(shouldSkipByClass(el)).toBe(false);
+  });
+
+  it('extractBlocks extracts long FAQ inside element with noise class', () => {
+    // 集成测试：长 FAQ 应被抽取，不被噪声 class 整棵剪枝。
+    // 构造 60 个段落，每段 < MAX_TEXT_LENGTH(3072)，总计 > 5000 字符触发安全阀。
+    // 用 'footer-wrap'（在 SKIP_CLASS_PATTERNS 但不在 OVERLAY_PATTERNS）作为噪声类，
+    // 单独验证 shouldSkipByClass 安全阀，避免与 isOverlayElement 逻辑耦合。
+    const faqParagraphs = Array.from(
+      { length: 60 },
+      (_, i) => `<p>FAQ paragraph ${i}: This is a long FAQ paragraph that should be translated and not skipped by noise filter.</p>`,
+    ).join('');
+    setupHTML(`
+      <article class="footer-wrap">
+        <h1>FAQ Article</h1>
+        ${faqParagraphs}
+      </article>
+    `);
+
+    const blocks = extractBlocks(document, 'https://example.com/faq');
+    const texts = blocks.map((b) => b.text);
+    // 至少 5 个 FAQ 段落必须被抽取（证明安全阀让 walker 继续进入子树）
+    const faqTexts = texts.filter((t) => t.includes('long FAQ paragraph that should be translated'));
+    expect(faqTexts.length).toBeGreaterThanOrEqual(5);
+  });
+});
+
+describe('blockExtractor - short pattern word boundary (\\b)', () => {
+  // LOW_PRIORITY_PATTERNS / OVERLAY_PATTERNS 用 regex 在原始 className 上匹配，
+  // 短模式 (≤6 字符) 若无 \b 会误伤超集词：
+  //   - "share" 误伤 "shareholder-content"
+  //   - "social" 误伤 "socialism-study"
+  //   - "promo" 误伤 "promontory-view"
+  //   - "dialog" 误伤 "dialogue-script"
+  //   - "cookie" 误伤 "cookies-link" (实际是噪声，但用于验证 \b 边界)
+  // 加 \b 后，"share" 只匹配 \bshare\b，不匹配 "shareholder"。
+
+  it('isLowPriorityElement does NOT match "shareholder-content" (\\bshare\\b)', () => {
+    // 'shareholder-content' 含子串 'share'，但 \bshare\b 不应匹配
+    const el = document.createElement('div');
+    el.className = 'shareholder-content';
+    expect(isLowPriorityElement(el)).toBe(false);
+  });
+
+  it('isLowPriorityElement matches exact "share" class', () => {
+    const el = document.createElement('div');
+    el.className = 'share';
+    expect(isLowPriorityElement(el)).toBe(true);
+  });
+
+  it('isLowPriorityElement does NOT match "socialism-study" (\\bsocial\\b)', () => {
+    const el = document.createElement('div');
+    el.className = 'socialism-study';
+    expect(isLowPriorityElement(el)).toBe(false);
+  });
+
+  it('isLowPriorityElement matches "social" exact class', () => {
+    const el = document.createElement('div');
+    el.className = 'social';
+    expect(isLowPriorityElement(el)).toBe(true);
+  });
+
+  it('isLowPriorityElement does NOT match "promontory-view" (\\bpromo\\b)', () => {
+    const el = document.createElement('div');
+    el.className = 'promontory-view';
+    expect(isLowPriorityElement(el)).toBe(false);
+  });
+
+  it('isOverlayElement does NOT match "dialogue-script" (\\bdialog\\b)', () => {
+    // 'dialogue-script' 含子串 'dialog'，但 \bdialog\b 不应匹配
+    // 注意：isOverlayElement 在 article/main 内会直接返回 false，所以这里用顶层 div
+    const el = document.createElement('div');
+    el.className = 'dialogue-script';
+    document.body.appendChild(el);
+    expect(isOverlayElement(el)).toBe(false);
+  });
+
+  it('isOverlayElement matches "dialog" exact class', () => {
+    const el = document.createElement('div');
+    el.className = 'dialog';
+    document.body.appendChild(el);
+    expect(isOverlayElement(el)).toBe(true);
   });
 });
 

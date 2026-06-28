@@ -1,7 +1,7 @@
 import type { TranslationService } from './_service';
 import { parseSSEStream } from './streamParser';
 import { getDSApiKey } from '../../config';
-import { buildTranslationBody, stripMarkdownCodeBlock, repairTruncatedJson } from './shared';
+import { buildTranslationBody, stripThinkingTags, stripMarkdownCodeBlock, repairTruncatedJson } from './shared';
 
 const API_URL = 'https://api.deepseek.com/v1/chat/completions';
 const MODEL = 'deepseek-v4-flash';
@@ -83,7 +83,8 @@ async function callApi(body: string, apiKey?: string): Promise<string> {
   }
 
   // DeepSeek 使用 response_format: json_object，但 max_tokens 仍可能截断长输出
-  let cleaned = stripMarkdownCodeBlock(content);
+  let cleaned = stripThinkingTags(content);
+  cleaned = stripMarkdownCodeBlock(cleaned);
   try {
     JSON.parse(cleaned);
     return cleaned;

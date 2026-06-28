@@ -233,6 +233,28 @@ export function buildTranslationBody(
 // ── JSON 清理 ────────────────────────────────────────────────
 
 /**
+ * 移除推理模型（qwen3 / deepseek-r1 等）泄漏到 content 的 <think>...</think> 标签。
+ *
+ * webclaw defense in depth：即使请求时禁用了 thinking（thinking: { type: 'disabled' }），
+ * 模型仍可能因配置被忽略、max_tokens 截断、或 API 端 bug 把思考过程包进 content。
+ * 一旦 thinking 内容混进 ```json 块，JSON.parse 立刻爆炸。
+ *
+ * 处理两种情况：
+ * 1. 完整：<think>...</think>（正常情况，DOTALL 匹配跨行内容）
+ * 2. 截断：<think>... 无 </think>（max_tokens 不足，思考未闭合，去到字符串末尾）
+ *
+ * 必须在 stripMarkdownCodeBlock 之前调用：thinking 标签可能出现在 ```json
+ * 块内部，先去 thinking 再去 markdown 包裹。
+ */
+export function stripThinkingTags(text: string): string {
+  // 去除完整的 <think>...</think>（含内容），[\s\S] 让 . 匹配换行
+  let result = text.replace(/<think>[\s\S]*?<\/think>/gi, '');
+  // 去除截断的 <think>... 无 </think>（max_tokens 不足时思考未闭合）
+  result = result.replace(/<think>[\s\S]*$/gi, '');
+  return result.trim();
+}
+
+/**
  * 清理 LLM 返回的 JSON：移除 markdown 代码块包裹。
  *
  * 处理两种情况：

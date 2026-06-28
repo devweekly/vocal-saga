@@ -190,8 +190,39 @@ const CONSENT_SDK_CLASS_RE =
   /(?:onetrust|\bot-sdk|ot-pc|ot-cookie|cookiebot|trustarc|quantcast|qc-cmp|cookie-banner|consent-banner|gdpr-banner|privacy-banner|\bcookie[s]?\b)/i;
 
 /**
+ * 噪声类元素文本长度安全阀：超过此长度的元素不视为 consent SDK 容器。
+ *
+ * webclaw 借鉴：cookie/consent/gdpr 类容器若 textContent > 5000 字符，
+ * 很可能是长 FAQ / 长隐私政策正文，不应被绝对排除。
+ *
+ * 回归 case: #cookiesModal (Bootstrap modal 含 cookie policy tabs) 有 ~50k
+ * 字符文本，因 id 含 "cookie" 被排除为 consent SDK，但它实际是页面正文，
+ * 排除后 detectArticleRoot 选不到 root，用户看到 "No translatable content"。
+ */
+const CONSENT_SAFE_VALVE = 5000;
+
+const _consentSafeValveMemo = new WeakSet<Element>();
+
+/**
+ * 检查元素是否因文本过长而豁免 consent SDK 判定。
+ * 用 WeakSet 缓存，同一元素不会重复计算 textContent。
+ */
+function isConsentSafeValve(el: Element): boolean {
+  if (_consentSafeValveMemo.has(el)) return true;
+  const text = el.textContent || '';
+  if (text.length > CONSENT_SAFE_VALVE) {
+    _consentSafeValveMemo.add(el);
+    return true;
+  }
+  return false;
+}
+
+/**
  * 元素 (或其任意祖先) 是否是隐私同意 / Cookie / 广告 SDK 容器。
  * 用于在 detectArticleRoot 里绝对排除这类高密度但非正文的容器。
+ *
+ * 安全阀：若元素 textContent > 5000 字符，即使命中 consent SDK 模式也不排除，
+ * 防止误杀长隐私政策 / 长 FAQ 等正文内容。
  */
 function isConsentSdkContainer(el: Element): boolean {
   let current: Element | null = el;
@@ -200,10 +231,18 @@ function isConsentSdkContainer(el: Element): boolean {
     if (tag === 'body' || tag === 'html') return false;
 
     const id = current.id || '';
-    if (id && CONSENT_SDK_ID_RE.test(id)) return true;
+    if (id && CONSENT_SDK_ID_RE.test(id)) {
+      // 安全阀：文本过长的元素不视为 consent SDK 容器
+      if (isConsentSafeValve(el)) return false;
+      return true;
+    }
 
     const cls = typeof current.className === 'string' ? current.className : '';
-    if (cls && CONSENT_SDK_CLASS_RE.test(cls)) return true;
+    if (cls && CONSENT_SDK_CLASS_RE.test(cls)) {
+      // 安全阀：文本过长的元素不视为 consent SDK 容器
+      if (isConsentSafeValve(el)) return false;
+      return true;
+    }
 
     current = current.parentElement;
   }

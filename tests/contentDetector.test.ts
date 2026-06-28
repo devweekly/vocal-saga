@@ -382,6 +382,45 @@ describe('contentDetector', () => {
       expect(root!.closest('#cookiesModal')).toBeNull();
       expect(root!.textContent).toContain('ML system design interviews');
     });
+
+    // 安全阀：consent SDK 容器若 textContent > 5000 字符不视为噪声，参与评分。
+    // 回归 case: 长隐私政策 / 长 FAQ 用 id="cookie-policy" 命名，但因文本过长
+    // 实际是页面正文，不应被绝对排除导致 "No translatable content"。
+    it('safe valve: long cookie-named container (>5000 chars) is NOT excluded', () => {
+      // 构造一个 >5000 字符的 "cookie-policy" 容器作为唯一候选正文
+      const longPolicy = 'This privacy policy paragraph explains in detail how user data is handled. '.repeat(80); // ~5800 chars
+      document.body.innerHTML = `
+        <div id="cookie-policy" class="cookie-banner">
+          <h1>Privacy Policy</h1>
+          <p>${longPolicy}</p>
+          <p>Additional paragraph to ensure healthy text density for detection.</p>
+        </div>
+      `;
+
+      const root = detectArticleRoot(document);
+      expect(root).not.toBeNull();
+      // 安全阀应让 cookie-policy 容器参与评分并胜出
+      expect(root!.id).toBe('cookie-policy');
+    });
+
+    it('safe valve: short cookie-named container (<5000 chars) is still excluded', () => {
+      // 对照组：短文本的 cookie-banner 仍应被排除
+      document.body.innerHTML = `
+        <div id="cookie-banner" class="cookie-banner">
+          <p>We use cookies. Accept all to continue.</p>
+        </div>
+        <div class="post-content">
+          <h1>Real Article</h1>
+          <p>This is the genuine article content that should be detected as the root.</p>
+          <p>Another paragraph to ensure good text density and structure for detection.</p>
+        </div>
+      `;
+
+      const root = detectArticleRoot(document);
+      expect(root).not.toBeNull();
+      expect(root!.className).toContain('post-content');
+      expect(root!.closest('#cookie-banner')).toBeNull();
+    });
   });
 
   // --- Text Density 算法特性测试 ---

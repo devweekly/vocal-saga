@@ -82,15 +82,49 @@ function matchesSkipClass(token: string, pattern: string): boolean {
 }
 
 /**
+ * 噪声类元素文本长度安全阀：超过此长度的元素不视为噪声，防误杀长 FAQ。
+ *
+ * webclaw 借鉴：cookie/consent/footer 等噪声类元素若 textContent > 5000 字符，
+ * 很可能是长 FAQ / 长隐私政策正文 / 长评论，不应被整棵跳过。
+ *
+ * 回归 case: #cookiesModal (Bootstrap modal 含 cookie policy tabs) 有 ~50k
+ * 字符文本，因 class 含 "cookie" 被跳过，但它实际是页面正文。
+ */
+const NOISE_TEXT_SAFE_VALVE = 5000;
+
+const _noiseSafeValveMemo = new WeakSet<Element>();
+
+/**
+ * 检查元素是否因文本过长而豁免噪声判定。
+ * 用 WeakSet 缓存，同一元素不会重复计算 textContent。
+ */
+function isNoiseSafeValve(el: Element): boolean {
+  if (_noiseSafeValveMemo.has(el)) return true;
+  const text = el.textContent || '';
+  if (text.length > NOISE_TEXT_SAFE_VALVE) {
+    _noiseSafeValveMemo.add(el);
+    return true;
+  }
+  return false;
+}
+
+/**
  * 是否因 class 命中 SKIP_CLASS_PATTERNS 而应跳过 (整棵子树拒绝)。
  * 跨站通用: 广告 / cookie / 推荐 / 弹窗 / 导航 等。
+ *
+ * 安全阀：若元素 textContent > 5000 字符，即使 class 命中噪声模式也不跳过，
+ * 防止误杀长 FAQ / 长隐私政策等正文内容。
  */
 export function shouldSkipByClass(el: Element): boolean {
   const tokens = tokenizeClass(el);
   if (tokens.length === 0) return false;
   for (const token of tokens) {
     for (const pattern of SKIP_CLASS_PATTERNS) {
-      if (matchesSkipClass(token, pattern)) return true;
+      if (matchesSkipClass(token, pattern)) {
+        // 安全阀：噪声类元素若 text > 5000 字符则不视为噪声
+        if (isNoiseSafeValve(el)) return false;
+        return true;
+      }
     }
   }
   return false;
@@ -259,8 +293,10 @@ export function isValidText(
 const LOW_PRIORITY_PATTERNS = {
   tags: new Set(['nav', 'footer', 'aside']),
   // header 需额外判断：不含 h1-h6 才算低优先级
-  classTokens: /\bad\b|banner|sponsor|promo|affiliate|share|social|comment|related|recommend|sidebar|navbar|site-nav|global-nav|topbar|subscribe|newsletter|cookie|consent/i,
-  idTokens: /\bad\b|banner|sponsor|promo|affiliate|share|social|comment|related|recommend|sidebar|navbar|site-nav|global-nav|topbar|subscribe|newsletter|cookie|consent/i,
+  // ≤6 字符模式用 \b 词边界，防止 "promo" 误伤 "promontory"、"share" 误伤 "shareholder"、
+  // "social" 误伤 "socialism"、"navbar"/"topbar" 误伤 "navbarinfo"、"cookie" 误伤 "cookies-link"
+  classTokens: /\bad\b|banner|sponsor|\bpromo\b|affiliate|\bshare\b|\bsocial\b|comment|related|recommend|sidebar|\bnavbar\b|site-nav|global-nav|\btopbar\b|subscribe|newsletter|\bcookie\b|\bconsent\b/i,
+  idTokens: /\bad\b|banner|sponsor|\bpromo\b|affiliate|\bshare\b|\bsocial\b|comment|related|recommend|sidebar|\bnavbar\b|site-nav|global-nav|\btopbar\b|subscribe|newsletter|\bcookie\b|\bconsent\b/i,
 };
 
 /**
@@ -293,8 +329,9 @@ export function isLowPriorityElement(el: Element): boolean {
 // =============================================================================
 
 const OVERLAY_PATTERNS = {
-  classTokens: /\bcookie\b|\bconsent\b|\bgdpr\b|privacy-banner|cookie-banner|\bpopup\b|\bmodal\b|overlay|dialog|backdrop|lightbox|subscription-popup|paywall|subscribe-popup|newsletter-modal/i,
-  idTokens: /\bcookie\b|\bconsent\b|\bgdpr\b|privacy|\bpopup\b|\bmodal\b|overlay|dialog/i,
+  // ≤6 字符模式用 \b 词边界，防止 "dialog" 误伤 "dialogue"
+  classTokens: /\bcookie\b|\bconsent\b|\bgdpr\b|privacy-banner|cookie-banner|\bpopup\b|\bmodal\b|overlay|\bdialog\b|backdrop|lightbox|subscription-popup|paywall|subscribe-popup|newsletter-modal/i,
+  idTokens: /\bcookie\b|\bconsent\b|\bgdpr\b|privacy|\bpopup\b|\bmodal\b|overlay|\bdialog\b/i,
   roles: new Set(['dialog']),
 };
 

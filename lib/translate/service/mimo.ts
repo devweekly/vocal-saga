@@ -13,6 +13,7 @@ import { getMimoClientId } from '../../config';
 import {
   buildSystemContent,
   estimateMaxTokens,
+  stripThinkingTags,
   stripMarkdownCodeBlock,
   cleanJsonString,
   repairTruncatedJson,
@@ -147,7 +148,8 @@ async function callApi(body: string): Promise<string> {
     throw new Error('MiMo returned invalid response: missing choices[0].message.content');
   }
 
-  let cleaned = stripMarkdownCodeBlock(content);
+  let cleaned = stripThinkingTags(content);
+  cleaned = stripMarkdownCodeBlock(cleaned);
   try {
     JSON.parse(cleaned);
   } catch {
