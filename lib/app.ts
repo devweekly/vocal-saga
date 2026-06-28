@@ -735,17 +735,10 @@ ${pager}
   });
 
   // ── Gemini 翻译：使用 Google Gemini 原生 API ──────────
-  // /gemini/{url}      → gemini-3.1-flash-lite（默认）
-  // /gemini/pro/{url}  → gemini-pro-latest
+  // /gemini/{url} → gemini-3.1-flash-lite
   app.get('/gemini/*', (c) => {
     const raw = decodeURIComponent(c.req.path.slice('/gemini/'.length));
-    let urlPath = raw;
-    let model: string | undefined = 'gemini-3.1-flash-lite';
-    if (raw.startsWith('pro/')) {
-      urlPath = raw.slice('pro/'.length);
-      model = 'gemini-pro-latest';
-    }
-    return handleTranslateRequest(c, urlPath, /* force */ false, /* provider */ 'gemini', model);
+    return handleTranslateRequest(c, raw, /* force */ false, /* provider */ 'gemini', 'gemini-3.1-flash-lite');
   });
 
   // ── Cloudflare AI 翻译：通过 CF REST API 调用 Workers AI ──────────
