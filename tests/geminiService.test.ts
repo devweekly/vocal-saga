@@ -58,7 +58,7 @@ describe('GeminiTranslationService', () => {
     // 验证 URL 和 method
     const [url, init] = fetchMock.mock.calls[0];
     expect(url).toBe(
-      'https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent'
+      'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent'
     );
     expect(init?.method).toBe('POST');
     // 验证 headers（X-goog-api-key，不是 Authorization Bearer）
@@ -72,7 +72,7 @@ describe('GeminiTranslationService', () => {
     expect(parsed.translations[0].translated_text).toBe('你好');
   });
 
-  it('uses default model gemini-flash-latest when no model passed', async () => {
+  it('uses default model gemini-3.1-flash-lite when no model passed', async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
       status: 200,
@@ -89,7 +89,7 @@ describe('GeminiTranslationService', () => {
     await service.translate('[{"id":"1","text":"hello"}]', 'en', 'zh');
 
     const url = fetchMock.mock.calls[0][0] as string;
-    expect(url).toContain('gemini-flash-latest');
+    expect(url).toContain('gemini-3.1-flash-lite');
   });
 
   it('uses custom model when passed to constructor', async () => {

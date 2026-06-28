@@ -735,12 +735,12 @@ ${pager}
   });
 
   // ── Gemini 翻译：使用 Google Gemini 原生 API ──────────
-  // /gem/{url}      → gemini-flash-latest（默认）
-  // /gem/pro/{url}  → gemini-pro-latest
-  app.get('/gem/*', (c) => {
-    const raw = decodeURIComponent(c.req.path.slice('/gem/'.length));
+  // /gemini/{url}      → gemini-3.1-flash-lite（默认）
+  // /gemini/pro/{url}  → gemini-pro-latest
+  app.get('/gemini/*', (c) => {
+    const raw = decodeURIComponent(c.req.path.slice('/gemini/'.length));
     let urlPath = raw;
-    let model: string | undefined = 'gemini-flash-latest';
+    let model: string | undefined = 'gemini-3.1-flash-lite';
     if (raw.startsWith('pro/')) {
       urlPath = raw.slice('pro/'.length);
       model = 'gemini-pro-latest';
