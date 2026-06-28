@@ -1,29 +1,42 @@
 /**
  * GeminiTranslationService 单测。
  *
- * 覆盖：
+ * mock @google/genai SDK，覆盖：
  *   - 凭据缺失抛错
- *   - 调用 Gemini 原生 API（generateContent 端点 + X-goog-api-key header）
- *   - 响应解析（candidates[0].content.parts[].text 拼接）
- *   - markdown 代码块剥离
- *   - thinking 标签剥离
- *   - HTTP 错误带 body 片段
- *   - 流式 SSE 解析（streamGenerateContent?alt=sse）
- *   - 请求体结构（contents/parts/systemInstruction/generationConfig）
+ *   - 非流式 generateContent 调用参数
+ *   - response.text 解析
+ *   - markdown / thinking 标签剥离
+ *   - SDK 错误处理
+ *   - 流式 generateContentStream
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+
+// mock @google/genai SDK — vi.hoisted 确保 mock 函数在 vi.mock 工厂执行前就已定义
+const { mockGenerateContent, mockGenerateContentStream } = vi.hoisted(() => ({
+  mockGenerateContent: vi.fn(),
+  mockGenerateContentStream: vi.fn(),
+}));
+vi.mock('@google/genai', () => ({
+  // Vitest 4 要求构造函数 mock 使用 function/class，不能用箭头函数
+  GoogleGenAI: class MockGoogleGenAI {
+    models = {
+      generateContent: mockGenerateContent,
+      generateContentStream: mockGenerateContentStream,
+    };
+  },
+}));
+
 import { GeminiTranslationService } from '../lib/translate/service/gemini';
 import { setGeminiApiKey, getGeminiApiKey } from '../lib/config';
 
 describe('GeminiTranslationService', () => {
-  const originalFetch = globalThis.fetch;
-
   beforeEach(() => {
     setGeminiApiKey('test-gemini-key');
+    mockGenerateContent.mockClear();
+    mockGenerateContentStream.mockClear();
   });
 
   afterEach(() => {
-    globalThis.fetch = originalFetch;
     vi.restoreAllMocks();
   });
 
@@ -35,159 +48,68 @@ describe('GeminiTranslationService', () => {
     ).rejects.toThrow('Gemini API key not configured');
   });
 
-  it('calls Gemini generateContent endpoint with X-goog-api-key header', async () => {
-    const fetchMock = vi.fn().mockResolvedValue({
-      ok: true,
-      status: 200,
-      text: async () =>
-        JSON.stringify({
-          candidates: [
-            {
-              content: {
-                parts: [{ text: '{"translations":[{"id":"1","translated_text":"你好"}]}' }],
-              },
-            },
-          ],
-        }),
+  it('calls generateContent with correct model and contents', async () => {
+    mockGenerateContent.mockResolvedValue({
+      text: '{"translations":[{"id":"1","translated_text":"你好"}]}',
     });
-    globalThis.fetch = fetchMock;
 
     const service = new GeminiTranslationService();
     const result = await service.translate('[{"id":"1","text":"hello"}]', 'en', 'zh');
 
-    // 验证 URL 和 method
-    const [url, init] = fetchMock.mock.calls[0];
-    expect(url).toBe(
-      'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent'
-    );
-    expect(init?.method).toBe('POST');
-    // 验证 headers（X-goog-api-key，不是 Authorization Bearer）
-    expect(init?.headers).toMatchObject({
-      'Content-Type': 'application/json',
-      'X-goog-api-key': 'test-gemini-key',
-    });
+    // 验证 SDK 被调用
+    expect(mockGenerateContent).toHaveBeenCalledTimes(1);
+    const params = mockGenerateContent.mock.calls[0][0];
+    expect(params.model).toBe('gemini-3.1-flash-lite');
+    expect(params.contents).toContain('JSON:');
+    expect(params.contents).toContain('"hello"');
 
     // 验证返回的 JSON
     const parsed = JSON.parse(result);
     expect(parsed.translations[0].translated_text).toBe('你好');
   });
 
-  it('uses default model gemini-3.1-flash-lite when no model passed', async () => {
-    const fetchMock = vi.fn().mockResolvedValue({
-      ok: true,
-      status: 200,
-      text: async () =>
-        JSON.stringify({
-          candidates: [
-            { content: { parts: [{ text: '{"translations":[]}' }] } },
-          ],
-        }),
+  it('passes systemInstruction and thinkingConfig in config', async () => {
+    mockGenerateContent.mockResolvedValue({
+      text: '{"translations":[]}',
     });
-    globalThis.fetch = fetchMock;
 
     const service = new GeminiTranslationService();
     await service.translate('[{"id":"1","text":"hello"}]', 'en', 'zh');
 
-    const url = fetchMock.mock.calls[0][0] as string;
-    expect(url).toContain('gemini-3.1-flash-lite');
+    const config = mockGenerateContent.mock.calls[0][0].config;
+    expect(config.systemInstruction).toContain('Translate');
+    expect(config.temperature).toBe(0.1);
+    expect(config.maxOutputTokens).toBeGreaterThan(0);
+    expect(config.thinkingConfig).toEqual({ thinkingBudget: 0 });
+    expect(config.abortSignal).toBeInstanceOf(AbortSignal);
+  });
+
+  it('uses default model gemini-3.1-flash-lite when no model passed', async () => {
+    mockGenerateContent.mockResolvedValue({
+      text: '{"translations":[]}',
+    });
+
+    const service = new GeminiTranslationService();
+    await service.translate('[{"id":"1","text":"hello"}]', 'en', 'zh');
+
+    expect(mockGenerateContent.mock.calls[0][0].model).toBe('gemini-3.1-flash-lite');
   });
 
   it('uses custom model when passed to constructor', async () => {
-    const fetchMock = vi.fn().mockResolvedValue({
-      ok: true,
-      status: 200,
-      text: async () =>
-        JSON.stringify({
-          candidates: [
-            { content: { parts: [{ text: '{"translations":[]}' }] } },
-          ],
-        }),
+    mockGenerateContent.mockResolvedValue({
+      text: '{"translations":[]}',
     });
-    globalThis.fetch = fetchMock;
 
-    const service = new GeminiTranslationService('gemini-pro-latest');
+    const service = new GeminiTranslationService('gemini-2.5-pro');
     await service.translate('[{"id":"1","text":"hello"}]', 'en', 'zh');
 
-    const url = fetchMock.mock.calls[0][0] as string;
-    expect(url).toContain('gemini-pro-latest');
-  });
-
-  it('builds request body with contents/parts/systemInstruction structure', async () => {
-    const fetchMock = vi.fn().mockResolvedValue({
-      ok: true,
-      status: 200,
-      text: async () =>
-        JSON.stringify({
-          candidates: [
-            { content: { parts: [{ text: '{"translations":[]}' }] } },
-          ],
-        }),
-    });
-    globalThis.fetch = fetchMock;
-
-    const service = new GeminiTranslationService();
-    await service.translate('[{"id":"1","text":"hello"}]', 'en', 'zh');
-
-    const body = JSON.parse(fetchMock.mock.calls[0][1].body);
-    // Gemini 原生结构：contents[{role, parts[{text}]}]
-    expect(body.contents).toBeInstanceOf(Array);
-    expect(body.contents[0].role).toBe('user');
-    expect(body.contents[0].parts[0].text).toContain('JSON:');
-    // system prompt 通过 systemInstruction 单独传
-    expect(body.systemInstruction).toBeDefined();
-    expect(body.systemInstruction.parts[0].text).toContain('Translate');
-    // generationConfig 包含 temperature / maxOutputTokens / thinkingConfig
-    expect(body.generationConfig.temperature).toBe(0.1);
-    expect(body.generationConfig.maxOutputTokens).toBeGreaterThan(0);
-    expect(body.generationConfig.thinkingConfig).toEqual({ thinkingBudget: 0 });
-  });
-
-  it('concatenates text from multiple parts', async () => {
-    const fetchMock = vi.fn().mockResolvedValue({
-      ok: true,
-      status: 200,
-      text: async () =>
-        JSON.stringify({
-          candidates: [
-            {
-              content: {
-                parts: [
-                  { text: '{"translations":[' },
-                  { text: '{"id":"1","translated_text":"你好"}' },
-                  { text: ']}' },
-                ],
-              },
-            },
-          ],
-        }),
-    });
-    globalThis.fetch = fetchMock;
-
-    const service = new GeminiTranslationService();
-    const result = await service.translate('[{"id":"1","text":"hello"}]', 'en', 'zh');
-
-    const parsed = JSON.parse(result);
-    expect(parsed.translations[0].translated_text).toBe('你好');
+    expect(mockGenerateContent.mock.calls[0][0].model).toBe('gemini-2.5-pro');
   });
 
   it('strips markdown code block from response', async () => {
-    const fetchMock = vi.fn().mockResolvedValue({
-      ok: true,
-      status: 200,
-      text: async () =>
-        JSON.stringify({
-          candidates: [
-            {
-              content: {
-                parts: [
-                  { text: '```json\n{"translations":[{"id":"1","translated_text":"你好"}]}\n```' },
-                ],
-              },
-            },
-          ],
-        }),
+    mockGenerateContent.mockResolvedValue({
+      text: '```json\n{"translations":[{"id":"1","translated_text":"你好"}]}\n```',
     });
-    globalThis.fetch = fetchMock;
 
     const service = new GeminiTranslationService();
     const result = await service.translate('[{"id":"1","text":"hello"}]', 'en', 'zh');
@@ -197,23 +119,9 @@ describe('GeminiTranslationService', () => {
   });
 
   it('strips <think> tags from response', async () => {
-    const fetchMock = vi.fn().mockResolvedValue({
-      ok: true,
-      status: 200,
-      text: async () =>
-        JSON.stringify({
-          candidates: [
-            {
-              content: {
-                parts: [
-                  { text: '<think>reasoning about translation</think>\n{"translations":[{"id":"1","translated_text":"你好"}]}' },
-                ],
-              },
-            },
-          ],
-        }),
+    mockGenerateContent.mockResolvedValue({
+      text: '<think>reasoning</think>\n{"translations":[{"id":"1","translated_text":"你好"}]}',
     });
-    globalThis.fetch = fetchMock;
 
     const service = new GeminiTranslationService();
     const result = await service.translate('[{"id":"1","text":"hello"}]', 'en', 'zh');
@@ -222,61 +130,44 @@ describe('GeminiTranslationService', () => {
     expect(parsed.translations[0].translated_text).toBe('你好');
   });
 
-  it('throws on HTTP error with body snippet', async () => {
-    const fetchMock = vi.fn().mockResolvedValue({
-      ok: false,
-      status: 403,
-      text: async () => JSON.stringify({
-        error: { code: 403, message: 'API key not valid', status: 'PERMISSION_DENIED' },
-      }),
-    });
-    globalThis.fetch = fetchMock;
+  it('throws on SDK error with message', async () => {
+    mockGenerateContent.mockRejectedValue(new Error('API key not valid'));
 
     const service = new GeminiTranslationService();
     await expect(
       service.translate('[{"id":"1","text":"hello"}]', 'en', 'zh')
-    ).rejects.toThrow(/Gemini API error: HTTP 403.*API key not valid/);
+    ).rejects.toThrow('Gemini API error: API key not valid');
   });
 
-  it('throws when response is missing candidates content', async () => {
-    const fetchMock = vi.fn().mockResolvedValue({
-      ok: true,
-      status: 200,
-      text: async () => JSON.stringify({ candidates: [{ content: { parts: [] } }] }),
-    });
-    globalThis.fetch = fetchMock;
+  it('throws when response.text is empty', async () => {
+    mockGenerateContent.mockResolvedValue({ text: '' });
 
     const service = new GeminiTranslationService();
     await expect(
       service.translate('[{"id":"1","text":"hello"}]', 'en', 'zh')
-    ).rejects.toThrow('missing candidates[0].content.parts');
+    ).rejects.toThrow('Gemini returned empty response');
+  });
+
+  it('throws when response.text is undefined', async () => {
+    mockGenerateContent.mockResolvedValue({});
+
+    const service = new GeminiTranslationService();
+    await expect(
+      service.translate('[{"id":"1","text":"hello"}]', 'en', 'zh')
+    ).rejects.toThrow('Gemini returned empty response');
   });
 
   // ── 流式 ─────────────────────────────────────────────────
 
-  it('stream calls streamGenerateContent endpoint with alt=sse', async () => {
-    const sseChunks = [
-      'data: {"candidates":[{"content":{"parts":[{"text":"{\\"translations\\":[{"}]}}]}}]}\n\n',
-      'data: {"candidates":[{"content":{"parts":[{"text":"{\\"id\\":\\"1\\",\\"translated_text\\":\\"你好\\"}]}"}]}}]}\n\n',
-      'data: {"candidates":[{"content":{"parts":[{"text":"]}"}}]}\n\n',
-      'data: [DONE]\n\n',
+  it('stream calls generateContentStream and yields accumulated content', async () => {
+    const chunks = [
+      { text: '{"translations":[' },
+      { text: '{"id":"1","translated_text":"你好"}' },
+      { text: ']}' },
     ];
-    const encoder = new TextEncoder();
-    const stream = new ReadableStream({
-      start(controller) {
-        for (const chunk of sseChunks) {
-          controller.enqueue(encoder.encode(chunk));
-        }
-        controller.close();
-      },
-    });
-
-    const fetchMock = vi.fn().mockResolvedValue({
-      ok: true,
-      status: 200,
-      body: stream,
-    });
-    globalThis.fetch = fetchMock;
+    mockGenerateContentStream.mockResolvedValue((async function* () {
+      for (const chunk of chunks) yield chunk;
+    })());
 
     const service = new GeminiTranslationService();
     const generator = service.translateStream(
@@ -285,19 +176,15 @@ describe('GeminiTranslationService', () => {
       'zh'
     );
 
-    const chunks: string[] = [];
+    const results: string[] = [];
     for await (const chunk of generator) {
-      chunks.push(chunk);
+      results.push(chunk);
     }
 
-    // 验证调用 streamGenerateContent 端点
-    const url = fetchMock.mock.calls[0][0] as string;
-    expect(url).toContain('streamGenerateContent');
-    expect(url).toContain('alt=sse');
-
     // 流式应累积完整内容
-    expect(chunks.length).toBeGreaterThan(0);
-    const final = chunks[chunks.length - 1];
+    expect(results.length).toBe(3);
+    expect(results[0]).toBe('{"translations":[');
+    const final = results[results.length - 1];
     expect(final).toContain('你好');
   });
 
@@ -312,13 +199,8 @@ describe('GeminiTranslationService', () => {
     await expect(generator.next()).rejects.toThrow('Gemini API key not configured');
   });
 
-  it('stream throws on HTTP error', async () => {
-    const fetchMock = vi.fn().mockResolvedValue({
-      ok: false,
-      status: 429,
-      text: async () => 'rate limited',
-    });
-    globalThis.fetch = fetchMock;
+  it('stream throws on SDK error', async () => {
+    mockGenerateContentStream.mockRejectedValue(new Error('HTTP 429: rate limited'));
 
     const service = new GeminiTranslationService();
     const generator = service.translateStream(
@@ -326,16 +208,17 @@ describe('GeminiTranslationService', () => {
       'en',
       'zh'
     );
-    await expect(generator.next()).rejects.toThrow(/HTTP 429/);
+    await expect(generator.next()).rejects.toThrow('Gemini API error: HTTP 429');
   });
 
-  it('stream throws when response body is null', async () => {
-    const fetchMock = vi.fn().mockResolvedValue({
-      ok: true,
-      status: 200,
-      body: null,
-    });
-    globalThis.fetch = fetchMock;
+  it('stream handles chunks with undefined text', async () => {
+    const chunks = [
+      { text: undefined },
+      { text: '{"translations":[]}' },
+    ];
+    mockGenerateContentStream.mockResolvedValue((async function* () {
+      for (const chunk of chunks) yield chunk;
+    })());
 
     const service = new GeminiTranslationService();
     const generator = service.translateStream(
@@ -343,7 +226,15 @@ describe('GeminiTranslationService', () => {
       'en',
       'zh'
     );
-    await expect(generator.next()).rejects.toThrow('response body is null');
+
+    const results: string[] = [];
+    for await (const chunk of generator) {
+      results.push(chunk);
+    }
+
+    // undefined text 的 chunk 不应 yield
+    expect(results.length).toBe(1);
+    expect(results[0]).toBe('{"translations":[]}');
   });
 
   it('getGeminiApiKey / setGeminiApiKey round-trip', () => {

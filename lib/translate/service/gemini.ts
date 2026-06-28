@@ -1,13 +1,12 @@
 /**
- * Gemini 翻译服务：使用 Google Gemini 原生 API。
+ * Gemini 翻译服务：使用 Google @google/genai SDK。
  *
- * 端点：https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent
- * 鉴权：X-goog-api-key header（参考 https://ai.google.dev/gemini-api/docs/api-key）
+ * SDK 会自动处理认证（X-goog-api-key header）、请求格式（contents/parts）、
+ * 响应解析（candidates[0].content.parts），比手动 fetch 更简洁。
  *
- * 与 OpenAI 兼容服务（DeepSeek / OpenRouter / NVIDIA）不同，Gemini 原生 API
- * 使用 contents/parts 结构而非 messages，system prompt 通过 systemInstruction
- * 字段单独传递。
+ * 参考：https://ai.google.dev/gemini-api/docs/api-key
  */
+import { GoogleGenAI } from '@google/genai';
 import type { TranslationService, Glossary } from './_service';
 import { getGeminiApiKey } from '../../config';
 import {
@@ -19,115 +18,17 @@ import {
   repairTruncatedJson,
 } from './shared';
 
-const API_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
 const DEFAULT_MODEL = 'gemini-3.1-flash-lite';
 
-function buildHeaders(): Record<string, string> {
-  return {
-    'Content-Type': 'application/json',
-    'X-goog-api-key': getGeminiApiKey(),
-  };
-}
-
-/**
- * 构造 Gemini 原生 API 请求体。
- *
- * Gemini 的 messages 结构是 contents/parts（不是 OpenAI 的 messages），
- * system prompt 通过 systemInstruction 字段单独传。
- *
- * thinkingConfig.thinkingBudget=0 关闭 Gemini 2.5 系列的思考过程，
- * 避免拖慢全并行翻译；旧模型会忽略该字段。
- */
-function buildGeminiBody(
-  blocks: Array<{ id: string; text: string }>,
-  sourceLang: string,
-  targetLang: string,
-  glossary?: Glossary,
-) {
-  const blocksJson = JSON.stringify(
-    blocks.map((b) => ({ id: b.id, text: b.text })),
-    null,
-    2,
-  );
-  const systemContent = buildSystemContent(sourceLang, targetLang, glossary);
-
-  return {
-    contents: [
-      {
-        role: 'user',
-        parts: [{ text: `JSON:\n\n${blocksJson}` }],
-      },
-    ],
-    systemInstruction: {
-      parts: [{ text: systemContent }],
-    },
-    generationConfig: {
-      temperature: 0.1,
-      maxOutputTokens: estimateMaxTokens(blocksJson),
-      // 关闭思考：Gemini 2.5 Flash/Pro 支持 thinkingBudget=0，旧模型忽略
-      thinkingConfig: { thinkingBudget: 0 },
-    },
-  };
-}
-
-async function callApi(body: string, model: string): Promise<string> {
+/** 获取 Gemini 客户端实例，API Key 缺失时抛错 */
+function getClient(): GoogleGenAI {
   const apiKey = getGeminiApiKey();
   if (!apiKey) throw new Error('Gemini API key not configured');
+  return new GoogleGenAI({ apiKey });
+}
 
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 60_000);
-
-  const url = `${API_BASE}/${model}:generateContent`;
-  let response: Response;
-  try {
-    response = await fetch(url, {
-      method: 'POST',
-      headers: buildHeaders(),
-      body,
-      signal: controller.signal,
-    });
-  } catch (err) {
-    clearTimeout(timeout);
-    if (err instanceof DOMException && err.name === 'AbortError') {
-      throw new Error('Gemini API timeout (60s)');
-    }
-    throw err;
-  }
-  clearTimeout(timeout);
-
-  console.log('[Gemini] Response status:', response.status);
-
-  const responseText = await response.text().catch(() => '');
-
-  if (!response.ok) {
-    let errorMessage = `HTTP ${response.status}`;
-    try {
-      const errorJson = JSON.parse(responseText);
-      // Gemini 错误格式：{ "error": { "code": 400, "message": "...", "status": "..." } }
-      if (errorJson.error) {
-        errorMessage += ` - ${errorJson.error.message || JSON.stringify(errorJson.error)}`;
-      } else if (errorJson.message) {
-        errorMessage += ` - ${errorJson.message}`;
-      } else {
-        errorMessage += ` - ${responseText.substring(0, 200)}`;
-      }
-    } catch {
-      errorMessage += ` - ${responseText.substring(0, 200)}`;
-    }
-    throw new Error(`Gemini API error: ${errorMessage}`);
-  }
-
-  const data = JSON.parse(responseText);
-  // Gemini 响应：{ candidates: [{ content: { parts: [{ text: "..." }] } }] }
-  // 多个 parts 的 text 需要拼接
-  const content = data.candidates?.[0]?.content?.parts
-    ?.map((p: any) => p?.text || '')
-    .join('') ?? '';
-
-  if (!content) {
-    throw new Error('Gemini returned invalid response: missing candidates[0].content.parts');
-  }
-
+/** 清洗 LLM 输出：去 thinking 标签 → 去 markdown 代码块 → 修 JSON */
+function cleanResponse(content: string): string {
   let cleaned = stripThinkingTags(content);
   cleaned = stripMarkdownCodeBlock(cleaned);
   try {
@@ -141,7 +42,6 @@ async function callApi(body: string, model: string): Promise<string> {
       cleaned = repairTruncatedJson(cleaned);
     }
   }
-
   return cleaned;
 }
 
@@ -159,12 +59,52 @@ export class GeminiTranslationService implements TranslationService {
     glossary?: Glossary,
   ): Promise<string> {
     const blocks = JSON.parse(jsonContent);
-    const body = buildGeminiBody(blocks, sourceLang, targetLang, glossary);
-    const raw = await callApi(JSON.stringify(body), this.model);
+    const ai = getClient();
+
+    // 构造请求参数：contents 为用户输入，config.systemInstruction 为系统提示
+    const blocksJson = JSON.stringify(
+      blocks.map((b: { id: string; text: string }) => ({ id: b.id, text: b.text })),
+      null,
+      2,
+    );
+    const systemContent = buildSystemContent(sourceLang, targetLang, glossary);
+
+    // 超时保护：60s（与其他服务一致）
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 60_000);
+
+    let response;
+    try {
+      response = await ai.models.generateContent({
+        model: this.model,
+        contents: `JSON:\n\n${blocksJson}`,
+        config: {
+          systemInstruction: systemContent,
+          temperature: 0.1,
+          maxOutputTokens: estimateMaxTokens(blocksJson),
+          // 关闭思考：Gemini 2.5 系列支持 thinkingBudget=0，旧模型忽略
+          thinkingConfig: { thinkingBudget: 0 },
+          abortSignal: controller.signal,
+        },
+      });
+    } catch (err: any) {
+      clearTimeout(timeout);
+      // SDK 抛出的错误可能是 GoogleGenAIError 或 ClientError
+      throw new Error(`Gemini API error: ${err?.message || String(err)}`);
+    }
+    clearTimeout(timeout);
+
+    // response.text 是 getter，返回所有 text parts 的拼接
+    const content = response.text || '';
+    if (!content) {
+      throw new Error('Gemini returned empty response');
+    }
+
+    const cleaned = cleanResponse(content);
 
     // 简单的 unchanged 检测
     try {
-      const parsed = JSON.parse(raw);
+      const parsed = JSON.parse(cleaned);
       const translations = parsed.translations || parsed;
       if (Array.isArray(translations)) {
         const unchanged = translations.filter(
@@ -178,7 +118,7 @@ export class GeminiTranslationService implements TranslationService {
       // parse 失败不阻塞
     }
 
-    return raw;
+    return cleaned;
   }
 
   async *translateStream(
@@ -188,80 +128,51 @@ export class GeminiTranslationService implements TranslationService {
     glossary?: Glossary,
   ): AsyncGenerator<string, string, unknown> {
     const blocks = JSON.parse(jsonContent);
-    const body = buildGeminiBody(blocks, sourceLang, targetLang, glossary);
+    const ai = getClient();
 
-    const apiKey = getGeminiApiKey();
-    if (!apiKey) throw new Error('Gemini API key not configured');
+    const blocksJson = JSON.stringify(
+      blocks.map((b: { id: string; text: string }) => ({ id: b.id, text: b.text })),
+      null,
+      2,
+    );
+    const systemContent = buildSystemContent(sourceLang, targetLang, glossary);
 
+    // 超时保护：60s
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 60_000);
 
-    // Gemini 流式端点：streamGenerateContent?alt=sse
-    // alt=sse 让响应格式为 SSE（data: {...}\n\n），便于流式解析
-    const url = `${API_BASE}/${this.model}:streamGenerateContent?alt=sse`;
-    let response: Response;
+    let stream: AsyncIterable<{ text?: string }>;
     try {
-      response = await fetch(url, {
-        method: 'POST',
-        headers: buildHeaders(),
-        body: JSON.stringify(body),
-        signal: controller.signal,
+      stream = await ai.models.generateContentStream({
+        model: this.model,
+        contents: `JSON:\n\n${blocksJson}`,
+        config: {
+          systemInstruction: systemContent,
+          temperature: 0.1,
+          maxOutputTokens: estimateMaxTokens(blocksJson),
+          thinkingConfig: { thinkingBudget: 0 },
+          abortSignal: controller.signal,
+        },
       });
-    } catch (err) {
+    } catch (err: any) {
       clearTimeout(timeout);
-      if (err instanceof DOMException && err.name === 'AbortError') {
-        throw new Error('Gemini stream timeout (60s)');
-      }
-      throw err;
-    }
-    clearTimeout(timeout);
-
-    if (!response.ok) {
-      const text = await response.text().catch(() => '');
-      throw new Error(`Gemini API error: HTTP ${response.status} - ${text.substring(0, 200)}`);
+      throw new Error(`Gemini API error: ${err?.message || String(err)}`);
     }
 
-    if (!response.body) {
-      throw new Error('Gemini API error: response body is null');
-    }
-
-    const reader = response.body.getReader();
     let fullContent = '';
-
-    // Gemini SSE 数据格式与 OpenAI 不同：
-    //   data: {"candidates":[{"content":{"parts":[{"text":"增量文本"}]}}]}
-    // parseSSEStream（streamParser.ts）按 OpenAI 的 delta.content 解析，无法复用，
-    // 这里内联解析 Gemini 的 candidates[0].content.parts[].text。
-    const decoder = new TextDecoder();
-    let buffer = '';
     try {
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop() || '';
-        for (const line of lines) {
-          const trimmed = line.trim();
-          if (!trimmed.startsWith('data: ')) continue;
-          const data = trimmed.slice(6);
-          if (data === '[DONE]') continue;
-          try {
-            const parsed = JSON.parse(data);
-            const delta = parsed.candidates?.[0]?.content?.parts
-              ?.map((p: any) => p?.text || '')
-              .join('') ?? '';
-            if (delta) {
-              fullContent += delta;
-              yield fullContent;
-            }
-          } catch {
-            // 解析失败忽略，继续读下一行
-          }
+      // SDK 的 stream 是 AsyncIterable，每个 chunk 有 .text getter
+      for await (const chunk of stream) {
+        const delta = chunk.text || '';
+        if (delta) {
+          fullContent += delta;
+          yield fullContent;
         }
       }
+    } catch (err: any) {
+      throw new Error(`Gemini stream error: ${err?.message || String(err)}`);
     } finally {
-      reader.releaseLock();
+      clearTimeout(timeout);
     }
 
     return fullContent;
