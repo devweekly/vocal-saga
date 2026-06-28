@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { prepareDocument } from '../lib/translate/contentHelper';
+import { prepareDocument, extractFromDataIsland } from '../lib/translate/contentHelper';
 
 describe('prepareDocument', () => {
   beforeEach(() => {
@@ -512,5 +512,244 @@ describe('L3 fallback (findArticleRootL3)', () => {
     // Mock a minimal document-like object with neither body nor documentElement
     const fakeDoc = {} as Document;
     expect(() => findArticleRootL3(fakeDoc)).toThrow('L3 fallback failed');
+  });
+});
+
+// =============================================================================
+// Data Island fallback —— SPA 站点（Next.js / Nuxt / SvelteKit）首屏 DOM 是
+// 骨架，正文塞在 __NEXT_DATA__ / __NUXT_DATA__ / application/json 里。
+// 这些测试覆盖 extractFromDataIsland 的核心路径 + prepareDocument 集成。
+// 对 vocal-saga 服务端尤其重要：fetch 拿到的初始 HTML 通常 DOM 是骨架，
+// 客户端 hydrate 之前 walker 抓不到任何块。
+// =============================================================================
+
+describe('extractFromDataIsland', () => {
+  beforeEach(() => {
+    document.body.innerHTML = '';
+  });
+
+  it('extracts article body from __NEXT_DATA__', () => {
+    const articleBody =
+      'This is a long article body that should be extracted from Next.js __NEXT_DATA__ script tag when DOM is empty skeleton.';
+    document.body.innerHTML = `
+      <div id="__next"></div>
+      <script id="__NEXT_DATA__" type="application/json">
+        ${JSON.stringify({
+          props: { pageProps: { article: { articleBody } } },
+        })}
+      </script>
+    `;
+
+    const blocks = extractFromDataIsland(document);
+
+    expect(blocks.length).toBeGreaterThan(0);
+    expect(blocks.some((b) => b.text === articleBody)).toBe(true);
+    expect(blocks.every((b) => b.xpath.startsWith('/data-island/'))).toBe(true);
+  });
+
+  it('extracts content from __NUXT_DATA__', () => {
+    const content =
+      'This is long content from Nuxt SSR payload that should be picked up when DOM skeleton is empty after hydration.';
+    document.body.innerHTML = `
+      <div id="__nuxt"></div>
+      <script id="__NUXT_DATA__" type="application/json">
+        ${JSON.stringify({ state: { content }, url: '/some-path' })}
+      </script>
+    `;
+
+    const blocks = extractFromDataIsland(document);
+
+    expect(blocks.some((b) => b.text === content)).toBe(true);
+  });
+
+  it('extracts from generic application/json script', () => {
+    const text =
+      'Generic application/json script with long content that should be picked up as data island fallback.';
+    document.body.innerHTML = `
+      <script type="application/json">${JSON.stringify({ body: text })}</script>
+    `;
+
+    const blocks = extractFromDataIsland(document);
+
+    expect(blocks.some((b) => b.text === text)).toBe(true);
+  });
+
+  it('does not double-count __NEXT_DATA__ as generic application/json', () => {
+    // __NEXT_DATA__ 也是 type="application/json"，但已在优先级 1 收集，
+    // 通用扫描时应跳过，避免重复提取。
+    const body =
+      'Content in __NEXT_DATA__ should not be extracted twice when scanning generic application/json scripts.';
+    document.body.innerHTML = `
+      <script id="__NEXT_DATA__" type="application/json">
+        ${JSON.stringify({ props: { articleBody: body } })}
+      </script>
+    `;
+
+    const blocks = extractFromDataIsland(document);
+    const matches = blocks.filter((b) => b.text === body);
+
+    expect(matches.length).toBe(1);
+  });
+
+  it('skips metadata fields (url/href/src/type/name)', () => {
+    document.body.innerHTML = `
+      <script id="__NEXT_DATA__" type="application/json">
+        ${JSON.stringify({
+          url: 'https://example.com/very-long-url-that-should-not-be-extracted-as-content',
+          href: 'https://example.com/another-long-href-that-should-be-skipped-as-metadata',
+          name: 'Some name field that is long enough but should be skipped because it is metadata',
+          type: 'article-type-field-that-is-long-enough-but-should-be-skipped',
+          articleBody: 'This is the real article body that should be extracted as content.',
+        })}
+      </script>
+    `;
+
+    const blocks = extractFromDataIsland(document);
+    const texts = blocks.map((b) => b.text);
+
+    expect(texts.some((t) => t.includes('real article body'))).toBe(true);
+    expect(texts.every((t) => !t.includes('very-long-url'))).toBe(true);
+    expect(texts.every((t) => !t.includes('another-long-href'))).toBe(true);
+    expect(texts.every((t) => !t.includes('article-type-field'))).toBe(true);
+    expect(texts.every((t) => !t.includes('Some name field'))).toBe(true);
+  });
+
+  it('extracts priority fields regardless of length (description/summary)', () => {
+    // description / summary 是优先字段，短文本也采集
+    document.body.innerHTML = `
+      <script id="__NEXT_DATA__" type="application/json">
+        ${JSON.stringify({
+          description: 'Short desc.',
+          summary: 'Tiny summary.',
+          articleBody:
+            'Long body content exceeding fifty characters threshold for normal fields.',
+        })}
+      </script>
+    `;
+
+    const blocks = extractFromDataIsland(document);
+    const texts = blocks.map((b) => b.text);
+
+    expect(texts).toContain('Short desc.');
+    expect(texts).toContain('Tiny summary.');
+  });
+
+  it('filters short non-priority strings (<50 chars)', () => {
+    document.body.innerHTML = `
+      <script id="__NEXT_DATA__" type="application/json">
+        ${JSON.stringify({
+          customField: 'Short text under 50 chars threshold',
+          articleBody:
+            'Long body content exceeding fifty characters threshold for normal fields.',
+        })}
+      </script>
+    `;
+
+    const blocks = extractFromDataIsland(document);
+    const texts = blocks.map((b) => b.text);
+
+    expect(texts.every((t) => !t.includes('Short text under 50'))).toBe(true);
+  });
+
+  it('deduplicates identical strings', () => {
+    const dup =
+      'This is a long duplicated string that appears in multiple fields and should only be extracted once.';
+    document.body.innerHTML = `
+      <script id="__NEXT_DATA__" type="application/json">
+        ${JSON.stringify({ field1: dup, field2: dup, field3: dup })}
+      </script>
+    `;
+
+    const blocks = extractFromDataIsland(document);
+    const matches = blocks.filter((b) => b.text === dup);
+
+    expect(matches.length).toBe(1);
+  });
+
+  it('silently skips invalid JSON', () => {
+    document.body.innerHTML = `
+      <script id="__NEXT_DATA__" type="application/json">
+        not-valid-json {{{{ broken
+      </script>
+      <script type="application/json">{"articleBody": "Valid JSON content that is long enough to pass threshold check."}</script>
+    `;
+
+    const blocks = extractFromDataIsland(document);
+
+    expect(blocks.length).toBeGreaterThan(0);
+    expect(blocks.some((b) => b.text.includes('Valid JSON content'))).toBe(true);
+  });
+
+  it('returns empty array when no data island scripts exist', () => {
+    document.body.innerHTML = `<div>no script tags here</div>`;
+
+    const blocks = extractFromDataIsland(document);
+
+    expect(blocks).toEqual([]);
+  });
+
+  it('returns TextBlock with id/xpath/tag fields', () => {
+    document.body.innerHTML = `
+      <script id="__NEXT_DATA__" type="application/json">
+        ${JSON.stringify({
+          articleBody:
+            'Long article body content exceeding fifty chars for proper extraction.',
+        })}
+      </script>
+    `;
+
+    const blocks = extractFromDataIsland(document);
+
+    expect(blocks.length).toBeGreaterThan(0);
+    const first = blocks[0];
+    expect(first.id).toMatch(/^data-island-\d+$/);
+    expect(first.xpath).toMatch(/^\/data-island\/\d+$/);
+    expect(first.tag).toBe('p');
+    expect(typeof first.text).toBe('string');
+  });
+});
+
+describe('prepareDocument data island integration', () => {
+  beforeEach(() => {
+    document.body.innerHTML = '';
+  });
+
+  it('falls back to data island when DOM is empty skeleton', () => {
+    // SPA 首屏：DOM 是空骨架，正文全在 __NEXT_DATA__
+    const articleBody =
+      'This is a long article body that lives only in __NEXT_DATA__ and is not rendered to DOM skeleton.';
+    document.body.innerHTML = `
+      <div id="__next"></div>
+      <script id="__NEXT_DATA__" type="application/json">
+        ${JSON.stringify({ props: { pageProps: { articleBody } } })}
+      </script>
+    `;
+
+    const { blocks, fullText } = prepareDocument(document, 'https://example.com/spa');
+
+    expect(blocks.length).toBeGreaterThan(0);
+    expect(fullText).toContain(articleBody);
+    expect(blocks.every((b) => b.xpath.startsWith('/data-island/'))).toBe(true);
+  });
+
+  it('does NOT trigger data island when DOM has content', () => {
+    // DOM 有内容时正常走 DOM 提取，不读 data island
+    const domContent = 'This is DOM-rendered content that should be extracted normally.';
+    const islandContent =
+      'This is data island content that should NOT be extracted when DOM has content.';
+    document.body.innerHTML = `
+      <article>
+        <h1>Real Article</h1>
+        <p>${domContent}</p>
+      </article>
+      <script id="__NEXT_DATA__" type="application/json">
+        ${JSON.stringify({ props: { articleBody: islandContent } })}
+      </script>
+    `;
+
+    const { fullText } = prepareDocument(document, 'https://example.com/normal');
+
+    expect(fullText).toContain(domContent);
+    expect(fullText).not.toContain(islandContent);
   });
 });

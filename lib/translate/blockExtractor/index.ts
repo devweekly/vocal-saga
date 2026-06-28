@@ -25,6 +25,37 @@ import type { TextBlock } from './types';
 export type { TextBlock };
 
 /**
+ * 合并 CSS letter-spacing 渲染的"分散单词"。
+ *
+ * hero section、CTA 按钮、品牌名常用 `letter-spacing` 装饰，textContent
+ * 抽取后变成 "S t a r t" 这种单字符 + 空格序列。直接送给翻译模型会被
+ * 当成独立字符处理，返回 "开 始 使 用" 这种带空格的中文，apply 回 DOM
+ * 后视觉错乱。
+ *
+ * 检测连续 ≥4 个 "ASCII 字母/数字 + 空格" 序列，合并为无空格单词。
+ * 阈值 4：避免误伤 "I am a coder" 这类正常英文（"I a" 只有 2 个单字符
+ * 序列，远低于阈值）。
+ *
+ * 不处理 CJK：中文字符本身是有意义的单字，letter-spacing 渲染的中文
+ * （如 "开 始 使 用"）应保留原样，让翻译模型按独立字符处理。
+ *
+ * @example
+ *   collapseSpacedText('S t a r t')        // → 'Start'
+ *   collapseSpacedText('2 0 2 4 年度报告')  // → '2024 年度报告'
+ *   collapseSpacedText('hello world')      // → 'hello world'（不变）
+ *   collapseSpacedText('I am a coder')     // → 'I am a coder'（不变）
+ *   collapseSpacedText('开 始 使 用')       // → '开 始 使 用'（中文不变）
+ */
+export function collapseSpacedText(text: string): string {
+  // 匹配连续 ≥4 个 ASCII 字母/数字（用空白分隔），整体合并去掉空白。
+  // [a-zA-Z0-9] 排除了 CJK 字符，避免误合并中文。
+  return text.replace(
+    /([a-zA-Z0-9](?:\s+[a-zA-Z0-9]){3,})/g,
+    (match) => match.replace(/\s+/g, ''),
+  );
+}
+
+/**
  * 从 rootNode 出发抽取所有翻译块。
  * @param rootNode Document 或 DocumentFragment
  * @param pageUrl 当前页面 URL，用于站点规则匹配（不再读 window.location.href）
@@ -46,6 +77,14 @@ export function extractBlocks(rootNode: Node, pageUrl: string): TextBlock[] {
   }
 
   collectBlocks(startNode, blocks, blockIdRef, seenTexts, pageUrl);
+
+  // 后处理：合并 CSS letter-spacing 渲染的分散单词。
+  // 在 collectBlocks 之后做，因为 walker 内部用原始文本做 seenTexts 去重，
+  // collapse 后的文本与原文不同，不应影响去重逻辑。
+  for (const block of blocks) {
+    block.text = collapseSpacedText(block.text);
+  }
+
   return blocks;
 }
 

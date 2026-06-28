@@ -390,6 +390,132 @@ export function findArticleRootL3(doc: Document): Element {
   return root;
 }
 
+// =============================================================================
+// Data Island fallback —— 从 SPA 数据岛提取正文
+// =============================================================================
+//
+// 许多 SPA 站点（Next.js / Nuxt / SvelteKit）首屏 DOM 是骨架，真正的内容塞在
+// <script type="application/json"> / #__NEXT_DATA__ / #__NUXT_DATA__ 里。
+// 当 DOM 上 extractBlocks 抓到 0 块时，尝试从数据岛解析结构化数据，递归提取
+// 字符串字段，包装成 TextBlock。
+//
+// 不修改 DOM：返回的 TextBlock 用占位 xpath `/data-island/[i]`，调用方据此
+// 知道这些块没有真实 DOM 节点，apply 阶段会跳过 DOM 修改。
+
+/** 优先字段名：这些字段通常是正文（不分大小写）。 */
+const DATA_ISLAND_PRIORITY_FIELDS =
+  /^(articleBody|text|content|description|body|html|markdown|summary|excerpt|plaintext)$/i;
+
+/** 跳过字段名：导航/元数据/技术字段（不分大小写）。 */
+const DATA_ISLAND_SKIP_FIELDS =
+  /^(url|href|src|image|icon|logo|type|@type|@context|id|key|name|slug|tag|category|author|date|published|modified|created|updated|locale|lang|language|version|site|domain|host|path|query|method|status|code|token|csrf|nonce)$/i;
+
+/** 短于此长度的字符串不算正文（过滤标题、面包屑、按钮文案）。 */
+const DATA_ISLAND_MIN_TEXT_LEN = 50;
+
+/**
+ * 递归遍历 JSON 数据，提取正文字符串。
+ * - 命中 PRIORITY_FIELDS 的字段：长度 ≥ 1 即采集（标题、description 可能短）
+ * - 其他字段：长度 ≥ DATA_ISLAND_MIN_TEXT_LEN 才采集（避免短字段污染）
+ * - SKIP_FIELDS 字段：跳过
+ */
+function walkDataIsland(
+  obj: unknown,
+  fieldName: string | undefined,
+  texts: string[],
+  seen: Set<string>,
+): void {
+  if (obj == null || typeof obj === 'number' || typeof obj === 'boolean') return;
+
+  if (typeof obj === 'string') {
+    const trimmed = obj.trim();
+    if (trimmed.length === 0) return;
+    if (seen.has(trimmed)) return;
+
+    if (fieldName && DATA_ISLAND_SKIP_FIELDS.test(fieldName)) return;
+
+    // 优先字段：短文本也采集（如 description、summary）
+    // 其他字段：长度阈值过滤
+    const isPriority = fieldName && DATA_ISLAND_PRIORITY_FIELDS.test(fieldName);
+    if (!isPriority && trimmed.length < DATA_ISLAND_MIN_TEXT_LEN) return;
+
+    seen.add(trimmed);
+    texts.push(trimmed);
+    return;
+  }
+
+  if (Array.isArray(obj)) {
+    for (const item of obj) walkDataIsland(item, fieldName, texts, seen);
+    return;
+  }
+
+  if (typeof obj === 'object') {
+    const record = obj as Record<string, unknown>;
+    for (const key of Object.keys(record)) {
+      walkDataIsland(record[key], key, texts, seen);
+    }
+  }
+}
+
+/**
+ * 从 SPA 数据岛提取正文 TextBlock。
+ *
+ * 候选 script（按优先级）：
+ * 1. #__NEXT_DATA__（Next.js SSR 数据）
+ * 2. #__NUXT_DATA__（Nuxt SSR 数据）
+ * 3. <script type="application/json">（通用，排除前两者）
+ *
+ * 解析失败的 script 静默跳过；提取到的字符串去重后包装成 TextBlock。
+ * 不修改 DOM，返回的 xpath 是占位符 `/data-island/[i]`。
+ *
+ * 对 vocal-saga 服务端尤其重要：fetch 拿到的初始 HTML 通常 DOM 是骨架，
+ * 内容全在 __NEXT_DATA__ 里，客户端 hydrate 之前 walker 抓不到任何块。
+ */
+export function extractFromDataIsland(doc: Document): TextBlock[] {
+  const candidates: string[] = [];
+
+  // 优先级 1：Next.js
+  const nextData = doc.getElementById('__NEXT_DATA__');
+  if (nextData?.textContent) candidates.push(nextData.textContent);
+
+  // 优先级 2：Nuxt
+  const nuxtData = doc.getElementById('__NUXT_DATA__');
+  if (nuxtData?.textContent) candidates.push(nuxtData.textContent);
+
+  // 优先级 3：通用 application/json（排除已收集的）
+  const scripts = doc.querySelectorAll('script[type="application/json"]');
+  for (const s of Array.from(scripts)) {
+    if (s.id === '__NEXT_DATA__' || s.id === '__NUXT_DATA__') continue;
+    if (s.textContent) candidates.push(s.textContent);
+  }
+
+  if (candidates.length === 0) return [];
+
+  const texts: string[] = [];
+  const seen = new Set<string>();
+  for (const candidate of candidates) {
+    try {
+      const data = JSON.parse(candidate);
+      walkDataIsland(data, undefined, texts, seen);
+    } catch {
+      // JSON 解析失败，跳过这个 script
+    }
+  }
+
+  if (texts.length === 0) return [];
+
+  console.log(
+    `[ContentHelper] Extracted ${texts.length} blocks from data island (${candidates.length} script(s) scanned)`,
+  );
+
+  return texts.map((text, i) => ({
+    id: `data-island-${i}`,
+    xpath: `/data-island/${i}`,
+    tag: 'p',
+    text,
+  }));
+}
+
 export function prepareDocument(
   root: Document | Element,
   pageUrl: string
@@ -414,6 +540,14 @@ export function prepareDocument(
       `[ContentHelper] Detected root <${effectiveRoot.tagName}> yielded 0 blocks, falling back to <body>`,
     );
     blocks = extractBlocks((root as Document).body || (root as Document).documentElement, pageUrl);
+  }
+
+  // Data Island fallback: SPA 站点（Next.js / Nuxt / SvelteKit）首屏 DOM
+  // 是骨架，内容塞在 __NEXT_DATA__ / __NUXT_DATA__ / application/json
+  // script 里。body fallback 仍 0 块时，从结构化数据提取正文。
+  // 回归 case: vercel.com 文档站、部分 Next.js SSR 站点首屏未 hydrate。
+  if (blocks.length === 0 && isDoc) {
+    blocks = extractFromDataIsland(root as Document);
   }
 
   if (blocks.length === 0) {

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { extractBlocks, findBlockNode, buildNodeMap, extractBlocksFromMarkedHtml } from '../lib/translate/blockExtractor';
+import { extractBlocks, findBlockNode, buildNodeMap, extractBlocksFromMarkedHtml, collapseSpacedText } from '../lib/translate/blockExtractor';
 
 // Mock matchSiteRule for shouldSkipBySiteRules tests
 vi.mock('../lib/translate/rules', () => ({
@@ -5821,6 +5821,130 @@ describe('extractBlocksFromMarkedHtml', () => {
     expect(blocks[1].tag).toBe('p');
     expect(blocks[2].tag).toBe('li');
     expect(blocks[4].tag).toBe('div');
+  });
+});
+
+// =============================================================================
+// collapseSpacedText —— 合并 CSS letter-spacing 渲染的分散单词
+// hero section / CTA 按钮 / 品牌名常用 letter-spacing 装饰，textContent 抽取后
+// 变成 "S t a r t" 这种单字符+空格序列，翻译后会变成 "开 始" 视觉错乱。
+// 对 vocal-saga 服务端尤其重要：fetch 回来的 HTML 保留了原始 letter-spacing
+// 渲染的 textContent，不经处理直接送 LLM 会让模型困惑。
+// =============================================================================
+
+describe('collapseSpacedText', () => {
+  it('merges spaced single characters into a word (Start)', () => {
+    expect(collapseSpacedText('S t a r t')).toBe('Start');
+  });
+
+  it('merges spaced digits (2024)', () => {
+    expect(collapseSpacedText('2 0 2 4 年度报告')).toBe('2024 年度报告');
+  });
+
+  it('leaves normal multi-char words unchanged', () => {
+    expect(collapseSpacedText('hello world')).toBe('hello world');
+    expect(collapseSpacedText('Hello world this is a test')).toBe(
+      'Hello world this is a test',
+    );
+  });
+
+  it('leaves short single-char sequences (<4) unchanged', () => {
+    // "I am a coder" 中 "I a" 只有 2 个单字符序列，远低于阈值 4
+    expect(collapseSpacedText('I am a coder')).toBe('I am a coder');
+    // "a b c" 只有 3 个字符，不满足 ≥4
+    expect(collapseSpacedText('a b c')).toBe('a b c');
+  });
+
+  it('merges at threshold exactly (4 chars)', () => {
+    // 4 个字符是阈值边界，应该合并
+    expect(collapseSpacedText('a b c d')).toBe('abcd');
+  });
+
+  it('does NOT merge CJK characters (Chinese should stay spaced)', () => {
+    // 中文字符本身是有意义的单字，letter-spacing 渲染的中文应保留原样
+    expect(collapseSpacedText('开 始 使 用')).toBe('开 始 使 用');
+    expect(collapseSpacedText('学 习 更 多')).toBe('学 习 更 多');
+  });
+
+  it('merges multiple groups separated by punctuation', () => {
+    // 标点分隔的两组 letter-spacing 装饰都应合并
+    expect(collapseSpacedText('S t a r t, P l a y!')).toBe('Start, Play!');
+  });
+
+  it('handles mixed ASCII and CJK in same string', () => {
+    // ASCII 字母序列合并，中文保留
+    expect(collapseSpacedText('S t a r t 开 始')).toBe('Start 开 始');
+  });
+
+  it('returns empty string unchanged', () => {
+    expect(collapseSpacedText('')).toBe('');
+  });
+
+  it('handles text without any single-char sequences', () => {
+    expect(collapseSpacedText('This is a normal sentence.')).toBe(
+      'This is a normal sentence.',
+    );
+  });
+
+  it('preserves leading/trailing whitespace around merged words', () => {
+    // 合并的是字符间空格，外层空格保留
+    expect(collapseSpacedText('  S t a r t  ')).toBe('  Start  ');
+  });
+});
+
+describe('extractBlocks - collapseSpacedText integration', () => {
+  beforeEach(() => {
+    document.body.innerHTML = '';
+  });
+
+  it('collapses letter-spacing decorated CTA text during extraction', () => {
+    // 模拟 hero section CTA 按钮：letter-spacing 渲染的 "S t a r t"
+    setupHTML(`
+      <article>
+        <h1>Article Main Title Here</h1>
+        <p>This is a normal paragraph with enough text to pass the threshold.</p>
+        <button>S t a r t N o w</button>
+      </article>
+    `);
+
+    const blocks = extractBlocks(document, 'https://example.com/test');
+    const texts = blocks.map((b) => b.text);
+
+    // "S t a r t N o w" 应被合并为 "StartNow"
+    expect(texts.some((t) => t === 'StartNow')).toBe(true);
+    expect(texts.every((t) => !t.includes('S t a r t'))).toBe(true);
+  });
+
+  it('does not affect normal multi-word content', () => {
+    setupHTML(`
+      <article>
+        <h1>Article Main Title</h1>
+        <p>Hello world this is a test paragraph with normal spacing.</p>
+      </article>
+    `);
+
+    const blocks = extractBlocks(document, 'https://example.com/normal');
+    const texts = blocks.map((b) => b.text);
+
+    // 正常文本不应被修改
+    expect(texts.some((t) => t === 'Hello world this is a test paragraph with normal spacing.')).toBe(true);
+  });
+
+  it('preserves Chinese letter-spacing decoration', () => {
+    // 中文 letter-spacing 装饰不应被合并
+    setupHTML(`
+      <article>
+        <h1>Article Title</h1>
+        <p>Normal paragraph text here for context.</p>
+        <p>开 始 使 用 产 品</p>
+      </article>
+    `);
+
+    const blocks = extractBlocks(document, 'https://example.com/cjk');
+    const texts = blocks.map((b) => b.text);
+
+    // 中文保持原样
+    expect(texts.some((t) => t === '开 始 使 用 产 品')).toBe(true);
   });
 });
 
