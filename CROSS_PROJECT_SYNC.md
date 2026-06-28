@@ -224,7 +224,7 @@
 - `netlify/functions/api.mjs` — Netlify Functions 入口
 - `lib/app.ts`、`auth.ts`、`config.ts`、`modelResolver.ts`、`redirectGuard.ts`、`urlUtils.ts` — 服务端路由 / 鉴权
 - `lib/storage/` — 跨平台存储适配（cloudflare / netlify / memory）
-- `lib/translate/service/cloudflare.ts`、`mimo.ts`、`nvidia.ts`、`openrouter.ts`、`shared.ts` — 其他翻译服务
+- `lib/translate/service/cloudflare.ts`、`mimo.ts`、`nvidia.ts`、`openrouter.ts`、`gemini.ts`、`shared.ts` — 其他翻译服务
 - `lib/translate/service/shared.ts` — `buildTranslationBody`、`repairTruncatedJson`、`cleanJsonString`
 - `lib/translate/glossaryStore.ts` — 术语表持久化
 - `lib/translate/pipeline.ts` — 翻译流水线

@@ -36,9 +36,11 @@ import {
   setDSApiKey,
   setOpenrouterApiKey,
   setNvidiaApiKey,
+  setGeminiApiKey,
   getDSApiKey,
   getOpenrouterApiKey,
   getNvidiaApiKey,
+  getGeminiApiKey,
 } from './config';
 
 // ── extractor 懒加载 ────────────────────────────────────────
@@ -60,9 +62,11 @@ export function createApp(storage?: StorageAdapter): Hono {
   const dsKey = process.env.DEEPSEEK_API_KEY || '';
   const openrouterKey = process.env.OPENROUTER_API_KEY || '';
   const nvidiaKey = process.env.NVIDIA_API_KEY || '';
+  const geminiKey = process.env.GEMINI_API_KEY || '';
   if (dsKey) setDSApiKey(dsKey);
   if (openrouterKey) setOpenrouterApiKey(openrouterKey);
   if (nvidiaKey) setNvidiaApiKey(nvidiaKey);
+  if (geminiKey) setGeminiApiKey(geminiKey);
 
   // 简单的 HTML 转义，防止列表页 title XSS
   function escapeHtml(text: string): string {
@@ -370,9 +374,9 @@ ${pager}
 
     // provider 字段统一命名（扩展端 / 服务端一致），避免与 TranslationService 类混淆
     const provider = body.provider || c.req.query('provider') || 'deepseek';
-    const VALID_PROVIDERS = ['deepseek', 'openrouter', 'nvidia', 'cloudflare'];
+    const VALID_PROVIDERS = ['deepseek', 'openrouter', 'nvidia', 'cloudflare', 'gemini'];
     if (!VALID_PROVIDERS.includes(provider)) {
-      return c.json({ error: 'provider must be one of deepseek, openrouter, nvidia, cloudflare' }, 400);
+      return c.json({ error: 'provider must be one of deepseek, openrouter, nvidia, cloudflare, gemini' }, 400);
     }
 
     // deepseek 必须提供 apiKey（客户端 Key），其他 provider 使用服务端 Key
@@ -507,12 +511,12 @@ ${pager}
   });
 
   /**
-   * 公共翻译 handler，供 /translate/*、/s/*、/force/*、/openrt/*、/nvd/* 使用。
+   * 公共翻译 handler，供 /translate/*、/s/*、/force/*、/openrt/*、/nvd/*、/gem/* 使用。
    * @param force 跳过 D1 缓存，强制重新翻译并覆盖写入
-   * @param provider LLM 提供方：'deepseek'（默认）、'openrouter'、'nvidia'、'cloudflare'、'mimo'
-   * @param model 可选模型名（用于 NVIDIA 等多模型服务）
+   * @param provider LLM 提供方：'deepseek'（默认）、'openrouter'、'nvidia'、'cloudflare'、'mimo'、'gemini'
+   * @param model 可选模型名（用于 NVIDIA / Gemini 等多模型服务）
    */
-  async function handleTranslateRequest(c: any, rawPath: string, force = false, provider: 'deepseek' | 'openrouter' | 'nvidia' | 'cloudflare' | 'mimo' = 'deepseek', model?: string) {
+  async function handleTranslateRequest(c: any, rawPath: string, force = false, provider: 'deepseek' | 'openrouter' | 'nvidia' | 'cloudflare' | 'mimo' | 'gemini' = 'deepseek', model?: string) {
     if (!rawPath) {
       return c.json({ error: 'target url is required in path' }, 400);
     }
@@ -728,6 +732,20 @@ ${pager}
   app.get('/mimo/*', (c) => {
     const raw = decodeURIComponent(c.req.path.slice('/mimo/'.length));
     return handleTranslateRequest(c, raw, /* force */ false, /* provider */ 'mimo');
+  });
+
+  // ── Gemini 翻译：使用 Google Gemini 原生 API ──────────
+  // /gem/{url}      → gemini-flash-latest（默认）
+  // /gem/pro/{url}  → gemini-pro-latest
+  app.get('/gem/*', (c) => {
+    const raw = decodeURIComponent(c.req.path.slice('/gem/'.length));
+    let urlPath = raw;
+    let model: string | undefined = 'gemini-flash-latest';
+    if (raw.startsWith('pro/')) {
+      urlPath = raw.slice('pro/'.length);
+      model = 'gemini-pro-latest';
+    }
+    return handleTranslateRequest(c, urlPath, /* force */ false, /* provider */ 'gemini', model);
   });
 
   // ── Cloudflare AI 翻译：通过 CF REST API 调用 Workers AI ──────────

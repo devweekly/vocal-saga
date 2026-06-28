@@ -216,7 +216,7 @@ export interface TranslateUrlInput {
   mode?: 'bilingual';
   glossary?: Glossary;
   /** LLM 提供方，统一字段名 provider（避免与 TranslationService 类混淆） */
-  provider?: 'deepseek' | 'openrouter' | 'nvidia' | 'cloudflare' | 'mimo';
+  provider?: 'deepseek' | 'openrouter' | 'nvidia' | 'cloudflare' | 'mimo' | 'gemini';
   model?: string;
 }
 
@@ -239,7 +239,7 @@ export interface TranslateHtmlInput {
   mode?: 'bilingual';
   glossary?: Glossary;
   /** LLM 提供方，统一字段名 provider（避免与 TranslationService 类混淆） */
-  provider?: 'deepseek' | 'openrouter' | 'nvidia' | 'cloudflare' | 'mimo';
+  provider?: 'deepseek' | 'openrouter' | 'nvidia' | 'cloudflare' | 'mimo' | 'gemini';
   model?: string;
   /** 客户端传入的 DeepSeek API Key（/fanyi/page 使用） */
   apiKey?: string;
@@ -251,7 +251,7 @@ async function runTranslationPipeline(
   sourceLang: string,
   targetLang: string,
   mode: 'bilingual',
-  provider: 'deepseek' | 'openrouter' | 'nvidia' | 'cloudflare' | 'mimo',
+  provider: 'deepseek' | 'openrouter' | 'nvidia' | 'cloudflare' | 'mimo' | 'gemini',
   model: string | undefined,
   glossary: Glossary | undefined,
   existingBlocks?: TextBlock[],
@@ -298,6 +298,9 @@ async function runTranslationPipeline(
   } else if (provider === 'mimo') {
     const { MimoTranslationService } = await import('./service/mimo');
     service = new MimoTranslationService() as any;
+  } else if (provider === 'gemini') {
+    const { GeminiTranslationService } = await import('./service/gemini');
+    service = new GeminiTranslationService(model) as any;
   } else {
     service = new DeepSeekTranslationService(apiKey);
   }
