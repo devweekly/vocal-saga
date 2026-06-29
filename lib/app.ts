@@ -37,10 +37,12 @@ import {
   setOpenrouterApiKey,
   setNvidiaApiKey,
   setGeminiApiKey,
+  setOpencodeApiKey,
   getDSApiKey,
   getOpenrouterApiKey,
   getNvidiaApiKey,
   getGeminiApiKey,
+  getOpencodeApiKey,
 } from './config';
 
 // ── extractor 懒加载 ────────────────────────────────────────
@@ -63,10 +65,12 @@ export function createApp(storage?: StorageAdapter): Hono {
   const openrouterKey = process.env.OPENROUTER_API_KEY || '';
   const nvidiaKey = process.env.NVIDIA_API_KEY || '';
   const geminiKey = process.env.GEMINI_API_KEY || '';
+  const opencodeKey = process.env.OPENCODE_API_KEY || '';
   if (dsKey) setDSApiKey(dsKey);
   if (openrouterKey) setOpenrouterApiKey(openrouterKey);
   if (nvidiaKey) setNvidiaApiKey(nvidiaKey);
   if (geminiKey) setGeminiApiKey(geminiKey);
+  if (opencodeKey) setOpencodeApiKey(opencodeKey);
 
   // 简单的 HTML 转义，防止列表页 title XSS
   function escapeHtml(text: string): string {
@@ -374,9 +378,9 @@ ${pager}
 
     // provider 字段统一命名（扩展端 / 服务端一致），避免与 TranslationService 类混淆
     const provider = body.provider || c.req.query('provider') || 'deepseek';
-    const VALID_PROVIDERS = ['deepseek', 'openrouter', 'nvidia', 'cloudflare', 'gemini'];
+    const VALID_PROVIDERS = ['deepseek', 'openrouter', 'nvidia', 'cloudflare', 'gemini', 'opencode'];
     if (!VALID_PROVIDERS.includes(provider)) {
-      return c.json({ error: 'provider must be one of deepseek, openrouter, nvidia, cloudflare, gemini' }, 400);
+      return c.json({ error: 'provider must be one of deepseek, openrouter, nvidia, cloudflare, gemini, opencode' }, 400);
     }
 
     // deepseek 必须提供 apiKey（客户端 Key），其他 provider 使用服务端 Key
@@ -511,12 +515,12 @@ ${pager}
   });
 
   /**
-   * 公共翻译 handler，供 /translate/*、/s/*、/force/*、/openrt/*、/nvd/*、/gem/* 使用。
+   * 公共翻译 handler，供 /translate/*、/s/*、/force/*、/openrt/*、/nvd/*、/gemini/*、/oc/* 使用。
    * @param force 跳过 D1 缓存，强制重新翻译并覆盖写入
-   * @param provider LLM 提供方：'deepseek'（默认）、'openrouter'、'nvidia'、'cloudflare'、'mimo'、'gemini'
+   * @param provider LLM 提供方：'deepseek'（默认）、'openrouter'、'nvidia'、'cloudflare'、'mimo'、'gemini'、'opencode'
    * @param model 可选模型名（用于 NVIDIA / Gemini 等多模型服务）
    */
-  async function handleTranslateRequest(c: any, rawPath: string, force = false, provider: 'deepseek' | 'openrouter' | 'nvidia' | 'cloudflare' | 'mimo' | 'gemini' = 'deepseek', model?: string) {
+  async function handleTranslateRequest(c: any, rawPath: string, force = false, provider: 'deepseek' | 'openrouter' | 'nvidia' | 'cloudflare' | 'mimo' | 'gemini' | 'opencode' = 'deepseek', model?: string) {
     if (!rawPath) {
       return c.json({ error: 'target url is required in path' }, 400);
     }
@@ -739,6 +743,13 @@ ${pager}
   app.get('/gemini/*', (c) => {
     const raw = decodeURIComponent(c.req.path.slice('/gemini/'.length));
     return handleTranslateRequest(c, raw, /* force */ false, /* provider */ 'gemini', 'gemini-3.1-flash-lite');
+  });
+
+  // ── OpenCode 翻译：使用 opencode.ai/zen OpenAI 兼容 API ──────────
+  // /oc/{url} → big-pickle 模型
+  app.get('/oc/*', (c) => {
+    const raw = decodeURIComponent(c.req.path.slice('/oc/'.length));
+    return handleTranslateRequest(c, raw, /* force */ false, /* provider */ 'opencode');
   });
 
   // ── Cloudflare AI 翻译：通过 CF REST API 调用 Workers AI ──────────

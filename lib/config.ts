@@ -9,6 +9,7 @@ let _dsApiKey = '';
 let _openrouterApiKey = '';
 let _nvidiaApiKey = '';
 let _geminiApiKey = '';
+let _opencodeApiKey = '';
 let _authKey = '';
 let _mimoClientId = 'fanyi-proxy';
 
@@ -23,6 +24,9 @@ export function getNvidiaApiKey(): string { return _nvidiaApiKey; }
 
 export function setGeminiApiKey(key: string) { _geminiApiKey = key; }
 export function getGeminiApiKey(): string { return _geminiApiKey; }
+
+export function setOpencodeApiKey(key: string) { _opencodeApiKey = key; }
+export function getOpencodeApiKey(): string { return _opencodeApiKey; }
 
 export function setAuthKey(key: string) { _authKey = key; }
 export function getAuthKey(): string { return _authKey; }

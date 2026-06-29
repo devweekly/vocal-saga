@@ -1,0 +1,174 @@
+/**
+ * OpenCode 翻译服务：使用 opencode.ai/zen OpenAI 兼容 API。
+ *
+ * 端点：https://opencode.ai/zen/v1/chat/completions
+ * 鉴权：Authorization: Bearer <API_KEY>
+ * 模型：big-pickle（默认）
+ *
+ * 与 DeepSeek 服务结构一致（同为 OpenAI 兼容），
+ * 但不发送 DeepSeek 专有的 thinking / user_id 字段。
+ */
+import type { TranslationService, Glossary } from './_service';
+import { parseSSEStream } from './streamParser';
+import { getOpencodeApiKey } from '../../config';
+import {
+  buildTranslationBody,
+  stripThinkingTags,
+  stripMarkdownCodeBlock,
+  repairTruncatedJson,
+} from './shared';
+
+const API_URL = 'https://opencode.ai/zen/v1/chat/completions';
+const DEFAULT_MODEL = 'big-pickle';
+
+function buildHeaders(): Record<string, string> {
+  return {
+    'Content-Type': 'application/json',
+    Authorization: `Bearer ${getOpencodeApiKey()}`,
+  };
+}
+
+function buildOpencodeBody(
+  blocks: Array<{ id: string; text: string }>,
+  sourceLang: string,
+  targetLang: string,
+  glossary?: Glossary,
+) {
+  const body = buildTranslationBody(blocks, sourceLang, targetLang, glossary, DEFAULT_MODEL);
+  return {
+    ...body,
+    response_format: { type: 'json_object' },
+    stream: false,
+  };
+}
+
+async function callApi(body: string): Promise<string> {
+  const key = getOpencodeApiKey();
+  if (!key) throw new Error('OpenCode API key not configured');
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 60_000);
+
+  let response: Response;
+  try {
+    response = await fetch(API_URL, {
+      method: 'POST',
+      headers: buildHeaders(),
+      body,
+      signal: controller.signal,
+    });
+  } catch (err) {
+    clearTimeout(timeout);
+    if (err instanceof DOMException && err.name === 'AbortError') {
+      throw new Error('OpenCode API timeout (60s)');
+    }
+    throw err;
+  }
+  clearTimeout(timeout);
+
+  console.log('[OpenCode] Response status:', response.status);
+
+  const responseText = await response.text().catch(() => '');
+
+  if (!response.ok) {
+    let errorMessage = `HTTP ${response.status}`;
+    try {
+      const errorJson = JSON.parse(responseText);
+      if (errorJson.error) {
+        errorMessage += ` - ${errorJson.error.message || errorJson.error}`;
+      } else if (errorJson.message) {
+        errorMessage += ` - ${errorJson.message}`;
+      } else {
+        errorMessage += ` - ${responseText.substring(0, 200)}`;
+      }
+    } catch {
+      errorMessage += ` - ${responseText.substring(0, 200)}`;
+    }
+    throw new Error(`OpenCode API error: ${errorMessage}`);
+  }
+
+  const data = JSON.parse(responseText);
+  const content = data.choices?.[0]?.message?.content;
+
+  if (!content) {
+    throw new Error('OpenCode returned invalid response: missing choices[0].message.content');
+  }
+
+  // 清洗 LLM 输出：去 thinking 标签 → 去 markdown 代码块 → 修 JSON
+  let cleaned = stripThinkingTags(content);
+  cleaned = stripMarkdownCodeBlock(cleaned);
+  try {
+    JSON.parse(cleaned);
+    return cleaned;
+  } catch {
+    cleaned = repairTruncatedJson(cleaned);
+    JSON.parse(cleaned);
+    return cleaned;
+  }
+}
+
+export class OpencodeTranslationService implements TranslationService {
+  async translate(
+    jsonContent: string,
+    sourceLang: string,
+    targetLang: string,
+    glossary?: Glossary,
+  ): Promise<string> {
+    const blocks = JSON.parse(jsonContent);
+    const body = buildOpencodeBody(blocks, sourceLang, targetLang, glossary);
+    return callApi(JSON.stringify(body));
+  }
+
+  async *translateStream(
+    jsonContent: string,
+    sourceLang: string,
+    targetLang: string,
+    glossary?: Glossary,
+  ): AsyncGenerator<string, string, unknown> {
+    const blocks = JSON.parse(jsonContent);
+    const body: any = buildOpencodeBody(blocks, sourceLang, targetLang, glossary);
+    body.stream = true;
+
+    const key = getOpencodeApiKey();
+    if (!key) throw new Error('OpenCode API key not configured');
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 60_000);
+
+    let response: Response;
+    try {
+      response = await fetch(API_URL, {
+        method: 'POST',
+        headers: buildHeaders(),
+        body: JSON.stringify(body),
+        signal: controller.signal,
+      });
+    } catch (err) {
+      clearTimeout(timeout);
+      if (err instanceof DOMException && err.name === 'AbortError') {
+        throw new Error('OpenCode stream timeout (60s)');
+      }
+      throw err;
+    }
+    clearTimeout(timeout);
+
+    if (!response.ok) {
+      const text = await response.text().catch(() => '');
+      throw new Error(`OpenCode API error: HTTP ${response.status} - ${text.substring(0, 200)}`);
+    }
+
+    if (!response.body) {
+      throw new Error('OpenCode API error: response body is null');
+    }
+
+    const reader = response.body.getReader();
+    let fullContent = '';
+
+    for await (const delta of parseSSEStream(reader)) {
+      fullContent += delta;
+      yield fullContent;
+    }
+
+    return fullContent;
+  }
+}
