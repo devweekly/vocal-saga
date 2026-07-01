@@ -308,13 +308,15 @@ async function runTranslationPipeline(
     service = new DeepSeekTranslationService(apiKey);
   }
   const tTrans = performance.now();
+  // OpenCode 限流严格（CF Worker 共享 IP 易触发 429），降低并发到 2
+  const concurrency = provider === 'opencode' ? 2 : 6;
   const translations = await translateChunksWithRetry(
     service,
     chunks,
     sourceLang,
     targetLang,
     glossary,
-    /* concurrency */ 6
+    concurrency
   );
 
   // 回填：一次性 querySelectorAll 建 Map → O(1) 查找（原实现 O(blocks × N)）

@@ -59,7 +59,7 @@ describe('GeminiTranslationService', () => {
     // 验证 SDK 被调用
     expect(mockGenerateContent).toHaveBeenCalledTimes(1);
     const params = mockGenerateContent.mock.calls[0][0];
-    expect(params.model).toBe('gemini-3.1-flash-lite');
+    expect(params.model).toBe('gemini-2.5-flash-lite');
     expect(params.contents).toContain('JSON:');
     expect(params.contents).toContain('"hello"');
 
@@ -92,7 +92,7 @@ describe('GeminiTranslationService', () => {
     const service = new GeminiTranslationService();
     await service.translate('[{"id":"1","text":"hello"}]', 'en', 'zh');
 
-    expect(mockGenerateContent.mock.calls[0][0].model).toBe('gemini-3.1-flash-lite');
+    expect(mockGenerateContent.mock.calls[0][0].model).toBe('gemini-2.5-flash-lite');
   });
 
   it('uses custom model when passed to constructor', async () => {

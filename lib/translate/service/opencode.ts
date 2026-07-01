@@ -25,6 +25,8 @@ function buildHeaders(): Record<string, string> {
   return {
     'Content-Type': 'application/json',
     Authorization: `Bearer ${getOpencodeApiKey()}`,
+    // 添加 User-Agent，避免某些 Provider 对 undici/无 UA 请求限流更严格
+    'User-Agent': 'vocal-saga/1.0',
   };
 }
 
@@ -71,6 +73,16 @@ async function callApi(body: string): Promise<string> {
   const responseText = await response.text().catch(() => '');
 
   if (!response.ok) {
+    // 429 限流诊断：打印完整响应体 + 限流相关 headers
+    if (response.status === 429) {
+      const retryAfter = response.headers.get('retry-after') || 'N/A';
+      const rateLimitLimit = response.headers.get('x-ratelimit-limit') || 'N/A';
+      const rateLimitRemaining = response.headers.get('x-ratelimit-remaining') || 'N/A';
+      const rateLimitReset = response.headers.get('x-ratelimit-reset') || 'N/A';
+      console.error('[OpenCode] 429 Rate Limit — Full response body:');
+      console.error(responseText);
+      console.error(`[OpenCode] Headers: retry-after=${retryAfter} limit=${rateLimitLimit} remaining=${rateLimitRemaining} reset=${rateLimitReset}`);
+    }
     let errorMessage = `HTTP ${response.status}`;
     try {
       const errorJson = JSON.parse(responseText);

@@ -23,6 +23,7 @@ function makeOkResponse(content: string) {
   return {
     ok: true,
     status: 200,
+    headers: new Headers(),
     text: async () => JSON.stringify({
       choices: [{ message: { content } }],
     }),
@@ -33,6 +34,7 @@ function makeErrorResponse(status: number, message: string) {
   return {
     ok: false,
     status,
+    headers: new Headers(),
     text: async () => JSON.stringify({ error: { message } }),
   };
 }
@@ -70,6 +72,7 @@ describe('OpencodeTranslationService', () => {
     expect(opts.method).toBe('POST');
     expect(opts.headers['Authorization']).toBe('Bearer test-opencode-key');
     expect(opts.headers['Content-Type']).toBe('application/json');
+    expect(opts.headers['User-Agent']).toBe('vocal-saga/1.0');
     // body 包含模型名和 response_format
     const body = JSON.parse(opts.body);
     expect(body.model).toBe('big-pickle');
@@ -118,6 +121,7 @@ describe('OpencodeTranslationService', () => {
     mockFetch.mockResolvedValueOnce({
       ok: true,
       status: 200,
+      headers: new Headers(),
       text: async () => JSON.stringify({ foo: 'bar' }),
     });
     const svc = new OpencodeTranslationService();
@@ -200,6 +204,7 @@ describe('OpencodeTranslationService', () => {
     mockFetch.mockResolvedValueOnce({
       ok: true,
       status: 200,
+      headers: new Headers(),
       body: stream,
     });
 
@@ -251,6 +256,7 @@ describe('OpencodeTranslationService', () => {
     mockFetch.mockResolvedValueOnce({
       ok: true,
       status: 200,
+      headers: new Headers(),
       body: null,
     });
     const svc = new OpencodeTranslationService();
