@@ -309,7 +309,7 @@ async function runTranslationPipeline(
   }
   const tTrans = performance.now();
   // OpenCode 限流严格（CF Worker 共享 IP 易触发 429），降低并发到 2
-  const concurrency = provider === 'opencode' ? 2 : 6;
+  const concurrency = provider === 'opencode' ? 1 : 6;
   const translations = await translateChunksWithRetry(
     service,
     chunks,
