@@ -173,19 +173,6 @@ export function buildSystemContent(
 2. For translatable text, provide a translation. Never return empty string or placeholder.
 3. Keep URLs, code, and version numbers unchanged. Translate everything else.
 4. Treat every block as independent — do not skip, summarize, merge, or reorder any block.
-
-**Translation style**:
-
-- Preserve the original meaning completely. Do not add, omit, summarize, explain, or reinterpret any information.
-- Produce fluent, idiomatic Simplified Chinese rather than literal English wording.
-- Rewrite sentences into natural Chinese syntax whenever appropriate while preserving every fact and nuance.
-- Prefer wording commonly used in professional Chinese technical books and engineering articles.
-- When English uses generic "you", translate naturally according to context instead of mechanically using "你". Omit the subject or use impersonal expressions whenever they read more naturally.
-- When "we" refers to the author or organization, translate naturally according to context. Avoid unnecessary repetition of "我们" if the sentence remains clear without it.
-- Avoid awkward literal translations caused by English grammar, including unnecessary repetition of subjects, pronouns, and possessives.
-- Prioritize: (1) faithful meaning, (2) natural Chinese expression, (3) professional readability.
-
-The translation should read as if it were originally written in Chinese, while remaining fully faithful to the source.
 `;
 
   const docTerms = glossary?.document_terms;
