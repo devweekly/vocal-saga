@@ -5,6 +5,7 @@
  */
 
 import type { Glossary } from './_service';
+import { buildAchengSystemContent } from './acheng-prompt';
 
 // ── JSON 截断修复 ────────────────────────────────────────────
 
@@ -159,7 +160,22 @@ export function estimateMaxTokens(inputJson: string): number {
 
 // ── System Prompt ────────────────────────────────────────────
 
+/**
+ * 默认 system prompt：阿城风格（现代简体中文，克制、白描、动词驱动）。
+ */
 export function buildSystemContent(
+  sourceLang: string,
+  targetLang: string,
+  glossary?: Glossary
+): string {
+  return buildAchengSystemContent(sourceLang, targetLang, glossary);
+}
+
+/**
+ * 备选 system prompt：通用直译风格。
+ * 当调用方需要更保守、更传统的技术翻译时使用。
+ */
+export function buildDefaultSystemContent(
   sourceLang: string,
   targetLang: string,
   glossary?: Glossary
