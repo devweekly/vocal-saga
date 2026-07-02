@@ -172,18 +172,12 @@ export function buildSystemContent(
 
   let systemContent = `Translate ${sourceLangName} to ${targetLangName}.
 
-1. Return {"translations":[{"id":"x","translated_text":"y"}]}. One entry per input block, same ids.
-2. For translatable text, provide a translation. Never return empty string or placeholder.
-3. Keep URLs, code, and version numbers unchanged. Translate everything else.
-4. Treat every block as independent — do not skip, summarize, merge, or reorder any block.
+- Return {"translations":[{"id":"x","translated_text":"y"}]}. One entry per input block, same ids.
+- For translatable text, provide a translation. Never return empty string or placeholder.
+- Keep URLs, code, and version numbers unchanged. Translate everything else.
+- Treat every block as independent — do not skip, summarize, merge, or reorder any block.
 
-Translation style:
-
-- Use natural, idiomatic Simplified Chinese.
-- Avoid literal English sentence structures.
-- Translate generic "you" and "we" naturally according to context instead of mechanically.
-- Omit repeated subjects when natural in Chinese.
-- Preserve the original meaning exactly.
+Translation style: Use natural, idiomatic Simplified Chinese; Avoid literal English sentence structures; Translate generic "you" and "we" naturally according to context instead of mechanically; Omit repeated subjects when natural in Chinese; Preserve the original meaning exactly.
 `;
 
   const docTerms = glossary?.document_terms;
