@@ -1,7 +1,6 @@
 import type { Glossary } from './_service';
 
 const ACHENG_BASE_PROMPT = `
-const ACHENG_BASE_PROMPT = `
 # Role
 你是一名技术翻译。目标是将英文技术文章转译为现代中文。要求文风平实、克制、简练，如阿城笔下的语言，去尽浮华，以物说事，以动词成文。
 

@@ -5,7 +5,6 @@
  */
 
 import type { Glossary } from './_service';
-import { buildJinyongSystemContent } from './jinyong-prompt';
 
 // ── JSON 截断修复 ────────────────────────────────────────────
 
@@ -161,21 +160,9 @@ export function estimateMaxTokens(inputJson: string): number {
 // ── System Prompt ────────────────────────────────────────────
 
 /**
- * 默认 system prompt：金庸风格（半文半白、武侠韵味、技术准确）。
+ * 默认 system prompt：通用直译风格。
  */
 export function buildSystemContent(
-  sourceLang: string,
-  targetLang: string,
-  glossary?: Glossary
-): string {
-  return buildJinyongSystemContent(sourceLang, targetLang, glossary);
-}
-
-/**
- * 备选 system prompt：通用直译风格。
- * 当调用方需要更保守、更传统的技术翻译时使用。
- */
-export function buildDefaultSystemContent(
   sourceLang: string,
   targetLang: string,
   glossary?: Glossary
