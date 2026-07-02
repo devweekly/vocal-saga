@@ -5,11 +5,17 @@
  * 需要环境变量 CLOUDFLARE_ACCOUNT_ID 与 CLOUDFLARE_API_TOKEN。
  */
 import type { TranslationService, Glossary } from './_service';
-import { buildSystemContent, stripThinkingTags, stripMarkdownCodeBlock, cleanJsonString, repairTruncatedJson, estimateMaxTokens } from './shared';
+import { buildSystemContent, stripThinkingTags, stripMarkdownCodeBlock, cleanJsonString, repairTruncatedJson, estimateMaxTokens, type PromptStyle } from './shared';
 
 const MODEL = '@cf/moonshotai/kimi-k2.6';
 
 export class CloudflareAITranslationService implements TranslationService {
+  /** 翻译文风，默认 undefined 表示使用通用直译风格 */
+  private style?: PromptStyle;
+
+  constructor(style?: PromptStyle) {
+    this.style = style;
+  }
 
   async translate(
     jsonContent: string,
@@ -25,7 +31,7 @@ export class CloudflareAITranslationService implements TranslationService {
       2
     );
 
-    const systemContent = buildSystemContent(sourceLang, targetLang, glossary);
+    const systemContent = buildSystemContent(sourceLang, targetLang, glossary, this.style);
 
     // CF AI 的 ai.run(model, body)：model 在第一个参数指定，body 不传 model
     const body = {

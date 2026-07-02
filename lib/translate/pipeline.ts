@@ -28,6 +28,7 @@ import {
 import { generateTranslationCacheKey } from './cacheKey';
 import { DeepSeekTranslationService } from './service/deepseek';
 import type { Glossary } from './service/_service';
+import type { PromptStyle } from './service/shared';
 import { fetchPage } from './urlFetcher';
 import { parseHTML } from 'linkedom';
 
@@ -166,6 +167,8 @@ export interface TranslateTextInput {
   source?: string;
   target?: string;
   glossary?: Glossary;
+  /** 翻译文风，默认通用直译 */
+  promptStyle?: PromptStyle;
 }
 
 export interface TranslateTextResult {
@@ -189,7 +192,7 @@ export async function translateText(input: TranslateTextInput): Promise<Translat
   ];
   const chunks = buildChunks(blocks as any);
 
-  const service = new DeepSeekTranslationService();
+  const service = new DeepSeekTranslationService(undefined, input.promptStyle);
   const translations = await translateChunksWithRetry(
     service,
     chunks,
@@ -218,6 +221,8 @@ export interface TranslateUrlInput {
   /** LLM 提供方，统一字段名 provider（避免与 TranslationService 类混淆） */
   provider?: 'deepseek' | 'openrouter' | 'nvidia' | 'cloudflare' | 'mimo' | 'gemini' | 'opencode';
   model?: string;
+  /** 翻译文风，默认通用直译 */
+  promptStyle?: PromptStyle;
 }
 
 export interface TranslateUrlResult {
@@ -243,6 +248,8 @@ export interface TranslateHtmlInput {
   model?: string;
   /** 客户端传入的 DeepSeek API Key（/fanyi/page 使用） */
   apiKey?: string;
+  /** 翻译文风，默认通用直译 */
+  promptStyle?: PromptStyle;
 }
 
 async function runTranslationPipeline(
@@ -257,6 +264,7 @@ async function runTranslationPipeline(
   existingBlocks?: TextBlock[],
   existingChunks?: Chunk[],
   apiKey?: string,
+  style?: PromptStyle,
 ): Promise<{ title: string; html: string; blocks: number; translatedBlocks: number; chunks: number }> {
   const title =
     (doc.querySelector('title')?.textContent || '').trim().substring(0, 200) ||
@@ -284,28 +292,28 @@ async function runTranslationPipeline(
     console.log(`[Pipeline] Extracted ${blocks.length} blocks → ${chunks.length} chunks`);
   }
 
-  // 根据 provider 选择翻译服务实例（局部变量 service 指 TranslationService 实例）
+  // 根据 provider 选择翻译服务实例，传入 style 切换文风
   let service: DeepSeekTranslationService;
   if (provider === 'openrouter') {
     const { OpenRouterTranslationService } = await import('./service/openrouter');
-    service = new OpenRouterTranslationService() as any;
+    service = new OpenRouterTranslationService(style) as any;
   } else if (provider === 'nvidia') {
     const { NvidiaTranslationService } = await import('./service/nvidia');
-    service = new NvidiaTranslationService(model) as any;
+    service = new NvidiaTranslationService(model, style) as any;
   } else if (provider === 'cloudflare') {
     const { CloudflareAITranslationService } = await import('./service/cloudflare');
-    service = new CloudflareAITranslationService() as any;
+    service = new CloudflareAITranslationService(style) as any;
   } else if (provider === 'mimo') {
     const { MimoTranslationService } = await import('./service/mimo');
-    service = new MimoTranslationService() as any;
+    service = new MimoTranslationService(style) as any;
   } else if (provider === 'gemini') {
     const { GeminiTranslationService } = await import('./service/gemini');
-    service = new GeminiTranslationService(model) as any;
+    service = new GeminiTranslationService(model, style) as any;
   } else if (provider === 'opencode') {
     const { OpencodeTranslationService } = await import('./service/opencode');
-    service = new OpencodeTranslationService() as any;
+    service = new OpencodeTranslationService(style) as any;
   } else {
-    service = new DeepSeekTranslationService(apiKey);
+    service = new DeepSeekTranslationService(apiKey, style);
   }
   const tTrans = performance.now();
   // OpenCode 限流严格（CF Worker 共享 IP 易触发 429），降低并发到 2
@@ -456,6 +464,10 @@ export async function translateUrl(input: TranslateUrlInput): Promise<TranslateU
     input.provider || 'deepseek',
     input.model,
     input.glossary,
+    undefined,
+    undefined,
+    undefined,
+    input.promptStyle,
   );
 
   return {
@@ -512,6 +524,7 @@ export async function translateHtml(input: TranslateHtmlInput): Promise<Translat
     preExtractedBlocks,
     undefined,
     input.apiKey,
+    input.promptStyle,
   );
 
   return {

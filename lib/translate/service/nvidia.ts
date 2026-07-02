@@ -7,7 +7,7 @@
 import type { TranslationService, Glossary } from './_service';
 import { parseSSEStream } from './streamParser';
 import { getNvidiaApiKey } from '../../config';
-import { buildTranslationBody, stripThinkingTags, stripMarkdownCodeBlock, cleanJsonString, repairTruncatedJson } from './shared';
+import { buildTranslationBody, stripThinkingTags, stripMarkdownCodeBlock, cleanJsonString, repairTruncatedJson, type PromptStyle } from './shared';
 
 const API_URL = 'https://integrate.api.nvidia.com/v1/chat/completions';
 const DEFAULT_MODEL = 'stepfun-ai/step-3.7-flash';
@@ -91,9 +91,12 @@ async function callApi(body: string): Promise<string> {
 
 export class NvidiaTranslationService implements TranslationService {
   private model: string;
+  /** 翻译文风，默认 undefined 表示使用通用直译风格 */
+  private style?: PromptStyle;
 
-  constructor(model?: string) {
+  constructor(model?: string, style?: PromptStyle) {
     this.model = model || DEFAULT_MODEL;
+    this.style = style;
   }
 
   async translate(
@@ -104,7 +107,7 @@ export class NvidiaTranslationService implements TranslationService {
   ): Promise<string> {
     const blocks = JSON.parse(jsonContent);
 
-    const body = buildTranslationBody(blocks, sourceLang, targetLang, glossary, this.model);
+    const body = buildTranslationBody(blocks, sourceLang, targetLang, glossary, this.model, this.style);
     const raw = await callApi(JSON.stringify({ ...body, reasoning: { effort: 'none' } }));
 
     // 简单的 unchanged 检测
@@ -134,7 +137,7 @@ export class NvidiaTranslationService implements TranslationService {
   ): AsyncGenerator<string, string, unknown> {
     const blocks = JSON.parse(jsonContent);
 
-    const body = buildTranslationBody(blocks, sourceLang, targetLang, glossary, this.model);
+    const body = buildTranslationBody(blocks, sourceLang, targetLang, glossary, this.model, this.style);
 
     // 60s 超时
     const controller = new AbortController();

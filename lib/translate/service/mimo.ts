@@ -17,6 +17,7 @@ import {
   stripMarkdownCodeBlock,
   cleanJsonString,
   repairTruncatedJson,
+  type PromptStyle,
 } from './shared';
 
 const BOOTSTRAP_URL = 'https://api.xiaomimimo.com/api/free-ai/bootstrap';
@@ -174,13 +175,14 @@ function buildMimoBody(
   sourceLang: string,
   targetLang: string,
   glossary?: Glossary,
+  style?: PromptStyle,
 ) {
   const blocksJson = JSON.stringify(
     blocks.map((b) => ({ id: b.id, text: b.text })),
     null,
     2,
   );
-  const systemContent = buildSystemContent(sourceLang, targetLang, glossary);
+  const systemContent = buildSystemContent(sourceLang, targetLang, glossary, style);
   return {
     model: MODEL,
     messages: [
@@ -192,6 +194,13 @@ function buildMimoBody(
 }
 
 export class MimoTranslationService implements TranslationService {
+  /** 翻译文风，默认 undefined 表示使用通用直译风格 */
+  private style?: PromptStyle;
+
+  constructor(style?: PromptStyle) {
+    this.style = style;
+  }
+
   async translate(
     jsonContent: string,
     sourceLang: string,
@@ -199,7 +208,7 @@ export class MimoTranslationService implements TranslationService {
     glossary?: Glossary,
   ): Promise<string> {
     const blocks = JSON.parse(jsonContent);
-    const body = buildMimoBody(blocks, sourceLang, targetLang, glossary);
+    const body = buildMimoBody(blocks, sourceLang, targetLang, glossary, this.style);
     const raw = await callApi(JSON.stringify(body));
     return raw;
   }
@@ -211,7 +220,7 @@ export class MimoTranslationService implements TranslationService {
     glossary?: Glossary,
   ): AsyncGenerator<string, string, unknown> {
     const blocks = JSON.parse(jsonContent);
-    const body = buildMimoBody(blocks, sourceLang, targetLang, glossary);
+    const body = buildMimoBody(blocks, sourceLang, targetLang, glossary, this.style);
     (body as any).stream = true;
 
     const jwt = await getJwt();

@@ -1,7 +1,7 @@
 import type { TranslationService } from './_service';
 import { parseSSEStream } from './streamParser';
 import { getDSApiKey } from '../../config';
-import { buildTranslationBody, stripThinkingTags, stripMarkdownCodeBlock, repairTruncatedJson } from './shared';
+import { buildTranslationBody, stripThinkingTags, stripMarkdownCodeBlock, repairTruncatedJson, type PromptStyle } from './shared';
 
 const API_URL = 'https://api.deepseek.com/v1/chat/completions';
 const MODEL = 'deepseek-v4-flash';
@@ -18,9 +18,10 @@ function buildDeepSeekBody(
   blocks: Array<{ id: string; text: string }>,
   sourceLang: string,
   targetLang: string,
-  glossary?: any
+  glossary?: any,
+  style?: PromptStyle
 ) {
-  const body = buildTranslationBody(blocks, sourceLang, targetLang, glossary, MODEL);
+  const body = buildTranslationBody(blocks, sourceLang, targetLang, glossary, MODEL, style);
   return {
     ...body,
     response_format: { type: 'json_object' },
@@ -98,9 +99,12 @@ async function callApi(body: string, apiKey?: string): Promise<string> {
 
 export class DeepSeekTranslationService implements TranslationService {
   private apiKey?: string;
+  /** 翻译文风，默认 undefined 表示使用通用直译风格 */
+  private style?: PromptStyle;
 
-  constructor(apiKey?: string) {
+  constructor(apiKey?: string, style?: PromptStyle) {
     this.apiKey = apiKey;
+    this.style = style;
   }
 
   async translate(
@@ -110,7 +114,7 @@ export class DeepSeekTranslationService implements TranslationService {
     glossary?: any,
   ): Promise<string> {
     const blocks = JSON.parse(jsonContent);
-    const body = buildDeepSeekBody(blocks, sourceLang, targetLang, glossary);
+    const body = buildDeepSeekBody(blocks, sourceLang, targetLang, glossary, this.style);
     const raw = await callApi(JSON.stringify(body), this.apiKey);
     return raw;
   }
@@ -122,7 +126,7 @@ export class DeepSeekTranslationService implements TranslationService {
     glossary?: any,
   ): AsyncGenerator<string, string, unknown> {
     const blocks = JSON.parse(jsonContent);
-    const body = buildDeepSeekBody(blocks, sourceLang, targetLang, glossary);
+    const body = buildDeepSeekBody(blocks, sourceLang, targetLang, glossary, this.style);
     (body as any).stream = true;
 
     const controller = new AbortController();

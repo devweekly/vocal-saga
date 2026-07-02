@@ -5,6 +5,14 @@
  */
 
 import type { Glossary } from './_service';
+import { buildJinyongSystemContent } from './jinyong-prompt';
+import { buildAchengSystemContent } from './acheng-prompt';
+import { buildWangxiaoboSystemContent } from './wangxiaobo-prompt';
+
+// ── Prompt Style ────────────────────────────────────────────
+
+/** 翻译文风选项：default=通用直译, jinyong=金庸武侠, acheng=阿城白描, wangxiaobo=王小波大白话 */
+export type PromptStyle = 'default' | 'jinyong' | 'acheng' | 'wangxiaobo';
 
 // ── JSON 截断修复 ────────────────────────────────────────────
 
@@ -160,9 +168,30 @@ export function estimateMaxTokens(inputJson: string): number {
 // ── System Prompt ────────────────────────────────────────────
 
 /**
- * 默认 system prompt：通用直译风格。
+ * 根据 style 选择对应的 system prompt 构建函数。
+ * - default: 通用直译风格
+ * - jinyong / acheng / wangxiaobo: 对应文学风格 prompt
  */
 export function buildSystemContent(
+  sourceLang: string,
+  targetLang: string,
+  glossary?: Glossary,
+  style?: PromptStyle
+): string {
+  switch (style) {
+    case 'jinyong':
+      return buildJinyongSystemContent(sourceLang, targetLang, glossary);
+    case 'acheng':
+      return buildAchengSystemContent(sourceLang, targetLang, glossary);
+    case 'wangxiaobo':
+      return buildWangxiaoboSystemContent(sourceLang, targetLang, glossary);
+    default:
+      return buildDefaultSystemContent(sourceLang, targetLang, glossary);
+  }
+}
+
+/** 默认通用直译风格 prompt */
+function buildDefaultSystemContent(
   sourceLang: string,
   targetLang: string,
   glossary?: Glossary
@@ -172,19 +201,18 @@ export function buildSystemContent(
 
   let systemContent = `Translate ${sourceLangName} to ${targetLangName}.
 
-- Return {"translations":[{"id":"x","translated_text":"y"}]}. One entry per input block, same ids.
-- For translatable text, provide a translation. Never return empty string or placeholder.
-- Keep URLs, code, and version numbers unchanged. Translate everything else.
-- Treat every block as independent — do not skip, summarize, merge, or reorder any block.
+1. Return {"translations":[{"id":"x","translated_text":"y"}]}. One entry per input block, same ids.
+2. For translatable text, provide a translation. Never return empty string or placeholder.
+3. Keep URLs, code, and version numbers unchanged. Translate everything else.
+4. Treat every block as independent — do not skip, summarize, merge, or reorder any block.
 
-Translation style: 
+Translation style:
 
 - Use natural, idiomatic Simplified Chinese.
 - Avoid literal English sentence structures.
 - Translate generic "you" and "we" naturally according to context instead of mechanically.
 - Omit repeated subjects when natural in Chinese.
 - Preserve the original meaning exactly.
-
 `;
 
   const docTerms = glossary?.document_terms;
@@ -215,7 +243,8 @@ export function buildTranslationBody(
   sourceLang: string,
   targetLang: string,
   glossary?: Glossary,
-  model?: string
+  model?: string,
+  style?: PromptStyle
 ) {
   const blocksJson = JSON.stringify(
     blocks.map((b) => ({ id: b.id, text: b.text })),
@@ -223,7 +252,7 @@ export function buildTranslationBody(
     2
   );
 
-  const systemContent = buildSystemContent(sourceLang, targetLang, glossary);
+  const systemContent = buildSystemContent(sourceLang, targetLang, glossary, style);
 
   return {
     model: model || 'deepseek-v4-flash',

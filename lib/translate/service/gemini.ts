@@ -16,6 +16,7 @@ import {
   stripMarkdownCodeBlock,
   cleanJsonString,
   repairTruncatedJson,
+  type PromptStyle,
 } from './shared';
 
 const DEFAULT_MODEL = 'gemini-2.5-flash-lite';
@@ -47,9 +48,12 @@ function cleanResponse(content: string): string {
 
 export class GeminiTranslationService implements TranslationService {
   private model: string;
+  /** 翻译文风，默认 undefined 表示使用通用直译风格 */
+  private style?: PromptStyle;
 
-  constructor(model?: string) {
+  constructor(model?: string, style?: PromptStyle) {
     this.model = model || DEFAULT_MODEL;
+    this.style = style;
   }
 
   async translate(
@@ -67,7 +71,7 @@ export class GeminiTranslationService implements TranslationService {
       null,
       2,
     );
-    const systemContent = buildSystemContent(sourceLang, targetLang, glossary);
+    const systemContent = buildSystemContent(sourceLang, targetLang, glossary, this.style);
 
     // 超时保护：60s（与其他服务一致）
     const controller = new AbortController();
@@ -135,7 +139,7 @@ export class GeminiTranslationService implements TranslationService {
       null,
       2,
     );
-    const systemContent = buildSystemContent(sourceLang, targetLang, glossary);
+    const systemContent = buildSystemContent(sourceLang, targetLang, glossary, this.style);
 
     // 超时保护：60s
     const controller = new AbortController();

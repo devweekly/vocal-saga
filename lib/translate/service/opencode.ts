@@ -16,6 +16,7 @@ import {
   stripThinkingTags,
   stripMarkdownCodeBlock,
   repairTruncatedJson,
+  type PromptStyle,
 } from './shared';
 
 const API_URL = 'https://opencode.ai/zen/v1/chat/completions';
@@ -35,8 +36,9 @@ function buildOpencodeBody(
   sourceLang: string,
   targetLang: string,
   glossary?: Glossary,
+  style?: PromptStyle,
 ) {
-  const body = buildTranslationBody(blocks, sourceLang, targetLang, glossary, DEFAULT_MODEL);
+  const body = buildTranslationBody(blocks, sourceLang, targetLang, glossary, DEFAULT_MODEL, style);
   return {
     ...body,
     response_format: { type: 'json_object' },
@@ -120,6 +122,13 @@ async function callApi(body: string): Promise<string> {
 }
 
 export class OpencodeTranslationService implements TranslationService {
+  /** 翻译文风，默认 undefined 表示使用通用直译风格 */
+  private style?: PromptStyle;
+
+  constructor(style?: PromptStyle) {
+    this.style = style;
+  }
+
   async translate(
     jsonContent: string,
     sourceLang: string,
@@ -127,7 +136,7 @@ export class OpencodeTranslationService implements TranslationService {
     glossary?: Glossary,
   ): Promise<string> {
     const blocks = JSON.parse(jsonContent);
-    const body = buildOpencodeBody(blocks, sourceLang, targetLang, glossary);
+    const body = buildOpencodeBody(blocks, sourceLang, targetLang, glossary, this.style);
     return callApi(JSON.stringify(body));
   }
 
@@ -138,7 +147,7 @@ export class OpencodeTranslationService implements TranslationService {
     glossary?: Glossary,
   ): AsyncGenerator<string, string, unknown> {
     const blocks = JSON.parse(jsonContent);
-    const body: any = buildOpencodeBody(blocks, sourceLang, targetLang, glossary);
+    const body: any = buildOpencodeBody(blocks, sourceLang, targetLang, glossary, this.style);
     body.stream = true;
 
     const key = getOpencodeApiKey();

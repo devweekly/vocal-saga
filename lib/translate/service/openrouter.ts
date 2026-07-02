@@ -7,7 +7,7 @@
 import type { TranslationService, Glossary } from './_service';
 import { parseSSEStream } from './streamParser';
 import { getOpenrouterApiKey } from '../../config';
-import { buildTranslationBody, stripThinkingTags, stripMarkdownCodeBlock, cleanJsonString, repairTruncatedJson } from './shared';
+import { buildTranslationBody, stripThinkingTags, stripMarkdownCodeBlock, cleanJsonString, repairTruncatedJson, type PromptStyle } from './shared';
 
 const API_URL = 'https://openrouter.ai/api/v1/chat/completions';
 const MODEL = 'openai/gpt-oss-120b:free';
@@ -92,6 +92,12 @@ async function callApi(body: string): Promise<string> {
 
 export class OpenRouterTranslationService implements TranslationService {
   // apiKey 已通过 config 模块管理
+  /** 翻译文风，默认 undefined 表示使用通用直译风格 */
+  private style?: PromptStyle;
+
+  constructor(style?: PromptStyle) {
+    this.style = style;
+  }
 
   async translate(
     jsonContent: string,
@@ -101,7 +107,7 @@ export class OpenRouterTranslationService implements TranslationService {
   ): Promise<string> {
     const blocks = JSON.parse(jsonContent);
 
-    const body = buildTranslationBody(blocks, sourceLang, targetLang, glossary, MODEL);
+    const body = buildTranslationBody(blocks, sourceLang, targetLang, glossary, MODEL, this.style);
     const raw = await callApi(JSON.stringify({ ...body, reasoning: { effort: 'low' } }));
 
     // 简单的 unchanged 检测
@@ -131,7 +137,7 @@ export class OpenRouterTranslationService implements TranslationService {
   ): AsyncGenerator<string, string, unknown> {
     const blocks = JSON.parse(jsonContent);
 
-    const body = buildTranslationBody(blocks, sourceLang, targetLang, glossary);
+    const body = buildTranslationBody(blocks, sourceLang, targetLang, glossary, undefined, this.style);
 
     // 60s 超时
     const controller = new AbortController();
