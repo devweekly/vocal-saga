@@ -5,7 +5,7 @@
  */
 
 import type { Glossary } from './_service';
-import { buildAchengSystemContent } from './acheng-prompt';
+import { buildJinyongSystemContent } from './jinyong-prompt';
 
 // ── JSON 截断修复 ────────────────────────────────────────────
 
@@ -161,14 +161,14 @@ export function estimateMaxTokens(inputJson: string): number {
 // ── System Prompt ────────────────────────────────────────────
 
 /**
- * 默认 system prompt：阿城风格（现代简体中文，克制、白描、动词驱动）。
+ * 默认 system prompt：金庸风格（半文半白、武侠韵味、技术准确）。
  */
 export function buildSystemContent(
   sourceLang: string,
   targetLang: string,
   glossary?: Glossary
 ): string {
-  return buildAchengSystemContent(sourceLang, targetLang, glossary);
+  return buildJinyongSystemContent(sourceLang, targetLang, glossary);
 }
 
 /**
