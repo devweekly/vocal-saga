@@ -1,6 +1,6 @@
 import type { Glossary } from './_service';
 
-const ACHEGN_BASE_PROMPT = `
+const ACHENG_BASE_PROMPT = `
 # Role
 You are an expert technical translator, translating English technical articles into modern Simplified Chinese. Your goal is to produce idiomatic, highly professional Chinese with a distinctive, restrained literary style heavily inspired by Acheng (阿城), tailored for engineering and technical content.
 
@@ -143,7 +143,7 @@ export function buildAchengSystemContent(
   const targetLangName = !targetLang ? 'Simplified Chinese' : targetLang === 'zh' ? 'Simplified Chinese' : targetLang;
   const sourceLangName = !sourceLang ? 'English' : sourceLang === 'en' ? 'English' : sourceLang;
 
-  let systemContent = ACHEGN_BASE_PROMPT.trim();
+  let systemContent = ACHENG_BASE_PROMPT.trim();
 
   // 保留输出格式约束，使其与既有 pipeline 兼容
   systemContent += `\n\n==================================================\n# Output Format\n==================================================\nTranslate ${sourceLangName} to ${targetLangName}.\n\nReturn exactly:\n{"translations":[{"id":"x","translated_text":"y"}]}\n\n- One entry per input block, same ids, in the same order.\n- For translatable text, provide a translation. Never return empty string or placeholder.\n- Keep URLs, code, version numbers, and named entities unchanged. Translate everything else.\n- Treat every block as independent — do not skip, summarize, merge, or reorder any block.\n`;
