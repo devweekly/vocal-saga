@@ -6116,9 +6116,50 @@ describe('blockExtractor - short pattern word boundary (\\b)', () => {
     expect(isOverlayElement(el)).toBe(false);
   });
 
-  it('isOverlayElement matches "dialog" exact class', () => {
+  it('isOverlayElement matches "dialog" exact class', async () => {
     const el = document.createElement('div');
     el.className = 'dialog';
+    document.body.appendChild(el);
+    expect(isOverlayElement(el)).toBe(true);
+  });
+
+  it('isOverlayElement matches notification/subscribers/push-notification classes', async () => {
+    const cases = [
+      'notification-prompt',
+      'browser-notification',
+      'push-notification-container',
+      'subscribers-overlay',
+      'notifications-modal',
+    ];
+    for (const cls of cases) {
+      const el = document.createElement('div');
+      el.className = cls;
+      document.body.appendChild(el);
+      expect(isOverlayElement(el)).toBe(true);
+      el.remove();
+    }
+  });
+
+  it('isOverlayElement matches notification/subscribers/push-notification ids', async () => {
+    const cases = [
+      'notification-prompt',
+      'browser-notification',
+      'push-notification',
+      'subscribers-popup',
+      'notifications-banner',
+    ];
+    for (const id of cases) {
+      const el = document.createElement('div');
+      el.id = id;
+      document.body.appendChild(el);
+      expect(isOverlayElement(el)).toBe(true);
+      el.remove();
+    }
+  });
+
+  it('isOverlayElement matches role="alertdialog"', async () => {
+    const el = document.createElement('div');
+    el.setAttribute('role', 'alertdialog');
     document.body.appendChild(el);
     expect(isOverlayElement(el)).toBe(true);
   });
