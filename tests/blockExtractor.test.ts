@@ -4370,6 +4370,25 @@ describe('extractBlocks - Metadata class skipping (author/date/category)', () =>
     expect(texts).toContain('Real prose content body for translation testing.');
     expect(texts.some(t => t.includes('Author Name'))).toBe(false);
   });
+
+  it('does NOT reject <article> with WordPress category-* classes (regression: infoworld)', () => {
+    // WordPress 在 <article> 上加 category-x 类，如 "category-artificial-intelligence"。
+    // "category" 在 METADATA_TOKENS 中，但 <article> 是结构容器，不应因此被整棵拒绝。
+    setupHTML(`
+      <article class="category-artificial-intelligence category-development-tools post-12345">
+        <h1>Article Title About AI</h1>
+        <p>This is the real article body content that must be translated.</p>
+        <p>Second paragraph with more important information for readers.</p>
+      </article>
+    `);
+
+    const blocks = extractBlocks(document, 'https://example.com/test');
+    const texts = blocks.map(b => b.text);
+
+    expect(texts).toContain('Article Title About AI');
+    expect(texts).toContain('This is the real article body content that must be translated.');
+    expect(texts).toContain('Second paragraph with more important information for readers.');
+  });
 });
 
 describe('extractBlocks - Exit intent and welcome popups', () => {
@@ -4396,6 +4415,39 @@ describe('extractBlocks - Exit intent and welcome popups', () => {
     expect(blockTexts.some(t => t.includes('Before you leave'))).toBe(false);
     expect(blockTexts.some(t => t.includes('Welcome to our site'))).toBe(false);
     expect(blockTexts).toContain('Article content that should be translated here.');
+  });
+});
+
+describe('extractBlocks - nested <body> (WordPress CMS injection)', () => {
+  beforeEach(() => {
+    document.body.innerHTML = '';
+  });
+
+  it('should not reject nested <body> inside article content (regression: infoworld)', () => {
+    // WordPress 插件有时会在正文中注入 <!DOCTYPE><div><body>...</body></div>。
+    // <body> 在 SKIP_SET 中，但嵌套 body（parent 不是 <html>）内容应被翻译。
+    setupHTML(`
+      <main>
+        <h1>Article Title</h1>
+        <article>
+          <p>Article body text before the malformed injection.</p>
+          <div id="remove_no_follow">
+            <body>
+              <p>Real article paragraph inside nested body element.</p>
+              <p>Second paragraph also inside nested body.</p>
+            </body>
+          </div>
+        </article>
+      </main>
+    `);
+
+    const blocks = extractBlocks(document, 'https://www.infoworld.com/test');
+    const texts = blocks.map(b => b.text);
+
+    expect(texts).toContain('Article Title');
+    expect(texts).toContain('Article body text before the malformed injection.');
+    expect(texts).toContain('Real article paragraph inside nested body element.');
+    expect(texts).toContain('Second paragraph also inside nested body.');
   });
 });
 

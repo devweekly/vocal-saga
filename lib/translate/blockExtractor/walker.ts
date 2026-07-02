@@ -270,7 +270,14 @@ function acceptWalkerNode(
     counters.rejected++;
     return FILTER_REJECT;
   }
-  if (SKIP_SET.has(tag) || hasTranslateBlockClass(el) || isContentEditable(el)) {
+  // 嵌套 <body>（parent 不是 <html>）不拒绝：WordPress CMS 注入的非标准
+  // HTML 会在正文中产生 <!DOCTYPE><div><body>…</body></div>，其内容
+  // 是正文的一部分，不应因 <body> 在 SKIP_SET 中而被整棵跳过。
+  // 文档级 <body>（parent 是 <html>）不会被 walker 访问到（遍历
+  // 起始于 <main>/<article> 等下游容器），所以放行嵌套 body 是安全的。
+  const skipSetMatch = SKIP_SET.has(tag);
+  const isNestedBody = tag === 'body' && el.parentElement?.tagName?.toLowerCase() !== 'html';
+  if ((skipSetMatch && !isNestedBody) || hasTranslateBlockClass(el) || isContentEditable(el)) {
     cache.rejected.add(el);
     counters.rejected++;
     return FILTER_REJECT;
@@ -285,7 +292,10 @@ function acceptWalkerNode(
     counters.rejected++;
     return FILTER_REJECT;
   }
-  if (isMetadataClass(el)) {
+  // 结构容器标签（article/main）：不因元数据类名而拒绝。
+  // 像 WordPress 的 <article class="category-ai"> 中 "category"
+  // 会命中 METADATA_TOKENS，导致整篇文章子树被拒绝，正文丢失翻译。
+  if (tag !== 'article' && tag !== 'main' && isMetadataClass(el)) {
     // 文章元数据 (作者 / 日期 / 分类) 整棵子树拒绝
     cache.rejected.add(el);
     counters.rejected++;
