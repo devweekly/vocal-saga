@@ -10,6 +10,7 @@
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { translateText, translateUrl, translateHtml } from './translate/pipeline';
+import type { PromptStyle } from './translate/service/shared';
 import {
   getGlossary,
   addUserTerms,
@@ -376,6 +377,9 @@ ${pager}
     // /fanyi/page 固定为 bilingual 模式
     const mode = 'bilingual' as const;
 
+    // 翻译文风：从 body 读取，不传时下游默认 'default'（向后兼容）
+    const promptStyle = body.promptStyle as PromptStyle | undefined;
+
     // provider 字段统一命名（扩展端 / 服务端一致），避免与 TranslationService 类混淆
     const provider = body.provider || c.req.query('provider') || 'deepseek';
     const VALID_PROVIDERS = ['deepseek', 'openrouter', 'nvidia', 'cloudflare', 'gemini', 'opencode'];
@@ -432,6 +436,7 @@ ${pager}
         mode,
         provider,
         apiKey,
+        promptStyle,
       });
 
       // 翻译 0 个 block → 不缓存 D1，直接返回错误
@@ -494,7 +499,7 @@ ${pager}
 
   // ── 翻译代理 ──────────────────────────────────────────
   app.post('/api/translate/text', async (c) => {
-    const { text, source, target, glossary } = await c.req.json().catch(() => ({} as any));
+    const { text, source, target, glossary, promptStyle } = await c.req.json().catch(() => ({} as any));
     if (!text || typeof text !== 'string') {
       return c.json({ error: 'text is required' }, 400);
     }
@@ -505,6 +510,7 @@ ${pager}
         source,
         target,
         glossary,
+        promptStyle: promptStyle as PromptStyle | undefined,
       });
       console.log(`[translate/text] chunks=${result.chunks} duration=${result.duration_ms}ms`);
       return c.json(result);
@@ -535,6 +541,9 @@ ${pager}
     const target = c.req.query('target') || 'zh';
     // 全局只支持双语对照模式
     const mode = 'bilingual' as const;
+
+    // 翻译文风：从 query param `style` 读取，不传时下游默认 'default'（向后兼容）
+    const promptStyle = c.req.query('style') as PromptStyle | undefined;
 
     // source / target 必须是合法语言代码（auto、ISO 639-1/2 字母码、或带区域子标签）
     const VALID_LANG_RE = /^(auto|[a-zA-Z]{2,3})(-[a-zA-Z]{2,3})?$/;
@@ -587,6 +596,7 @@ ${pager}
         mode,
         provider,
         model,
+        promptStyle,
       });
       console.log(`[translate/url-page] blocks=${result.blocks} translated=${result.translatedBlocks} chunks=${result.chunks} duration=${result.duration_ms}ms`);
 
