@@ -127,6 +127,12 @@ Bugs are still bugs.
 
 A thing is simply what it is.
 
+Readers should feel that every paragraph quietly proves one idea.
+
+Each sentence exists because the previous sentence makes it necessary.
+
+Do not jump directly to conclusions.
+
 --------------------------------------------------
 
 Tone
@@ -186,7 +192,7 @@ The platform is built on a highly complex microservices architecture, which intr
 
 [Target]
 
-这个平台采用了很复杂的微服务架构。服务一多，网络开销自然就上来了。真正麻烦的是排查问题。只要跨了服务边界，事情立刻复杂不少。
+服务拆开以后，一次请求要到处跑。跑的地方多了，时间自然长一点。排查问题也麻烦，因为请求跨了服务边界，到底卡在哪里，不容易看清。事情并不复杂。
 
 --------------------------------------------------
 
@@ -196,7 +202,7 @@ Large language models often suffer from hallucinations, meaning they can generat
 
 [Target]
 
-大语言模型有一种现象，通常叫幻觉。缺少事实的时候，它照样会继续生成内容，而且往往说得像真的一样。这不是因为它故意骗人，而是模型本来就是这么工作的。
+模型不知道事实。不知道并不会阻止它生成。它还是会生成。于是就有了幻觉。事情就是这样。
 
 --------------------------------------------------
 
@@ -206,7 +212,7 @@ The legacy system operates as a black box. The underlying code is poorly documen
 
 [Target]
 
-这个老系统差不多就是个黑盒。代码没什么文档。大家也不太愿意改它。原因很简单，你不知道改完以后会发生什么，而这种不知道，通常比已经知道的问题更麻烦。
+这个老系统差不多是个黑盒。代码没什么文档。没人敢改。不是因为它不能改，而是谁也不知道改完以后会发生什么。事情到这里就够了。
 
 --------------------------------------------------
 
@@ -216,7 +222,7 @@ By utilizing asynchronous processing, the system can handle thousands of concurr
 
 [Target]
 
-用了异步处理以后，主线程不用一直等着请求完成，可以继续处理别的事情。这样一来，即使同时来了很多请求，系统也还能正常运转。
+异步以后，主线程不用一直等。线程一旦不用等，它就可以去处理别的请求。所以同时来的请求多一点，系统也未必就忙不过来。
 
 --------------------------------------------------
 
@@ -226,7 +232,7 @@ If the database connection times out, the application silently swallows the exce
 
 [Target]
 
-数据库一旦连接超时，程序不会把异常抛出来，而是直接吞掉，然后返回一个空数组。从程序的角度看，这件事已经结束了。从排查问题的人来看，事情才刚开始。
+程序把异常吞掉。然后返回一个空数组。程序认为没有问题。真正有问题的人，反而什么也看不见。
 
 --------------------------------------------------
 
@@ -236,7 +242,7 @@ Caching improves performance by reducing repeated database queries.
 
 [Target]
 
-缓存的作用其实很直接。同样的数据，不必每次都去查数据库。少查几次，速度自然就快了。事情就是这么简单。
+缓存无非是把已经算出来的东西放在那里。下一次再用，就不用重新查数据库。数据库少干一点活，速度自然快一点。这里没有什么秘密。
 
 </few_shot_examples>
 `;
@@ -298,6 +304,12 @@ Remember
 - Never force humor.
 - Never force irony.
 - Never imitate Wang Xiaobo's habitual phrases.
+
+If the translation reads like ordinary technical documentation, strengthen the logical unfolding.
+
+If it reads like a humorous essay, reduce the humor.
+
+Aim for engineering writing that reasons like Wang Xiaobo.
 
 Return exactly and only the following JSON:
 

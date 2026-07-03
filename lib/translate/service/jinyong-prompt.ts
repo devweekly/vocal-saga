@@ -152,7 +152,7 @@ Avoid
 The monolithic architecture was split into microservices to prevent a single point of failure and improve horizontal scalability.
 
 [Target]
-原先整个系统浑然一体，看似稳固，一处出了问题，却往往牵连全局。后来拆分为多个微服务，各自承担职责。即便某个服务出了故障，也不至影响全局；日后横向扩展，也更加从容。
+原先整个系统浑然一体，看似稳固，实则一处有变，往往牵连全局。后来拆作多个微服务，各管各事。即便某处出了故障，也不至波及整体；日后若要扩展，也更从容。
 
 ---
 
@@ -160,7 +160,7 @@ The monolithic architecture was split into microservices to prevent a single poi
 Using asynchronous non-blocking I/O allows the server to handle tens of thousands of concurrent connections without exhausting thread resources.
 
 [Target]
-异步非阻塞 I/O 的妙处，在于线程不必停下来等待请求完成，而能继续处理其他任务。如此循环往复，资源得以充分利用。纵然同时来了数以万计的连接，服务器依然能够从容应对，不会轻易耗尽线程资源。
+异步非阻塞之法，妙在线程不必停下等待。请求来了，线程继续去做别的事。如此循环往复，资源便不被空耗。纵然万千连接同时涌来，服务器也能从容应对，不至于耗尽线程。
 
 ---
 
@@ -168,7 +168,7 @@ Using asynchronous non-blocking I/O allows the server to handle tens of thousand
 A Redis cache layer is introduced to reduce the database load. Frequent read operations hit the cache directly, significantly improving response times.
 
 [Target]
-为减轻数据库的压力，在数据库之前增加了一层 Redis 缓存。频繁读取的数据，大多可以直接命中缓存，不必每次都访问数据库。数据库的负担轻了，整个系统的响应速度也随之提升。
+数据库之前，加了一层 Redis 缓存。平日里反复读取的数据，大多先到缓存里来，不必每次都去惊动数据库。数据库的负担轻了，响应自然也就快了。
 
 ---
 
@@ -176,7 +176,7 @@ A Redis cache layer is introduced to reduce the database load. Frequent read ope
 The scheduler continuously monitors task execution and retries failed jobs with exponential backoff.
 
 [Target]
-调度器始终注视着任务的执行情况。一旦发现失败，便按指数退避策略重新尝试，而不是立即重复执行。这样既避免了无谓的资源消耗，也让整个系统更为稳健。
+调度器始终留意着任务的执行情况。一旦发现失败，便重新尝试，并不急躁。它按指数退避，一次比一次等得更久，免得白白浪费力气。
 
 ---
 
@@ -184,7 +184,11 @@ The scheduler continuously monitors task execution and retries failed jobs with 
 Context window is not memory. The model cannot remember information from past sessions; it only processes the text provided in the current prompt.
 
 [Target]
-上下文窗口不是记忆。模型记不住过去的对话，它只处理眼前这一次输入的内容。你以为是它在回忆，其实它只是把这段文字重新读了一遍。
+上下文窗口并不是记忆。
+
+模型记不住过去的对话。
+
+它只处理当前输入的内容。
 
 ---
 
@@ -192,7 +196,7 @@ Context window is not memory. The model cannot remember information from past se
 By implementing connection pooling, we managed to reduce database latency by 40%, which enhanced the overall user experience during peak traffic.
 
 [Target]
-用了连接池之后，数据库延迟降了四成。流量高峰时，系统响应也稳了许多。用户在访问时，自然能感到顺畅一些。
+用了连接池之后，数据库延迟便降了四成。平日里未必觉得如何。待到流量高峰之时，响应却稳了许多。用户虽未必知道其中缘由，却能感到访问顺畅不少。
 
 ---
 
@@ -200,7 +204,7 @@ By implementing connection pooling, we managed to reduce database latency by 40%
 If the cache misses, the system falls back to querying the relational database, which is slower but guarantees data consistency.
 
 [Target]
-缓存若未命中，系统便退而查询关系数据库。这条路慢一些，但数据是一致的。选择慢而稳，往往比快而错更可靠。
+缓存若未命中，系统便退而查询关系数据库。速度虽慢，却能保证数据一致。
 
 ---
 
@@ -208,7 +212,13 @@ If the cache misses, the system falls back to querying the relational database, 
 A Bloom filter is a probabilistic data structure that tells you either that an element is definitely not in the set or that it may be in the set.
 
 [Target]
-布隆过滤器靠概率工作。它能给出两种答案。要么，某个元素肯定不在集合中；要么，它可能在。确定性与否，各占一半。
+布隆过滤器依概率而行。
+
+它能告诉你的，无非两件事。
+
+若说没有，那便一定没有。
+
+若说有，却未必当真存在。
 
 ---
 
@@ -216,7 +226,13 @@ A Bloom filter is a probabilistic data structure that tells you either that an e
 The agent observes the environment, plans the next action, and executes tools in a loop until the task is complete.
 
 [Target]
-这个 Agent 先观察环境，再筹划下一步行动，随后执行工具。如此循环往复，直到任务完成。整个过程好比一个经验丰富的工匠，先看，再想，最后动手。
+Agent 先观察环境。
+
+随后规划下一步。
+
+再调用工具执行。
+
+如此循环往复，直到任务完成。
 
 ---
 
@@ -224,7 +240,7 @@ The agent observes the environment, plans the next action, and executes tools in
 Tracing helps engineers understand where latency comes from in distributed systems by following a single request across multiple services.
 
 [Target]
-分布式系统中，一次请求往往跨越多个服务。追踪的作用，便是沿着这条路径一路跟随，找出延迟究竟来自何处。问题的源头，通常藏在某个不起眼的节点之中。
+分布式系统中，一次请求往往穿过多个服务。追踪便是沿着这条路径一路跟随，找出延迟究竟来自何处。问题的源头，常常藏在某个不起眼的节点之中。
 
 ---
 
@@ -232,7 +248,7 @@ Tracing helps engineers understand where latency comes from in distributed syste
 HTTP/2 multiplexes multiple requests over a single connection, reducing the overhead of establishing many TCP connections.
 
 [Target]
-HTTP/2 可以在一条连接上同时承载多个请求，不必为每个请求都重新建立 TCP 连接。连接少了，开销自然小了，网络也变得轻快许多。
+HTTP/2 可以在一条连接上同时承载多个请求。如此一来，便不必为每个请求都重新建立 TCP 连接。连接少了，开销自然也就小了。
 
 ---
 
@@ -240,7 +256,7 @@ HTTP/2 可以在一条连接上同时承载多个请求，不必为每个请求�
 Zero Trust security assumes no user or device is trusted by default, even if they are already inside the corporate network.
 
 [Target]
-零信任安全默认不相信任何用户或设备，即便它们已经身处企业内部网络。身份、设备、上下文，都需要重新验证。边界之内，并非安全之地。
+零信任安全默认不相信任何用户或设备。即便它们已经身处企业内网，也一样。身份、设备、上下文，都需要重新验证。
 
 </few_shot_examples>
 `;

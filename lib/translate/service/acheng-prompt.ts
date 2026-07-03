@@ -202,7 +202,17 @@ The monolithic architecture was split into microservices to prevent a single poi
 
 [Target]
 
-原先整个系统是一块。后来拆成多个微服务，各自负责自己的事。一处出了问题，不会牵连全局。以后要扩容，也方便。
+系统后来拆成多个微服务。
+
+各自负责自己的事。
+
+一处出了问题。
+
+别处还能继续。
+
+再扩容，
+
+也容易。
 
 ---
 
@@ -212,7 +222,11 @@ Context window is not memory. The model cannot remember information from past se
 
 [Target]
 
-上下文窗口不是记忆。模型记不住过去的对话，它只处理眼前这一次输入的内容。你以为是它在回忆，其实它只是把这段文字重新读了一遍。
+上下文窗口不是记忆。
+
+模型记不住过去的对话。
+
+它只处理当前输入的内容。
 
 ---
 
@@ -222,7 +236,13 @@ By implementing connection pooling, we managed to reduce database latency by 40%
 
 [Target]
 
-用了连接池，数据库延迟降了四成。流量高峰时，系统响应稳了不少。用户访问时，能感觉到顺畅一些。
+用了连接池。
+
+数据库延迟降了四成。
+
+流量高峰时，
+
+响应稳了。
 
 ---
 
@@ -232,7 +252,13 @@ If the cache misses, the system falls back to querying the relational database, 
 
 [Target]
 
-缓存没有命中，就去查关系数据库。速度慢一点。数据是一致的。
+缓存没有命中。
+
+就去查关系数据库。
+
+速度慢一点。
+
+数据是一致的。
 
 ---
 
@@ -242,7 +268,15 @@ A Bloom filter is a probabilistic data structure that tells you either that an e
 
 [Target]
 
-布隆过滤器靠概率工作。它只能告诉你两件事。一个元素肯定不在集合里，或者，它可能在。
+布隆过滤器按概率判断。
+
+它只能给两种结果。
+
+肯定没有。
+
+或者，
+
+可能有。
 
 ---
 
@@ -252,7 +286,13 @@ The scheduler continuously monitors task execution and retries failed jobs using
 
 [Target]
 
-调度器一直看着任务运行。失败了，就按指数退避再试一次。不是马上重来。
+调度器一直看着任务运行。
+
+失败了，
+
+就按指数退避再试一次。
+
+不是马上重来。
 
 ---
 
@@ -262,7 +302,15 @@ The agent observes the environment, plans the next action, and executes tools in
 
 [Target]
 
-Agent 先看环境，再计划下一步，然后执行工具。这样循环下去，直到任务完成。整个过程，像是一个工匠先看，再想，最后动手。
+Agent 先观察环境。
+
+再计划下一步。
+
+随后调用工具。
+
+如此反复。
+
+直到任务完成。
 
 ---
 
@@ -272,7 +320,15 @@ Tracing helps engineers understand where latency comes from in distributed syste
 
 [Target]
 
-分布式系统里，一次请求会穿过多个服务。追踪的作用，就是跟着这条路径走，找出延迟从哪儿来。问题的源头，常常藏在某个不起眼的节点里。
+分布式系统里，
+
+一次请求会经过多个服务。
+
+Tracing 沿着这条路径记录。
+
+延迟来自哪里，
+
+就能看见。
 
 ---
 
@@ -282,7 +338,13 @@ HTTP/2 multiplexes multiple requests over a single connection, reducing the over
 
 [Target]
 
-HTTP/2 可以在一条连接上同时发送多个请求。不必每个请求都新建一条 TCP 连接。连接少了，开销也小了。
+HTTP/2 可以在一条连接上同时发送多个请求。
+
+不必每个请求都新建一条 TCP 连接。
+
+连接少了，
+
+开销也小了。
 
 ---
 
@@ -292,7 +354,13 @@ Zero Trust security assumes no user or device is trusted by default, even if the
 
 [Target]
 
-零信任安全默认不相信任何用户或设备。即使已经在企业内网里，也一样。身份、设备、上下文，都需要重新验证。
+零信任安全默认不相信任何用户或设备。
+
+即使已经进入企业网络。
+
+也一样。
+
+身份、设备、上下文，都需要重新验证。
 
 ---
 
@@ -302,7 +370,13 @@ A transaction is atomic: either all operations succeed together, or none of them
 
 [Target]
 
-事务是原子的。要么所有操作一起成功，要么都不生效。没有中间状态。
+事务是原子的。
+
+要么所有操作一起成功。
+
+要么都不生效。
+
+没有中间状态。
 
 ---
 
@@ -312,7 +386,13 @@ Garbage collection pauses the application briefly while it reclaims memory that 
 
 [Target]
 
-垃圾回收会短暂地暂停应用，同时回收那些再也访问不到的内存。停顿不长，但确实存在。
+垃圾回收会短暂地暂停应用。
+
+同时回收那些再也访问不到的内存。
+
+停顿不长。
+
+但确实存在。
 
 </few_shot_examples>
 `;
