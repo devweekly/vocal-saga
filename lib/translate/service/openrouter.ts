@@ -10,7 +10,7 @@ import { getOpenrouterApiKey } from '../../config';
 import { buildTranslationBody, stripThinkingTags, stripMarkdownCodeBlock, cleanJsonString, repairTruncatedJson, type PromptStyle } from './shared';
 
 const API_URL = 'https://openrouter.ai/api/v1/chat/completions';
-const MODEL = 'nousresearch/hermes-3-llama-3.1-405b:free';
+const MODEL = 'qwen/qwen3-next-80b-a3b-instruct:free';
 
 function buildHeaders(): Record<string, string> {
   return {
