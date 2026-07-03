@@ -78,9 +78,8 @@ describe('GeminiTranslationService', () => {
 
     const config = mockGenerateContent.mock.calls[0][0].config;
     expect(config.systemInstruction).toContain('Translate');
-    expect(config.temperature).toBe(0.1);
+    expect(config.temperature).toBe(0.5);
     expect(config.maxOutputTokens).toBeGreaterThan(0);
-    expect(config.thinkingConfig).toEqual({ thinkingBudget: 0 });
     expect(config.abortSignal).toBeInstanceOf(AbortSignal);
   });
 

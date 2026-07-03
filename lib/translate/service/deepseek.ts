@@ -1,7 +1,7 @@
 import type { TranslationService } from './_service';
 import { parseSSEStream } from './streamParser';
 import { getDSApiKey } from '../../config';
-import { buildTranslationBody, stripThinkingTags, stripMarkdownCodeBlock, repairTruncatedJson, type PromptStyle } from './shared';
+import { buildTranslationBody, stripThinkingTags, stripMarkdownCodeBlock, cleanJsonString, repairTruncatedJson, type PromptStyle } from './shared';
 
 const API_URL = 'https://api.deepseek.com/v1/chat/completions';
 const MODEL = 'deepseek-v4-flash';
@@ -87,14 +87,24 @@ async function callApi(body: string, apiKey?: string): Promise<string> {
   // DeepSeek 使用 response_format: json_object，但 max_tokens 仍可能截断长输出
   let cleaned = stripThinkingTags(content);
   cleaned = stripMarkdownCodeBlock(cleaned);
+  cleaned = cleanJsonString(cleaned);
   try {
     JSON.parse(cleaned);
     return cleaned;
-  } catch {
+  } catch (parseErr: any) {
+    console.error('[DeepSeek] JSON parse error:', parseErr?.message || parseErr);
+    const positionMatch = parseErr?.message?.match(/position (\d+)/);
+    const errorPos = positionMatch ? parseInt(positionMatch[1], 10) : 0;
+    const snippetStart = Math.max(0, errorPos - 200);
+    const snippetEnd = Math.min(cleaned.length, errorPos + 200);
+    console.error('[DeepSeek] Cleaned content snippet around error:', cleaned.substring(snippetStart, snippetEnd));
     cleaned = repairTruncatedJson(cleaned);
-    // 让调用方在仍无法解析时抛出，保留原始错误上下文
-    JSON.parse(cleaned);
-    return cleaned;
+    try {
+      JSON.parse(cleaned);
+      return cleaned;
+    } catch {
+      throw new Error(`DeepSeek returned invalid JSON: ${parseErr?.message || 'unknown parse error'}. Preview: ${cleaned.substring(0, 300)}`);
+    }
   }
 }
 
