@@ -26,7 +26,8 @@ function buildDeepSeekBody(
     ...body,
     response_format: { type: 'json_object' },
     user_id: USER_ID,
-    thinking: { type: 'disabled' },
+    thinking: { type: 'enabled' },
+    reasoning_effort: "high",
     stream: false,
   };
 }

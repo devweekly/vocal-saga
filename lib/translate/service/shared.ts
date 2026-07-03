@@ -266,9 +266,8 @@ export function buildTranslationBody(
         content: `JSON:\n\n${blocksJson}`,
       },
     ],
-    temperature: 0.1,
+    temperature: 0.5,
     max_tokens: estimateMaxTokens(blocksJson),
-    thinking: { type: 'disabled' },
   };
 }
 

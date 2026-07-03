@@ -84,10 +84,8 @@ export class GeminiTranslationService implements TranslationService {
         contents: `JSON:\n\n${blocksJson}`,
         config: {
           systemInstruction: systemContent,
-          temperature: 0.1,
+          temperature: 0.5,
           maxOutputTokens: estimateMaxTokens(blocksJson),
-          // 关闭思考：Gemini 2.5 系列支持 thinkingBudget=0，旧模型忽略
-          thinkingConfig: { thinkingBudget: 0 },
           abortSignal: controller.signal,
         },
       });

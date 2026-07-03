@@ -108,7 +108,7 @@ export class NvidiaTranslationService implements TranslationService {
     const blocks = JSON.parse(jsonContent);
 
     const body = buildTranslationBody(blocks, sourceLang, targetLang, glossary, this.model, this.style);
-    const raw = await callApi(JSON.stringify({ ...body, reasoning: { effort: 'none' } }));
+    const raw = await callApi(JSON.stringify({ ...body }));
 
     // 简单的 unchanged 检测
     try {
