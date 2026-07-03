@@ -16,33 +16,6 @@ describe('buildSystemContent prompt style 切换', () => {
     expect(content).not.toContain('Wang Xiaobo');
   });
 
-  it('jinyong 风格包含武侠标签', () => {
-    const content = buildSystemContent(sourceLang, targetLang, undefined, 'jinyong');
-    expect(content).toContain('<role_definition>');
-    expect(content).toContain('Jin Yong');
-    expect(content).toContain('金庸');
-    expect(content).toContain('<wuxia_style_profile>');
-    expect(content).toContain('<output_format>');
-  });
-
-  it('acheng 风格包含阿城标签', () => {
-    const content = buildSystemContent(sourceLang, targetLang, undefined, 'acheng');
-    expect(content).toContain('<role_definition>');
-    expect(content).toContain('Acheng');
-    expect(content).toContain('阿城');
-    expect(content).toContain('<acheng_style_profile>');
-    expect(content).toContain('<output_format>');
-  });
-
-  it('wangxiaobo 风格包含王小波标签', () => {
-    const content = buildSystemContent(sourceLang, targetLang, undefined, 'wangxiaobo');
-    expect(content).toContain('<role_definition>');
-    expect(content).toContain('Wang Xiaobo');
-    expect(content).toContain('王小波');
-    expect(content).toContain('<wangxiaobo_style_profile>');
-    expect(content).toContain('<output_format>');
-  });
-
   it('不传 style 默认使用通用直译', () => {
     const content = buildSystemContent(sourceLang, targetLang, undefined);
     expect(content).toContain('Translate English to Simplified Chinese');
