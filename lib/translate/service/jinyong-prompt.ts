@@ -21,16 +21,19 @@ Your goal: Translate technical text into Simplified Chinese, merging rigorous en
 
 <examples>
 [Source] The monolithic architecture was split into microservices to prevent a single point of failure and improve horizontal scalability.
-[Target] 原本系统浑然一体，最忌牵一发而动全身。如今将其化整为零，拆分为诸多微服务，令其各司其职。如此一来，纵有一处遇险，亦绝不至波及全局；他日若需扩容，只需顺势添补，流转自是圆转如意。
+[Target] 原本系统浑然一体，牵一处便动全身。后来拆作许多微服务，各司其职。一处出了岔子，也不至牵连全局。日后若要扩容，再添几台机器便是。
 
 [Source] Using asynchronous non-blocking I/O allows the server to handle tens of thousands of concurrent connections without exhausting thread resources.
-[Target] 异步非阻塞之妙，在于“不滞于物”。纵有千万并发如骇浪惊涛般奔涌而来，线程亦不与之死磕苦等。待请求安顿妥当，便即抽身游走，去寻下一处。如此往复兜转，系统自能应付裕如，了无内耗之虞。
+[Target] 用了异步非阻塞 I/O，线程便不用一直守着。请求来了，安顿妥当，它便抽身去办别的事。纵有几万个连接一齐来到，也还能从容应付，不至把线程耗尽。
 
 [Source] A Redis cache layer is introduced to reduce the database load. Frequent read operations hit the cache directly, significantly improving response times.
-[Target] 数据库乃系统重镇，最忌频频惊扰。故而在其身前，特设一层 Redis 缓存以为屏障。凡寻常所求、反复调阅之物，皆由缓存径直接下。这般卸去重负，系统响应自是快如闪电，举重若轻。
+[Target] 数据库是系统重地，不宜时时惊动。于是前面设一层 Redis 缓存。寻常反复读取的数据，都先从缓存取。数据库轻松许多，响应自然也快了。
 
 [Source] A Bloom filter is a probabilistic data structure that tells you either that an element is definitely not in the set or that it may be in the set.
-[Target] 布隆过滤器这门算法，行事不求全责备，端看概率。你若问它某物在与不在，它若断言“无”，那便是当真绝无此物；它若答称“有”，却又虚实难辨，未必能全信作准。
+[Target] 布隆过滤器这门算法，只论概率。你问它某样东西在不在，它若说没有，那便是真没有；它若说有，却未必当真在。
+
+[Source] Circuit breakers prevent repeated requests from overwhelming an already failing service.
+[Target] 断路器这一招，为的是见势不妙，先收一步。服务既已支撑不住，再一味把请求送过去，只会雪上加霜。不如暂且止住，待缓过气来，再行放开。
 </examples>
 `;
 
