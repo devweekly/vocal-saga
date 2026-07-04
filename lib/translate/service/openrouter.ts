@@ -10,7 +10,7 @@ import { getOpenrouterApiKey } from '../../config';
 import { buildTranslationBody, stripThinkingTags, stripMarkdownCodeBlock, cleanJsonString, repairTruncatedJson, type PromptStyle } from './shared';
 
 const API_URL = 'https://openrouter.ai/api/v1/chat/completions';
-const MODEL = 'meta-llama/llama-3.3-70b-instruct:free';
+const MODEL = 'openai/gpt-oss-20b:free';
 
 function buildHeaders(): Record<string, string> {
   return {
