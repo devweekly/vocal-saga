@@ -27,11 +27,12 @@ vi.mock('@google/genai', () => ({
 }));
 
 import { GeminiTranslationService } from '../lib/translate/service/gemini';
-import { setGeminiApiKey, getGeminiApiKey } from '../lib/config';
+import { setGeminiApiKey1, getGeminiApiKey1, setGeminiApiKey2 } from '../lib/config';
 
 describe('GeminiTranslationService', () => {
   beforeEach(() => {
-    setGeminiApiKey('test-gemini-key');
+    setGeminiApiKey1('test-gemini-key');
+    setGeminiApiKey2('');
     mockGenerateContent.mockClear();
     mockGenerateContentStream.mockClear();
   });
@@ -41,7 +42,7 @@ describe('GeminiTranslationService', () => {
   });
 
   it('throws when Gemini API key is not configured', async () => {
-    setGeminiApiKey('');
+    setGeminiApiKey1('');
     const service = new GeminiTranslationService();
     await expect(
       service.translate('[{"id":"1","text":"hello"}]', 'en', 'zh')
@@ -59,7 +60,7 @@ describe('GeminiTranslationService', () => {
     // 验证 SDK 被调用
     expect(mockGenerateContent).toHaveBeenCalledTimes(1);
     const params = mockGenerateContent.mock.calls[0][0];
-    expect(params.model).toBe('gemini-2.5-flash-lite');
+    expect(params.model).toBe('gemini-3.1-flash-lite');
     expect(params.contents).toContain('JSON:');
     expect(params.contents).toContain('"hello"');
 
@@ -91,7 +92,7 @@ describe('GeminiTranslationService', () => {
     const service = new GeminiTranslationService();
     await service.translate('[{"id":"1","text":"hello"}]', 'en', 'zh');
 
-    expect(mockGenerateContent.mock.calls[0][0].model).toBe('gemini-2.5-flash-lite');
+    expect(mockGenerateContent.mock.calls[0][0].model).toBe('gemini-3.1-flash-lite');
   });
 
   it('uses custom model when passed to constructor', async () => {
@@ -188,7 +189,7 @@ describe('GeminiTranslationService', () => {
   });
 
   it('stream throws when API key not configured', async () => {
-    setGeminiApiKey('');
+    setGeminiApiKey1('');
     const service = new GeminiTranslationService();
     const generator = service.translateStream(
       '[{"id":"1","text":"hello"}]',
@@ -237,8 +238,8 @@ describe('GeminiTranslationService', () => {
   });
 
   it('getGeminiApiKey / setGeminiApiKey round-trip', () => {
-    setGeminiApiKey('abc-123');
-    expect(getGeminiApiKey()).toBe('abc-123');
-    setGeminiApiKey('test-gemini-key'); // 还原
+    setGeminiApiKey1('abc-123');
+    expect(getGeminiApiKey1()).toBe('abc-123');
+    setGeminiApiKey1('test-gemini-key'); // 还原
   });
 });

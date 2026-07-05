@@ -8,7 +8,7 @@
  */
 import { GoogleGenAI } from '@google/genai';
 import type { TranslationService, Glossary } from './_service';
-import { getGeminiApiKey } from '../../config';
+import { getGeminiApiKey1, getGeminiApiKey2 } from '../../config';
 import {
   buildSystemContent,
   estimateMaxTokens,
@@ -23,11 +23,22 @@ const DEFAULT_MODEL_3 = 'gemini-2.5-flash-lite';
 const DEFAULT_MODEL = 'gemini-3.1-flash-lite';
 //const DEFAULT_MODEL = 'gemma-4-31b-it'
 
-/** 获取 Gemini 客户端实例，API Key 缺失时抛错 */
+//GEMINI_API_KEY_2
+
+/** 随机从两个 Gemini API Key 中选择一个，缺失时抛错 */
+function getApiKey(): string {
+  const key1 = getGeminiApiKey1();
+  const key2 = getGeminiApiKey2();
+  const candidates = [key1, key2].filter(Boolean);
+  if (candidates.length === 0) {
+    throw new Error('Gemini API key not configured');
+  }
+  return candidates.length === 1 ? candidates[0] : candidates[Math.floor(Math.random() * candidates.length)];
+}
+
+/** 获取 Gemini 客户端实例 */
 function getClient(): GoogleGenAI {
-  const apiKey = getGeminiApiKey();
-  if (!apiKey) throw new Error('Gemini API key not configured');
-  return new GoogleGenAI({ apiKey });
+  return new GoogleGenAI({ apiKey: getApiKey() });
 }
 
 /** 清洗 LLM 输出：去 thinking 标签 → 去 markdown 代码块 → 修 JSON */

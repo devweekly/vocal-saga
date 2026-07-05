@@ -37,12 +37,14 @@ import {
   setDSApiKey,
   setOpenrouterApiKey,
   setNvidiaApiKey,
-  setGeminiApiKey,
+  setGeminiApiKey1,
+  setGeminiApiKey2,
   setOpencodeApiKey,
   getDSApiKey,
   getOpenrouterApiKey,
   getNvidiaApiKey,
-  getGeminiApiKey,
+  getGeminiApiKey1,
+  getGeminiApiKey2,
   getOpencodeApiKey,
 } from './config';
 
@@ -65,12 +67,14 @@ export function createApp(storage?: StorageAdapter): Hono {
   const dsKey = process.env.DEEPSEEK_API_KEY || '';
   const openrouterKey = process.env.OPENROUTER_API_KEY || '';
   const nvidiaKey = process.env.NVIDIA_API_KEY || '';
-  const geminiKey = process.env.GEMINI_API_KEY || '';
+  const geminiKey1 = process.env.GEMINI_API_KEY || '';
+  const geminiKey2 = process.env.GEMINI_API_KEY_2 || '';
   const opencodeKey = process.env.OPENCODE_API_KEY || '';
   if (dsKey) setDSApiKey(dsKey);
   if (openrouterKey) setOpenrouterApiKey(openrouterKey);
   if (nvidiaKey) setNvidiaApiKey(nvidiaKey);
-  if (geminiKey) setGeminiApiKey(geminiKey);
+  if (geminiKey1) setGeminiApiKey1(geminiKey1);
+    if (geminiKey2) setGeminiApiKey2(geminiKey2);
   if (opencodeKey) setOpencodeApiKey(opencodeKey);
 
   // 简单的 HTML 转义，防止列表页 title XSS
