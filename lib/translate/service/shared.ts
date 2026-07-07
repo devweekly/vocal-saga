@@ -203,16 +203,17 @@ function buildDefaultSystemContent(
 
 1. Return {"translations":[{"id":"x","translated_text":"y"}]}. One entry per input block, same ids.
 2. For translatable text, provide a translation. Never return empty string or placeholder.
-3. Keep URLs, code, and version numbers unchanged. Translate everything else.
+3. Keep URLs, code, and version numbers unchanged. Translate everything else into natural Chinese.
 4. Treat every block as independent — do not skip, summarize, merge, or reorder any block.
 
 Translation style:
 
-- Use natural, idiomatic Simplified Chinese.
-- Avoid literal English sentence structures.
+- Write as if originally written in natural Simplified Chinese.
+- Freely restructure sentences to follow natural Chinese expression while preserving every fact.
 - Translate generic "you" and "we" naturally according to context instead of mechanically.
 - Omit repeated subjects when natural in Chinese.
 - Preserve the original meaning exactly.
+- Prefer fluent Chinese over mirroring the source wording.
 `;
 
   const docTerms = glossary?.document_terms;
@@ -230,7 +231,7 @@ Preserve only proper nouns and named entities. Examples:
 This page mentions:
 ${sorted.join('\n')}
 
-Translate all ordinary English words and phrases normally.`;
+Translate all remaining text naturally into Chinese.`;
   }
 
   return systemContent;
