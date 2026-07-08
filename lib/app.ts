@@ -23,7 +23,7 @@ import { setDefaultStorage, type StorageAdapter } from './storage';
 import { requireAuth } from './auth';
 import { normalizeUrl, cacheKeyUrl } from './urlUtils';
 import { injectRedirectGuard } from './redirectGuard';
-import { stripDangerousScripts } from './spaGuard';
+import { stripDangerousScripts, stripNavigationScripts } from './spaGuard';
 import {
   CF_ACCOUNT_ID,
   CF_API_TOKEN,
@@ -812,7 +812,7 @@ ${pager}
       }
 
       const html = '<!doctype html>\n' + document.documentElement.outerHTML;
-      return new Response(stripDangerousScripts(injectRedirectGuard(html)), {
+      return new Response(stripNavigationScripts(injectRedirectGuard(html)), {
         status: 200,
         headers: {
           'Content-Type': 'text/html; charset=utf-8',

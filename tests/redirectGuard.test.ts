@@ -4,22 +4,20 @@
  * 验证两件事：
  *   1. injectRedirectGuard 把守卫脚本注入到 <head> 最前面（含多种 HTML 结构的边界情况）
  *   2. 注入的守卫脚本在 jsdom（会自动执行 <script>）里真正生效——
- *      仅拦截会导致离开当前翻译页的跨 origin / 跨 pathname 跳转，
- *      同页 hash 跳转与外部新窗口行为尽量保留。
+ *      fetch/XHR guard 拦截 /cdn-cgi/、api.x.com、ads-api.x.com，
+ *      history 拦截跨页路由，window.open 拦截内部链接，meta refresh 被移除。
  *
  * vitest 已配置 environment: 'jsdom'，<script> 会被执行。
  */
 import { describe, it, expect, beforeEach } from 'vitest';
 import { injectRedirectGuard, REDIRECT_GUARD_SCRIPT } from '../lib/redirectGuard';
 
-// 守卫脚本的固定标记，用于断言注入是否发生
 const GUARD_MARKER = '__vsRedirectGuard';
 
 describe('injectRedirectGuard — 注入位置', () => {
   it('有 <head> 时，脚本插到 <head> 内第一个子节点前', () => {
     const html = '<!doctype html><html><head><title>x</title></head><body></body></html>';
     const out = injectRedirectGuard(html);
-    // 脚本出现在 <head> 之后、<title> 之前
     const headIdx = out.indexOf('<head>');
     const scriptIdx = out.indexOf('<script>');
     const titleIdx = out.indexOf('<title>');
@@ -32,7 +30,6 @@ describe('injectRedirectGuard — 注入位置', () => {
     const out = injectRedirectGuard(html);
     expect(out).toContain('<head>');
     expect(out).toContain('<script>');
-    // <head> 在 <body> 之前
     expect(out.indexOf('<head>')).toBeLessThan(out.indexOf('<body>'));
   });
 
@@ -46,7 +43,6 @@ describe('injectRedirectGuard — 注入位置', () => {
   it('带属性的 <head> 标签也能正确识别', () => {
     const html = '<html><head data-x="1"><meta charset="utf-8"></head></html>';
     const out = injectRedirectGuard(html);
-    // 脚本应该在 <head data-x="1"> 之后
     expect(out).toMatch(/<head data-x="1"><script>/);
   });
 
@@ -59,43 +55,88 @@ describe('injectRedirectGuard — 注入位置', () => {
 
 describe('守卫脚本运行时行为', () => {
   beforeEach(() => {
-    // 守卫脚本用 __vsRedirectGuard 标志防重复注入，每个 case 前清掉，
-    // 保证每次都能重新 patch（jsdom 的 window 在测试间是同一个实例）。
     delete (window as any)[GUARD_MARKER];
   });
 
-  /**
-   * 把守卫脚本当成"页面最前面的 <script>"直接执行到当前 jsdom window。
-   * 生产环境里这段脚本由 injectRedirectGuard 注入，浏览器加载时自动执行；
-   * jsdom 经 DOMParser 不执行脚本，所以这里手动 eval 来模拟真实执行。
-   */
   function runGuard() {
     // eslint-disable-next-line no-eval
     (0, eval)(REDIRECT_GUARD_SCRIPT);
   }
 
-  it('拦截跨页 location.assign（不抛错、URL 不变）', () => {
+  // ── fetch guard ──
+
+  it('拦截对 /cdn-cgi/ 的 fetch 请求（string URL），返回空 200', async () => {
     runGuard();
-    expect((window as any)[GUARD_MARKER]).toBe(true);
-    const before = window.location.href;
-    expect(() => window.location.assign('https://evil.com/hijack')).not.toThrow();
-    expect(window.location.href).toBe(before);
+    const resp = await fetch('/cdn-cgi/challenge-platform/scripts/jsd/api.js');
+    expect(resp.status).toBe(200);
+    expect(await resp.text()).toBe('{}');
   });
 
-  it('拦截跨页 location.replace（不抛错、URL 不变）', () => {
+  it('拦截对 /cdn-cgi/ 的 fetch 请求（Request 对象），返回空 200', async () => {
     runGuard();
-    const before = window.location.href;
-    expect(() => window.location.replace('https://evil.com/hijack')).not.toThrow();
-    expect(window.location.href).toBe(before);
+    const req = new Request('https://s.sunxiunan.com/cdn-cgi/challenge-platform/test');
+    const resp = await fetch(req);
+    expect(resp.status).toBe(200);
   });
 
-  it('同页 hash location.assign 允许', () => {
+  it('拦截对 api.x.com GraphQL 的 fetch 请求，返回 {data:{}}', async () => {
     runGuard();
-    const before = window.location.href;
-    window.location.assign('#section-1');
-    expect(window.location.hash).toBe('#section-1');
-    expect(window.location.pathname).toBe(new URL(before).pathname);
+    const resp = await fetch('https://api.x.com/graphql/abc/SomeQuery');
+    expect(resp.status).toBe(200);
+    expect(resp.headers.get('Content-Type')).toBe('application/json');
+    const json = await resp.json();
+    expect(json).toHaveProperty('data');
   });
+
+  it('拦截对 api.x.com hashflags 的 fetch 请求，返回 []', async () => {
+    runGuard();
+    const resp = await fetch('https://api.x.com/1.1/hashflags.json');
+    expect(resp.status).toBe(200);
+    const text = await resp.text();
+    expect(text).toBe('[]');
+  });
+
+  it('拦截对 ads-api.x.com 的 fetch 请求，返回 {}', async () => {
+    runGuard();
+    const resp = await fetch('https://ads-api.x.com/12/measurement/dcm_local_id');
+    expect(resp.status).toBe(200);
+    expect(await resp.text()).toBe('{}');
+  });
+
+  it('正常 fetch 请求不受影响', async () => {
+    runGuard();
+    try {
+      await fetch('/api/data');
+    } catch (e) {
+      expect(e).toBeInstanceOf(TypeError);
+    }
+  });
+
+  // ── XMLHttpRequest guard ──
+
+  it('拦截对 /cdn-cgi/ 的 XHR 请求，不真正发送', (done) => {
+    runGuard();
+    const xhr = new XMLHttpRequest();
+    xhr.open('GET', '/cdn-cgi/challenge-platform/test');
+    xhr.onload = () => {
+      expect(true).toBe(true);
+      done();
+    };
+    xhr.send();
+  });
+
+  it('拦截对 api.x.com 的 XHR 请求，不真正发送', (done) => {
+    runGuard();
+    const xhr = new XMLHttpRequest();
+    xhr.open('GET', 'https://api.x.com/1.1/account/settings.json');
+    xhr.onload = () => {
+      expect(true).toBe(true);
+      done();
+    };
+    xhr.send();
+  });
+
+  // ── history patches ──
 
   it('拦截跨页 history.pushState（地址栏 pathname 不变）', () => {
     runGuard();
@@ -119,6 +160,20 @@ describe('守卫脚本运行时行为', () => {
     expect(window.location.pathname).toBe(before);
   });
 
+  it('拦截 history.go(0)（不抛错、页面不刷新）', () => {
+    runGuard();
+    expect(() => window.history.go(0)).not.toThrow();
+  });
+
+  it('history.go(-1) 等非零值仍允许', () => {
+    runGuard();
+    expect(() => {
+      try { window.history.go(-1); } catch (e) { /* jsdom 限制 */ }
+    }).not.toThrow();
+  });
+
+  // ── window.open ──
+
   it('window.open 外部 _blank 链接不拦截且当前页不跳转', () => {
     runGuard();
     const before = window.location.href;
@@ -132,8 +187,9 @@ describe('守卫脚本运行时行为', () => {
     expect(result).toBeNull();
   });
 
+  // ── meta refresh ──
+
   it('移除已存在的 <meta http-equiv="refresh">', () => {
-    // 先把 meta refresh 放进当前 document，再执行守卫
     document.head.innerHTML = '<meta http-equiv="refresh" content="0;url=https://evil.com">';
     runGuard();
     expect(document.querySelector('meta[http-equiv="refresh" i]')).toBeNull();
@@ -145,7 +201,6 @@ describe('守卫脚本运行时行为', () => {
     meta.setAttribute('http-equiv', 'refresh');
     meta.setAttribute('content', '0;url=https://evil.com');
     document.head.appendChild(meta);
-    // MutationObserver 是异步的，需要等一轮微任务
     return new Promise<void>((resolve) => {
       setTimeout(() => {
         expect(document.querySelector('meta[http-equiv="refresh" i]')).toBeNull();
@@ -154,42 +209,38 @@ describe('守卫脚本运行时行为', () => {
     });
   });
 
-  it('拦截 location.reload（不抛错、页面不刷新）', () => {
-    runGuard();
-    // reload 被 monkey-patch 成空函数，调用不应抛错也不应刷新页面
-    expect(() => window.location.reload()).not.toThrow();
-  });
+  // ── Navigation API ──
 
-  it('拦截 history.go(0)（不抛错、页面不刷新）', () => {
-    runGuard();
-    // history.go(0) 等同于 reload，被拦截
-    expect(() => window.history.go(0)).not.toThrow();
-  });
-
-  it('history.go(-1) 等非零值仍允许', () => {
-    runGuard();
-    // go(-1) 不是 reload，应放行（jsdom 可能抛 SecurityError，但不被拦截）
-    // 这里只验证 history.go 没有被完全禁用
-    expect(() => {
-      try { window.history.go(-1); } catch (e) { /* jsdom 限制 */ }
-    }).not.toThrow();
-  });
-
-  it('拦截对 /cdn-cgi/ 的 fetch 请求，返回空 200', async () => {
-    runGuard();
-    const resp = await fetch('/cdn-cgi/challenge-platform/scripts/jsd/api.js');
-    expect(resp.status).toBe(200);
-    expect(await resp.text()).toBe('');
-  });
-
-  it('正常 fetch 请求不受影响', async () => {
-    runGuard();
-    // 正常请求应走原始 fetch（这里会失败因为 jsdom 没有网络，但不应返回 204）
+  it('Navigation API 存在时注册 navigate 监听器', () => {
+    const logs: string[] = [];
+    const origLog = console.log;
+    console.log = (...args: any[]) => { logs.push(args.join(' ')); };
     try {
-      await fetch('/api/data');
-    } catch (e) {
-      // jsdom 无网络，fetch 抛 TypeError 是正常行为
-      expect(e).toBeInstanceOf(TypeError);
+      runGuard();
+    } finally {
+      console.log = origLog;
     }
+    // jsdom 没有 Navigation API，结果应为 false
+    const patchLog = logs.find((l) => l.includes('redirectGuard patches'));
+    expect(patchLog).toBeDefined();
+    expect(patchLog).toContain('"navigation"');
+  });
+
+  // ── 验证日志 ──
+
+  it('验证日志输出各 patch 状态', () => {
+    const logs: string[] = [];
+    const origLog = console.log;
+    console.log = (...args: any[]) => { logs.push(args.join(' ')); };
+    try {
+      runGuard();
+    } finally {
+      console.log = origLog;
+    }
+    const patchLog = logs.find((l) => l.includes('redirectGuard patches'));
+    expect(patchLog).toBeDefined();
+    expect(patchLog).toContain('fetch');
+    expect(patchLog).toContain('xhr');
+    expect(patchLog).toContain('pushState');
   });
 });

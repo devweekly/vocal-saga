@@ -1,30 +1,32 @@
 /**
- * 重定向守卫（redirect guard）。
+ * 重定向守卫（redirect guard）— 两层架构。
  *
- * 背景：翻译页面直接回吐原站点的 HTML，其中往往带有原站的 SPA 入口脚本。
- * 这些脚本会在浏览器里运行，并按自身 URL 逻辑去请求原站 API（跨域），
- * 触发 CORS 失败后把页面渲染成错误视图（例如 X/Twitter 的
- * "Something went wrong"）。典型链路：
- *   s.sunxiunan.com/97 → 原 X 页面 HTML → entry-client-logged-out.js
- *   → 读 location.pathname("/97") 当作 screenName → fetch api.x.com → CORS 失败
+ * ## 设计背景
+ * 翻译页面直接回吐原站点的 HTML，其中带有原站的 SPA 入口脚本。
+ * 这些脚本在代理域下运行时，API 请求 CORS 失败后会触发循环跳转。
  *
- * 解决思路：vocal-saga 在返回 HTML 前，注入一段自己的 monkey-patch 脚本到
- * <head> 最前面（早于原站任何脚本执行），把会导致"离开当前翻译页"的导航 API
- * 拦截掉。同页 hash 导航、外部链接在新标签页打开、用户主动点击等正常行为
- * 尽量保留。
+ * ## 关键发现
+ *   - `location.href` 在 Chrome 中 `configurable: false`，**无法用 JS 拦截**
+ *   - `location.reload` 同样不可靠 patch
+ *   - X/Twitter SPA 用 `location.href = url` 触发 reload，传统拦截无效
+ *   - Navigation API（Chrome 102+）的 `navigate` 事件可以拦截所有导航类型
  *
- * 注意：这段脚本由 vocal-saga 注入，不是原站点自带的。
+ * ## 防御层次
+ *   1. **Navigation API**（主要）— 拦截 `navigate` 事件，阻止同页 reload/replace
+ *   2. **fetch guard** — 拦截 api.x.com / ads-api.x.com / cdn-cgi 请求，返回 fake 响应
+ *   3. **XHR guard** — 同上，拦截 XMLHttpRequest
+ *   4. **history.pushState/replaceState** — 拦截跨页 SPA 路由
+ *   5. **history.go(0)** — 拦截等同于 reload 的调用
+ *   6. **window.open** — 拦截当前窗口打开内部链接
+ *   7. **<meta refresh>** — 移除并监控
+ *
+ * 注意：`location.reload/assign/replace` 在真实浏览器中无法可靠 patch
+ * （`configurable: false`），所以不尝试 patch。Navigation API 是替代方案。
+ * 在 jsdom 测试环境中这些方法可以 patch，保留 history 等其他拦截。
  */
 
 /**
  * 注入到页面的守卫脚本源码。
- *
- * 设计要点：
- *   1. 在 try/catch 里逐项 patch，任何一项失败不影响其它项
- *   2. 只拦截「跨页跳转」（不同 origin 或不同 pathname），保留同页 hash 跳转
- *   3. window.open 的外部链接 / _blank 保持原行为，仅拦截在当前窗口打开的内部链接
- *   4. 静默吞掉自动跳转，不抛错——原站 SPA 跑挂也无所谓，用户留在翻译页即可
- *   5. MutationObserver 优先监听 <head>，降低性能开销
  *
  * 导出供测试直接执行验证（生产环境通过 injectRedirectGuard 注入 <script>）。
  */
@@ -36,24 +38,24 @@ export const REDIRECT_GUARD_SCRIPT = `
   var currentHref = window.location.href;
   var currentOrigin = window.location.origin;
   var currentPathname = window.location.pathname;
+  var currentSearch = window.location.search;
 
   /**
-   * 判断 url 是否会导致离开当前页面（不同 origin 或不同 pathname）。
+   * 判断 url 是否会导致离开当前页面（不同 origin / pathname / search）。
    * 空值/非法值视为不跳转。
    */
   function isCrossPage(url) {
     if (!url) return false;
     try {
       var parsed = new URL(url, currentHref);
-      return parsed.origin !== currentOrigin || parsed.pathname !== currentPathname;
+      return parsed.origin !== currentOrigin ||
+             parsed.pathname !== currentPathname ||
+             parsed.search !== currentSearch;
     } catch (e) {
       return false;
     }
   }
 
-  /**
-   * 判断 url 是否为外部链接（不同 origin）。
-   */
   function isExternal(url) {
     if (!url) return false;
     try {
@@ -64,126 +66,192 @@ export const REDIRECT_GUARD_SCRIPT = `
   }
 
   /**
-   * 判断 url 是否只是同页 hash 跳转。
+   * 判断请求 URL 是否应被拦截（CORS 会失败并触发 SPA reload 的域名/路径）。
+   * - /cdn-cgi/ — Cloudflare JSD 挑战，代理域下必定 CORS 失败
+   * - api.x.com / ads-api.x.com — X/Twitter SPA 后端 API，代理域下必定 CORS 失败
    */
-  function isHashOnly(url) {
+  function shouldBlock(url) {
     if (!url) return false;
-    try {
-      var parsed = new URL(url, currentHref);
-      return parsed.origin === currentOrigin &&
-             parsed.pathname === currentPathname &&
-             parsed.hash !== '';
-    } catch (e) {
-      return false;
-    }
+    return url.indexOf('/cdn-cgi/') !== -1 ||
+           url.indexOf('api.x.com') !== -1 ||
+           url.indexOf('ads-api.x.com') !== -1;
   }
 
-  // ── 1. 编程式导航：location 写入 / assign / replace ──
-  // 只拦截跨页跳转；同页 hash 跳转允许（原站 SPA 常用 hash 做状态，保留行为）。
+  /**
+   * 根据 URL 构造匹配 X/Twitter SPA 预期的 fake 响应体。
+   * 不同端点期望不同的 JSON 结构，返回不匹配的结构会导致
+   * SPA 解析异常 → reload。
+   */
+  function buildFakeResponse(url) {
+    // GraphQL 查询：期望 {data: {...}}
+    if (url.indexOf('/graphql/') !== -1) {
+      return '{"data":{},"extensions":{}}';
+    }
+    // hashflags：期望数组
+    if (url.indexOf('hashflags') !== -1) {
+      return '[]';
+    }
+    // badge_count：期望 {ntab:0, xchat:0}
+    if (url.indexOf('badge_count') !== -1) {
+      return '{"ntab":0,"xchat":0,"total":0}';
+    }
+    // viewer_context：期望 {viewer:{...}}
+    if (url.indexOf('viewer_context') !== -1) {
+      return '{"viewer":{"id":"0","rest_id":"0","is_logged_in":false}}';
+    }
+    // account/settings：期望对象
+    if (url.indexOf('account/settings') !== -1) {
+      return '{}';
+    }
+    // permissionsState：期望对象
+    if (url.indexOf('permissionsState') !== -1) {
+      return '{}';
+    }
+    // ads-api measurement：期望空对象
+    if (url.indexOf('ads-api') !== -1) {
+      return '{}';
+    }
+    // 默认：空 JSON 对象
+    return '{}';
+  }
+
+  var results = {};
+
+  // ── 1. Navigation API（主要防线）──
+  // Chrome 102+ 提供 Navigation API，可以拦截所有类型的导航（reload/replace/push）。
+  // 这是拦截 location.href = url 和 location.reload() 的唯一可靠方式，
+  // 因为这些 Location 属性在 Chrome 中 configurable: false 无法 patch。
+  // 规则：只拦截同页 reload/replace（SPA 错误处理触发的循环跳转），
+  // 跨页导航放行（用户点击外部链接等）。
   try {
-    var loc = window.location;
-    loc.assign = function (url) {
-      if (isCrossPage(url)) {
-        console.log('[vocal-saga] 拦截 location.assign:', url);
-        return;
-      }
-      if (isHashOnly(url)) {
-        try {
-          loc.hash = new URL(url, currentHref).hash;
-        } catch (e) {}
-      }
-    };
-    loc.replace = function (url) {
-      if (isCrossPage(url)) {
-        console.log('[vocal-saga] 拦截 location.replace:', url);
-        return;
-      }
-      if (isHashOnly(url)) {
-        try {
-          loc.hash = new URL(url, currentHref).hash;
-        } catch (e) {}
-      }
-    };
-    // location.href 是访问器属性，尝试重定义 setter 吞掉跨页写操作；
-    // 某些浏览器（如 Firefox）不允许重定义 location.href，失败时静默忽略。
-    try {
-      Object.defineProperty(loc, 'href', {
-        configurable: true,
-        get: function () { return currentHref; },
-        set: function (url) {
-          if (isCrossPage(url)) {
-            console.log('[vocal-saga] 拦截 location.href 跳转:', url);
-            return;
-          }
-          if (isHashOnly(url)) {
-            try {
-              loc.hash = new URL(url, currentHref).hash;
-              currentHref = loc.href;
-            } catch (e) {}
-          }
+    if (window.navigation) {
+      navigation.addEventListener('navigate', function (ev) {
+        var dest = ev.destination ? ev.destination.url : '';
+        // 同页 reload 或 replace → 拦截（SPA 循环跳转）
+        if (ev.navigationType === 'reload' || dest === currentHref) {
+          console.log('[vocal-saga] 拦截 navigation:', ev.navigationType, dest.slice(0, 100));
+          ev.preventDefault();
+          return;
         }
+        // 跨页导航 → 放行
       });
-    } catch (e) {}
-  } catch (e) {}
+      results.navigation = true;
+      console.log('[vocal-saga] Navigation API guard active');
+    } else {
+      results.navigation = false;
+      console.log('[vocal-saga] Navigation API not available');
+    }
+  } catch (e) {
+    results.navigation = false;
+    console.error('[vocal-saga] Navigation API setup failed:', e.message);
+  }
 
-  // ── 1b. location.reload ──
-  // SPA 循环跳转的最后手段：reload。直接吞掉，不真正刷新。
-  try {
-    var origReload = window.location.reload;
-    window.location.reload = function () {
-      console.log('[vocal-saga] 拦截 location.reload');
-    };
-  } catch (e) {}
-
-  // ── 1c. history.go(0) / history.go(-0) ──
-  // 等同于 reload，同样拦截。
-  try {
-    var origGo = window.history.go;
-    window.history.go = function (delta) {
-      if (delta === 0 || delta === -0) {
-        console.log('[vocal-saga] 拦截 history.go(0)');
-        return;
-      }
-      return origGo.apply(window.history, arguments);
-    };
-  } catch (e) {}
-
-  // ── 1d. fetch guard ──
-  // 拦截对 /cdn-cgi/ 等代理域下会 CORS 失败的请求，返回 fake 204，
-  // 避免 SPA 因 fetch error 触发 reload。
+  // ── 2. fetch guard ──
+  // 拦截 CORS 会失败的请求，返回匹配 SPA 预期的 fake 200 响应，
+  // 避免 SPA 因 fetch error 进入错误状态并触发 reload。
   try {
     var origFetch = window.fetch;
-    window.fetch = function () {
-      var url = String(arguments[0] || '');
-      if (url.indexOf('/cdn-cgi/') !== -1) {
+    window.fetch = function (input, init) {
+      var url = typeof input === 'string' ? input :
+                (input && typeof input === 'object' && input.url) ? input.url :
+                String(input || '');
+      if (shouldBlock(url)) {
+        var fakeBody = buildFakeResponse(url);
         console.log('[vocal-saga] 拦截 fetch:', url);
-        return Promise.resolve(new Response('', { status: 200 }));
+        return Promise.resolve(new Response(fakeBody, {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' }
+        }));
       }
       return origFetch.apply(window, arguments);
     };
-  } catch (e) {}
+    results.fetch = true;
+  } catch (e) {
+    results.fetch = false;
+    console.error('[vocal-saga] patch fetch failed:', e.message);
+  }
 
-  // ── 2. History API：pushState / replaceState ──
-  // 这些不会真的离开页面，但原站 SPA 会借它做客户端路由初始化，
-  // 进而触发后续 API 调用。跨 pathname 时拦截；同 pathname/hash 保持原行为。
+  // ── 3. XMLHttpRequest guard ──
+  // 拦截 CORS 会失败的 XHR 请求，设置 status/responseText/response 等属性，
+  // 并触发 onload/onreadystatechange 回调，让 SPA 认为请求成功。
   try {
-    if (window.history) {
-      ['pushState', 'replaceState'].forEach(function (m) {
-        var orig = window.history[m];
-        window.history[m] = function (state, title, url) {
-          if (url && isCrossPage(url)) {
-            console.log('[vocal-saga] 拦截 history.' + m + ':', url);
-            return;
+    var origXhrOpen = XMLHttpRequest.prototype.open;
+    var origXhrSend = XMLHttpRequest.prototype.send;
+    XMLHttpRequest.prototype.open = function (method, url) {
+      this.__vsUrl = String(url || '');
+      return origXhrOpen.apply(this, arguments);
+    };
+    XMLHttpRequest.prototype.send = function () {
+      if (shouldBlock(this.__vsUrl)) {
+        var self = this;
+        var fakeBody = buildFakeResponse(self.__vsUrl);
+        console.log('[vocal-saga] 拦截 XHR:', self.__vsUrl);
+        setTimeout(function () {
+          try {
+            Object.defineProperty(self, 'status', { configurable: true, value: 200 });
+            Object.defineProperty(self, 'statusText', { configurable: true, value: 'OK' });
+            Object.defineProperty(self, 'responseText', { configurable: true, value: fakeBody });
+            Object.defineProperty(self, 'response', { configurable: true, value: fakeBody });
+            Object.defineProperty(self, 'responseURL', { configurable: true, value: self.__vsUrl });
+            Object.defineProperty(self, 'readyState', { configurable: true, value: 4 });
+            if (typeof self.onreadystatechange === 'function') self.onreadystatechange();
+            if (typeof self.onload === 'function') self.onload(new ProgressEvent('load'));
+            self.dispatchEvent(new ProgressEvent('load'));
+            self.dispatchEvent(new ProgressEvent('loadend'));
+          } catch (e) {
+            console.error('[vocal-saga] XHR fake response error:', e.message);
           }
-          return orig.apply(window.history, arguments);
-        };
-      });
-    }
-  } catch (e) {}
+        }, 0);
+        return;
+      }
+      return origXhrSend.apply(this, arguments);
+    };
+    results.xhr = true;
+  } catch (e) {
+    results.xhr = false;
+    console.error('[vocal-saga] patch XHR failed:', e.message);
+  }
 
-  // ── 3. window.open ──
-  // 保留外部链接和 _blank 新窗口行为（用户主动打开），
-  // 仅拦截在当前窗口打开且会导致离开翻译页的内部链接。
+  // ── 4. history.pushState / replaceState ──
+  // 拦截跨页 SPA 路由跳转（同页 hash 跳转允许）。
+  try {
+    ['pushState', 'replaceState'].forEach(function (m) {
+      var orig = history[m];
+      history[m] = function (state, title, url) {
+        if (url && isCrossPage(url)) {
+          console.log('[vocal-saga] 拦截 history.' + m + ':', url);
+          return;
+        }
+        return orig.apply(history, arguments);
+      };
+    });
+    results.pushState = true;
+    results.replaceState = true;
+  } catch (e) {
+    results.pushState = false;
+    results.replaceState = false;
+    console.error('[vocal-saga] patch history.pushState/replaceState failed:', e.message);
+  }
+
+  // ── 5. history.go(0) ──
+  // history.go(0) 等同于 reload，拦截。
+  try {
+    var origGo = history.go;
+    history.go = function (delta) {
+      if (delta === 0) {
+        console.log('[vocal-saga] 拦截 history.go(0)');
+        return;
+      }
+      return origGo.apply(history, arguments);
+    };
+    results.go = true;
+  } catch (e) {
+    results.go = false;
+    console.error('[vocal-saga] patch history.go failed:', e.message);
+  }
+
+  // ── 6. window.open ──
+  // 拦截当前窗口（_self）打开内部跨页链接，_blank 和外部链接放行。
   try {
     var origOpen = window.open;
     window.open = function (url, target, features) {
@@ -197,10 +265,14 @@ export const REDIRECT_GUARD_SCRIPT = `
       }
       return origOpen.apply(window, arguments);
     };
-  } catch (e) {}
+    results.open = true;
+  } catch (e) {
+    results.open = false;
+    console.error('[vocal-saga] patch window.open failed:', e.message);
+  }
 
-  // ── 4. 文档级跳转：<meta http-equiv="refresh"> ──
-  // 删除已存在的，并监控后续注入（优先只监听 <head>，降低开销）。
+  // ── 7. <meta http-equiv="refresh"> ──
+  // 移除已有的 meta refresh，并用 MutationObserver 监控后续注入。
   try {
     function removeRefreshMeta() {
       document.querySelectorAll('meta[http-equiv="refresh" i]').forEach(function (m) { m.remove(); });
@@ -216,7 +288,14 @@ export const REDIRECT_GUARD_SCRIPT = `
         });
       });
     }).observe(observerTarget, { childList: true, subtree: true });
-  } catch (e) {}
+    results.metaRefresh = true;
+  } catch (e) {
+    results.metaRefresh = false;
+    console.error('[vocal-saga] patch metaRefresh failed:', e.message);
+  }
+
+  // ── 验证日志 ──
+  console.log('[vocal-saga] redirectGuard patches:', JSON.stringify(results));
 })();
 `;
 

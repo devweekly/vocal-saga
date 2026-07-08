@@ -1,30 +1,43 @@
 /**
- * SPA 危险脚本清理（spa guard）。
+ * SPA 脚本清理 — 两层分离架构。
  *
- * 设计理念：不删除 SPA bootstrap 数据（让 SPA 正常初始化和应用样式），
- * 只删除 Cloudflare JSD 挑战脚本，配合 redirectGuard 拦截循环跳转。
+ * ## 背景
+ * 翻译页面直接回吐原站点 HTML，其中包含两类独立的威胁：
  *
- * 保留的：
- *   - SPA chunk 脚本（main.js / vendor.js 等）— 提供样式和交互
- *   - SPA bootstrap 数据（__INITIAL_STATE__ / __next_f / __NUXT__ 等）— 让 SPA 正常初始化
- *   - analytics 配置、广告脚本等无害脚本
+ * 1. **循环跳转** — Cloudflare JSD 挑战脚本在代理域下 CORS 失败 → reload
+ * 2. **Hydration 覆盖** — SPA 客户端脚本执行 React/Vue hydration，
+ *    用客户端渲染的 DOM 替换 SSR 翻译 DOM，导致译文消失
  *
- * 删除的：
- *   - Cloudflare JSD 挑战脚本（cdn-cgi/challenge-platform）— 代理域 CORS 失败 → reload
- *   - JSD 回调定义（window.jsdOnload）— 配合 JSD 挑战触发 reload
+ * 这两个问题完全独立：即使 reload 被完全阻止，hydration 仍然会覆盖翻译。
+ * 反过来，即使 hydration 被阻止（删了 SPA chunk），残留的 JSD 脚本仍可能触发 reload。
  *
- * 循环跳转由 redirectGuard 的导航拦截兜底（reload/assign/replace + fetch guard），
- * 不需要删除 SPA bootstrap 数据。
+ * ## 两层设计
+ *
+ * ### stripNavigationScripts（第一层：导航防护）
+ * 只删 Cloudflare JSD 挑战脚本，保留所有其他脚本和 bootstrap 数据。
+ * 适用于所有页面（包括 /original 原始页面）。
+ *
+ * ### stripHydrationScripts（第二层：hydration 防护）
+ * 删除 SPA bootstrap 数据和 chunk 脚本，阻止 hydration。
+ * 适用于翻译页面（需要保留 SSR 翻译 DOM）。
+ * 对 SPA-first 网站（X/Twitter、Next.js、Nuxt 等）特别重要。
+ *
+ * ### stripDangerousScripts（组合便捷函数）
+ * 等价于 stripHydrationScripts(stripNavigationScripts(html))。
  */
 
-/** 需要移除的外部脚本 src 模式 */
-const DANGEROUS_CHUNK_PATTERNS: RegExp[] = [
+// ════════════════════════════════════════════════════════════
+// 第一层：Navigation Scripts（Cloudflare JSD 挑战）
+// ════════════════════════════════════════════════════════════
+
+/** JSD 挑战外部脚本 src 模式 */
+const NAVIGATION_CHUNK_PATTERNS: RegExp[] = [
   // Cloudflare JSD 挑战平台脚本（代理域名下 CORS 失败导致循环重载）
   /cdn-cgi\/challenge-platform\/scripts\/jsd\//i,
 ];
 
-/** 需要移除的内联脚本内容模式 */
-const DANGEROUS_INLINE_PATTERNS: RegExp[] = [
+/** JSD 挑战内联脚本内容模式 */
+const NAVIGATION_INLINE_PATTERNS: RegExp[] = [
   // Cloudflare JSD 回调函数定义
   /window\.jsdOnload/,
 ];
@@ -34,44 +47,112 @@ function matchesAny(src: string, patterns: RegExp[]): boolean {
 }
 
 /**
- * 判断 script src 是否属于需要移除的危险外部脚本。
- */
-function isDangerousChunkScript(src: string): boolean {
-  return matchesAny(src, DANGEROUS_CHUNK_PATTERNS);
-}
-
-/**
- * 判断内联脚本内容是否属于需要移除的 bootstrap 代码。
- */
-function isDangerousInlineScript(text: string): boolean {
-  return matchesAny(text.trim(), DANGEROUS_INLINE_PATTERNS);
-}
-
-/**
- * 移除会导致循环重载的 Cloudflare JSD 挑战脚本。
+ * 第一层：移除 Cloudflare JSD 挑战脚本。
  *
- * 规则：
- *   1. 删除 cdn-cgi/challenge-platform 外部脚本
- *   2. 删除 window.jsdOnload 内联回调
- *   3. 保留所有 SPA chunk 脚本和 bootstrap 数据
+ * 只删除 cdn-cgi/challenge-platform 外部脚本和 jsdOnload 内联回调，
+ * 保留所有 SPA chunk 和 bootstrap 数据。
  *
- * 循环跳转由 redirectGuard 拦截 reload/assign/replace 兜底。
- *
- * @param html 原始 HTML 字符串
- * @returns 清理后的 HTML 字符串
+ * 适用于所有页面（包括 /original 原始页面）。
  */
-export function stripDangerousScripts(html: string): string {
-  // 1. 删除带 src 的危险脚本
+export function stripNavigationScripts(html: string): string {
+  // 1. 删除带 src 的 JSD 挑战脚本
   let cleaned = html.replace(
     /<script\b[^>]*\bsrc="([^"]*)"[^>]*><\/script>/gi,
-    (match, src) => (isDangerousChunkScript(src) ? '' : match),
+    (match, src) => (matchesAny(src, NAVIGATION_CHUNK_PATTERNS) ? '' : match),
   );
 
-  // 2. 删除匹配危险模式的内联脚本块
+  // 2. 删除 jsdOnload 内联回调
   cleaned = cleaned.replace(
     /<script\b(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/gi,
-    (match, content) => (isDangerousInlineScript(content) ? '' : match),
+    (match, content) => (matchesAny(content.trim(), NAVIGATION_INLINE_PATTERNS) ? '' : match),
   );
 
   return cleaned;
+}
+
+// ════════════════════════════════════════════════════════════
+// 第二层：Hydration Scripts（SPA bootstrap + chunk）
+// ════════════════════════════════════════════════════════════
+
+/**
+ * SPA chunk 脚本 src 模式 — 删除后会阻止 hydration。
+ *
+ * 这些是各 SPA 框架的客户端入口 chunk，加载后执行 React/Vue hydrateRoot()，
+ * 用客户端渲染的虚拟 DOM 替换 SSR 翻译 DOM。
+ *
+ * 注意：CSS link 标签不在此列，样式不会丢失。
+ */
+const HYDRATION_CHUNK_PATTERNS: RegExp[] = [
+  // Next.js — 客户端 chunk（hydration 入口）
+  /\/_next\/static\/chunks\//i,
+  // Next.js — streaming bootstrap 脚本标记
+  /<script\s+id="_R_"/i,
+  // Nuxt.js — 客户端 chunk
+  /\/_nuxt\//i,
+  // SvelteKit — 客户端 chunk
+  /\/svelte-kit\//i,
+  // X/Twitter — SPA 客户端 chunk（abs.twimg.com）
+  /abs\.twimg\.com\/responsive-web\//i,
+];
+
+/**
+ * SPA bootstrap 数据内联脚本模式 — 删除后 SPA 无法初始化 hydration。
+ *
+ * 这些内联脚本为 SPA 提供初始状态数据。删除后即使 chunk 加载了，
+ * 也因为缺少初始数据而不会执行 hydration。
+ */
+const HYDRATION_INLINE_PATTERNS: RegExp[] = [
+  // Next.js — streaming data（React Server Components 数据流）
+  /self\.__next_f\.push/,
+  // X/Twitter — 初始状态
+  /window\.__INITIAL_STATE__/,
+  // Nuxt.js — 全局状态
+  /window\.__NUXT__/,
+  // SvelteKit — 内联数据
+  /__sveltekit/,
+];
+
+/**
+ * 第二层：移除 SPA bootstrap 数据和 chunk 脚本。
+ *
+ * 删除各 SPA 框架的 hydration 入口（chunk 脚本 + bootstrap 数据），
+ * 阻止客户端 hydration 覆盖 SSR 翻译 DOM。
+ *
+ * CSS 样式不受影响（<link rel="stylesheet"> 不在删除范围）。
+ * 适用于翻译页面（需要保留 SSR 翻译 DOM）。
+ */
+export function stripHydrationScripts(html: string): string {
+  // 1. 删除 SPA chunk 脚本
+  let cleaned = html.replace(
+    /<script\b[^>]*\bsrc="([^"]*)"[^>]*><\/script>/gi,
+    (match, src) => (matchesAny(src, HYDRATION_CHUNK_PATTERNS) ? '' : match),
+  );
+
+  // 2. 删除 Next.js streaming bootstrap（<script id="_R_">）
+  cleaned = cleaned.replace(
+    /<script\s+id="_R_"[^>]*>[\s\S]*?<\/script>/gi,
+    '',
+  );
+
+  // 3. 删除 SPA bootstrap 数据内联脚本
+  cleaned = cleaned.replace(
+    /<script\b(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/gi,
+    (match, content) => (matchesAny(content.trim(), HYDRATION_INLINE_PATTERNS) ? '' : match),
+  );
+
+  return cleaned;
+}
+
+// ════════════════════════════════════════════════════════════
+// 组合便捷函数
+// ════════════════════════════════════════════════════════════
+
+/**
+ * 组合：先移除导航威胁，再移除 hydration 威胁。
+ *
+ * 等价于 stripHydrationScripts(stripNavigationScripts(html))。
+ * 适用于所有翻译页面。
+ */
+export function stripDangerousScripts(html: string): string {
+  return stripHydrationScripts(stripNavigationScripts(html));
 }
