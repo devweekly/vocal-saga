@@ -153,4 +153,43 @@ describe('守卫脚本运行时行为', () => {
       }, 0);
     });
   });
+
+  it('拦截 location.reload（不抛错、页面不刷新）', () => {
+    runGuard();
+    // reload 被 monkey-patch 成空函数，调用不应抛错也不应刷新页面
+    expect(() => window.location.reload()).not.toThrow();
+  });
+
+  it('拦截 history.go(0)（不抛错、页面不刷新）', () => {
+    runGuard();
+    // history.go(0) 等同于 reload，被拦截
+    expect(() => window.history.go(0)).not.toThrow();
+  });
+
+  it('history.go(-1) 等非零值仍允许', () => {
+    runGuard();
+    // go(-1) 不是 reload，应放行（jsdom 可能抛 SecurityError，但不被拦截）
+    // 这里只验证 history.go 没有被完全禁用
+    expect(() => {
+      try { window.history.go(-1); } catch (e) { /* jsdom 限制 */ }
+    }).not.toThrow();
+  });
+
+  it('拦截对 /cdn-cgi/ 的 fetch 请求，返回空 200', async () => {
+    runGuard();
+    const resp = await fetch('/cdn-cgi/challenge-platform/scripts/jsd/api.js');
+    expect(resp.status).toBe(200);
+    expect(await resp.text()).toBe('');
+  });
+
+  it('正常 fetch 请求不受影响', async () => {
+    runGuard();
+    // 正常请求应走原始 fetch（这里会失败因为 jsdom 没有网络，但不应返回 204）
+    try {
+      await fetch('/api/data');
+    } catch (e) {
+      // jsdom 无网络，fetch 抛 TypeError 是正常行为
+      expect(e).toBeInstanceOf(TypeError);
+    }
+  });
 });

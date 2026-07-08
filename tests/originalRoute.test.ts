@@ -68,15 +68,18 @@ describe('GET /original/<target>', () => {
     expect(res.status).toBe(400);
   });
 
-  it('removes SPA and challenge scripts for X/Twitter pages', async () => {
+  it('removes JSD challenge, keeps SPA chunk and bootstrap data for X/Twitter pages', async () => {
     const app = buildApp();
     const res = await app.request(new Request('http://test/original/x.com/i/status/123'));
     const body = await res.text();
     expect(body).toContain('original content');
+    // JSD 挑战脚本和回调删除
     expect(body).not.toContain('cdn-cgi/challenge-platform');
     expect(body).not.toContain('jsdOnload');
-    expect(body).not.toContain('abs.twimg.com/responsive-web/client-web');
-    expect(body).not.toContain('__INITIAL_STATE__');
+    // SPA bootstrap 数据保留（让 SPA 正常初始化和应用样式）
+    expect(body).toContain('__INITIAL_STATE__');
+    // SPA chunk 脚本保留（提供样式）
+    expect(body).toContain('abs.twimg.com/responsive-web/client-web/main.ea67863a.js');
   });
 });
 

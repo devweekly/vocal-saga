@@ -126,6 +126,43 @@ export const REDIRECT_GUARD_SCRIPT = `
     } catch (e) {}
   } catch (e) {}
 
+  // ── 1b. location.reload ──
+  // SPA 循环跳转的最后手段：reload。直接吞掉，不真正刷新。
+  try {
+    var origReload = window.location.reload;
+    window.location.reload = function () {
+      console.log('[vocal-saga] 拦截 location.reload');
+    };
+  } catch (e) {}
+
+  // ── 1c. history.go(0) / history.go(-0) ──
+  // 等同于 reload，同样拦截。
+  try {
+    var origGo = window.history.go;
+    window.history.go = function (delta) {
+      if (delta === 0 || delta === -0) {
+        console.log('[vocal-saga] 拦截 history.go(0)');
+        return;
+      }
+      return origGo.apply(window.history, arguments);
+    };
+  } catch (e) {}
+
+  // ── 1d. fetch guard ──
+  // 拦截对 /cdn-cgi/ 等代理域下会 CORS 失败的请求，返回 fake 204，
+  // 避免 SPA 因 fetch error 触发 reload。
+  try {
+    var origFetch = window.fetch;
+    window.fetch = function () {
+      var url = String(arguments[0] || '');
+      if (url.indexOf('/cdn-cgi/') !== -1) {
+        console.log('[vocal-saga] 拦截 fetch:', url);
+        return Promise.resolve(new Response('', { status: 200 }));
+      }
+      return origFetch.apply(window, arguments);
+    };
+  } catch (e) {}
+
   // ── 2. History API：pushState / replaceState ──
   // 这些不会真的离开页面，但原站 SPA 会借它做客户端路由初始化，
   // 进而触发后续 API 调用。跨 pathname 时拦截；同 pathname/hash 保持原行为。
