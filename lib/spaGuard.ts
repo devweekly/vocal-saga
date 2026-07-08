@@ -2,37 +2,45 @@
  * SPA hydration 脚本清理（spa guard）。
  *
  * 背景：vocal-saga 返回的翻译 HTML 是服务端渲染好的双语内容，但原站如果
- * 是 SPA（Next.js、X/Twitter 等），客户端加载的 hydration 脚本会重新渲染
- * 页面，导致两种问题：
- *   1. 翻译节点被覆盖/移除（Next.js React hydration 不匹配 → 丢弃 SSR DOM）
- *   2. 页面循环跳转（X/Twitter main.js CORS 调用 api.x.com 失败 → 重载页面）
+ * 是 SPA（Next.js、Nuxt、SvelteKit、X/Twitter 等），客户端加载的 hydration
+ * 脚本会重新渲染页面，导致两种问题：
+ *   1. 翻译节点被覆盖/移除（React/Vue hydration 不匹配 → 丢弃 SSR DOM）
+ *   2. 页面循环跳转（SPA 入口脚本 CORS 调用原站 API 失败 → 重载页面）
  *
  * 解决思路：在返回翻译 HTML 之前，移除已知的 SPA 客户端脚本和会导致循环的
  * 挑战脚本，让浏览器只渲染服务端输出的静态 HTML。
  *
  * 当前覆盖的框架 / 场景：
  *   - Next.js：`/_next/static/chunks/*.js`、`<script id="_R_">`
+ *   - Nuxt.js (Vue SSR)：`/_nuxt/*.js`、`window.__NUXT__`
+ *   - SvelteKit：`/svelte-kit/` 路径脚本
  *   - X/Twitter：`abs.twimg.com/responsive-web/client-web/*.js`、
  *     `window.__INITIAL_STATE__`、`window.jsdOnload`
  *   - Cloudflare JSD 挑战：`cdn-cgi/challenge-platform` 相关脚本
  *
- * 未来若遇到其他框架（如 Nuxt、SvelteKit）的类似问题，可在此扩展匹配规则。
+ * 未来若遇到其他框架的类似问题，可在此扩展匹配规则。
  */
 
 /** 需要移除的 SPA chunk script src 模式 */
 const SPA_CHUNK_PATTERNS: RegExp[] = [
   // Next.js hydration chunks
   /\/_next\/static\/chunks\/[^"]+\.js/i,
+  // Nuxt.js (Vue SSR) 客户端构建产物
+  /\/_nuxt\/[^"]+\.js/i,
+  // SvelteKit 客户端模块
+  /\/svelte-kit\//i,
   // X/Twitter SPA 入口脚本（main.js / vendor.js / ondemand.s.*.js 等）
   /abs\.twimg\.com\/responsive-web\/client-web\/[^"]+\.js/i,
   // Cloudflare JSD 挑战平台脚本（在代理域名下运行会 CORS 失败导致循环重载）
   /cdn-cgi\/challenge-platform\/scripts\/jsd\//i,
 ];
 
-/** 需要移除的内联脚本内容模式（匹配 textContent 开头） */
+/** 需要移除的内联脚本内容模式（匹配 textContent 任意位置） */
 const SPA_INLINE_PATTERNS: RegExp[] = [
   // X/Twitter 初始状态注入（SPA 启动数据）
   /window\.__INITIAL_STATE__/,
+  // Nuxt.js (Nuxt 2) 全局状态注入
+  /window\.__NUXT__/,
   // Cloudflare JSD 回调函数定义
   /window\.jsdOnload/,
 ];

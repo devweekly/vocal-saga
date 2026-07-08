@@ -120,6 +120,48 @@ describe('stripHydrationScripts', () => {
     expect(out).toContain('<p class="fanyi-translation">译文</p>');
   });
 
+  it('删除 Nuxt.js 客户端构建脚本', () => {
+    const html = `
+      <html>
+        <head>
+          <script src="/_nuxt/entry.a1b2c3d.js"></script>
+          <script src="/_nuxt/pages/index.d4e5f6.js"></script>
+        </head>
+        <body><p class="fanyi-translation">译文</p></body>
+      </html>
+    `;
+    const out = stripHydrationScripts(html);
+    expect(out).not.toContain('_nuxt/entry.a1b2c3d.js');
+    expect(out).not.toContain('_nuxt/pages/index.d4e5f6.js');
+    expect(out).toContain('fanyi-translation');
+  });
+
+  it('删除 Nuxt.js __NUXT__ 全局状态注入', () => {
+    const html = `
+      <html><body>
+        <script>window.__NUXT__ = (function (a, b) { return { data: [] } }(1, 2))</script>
+        <p class="fanyi-translation">译文</p>
+      </body></html>
+    `;
+    const out = stripHydrationScripts(html);
+    expect(out).not.toContain('__NUXT__');
+    expect(out).toContain('fanyi-translation');
+  });
+
+  it('删除 SvelteKit 客户端模块', () => {
+    const html = `
+      <html>
+        <head>
+          <script type="module" src="/svelte-kit/assets/app.a1b2c3.js"></script>
+        </head>
+        <body><p class="fanyi-translation">译文</p></body>
+      </html>
+    `;
+    const out = stripHydrationScripts(html);
+    expect(out).not.toContain('svelte-kit');
+    expect(out).toContain('fanyi-translation');
+  });
+
   it('保留无关的内联脚本（如 analytics 配置）', () => {
     const html = `
       <script>window.dataLayer = window.dataLayer || [];
