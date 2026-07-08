@@ -344,7 +344,7 @@ ${pager}
           .first();
         if (existing) {
           console.log(`[fanyi/page/check] D1 cache hit for ${url}`);
-          return new Response(existing.html, {
+          return new Response(stripHydrationScripts(injectRedirectGuard(existing.html)), {
             status: 200,
             headers: {
               'Content-Type': 'text/html; charset=utf-8',
@@ -811,20 +811,8 @@ ${pager}
         if (head) head.insertBefore(base, head.firstChild);
       }
 
-      // 移除 Cloudflare JavaScript Detection（jsd）挑战脚本。
-      // 在 /original 代理场景下，页面 origin 是代理域名，而 jsd 脚本会向
-      // x.com/cdn-cgi/challenge-platform 发起跨域验证请求。缺少正确 CORS
-      // 头时验证失败，触发页面反复重载，形成“服务端缓存重新渲染”的循环。
-      const scripts = document.querySelectorAll('script[src]');
-      Array.from(scripts).forEach((script) => {
-        const src = script.getAttribute('src') || '';
-        if (src.includes('cdn-cgi/challenge-platform')) {
-          script.remove();
-        }
-      });
-
       const html = '<!doctype html>\n' + document.documentElement.outerHTML;
-      return new Response(html, {
+      return new Response(stripHydrationScripts(injectRedirectGuard(html)), {
         status: 200,
         headers: {
           'Content-Type': 'text/html; charset=utf-8',

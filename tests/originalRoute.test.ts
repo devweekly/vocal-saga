@@ -12,7 +12,12 @@ vi.mock('../lib/translate/urlFetcher', () => ({
       url,
       finalUrl: url,
       html: isX
-        ? '<html><head><script src="https://x.com/cdn-cgi/challenge-platform/scripts/jsd/api.js?onload=jsdOnload"></script></head><body>original content</body></html>'
+        ? '<html><head>' +
+          '<script src="https://x.com/cdn-cgi/challenge-platform/scripts/jsd/api.js?onload=jsdOnload"></script>' +
+          '<script src="https://abs.twimg.com/responsive-web/client-web/main.ea67863a.js"></script>' +
+          '<script>window.__INITIAL_STATE__={"optimist":[]}</script>' +
+          '<script>window.jsdOnload = function() {};</script>' +
+          '</head><body>original content</body></html>'
         : '<html><body>original content</body></html>',
       status: 200,
       doc: { querySelector: () => null },
@@ -63,13 +68,15 @@ describe('GET /original/<target>', () => {
     expect(res.status).toBe(400);
   });
 
-  it('removes Cloudflare jsd challenge scripts for X/Twitter pages', async () => {
+  it('removes SPA and challenge scripts for X/Twitter pages', async () => {
     const app = buildApp();
     const res = await app.request(new Request('http://test/original/x.com/i/status/123'));
     const body = await res.text();
     expect(body).toContain('original content');
     expect(body).not.toContain('cdn-cgi/challenge-platform');
     expect(body).not.toContain('jsdOnload');
+    expect(body).not.toContain('abs.twimg.com/responsive-web/client-web');
+    expect(body).not.toContain('__INITIAL_STATE__');
   });
 });
 
