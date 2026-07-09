@@ -24,6 +24,7 @@ import { requireAuth } from './auth';
 import { normalizeUrl, cacheKeyUrl } from './urlUtils';
 import { injectRedirectGuard } from './redirectGuard';
 import { stripDangerousScripts, stripNavigationScripts } from './spaGuard';
+import { devirtualizeLayout } from './devirtualize';
 import {
   CF_ACCOUNT_ID,
   CF_API_TOKEN,
@@ -89,6 +90,14 @@ export function createApp(storage?: StorageAdapter): Hono {
 
   const app = new Hono();
   app.use('*', cors());
+
+  // 翻译 HTML 处理 pipeline：导航清理 → 去虚拟化 → 注入守卫
+  const processTranslationHtml = (html: string) =>
+    injectRedirectGuard(devirtualizeLayout(stripDangerousScripts(html)));
+
+  // 原始 HTML 处理 pipeline：仅导航清理 → 注入守卫
+  const processOriginalHtml = (html: string) =>
+    injectRedirectGuard(stripNavigationScripts(html));
 
   // 每页记录数
   const PAGE_SIZE = 30;
@@ -207,7 +216,7 @@ ${pager}
       ).bind(Number(id)).first();
       if (!row) return c.json({ error: 'translation not found' }, 404);
       // 注入重定向守卫：原站 SPA 脚本会把用户带离翻译页（详见 redirectGuard.ts）
-      return new Response(stripDangerousScripts(injectRedirectGuard(row.html)), {
+      return new Response(processTranslationHtml(row.html), {
         status: 200,
         headers: { 'Content-Type': 'text/html; charset=utf-8' },
       });
@@ -344,7 +353,7 @@ ${pager}
           .first();
         if (existing) {
           console.log(`[fanyi/page/check] D1 cache hit for ${url}`);
-          return new Response(stripDangerousScripts(injectRedirectGuard(existing.html)), {
+          return new Response(processTranslationHtml(existing.html), {
             status: 200,
             headers: {
               'Content-Type': 'text/html; charset=utf-8',
@@ -417,7 +426,7 @@ ${pager}
         ).bind(cacheKey, sourceStored, targetStored).first();
         if (existing) {
           console.log(`[fanyi/page] D1 cache hit for ${url}`);
-          return new Response(stripDangerousScripts(injectRedirectGuard(existing.html)), {
+          return new Response(processTranslationHtml(existing.html), {
             status: 200,
             headers: {
               'Content-Type': 'text/html; charset=utf-8',
@@ -469,7 +478,7 @@ ${pager}
         }
       }
 
-      return new Response(stripDangerousScripts(injectRedirectGuard(result.html)), {
+      return new Response(processTranslationHtml(result.html), {
         status: 200,
         headers: {
           'Content-Type': 'text/html; charset=utf-8',
@@ -578,7 +587,7 @@ ${pager}
         ).bind(cacheKey, sourceStored, targetStored).first();
         if (existing) {
           console.log(`[translate/url-page] D1 cache hit for ${url}`);
-          return new Response(stripDangerousScripts(injectRedirectGuard(existing.html)), {
+          return new Response(processTranslationHtml(existing.html), {
             status: 200,
             headers: {
               'Content-Type': 'text/html; charset=utf-8',
@@ -630,7 +639,7 @@ ${pager}
           console.error('[D1] save error:', e);
         }
       }
-      return new Response(stripDangerousScripts(injectRedirectGuard(result.html)), {
+      return new Response(processTranslationHtml(result.html), {
         status: 200,
         headers: {
           'Content-Type': 'text/html; charset=utf-8',
@@ -812,7 +821,7 @@ ${pager}
       }
 
       const html = '<!doctype html>\n' + document.documentElement.outerHTML;
-      return new Response(stripNavigationScripts(injectRedirectGuard(html)), {
+      return new Response(processOriginalHtml(html), {
         status: 200,
         headers: {
           'Content-Type': 'text/html; charset=utf-8',
