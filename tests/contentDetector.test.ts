@@ -421,6 +421,79 @@ describe('contentDetector', () => {
       expect(root!.className).toContain('post-content');
       expect(root!.closest('#cookie-banner')).toBeNull();
     });
+
+    // Regression: developers.googleblog.com
+    // 页面没有 article/main，body 下直接是 .blog-detail-container 作为真正文章容器。
+    // 文章内部有很多 .inner-block-content.rich-content 小块（单段文字、密度极高），
+    // 之前因为 rich 命中正 token 且链接少，得分超过真正容器，导致只提取到 1 个 block。
+    it('prefers large body-level container over high-density inner fragments', () => {
+      document.body.innerHTML = `
+        <header class="dgc-header">
+          <a href="/">Google Developers</a>
+          <a href="/products">Products</a>
+          <a href="/blog">Blog</a>
+        </header>
+        <div class="blog-detail-container">
+          <h1>LiteRT.js, Google's high performance Web AI Inference</h1>
+          <p>We are excited to announce LiteRT.js, a JavaScript binding of LiteRT for running AI directly inside the web browser.</p>
+          <p>While prior web AI solutions like TensorFlow.js relied on less performant JavaScript-based kernels, we are now making our native runtime available to the web.</p>
+          <p>Our initial release provides all the tools needed to get started, including the new LiteRT.js npm package and a collection of demos.</p>
+          <p>With LiteRT.js, web developers can integrate models into their apps written in JavaScript or TypeScript to handle complex tasks.</p>
+          <p>By leveraging LiteRT's lowering flow and runtime, you get simple conversion of models from a variety of Python ML frameworks.</p>
+          <div class="block">
+            <div class="inner-block-content rich-content">
+              <p>To ground these claims in real-world efficiency, we benchmarked popular AI models using LiteRT.js across three distinct hardware configurations.</p>
+            </div>
+            <div class="inner-block-content rich-content">
+              <p>The results show significant improvements in latency and memory usage compared to pure JavaScript inference solutions.</p>
+            </div>
+            <div class="inner-block-content rich-content">
+              <p>Developers can expect consistent behavior across Chrome, Firefox, Safari, and Edge.</p>
+            </div>
+          </div>
+          <p>Native hardware acceleration is available across CPU, GPU, and NPU through WebGPU and WebGL backends.</p>
+          <p>Quantization tools allow you to configure tailored schemes across different model architectures.</p>
+        </div>
+        <footer class="footer-utility__wrapper"><p>Terms & Privacy</p></footer>
+      `;
+
+      const root = detectArticleRoot(document);
+      expect(root).not.toBeNull();
+      expect(root!.className).toContain('blog-detail-container');
+      expect(root!.className).not.toContain('inner-block-content');
+    });
+
+    // Readability fallback: 当评分算法因 body 噪声过大 + 真正容器链接多
+    // 而选中高密度碎片时，Readability 应作为 fallback 纠正回真正的文章容器。
+    it('falls back to Readability when scoring picks a tiny fragment due to body noise', () => {
+      const articleText = 'We are excited to announce our new product. It brings powerful features to developers around the world. This article explains the motivation, design, and usage of the new release.';
+      const denseFragment = 'To validate performance we ran comprehensive benchmarks across multiple configurations and observed significant improvements in latency and throughput metrics.';
+      // 大量噪声脚本让真正容器占 body 比例降到 <5%，触发 Readability fallback 路径
+      const noise = 'noise '.repeat(20000);
+      // 大量链接稀释真正容器的 density score
+      const manyLinks = Array.from({ length: 40 }, (_, i) => `<a href="/ref-${i}">reference ${i}</a>`).join(' ');
+
+      document.body.innerHTML = `
+        <script>/* ${noise} */</script>
+        <header><a href="/">Home</a><a href="/about">About</a></header>
+        <div class="main-content">
+          <h1>Product Announcement</h1>
+          <p>${articleText}</p>
+          <p>Developers can integrate the library using a simple npm install command and start building immediately.</p>
+          <p>${manyLinks}</p>
+          <div class="rich-content">
+            <p>${denseFragment}</p>
+          </div>
+          <p>The release includes comprehensive documentation, examples, and community support channels.</p>
+        </div>
+        <footer><p>Terms & Privacy</p></footer>
+      `;
+
+      const root = detectArticleRoot(document);
+      expect(root).not.toBeNull();
+      expect(root!.className).toContain('main-content');
+      expect(root!.className).not.toContain('rich-content');
+    });
   });
 
   // --- Text Density 算法特性测试 ---
