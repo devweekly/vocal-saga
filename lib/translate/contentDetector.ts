@@ -624,6 +624,36 @@ export function collectCandidates(doc: Document): Element[] {
  * （如 developers.googleblog.com 的 .inner-block-content.rich-content），
  * 评分算法容易选错。Readability 的启发式规则能更稳定地找到主文章区域。
  */
+/**
+ * 检测 best 是否只是“多个同级 section 构成文章”中的一个小节。
+ *
+ * 很多学术/技术站点把文章切成多个 <section> 或 <div> 同级块，
+ * contentDetector 的评分会选中其中一个密度最高的小节，导致只翻译局部。
+ * 当 best 的父容器包含 ≥3 个长度相当的文本块，且 best 仅占父容器一小部分时，
+ * 认为页面是碎片化的，应启用 Readability fallback。
+ */
+function isFragmentedArticleRoot(best: Element, doc: Document): boolean {
+  const parent = best.parentElement;
+  if (!parent || parent === doc.body || parent === doc.documentElement) return false;
+
+  const bestTag = best.tagName.toLowerCase();
+  if (bestTag !== 'section' && bestTag !== 'div') return false;
+
+  const siblings = Array.from(parent.children).filter((c) => {
+    const tag = c.tagName.toLowerCase();
+    return (tag === 'section' || tag === 'div') && (c.textContent || '').trim().length > 100;
+  });
+
+  if (siblings.length < 3) return false;
+
+  const bestLen = (best.textContent || '').length;
+  const totalLen = siblings.reduce((sum, c) => sum + (c.textContent || '').length, 0);
+  if (totalLen === 0) return false;
+
+  // best 占同类型兄弟总文本比例 < 30%，说明它只是多节文章的一部分
+  return bestLen / totalLen < 0.3;
+}
+
 function tryReadabilityRoot(doc: Document): Element | null {
   try {
     // Readability 会修改传入的文档树，因此必须在克隆的文档上运行。
@@ -656,7 +686,11 @@ function tryReadabilityRoot(doc: Document): Element | null {
     }
 
     for (const candidate of signatureCandidates) {
-      const treeWalker = doc.createTreeWalker(doc.body, NodeFilter.SHOW_TEXT, null);
+      const treeWalker = doc.createTreeWalker(
+        doc.body,
+        typeof NodeFilter !== 'undefined' ? NodeFilter.SHOW_TEXT : 4,
+        null,
+      );
       while (treeWalker.nextNode()) {
         const node = treeWalker.currentNode as Text;
         if (node.textContent && node.textContent.includes(candidate)) {
@@ -668,22 +702,29 @@ function tryReadabilityRoot(doc: Document): Element | null {
     }
     if (!matchedTextNode) return null;
 
-    // 从文本节点向上走到一个稳定的容器（div/section/article/main），最多 5 层
+    // 从文本节点向上走到一个稳定的容器（div/section/article/main/body）。
+    // 对 sunxiunan 这类多 section 站点，Readability 正文可能直接位于 body 下的
+    // 多个 section 中，没有统一 wrapper；此时需要走到 body 才能聚合全文。
     let root: Element | null = matchedTextNode.parentElement;
     let candidate: Element | null = matchedTextNode.parentElement;
-    let steps = 0;
+    const readabilityTextLen = article.textContent.length;
+    const coverageThreshold = readabilityTextLen * 0.8;
+
     while (
       candidate &&
-      candidate !== doc.body &&
       candidate !== doc.documentElement &&
-      steps < 6
+      candidate !== doc.body?.parentElement
     ) {
       const tag = candidate.tagName.toLowerCase();
-      if (tag === 'article' || tag === 'main' || tag === 'section' || tag === 'div') {
+      if (tag === 'article' || tag === 'main' || tag === 'section' || tag === 'div' || tag === 'body') {
         root = candidate;
+        const textLen = (candidate.textContent || '').length;
+        // 找到能覆盖 Readability 正文 80% 的最外层容器即可停止
+        if (textLen >= coverageThreshold) {
+          break;
+        }
       }
       candidate = candidate.parentElement;
-      steps++;
     }
 
     // 排除 consent SDK 容器，避免误把 cookie 弹窗当正文
@@ -721,12 +762,21 @@ export function detectArticleRoot(doc: Document): Element | null {
     }
   }
 
-  // 判断当前最佳候选是否可靠：分数不足或占 body 文本比例过低时，启用 Readability fallback
+  // 判断当前最佳候选是否可靠：分数不足、占 body 文本比例过低，
+  // 或者 best 是孤立的 section 等局部容器时，启用 Readability fallback。
   let shouldTryReadability = false;
   if (bestEl && doc.body) {
     const bodyText = (doc.body.textContent || '').length;
-    const ratio = bodyText > 0 ? (bestEl.textContent || '').length / bodyText : 0;
+    const bestTextLen = (bestEl.textContent || '').length;
+    const ratio = bodyText > 0 ? bestTextLen / bodyText : 0;
     if (bestScore < SCORE_THRESHOLD || ratio < 0.15) {
+      shouldTryReadability = true;
+    } else if (isFragmentedArticleRoot(bestEl, doc)) {
+      // 页面由多个同级 section 构成，best 可能只是其中一个小节。
+      // Readability 更擅长把整篇文章聚合起来。
+      console.log(
+        `[ContentDetector] Best candidate looks like a fragmented section, trying Readability fallback`,
+      );
       shouldTryReadability = true;
     }
   } else {
@@ -739,13 +789,16 @@ export function detectArticleRoot(doc: Document): Element | null {
       // Readability 已经是一个相对可靠的正文提取器；
       // 当现有评分算法不可靠时才启用 fallback，因此直接采用其结果，
       // 并用保底分数确保能跨过阈值。
+      // 注意：这里不再和 bestScore 比较。原 best 本身已因分数不足 / 占比过低 /
+      // 碎片化被判定为不可靠，直接采用 Readability 结果才能聚合多 section 文章。
       const s = scoreElement(readabilityRoot);
-      const readabilityScore = Math.max(s, SCORE_THRESHOLD + 1);
-      if (readabilityScore > bestScore) {
-        bestScore = readabilityScore;
+      const readabilityTextLen = (readabilityRoot.textContent || '').length;
+      const bestTextLen = bestEl ? (bestEl.textContent || '').length : 0;
+      if (readabilityTextLen >= bestTextLen * 0.5) {
+        bestScore = Math.max(s, SCORE_THRESHOLD + 1);
         bestEl = readabilityRoot;
         console.log(
-          `[ContentDetector] Readability fallback root: <${bestEl.tagName}> .${(bestEl.className || '').split(/\s+/)[0]} (score: ${bestScore.toFixed(1)}, raw: ${s.toFixed(1)})`,
+          `[ContentDetector] Readability fallback root: <${bestEl.tagName}> .${(bestEl.className || '').split(/\s+/)[0]} (score: ${bestScore.toFixed(1)}, raw: ${s.toFixed(1)}, textLen: ${readabilityTextLen})`,
         );
       }
     }
