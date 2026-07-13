@@ -17,9 +17,11 @@ import { fetchPage } from '../lib/translate/urlFetcher';
 
 let server: http.Server;
 let baseUrl: string;
+let lastHeaders: http.IncomingHttpHeaders | undefined;
 
 beforeAll(async () => {
   server = http.createServer((req, res) => {
+    lastHeaders = req.headers;
     const url = new URL(req.url || '/', 'http://localhost');
 
     if (url.pathname === '/ok') {
@@ -94,5 +96,12 @@ describe('fetchPage', () => {
   it('preserves requested url in result.url', async () => {
     const result = await fetchPage(`${baseUrl}/ok`);
     expect(result.url).toBe(`${baseUrl}/ok`);
+  });
+
+  it('sends browser-like Client Hints headers', async () => {
+    await fetchPage(`${baseUrl}/ok`);
+    expect(lastHeaders?.['sec-ch-ua']).toContain('Chromium');
+    expect(lastHeaders?.['sec-ch-ua-mobile']).toBe('?0');
+    expect(lastHeaders?.['sec-ch-ua-platform']).toBe('"macOS"');
   });
 });

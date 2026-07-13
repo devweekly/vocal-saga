@@ -55,6 +55,10 @@ export async function fetchPage(
         'Accept-Encoding': 'gzip, deflate, br',
         'Cache-Control': 'no-cache',
         Pragma: 'no-cache',
+        // Client Hints：O'Reilly 等站点会检查这些头判断是否为真实浏览器
+        'Sec-Ch-Ua': '"Not/A.Brand";v="8", "Chromium";v="125", "Google Chrome";v="125"',
+        'Sec-Ch-Ua-Mobile': '?0',
+        'Sec-Ch-Ua-Platform': '"macOS"',
         'Sec-Fetch-Dest': 'document',
         'Sec-Fetch-Mode': 'navigate',
         'Sec-Fetch-Site': 'none',
