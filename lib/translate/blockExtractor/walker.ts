@@ -38,6 +38,7 @@ import {
 import {
   classifyChildren,
   hasBlockLevelParent,
+  hasContentTokens,
   hasTranslateBlockClass,
   isContentEditable,
   isElementHidden,
@@ -292,10 +293,20 @@ function acceptWalkerNode(
     counters.rejected++;
     return FILTER_REJECT;
   }
-  // 结构容器标签（article/main）：不因元数据类名而拒绝。
-  // 像 WordPress 的 <article class="category-ai"> 中 "category"
+  // 结构容器标签（article/main）和带内容 token 的容器元素（section/div）：
+  // 不因元数据类名而拒绝。
+  // 像 WordPress 的 <article class="category-ai"> 或
+  // <section class="post__content category-ai-and-ml"> 中 "category"
   // 会命中 METADATA_TOKENS，导致整篇文章子树被拒绝，正文丢失翻译。
-  if (tag !== 'article' && tag !== 'main' && isMetadataClass(el)) {
+  // 对 section/div, 当同时拥有内容 token (post/content/article/story/entry/rich) 时,
+  // 它是正文容器, 不应因 metadata class 被拒绝。
+  // 注意: 仅限容器标签, <p class="post-meta"> 等叶子节点仍应被拒绝。
+  const isContainerWithContent =
+    (tag === 'section' || tag === 'div') && hasContentTokens(el);
+  if (
+    tag !== 'article' && tag !== 'main' &&
+    isMetadataClass(el) && !isContainerWithContent
+  ) {
     // 文章元数据 (作者 / 日期 / 分类) 整棵子树拒绝
     cache.rejected.add(el);
     counters.rejected++;

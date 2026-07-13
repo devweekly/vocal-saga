@@ -364,6 +364,18 @@ const METADATA_TOKENS_RAW = [
 ];
 export const METADATA_TOKENS: ReadonlySet<string> = new Set(METADATA_TOKENS_RAW);
 
+/**
+ * 内容容器 token: 出现在 class 中时, 强烈表明元素是正文容器而非元数据。
+ *
+ * WordPress / Ghost / Hugo 等CMS 会在正文容器上叠加 category-* / tag-* 等
+ * metadata class (如 <section class="post__content category-ai-and-ml">)，
+ * 这些元素应豁免 METADATA_TOKENS 拒绝, 否则整篇文章子树被跳过。
+ */
+const CONTENT_TOKENS_RAW = [
+  'post', 'content', 'article', 'story', 'entry', 'rich',
+];
+export const CONTENT_TOKENS: ReadonlySet<string> = new Set(CONTENT_TOKENS_RAW);
+
 // =============================================================================
 // 文章容器类名 (用于 isInsideArticle 向上追溯)
 // =============================================================================

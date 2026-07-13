@@ -4389,6 +4389,53 @@ describe('extractBlocks - Metadata class skipping (author/date/category)', () =>
     expect(texts).toContain('This is the real article body content that must be translated.');
     expect(texts).toContain('Second paragraph with more important information for readers.');
   });
+
+  it('does NOT reject <section> with content + category tokens (regression: github.blog)', () => {
+    // GitHub Blog (WordPress) 用 <section class="post__content category-ai-and-ml">
+    // "category" 命中 METADATA_TOKENS，但 "post"/"content" 是内容容器 token，
+    // 不应因 metadata class 拒绝整篇文章。
+    setupHTML(`
+      <main>
+        <header><h1>GitHub Blog Post Title</h1></header>
+        <section class="col-12 col-md-8 col-lg-7 post__content is-layout-constrained post-97467 post type-post status-publish format-standard has-post-thumbnail hentry category-ai-and-ml category-engineering tag-github-copilot tag-llms">
+          <p>Give an agent better tools and it should do better work.</p>
+          <p>When you open a pull request, Copilot code review reads the diff.</p>
+          <p>The tools were not the problem. The instructions were.</p>
+        </section>
+        <aside class="author-bio">
+          <p class="meta-info">Author bio with metadata that should be skipped.</p>
+        </aside>
+      </main>
+    `);
+
+    const blocks = extractBlocks(document, 'https://github.blog/test');
+    const texts = blocks.map(b => b.text);
+
+    expect(texts).toContain('Give an agent better tools and it should do better work.');
+    expect(texts).toContain('When you open a pull request, Copilot code review reads the diff.');
+    expect(texts).toContain('The tools were not the problem. The instructions were.');
+    expect(texts.some(t => t.includes('Author bio with metadata'))).toBe(false);
+  });
+
+  it('STILL rejects pure metadata <section> without content tokens', () => {
+    // 没有 content token 的 metadata section 仍应被拒绝
+    setupHTML(`
+      <main>
+        <section class="category-list meta-info author-bio">
+          <p>Author: John Doe. Date: 2024-01-15. Category: AI.</p>
+        </section>
+        <article>
+          <p>Real article content that should be translated.</p>
+        </article>
+      </main>
+    `);
+
+    const blocks = extractBlocks(document, 'https://example.com/test');
+    const texts = blocks.map(b => b.text);
+
+    expect(texts).toContain('Real article content that should be translated.');
+    expect(texts.some(t => t.includes('John Doe'))).toBe(false);
+  });
 });
 
 describe('extractBlocks - Exit intent and welcome popups', () => {
