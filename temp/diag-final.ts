@@ -2,9 +2,9 @@ import { chromium } from 'playwright';
 import fs from 'fs';
 
 // 导入新的 pipeline 函数
-const { stripDangerousScripts } = await import('./lib/spaGuard');
-const { injectRedirectGuard } = await import('./lib/redirectGuard');
-const { devirtualizeLayout } = await import('./lib/devirtualize');
+const { stripDangerousScripts } = await import('../lib/spaGuard');
+const { injectRedirectGuard } = await import('../lib/redirectGuard');
+const { devirtualizeLayout } = await import('../lib/devirtualize');
 
 const browser = await chromium.launch({
   headless: false,

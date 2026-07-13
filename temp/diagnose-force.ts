@@ -4,8 +4,8 @@
  * 本脚本直接复现 vocal-saga 服务端抓取 + 内容提取流程，但不真正调用 LLM，
  * 用于定位「是抓不到正文」还是「翻译服务失败」。
  */
-import { fetchPage } from './lib/translate/urlFetcher';
-import { prepareDocument } from './lib/translate/contentHelper';
+import { fetchPage } from '../lib/translate/urlFetcher';
+import { prepareDocument } from '../lib/translate/contentHelper';
 
 const target = process.argv[2] || 'llm-as-a-verifier.com';
 const url = `https://${target.replace(/^https?:\/\//, '')}`;

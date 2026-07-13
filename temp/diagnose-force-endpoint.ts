@@ -4,7 +4,7 @@
  * 直接调用 createApp() + app.request()，复现 vocal-saga 从路由解析、抓取、
  * 翻译到返回 HTML 的完整流程。会消耗 LLM API token（如果配置了 KEY）。
  */
-import { createApp } from './lib/app';
+import { createApp } from '../lib/app';
 
 const target = process.argv[2] || 'llm-as-a-verifier.com';
 const path = `/force/${encodeURIComponent(target)}`;

@@ -6163,6 +6163,27 @@ describe('blockExtractor - short pattern word boundary (\\b)', () => {
     document.body.appendChild(el);
     expect(isOverlayElement(el)).toBe(true);
   });
+
+  it('isOverlayElement matches OneTrust banner containers', async () => {
+    // 回归：s.sunxiunan.com/article/343 和 /332 的 OneTrust Cookie Banner
+    // 主容器 id="onetrust-banner-sdk" class="otFloatingFlat ..." 必须被识别并隐藏。
+    const cases = [
+      { className: 'otFloatingFlat ot-bottom-right', id: 'onetrust-banner-sdk' },
+      { className: 'otFloatingFlat otRelFont ot-bottom-left ot-fade-in', id: 'onetrust-banner-sdk' },
+      { className: 'onetrust-pc-dark-filter ot-fade-in', id: '' },
+      { className: 'ot-sdk-four ot-sdk-columns', id: 'onetrust-button-group-parent' },
+      { className: 'ot-sdk-row', id: 'onetrust-button-group' },
+      { className: '', id: 'onetrust-consent-sdk' },
+    ];
+    for (const { className, id } of cases) {
+      const el = document.createElement('div');
+      el.className = className;
+      if (id) el.id = id;
+      document.body.appendChild(el);
+      expect(isOverlayElement(el)).toBe(true);
+      el.remove();
+    }
+  });
 });
 
 

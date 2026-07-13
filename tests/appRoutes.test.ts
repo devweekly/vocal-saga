@@ -139,6 +139,10 @@ function createMockDb() {
                 ) || null
               );
             }
+            if (sql.includes('WHERE id = ?')) {
+              const [id] = args;
+              return rows.find((r) => r.id === Number(id)) || null;
+            }
             return null;
           },
           all: async () => {
@@ -458,7 +462,8 @@ describe('GET /fanyi/page/check', () => {
       title: 'Test',
       source_lang: 'en',
       target_lang: 'zh',
-      html: '<html><body>cached translation</body></html>',
+      // 健康缓存：保留原页面内联样式
+      html: '<html><head><style>.original { color: black; }</style></head><body>cached translation</body></html>',
       created_at: new Date().toISOString(),
     });
 
@@ -478,6 +483,52 @@ describe('GET /fanyi/page/check', () => {
     const app = buildApp();
     const res = await app.request(
       req('/fanyi/page/check?url=https://example.com/article&source=en&target=zh'),
+    );
+
+    expect(res.status).toBe(204);
+  });
+
+  it('returns 204 when cached HTML is structurally unhealthy', async () => {
+    // 损坏缓存（缺 <html>，也无原页面样式）应视为 miss，让扩展端 fallback 到 POST /fanyi/page
+    const app = buildApp();
+    const db = createMockDb();
+    db._rows.push({
+      id: 1,
+      url: cacheKeyUrl('https://example.com/article'),
+      title: 'Test',
+      source_lang: 'en',
+      target_lang: 'zh',
+      html: '<body><head>corrupted cached translation</body></head></html>',
+      created_at: new Date().toISOString(),
+    });
+
+    const res = await app.request(
+      req('/fanyi/page/check?url=https://example.com/article&source=en&target=zh'),
+      {},
+      envWithDb(db),
+    );
+
+    expect(res.status).toBe(204);
+  });
+
+  it('returns 204 when cached HTML lost original CSS', async () => {
+    // 损坏缓存保留 <html> 但丢失原页面样式，只剩 OneTrust + fanyi 样式
+    const app = buildApp();
+    const db = createMockDb();
+    db._rows.push({
+      id: 1,
+      url: cacheKeyUrl('https://example.com/article'),
+      title: 'Test',
+      source_lang: 'en',
+      target_lang: 'zh',
+      html: '<html><head><style>#onetrust-banner-sdk { display: none; }</style><style>/* 双语对照样式 */ .fanyi-translation {}</style></head><body>cached translation</body></html>',
+      created_at: new Date().toISOString(),
+    });
+
+    const res = await app.request(
+      req('/fanyi/page/check?url=https://example.com/article&source=en&target=zh'),
+      {},
+      envWithDb(db),
     );
 
     expect(res.status).toBe(204);
@@ -660,7 +711,8 @@ describe('POST /fanyi/page', () => {
       title: 'Cached',
       source_lang: 'en',
       target_lang: 'zh',
-      html: '<html><body>cached from d1</body></html>',
+      // 健康缓存需保留原页面样式
+      html: '<html><head><link rel="stylesheet" href="/style.css"></head><body>cached from d1</body></html>',
       created_at: new Date().toISOString(),
     });
 
@@ -712,6 +764,40 @@ describe('POST /fanyi/page', () => {
     expect(db._rows[0].source_lang).toBe('en');
     expect(db._rows[0].target_lang).toBe('zh');
     expect(db._rows[0].html).toContain('translated');
+  });
+
+  it('ignores unhealthy D1 cache and re-translates', async () => {
+    const { translateHtml } = await import('../lib/translate/pipeline');
+    const db = createMockDb();
+    db._rows.push({
+      id: 1,
+      url: 'https://example.com',
+      title: 'Cached',
+      source_lang: 'en',
+      target_lang: 'zh',
+      html: '<body><head>corrupted cached translation</body></head></html>',
+      created_at: new Date().toISOString(),
+    });
+
+    const app = buildApp();
+    const res = await app.request(
+      req('/fanyi/page', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          html: '<html><body>new</body></html>',
+          url: 'https://example.com',
+          apiKey: 'sk-test-api-key',
+        }),
+      }),
+      {},
+      envWithDb(db),
+    );
+    expect(res.status).toBe(200);
+    expect(translateHtml).toHaveBeenCalledOnce();
+    const html = await res.text();
+    expect(html).toContain('translated');
+    expect(html).not.toContain('corrupted');
   });
 });
 
@@ -836,5 +922,87 @@ describe('分页列表', () => {
     const html = await res.text();
     // 超出页数，无记录显示
     expect(html).toContain('暂无翻译记录');
+  });
+});
+
+// ─── GET /translate/:target ─────────────────────────────────
+describe('GET /translate/<target> — cache health', () => {
+  it('ignores unhealthy D1 cache and re-translates', async () => {
+    const { translateUrl } = await import('../lib/translate/pipeline');
+    (translateUrl as any).mockResolvedValueOnce({
+      html: '<html><body>fresh translation: https://example.com/post</body></html>',
+      title: 'Fresh',
+      blocks: 1,
+      chunks: 1,
+      duration_ms: 10,
+    });
+
+    const db = createMockDb();
+    db._rows.push({
+      id: 1,
+      url: 'https://example.com/post',
+      title: 'Cached',
+      source_lang: 'en',
+      target_lang: 'zh',
+      html: '<body><head>corrupted cached translation</body></head></html>',
+      created_at: new Date().toISOString(),
+    });
+
+    const app = buildApp();
+    const res = await app.request(req('/translate/example.com/post'), {}, envWithDb(db));
+    expect(res.status).toBe(200);
+    expect(translateUrl).toHaveBeenCalledOnce();
+    const html = await res.text();
+    expect(html).toContain('fresh translation');
+    expect(html).not.toContain('corrupted');
+  });
+});
+
+// ─── GET /article/:id ───────────────────────────────────────
+describe('GET /article/:id', () => {
+  it('serves cached translation when HTML is healthy', async () => {
+    const db = createMockDb();
+    db._rows.push({
+      id: 42,
+      url: 'https://example.com/post',
+      title: 'Post',
+      source_lang: 'en',
+      target_lang: 'zh',
+      // 健康缓存需保留原页面样式
+      html: '<html><head><style>.original { color: black; }</style></head><body>healthy cached translation</body></html>',
+      created_at: new Date().toISOString(),
+    });
+
+    const app = buildApp();
+    const res = await app.request(req('/article/42'), {}, envWithDb(db));
+    expect(res.status).toBe(200);
+    const html = await res.text();
+    expect(html).toContain('healthy cached translation');
+    expect(html).toContain('__vsRedirectGuard');
+  });
+
+  it('redirects to re-translate when cached HTML is unhealthy', async () => {
+    const db = createMockDb();
+    db._rows.push({
+      id: 42,
+      url: 'https://example.com/post',
+      title: 'Post',
+      source_lang: 'en',
+      target_lang: 'zh',
+      html: '<body><head>corrupted cached translation</body></head></html>',
+      created_at: new Date().toISOString(),
+    });
+
+    const app = buildApp();
+    const res = await app.request(req('/article/42'), {}, envWithDb(db));
+    expect(res.status).toBe(302);
+    expect(res.headers.get('Location')).toBe('/translate/example.com%2Fpost');
+  });
+
+  it('returns 404 when translation id does not exist', async () => {
+    const app = buildApp();
+    const db = createMockDb();
+    const res = await app.request(req('/article/999'), {}, envWithDb(db));
+    expect(res.status).toBe(404);
   });
 });

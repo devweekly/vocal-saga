@@ -88,6 +88,27 @@ export function createApp(storage?: StorageAdapter): Hono {
       .replace(/"/g, '&quot;');
   }
 
+  /**
+   * 校验缓存的翻译 HTML 是否结构完整。
+   * 旧版 pipeline 曾输出缺少 <html> 标签、<head> 被吞掉的损坏 HTML，
+   * 导致页面 CSS 全部丢失。某些损坏缓存虽保留 <html>，但原页面内联
+   * 样式被清空，只剩 OneTrust / fanyi 样式，也要视为 miss 重新翻译。
+   */
+  function isHealthyCachedHtml(html: string): boolean {
+    if (!/<html\b/i.test(html)) return false;
+    // 有外联样式表 → 健康
+    if (/<link\b[^>]*\brel\s*=\s*["']stylesheet["']/i.test(html)) return true;
+    // 有原页面内联样式（非 OneTrust、非 fanyi 双语样式）→ 健康
+    const styleBlocks = html.match(/<style\b[^>]*>[\s\S]*?<\/style>/gi) || [];
+    return styleBlocks.some((block) => {
+      const contentStart = block.slice(block.indexOf('>') + 1).trimStart();
+      return (
+        !contentStart.startsWith('#onetrust-banner-sdk') &&
+        !contentStart.startsWith('/* 双语对照样式')
+      );
+    });
+  }
+
   const app = new Hono();
   app.use('*', cors());
 
@@ -212,9 +233,17 @@ ${pager}
     if (!db) return c.json({ error: 'D1 not available' }, 500);
     try {
       const row: any = await db.prepare(
-        'SELECT html FROM translations WHERE id = ?'
+        'SELECT url, html FROM translations WHERE id = ?'
       ).bind(Number(id)).first();
       if (!row) return c.json({ error: 'translation not found' }, 404);
+      // 缓存 HTML 损坏（缺 <html>）时重定向到重新翻译，避免展示无 CSS 的畸形页面
+      if (!isHealthyCachedHtml(row.html)) {
+        console.warn(`[D1] article/${id} cached HTML is unhealthy, redirecting to re-translate`);
+        if (row.url) {
+          return c.redirect(`/translate/${encodeURIComponent(row.url.replace(/^https?:\/\//i, ''))}`);
+        }
+        return c.json({ error: 'cached translation is corrupted' }, 500);
+      }
       // 注入重定向守卫：原站 SPA 脚本会把用户带离翻译页（详见 redirectGuard.ts）
       return new Response(processTranslationHtml(row.html), {
         status: 200,
@@ -351,7 +380,7 @@ ${pager}
           )
           .bind(cacheKeyUrl(url), sourceStored, targetStored)
           .first();
-        if (existing) {
+        if (existing && isHealthyCachedHtml(existing.html)) {
           console.log(`[fanyi/page/check] D1 cache hit for ${url}`);
           return new Response(processTranslationHtml(existing.html), {
             status: 200,
@@ -361,6 +390,9 @@ ${pager}
               'X-Translate-Source': 'd1-cache',
             },
           });
+        }
+        if (existing) {
+          console.warn(`[fanyi/page/check] D1 cache for ${url} is unhealthy, treating as miss`);
         }
       } catch (e) {
         console.error('[D1] lookup error:', e);
@@ -424,7 +456,7 @@ ${pager}
         const existing: any = await db.prepare(
           'SELECT html FROM translations WHERE url = ? AND source_lang = ? AND target_lang = ? LIMIT 1'
         ).bind(cacheKey, sourceStored, targetStored).first();
-        if (existing) {
+        if (existing && isHealthyCachedHtml(existing.html)) {
           console.log(`[fanyi/page] D1 cache hit for ${url}`);
           return new Response(processTranslationHtml(existing.html), {
             status: 200,
@@ -434,6 +466,9 @@ ${pager}
               'X-Translate-Source': 'd1-cache',
             },
           });
+        }
+        if (existing) {
+          console.warn(`[fanyi/page] D1 cache for ${url} is unhealthy, treating as miss`);
         }
       } catch (e) {
         console.error('[D1] lookup error:', e);
@@ -585,7 +620,7 @@ ${pager}
         const existing: any = await db.prepare(
           'SELECT html FROM translations WHERE url = ? AND source_lang = ? AND target_lang = ? LIMIT 1'
         ).bind(cacheKey, sourceStored, targetStored).first();
-        if (existing) {
+        if (existing && isHealthyCachedHtml(existing.html)) {
           console.log(`[translate/url-page] D1 cache hit for ${url}`);
           return new Response(processTranslationHtml(existing.html), {
             status: 200,
@@ -595,6 +630,9 @@ ${pager}
               'X-Translate-Source': 'd1-cache',
             },
           });
+        }
+        if (existing) {
+          console.warn(`[translate/url-page] D1 cache for ${url} is unhealthy, treating as miss`);
         }
       } catch (e) {
         console.error('[D1] lookup error:', e);

@@ -330,8 +330,9 @@ export function isLowPriorityElement(el: Element): boolean {
 
 const OVERLAY_PATTERNS = {
   // ≤6 字符模式用 \b 词边界，防止 "dialog" 误伤 "dialogue"
-  classTokens: /\bcookie\b|\bconsent\b|\bgdpr\b|privacy-banner|cookie-banner|\bpopup\b|\bmodal\b|overlay|\bdialog\b|backdrop|lightbox|subscription-popup|paywall|subscribe-popup|newsletter-modal|notification|notifications|push-notification|browser-notification|notification-prompt|subscribers/i,
-  idTokens: /\bcookie\b|\bconsent\b|\bgdpr\b|privacy|\bpopup\b|\bmodal\b|overlay|\bdialog\b|notification|notifications|push-notification|browser-notification|notification-prompt|subscribers/i,
+  // OneTrust 主容器 id="onetrust-banner-sdk" / class="otFloatingFlat" 等未被通用 cookie/consent 覆盖，单独加 onetrust/ot-sdk/ot-pc/ot-floating。
+  classTokens: /\bcookie\b|\bconsent\b|\bgdpr\b|privacy-banner|cookie-banner|\bpopup\b|\bmodal\b|overlay|\bdialog\b|backdrop|lightbox|subscription-popup|paywall|subscribe-popup|newsletter-modal|notification|notifications|push-notification|browser-notification|notification-prompt|subscribers|\bonetrust\b|\bot-sdk\b|\bot-pc\b|\bot-floating\b|\botfloatingflat\b/i,
+  idTokens: /\bcookie\b|\bconsent\b|\bgdpr\b|privacy|\bpopup\b|\bmodal\b|overlay|\bdialog\b|notification|notifications|push-notification|browser-notification|notification-prompt|subscribers|\bonetrust\b/i,
   roles: new Set(['dialog', 'alertdialog']),
 };
 

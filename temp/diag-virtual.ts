@@ -1,7 +1,7 @@
 import { chromium } from 'playwright';
 
-const { stripDangerousScripts } = await import('./lib/spaGuard');
-const { injectRedirectGuard } = await import('./lib/redirectGuard');
+const { stripDangerousScripts } = await import('../lib/spaGuard');
+const { injectRedirectGuard } = await import('../lib/redirectGuard');
 
 const browser = await chromium.launch({
   headless: false,
