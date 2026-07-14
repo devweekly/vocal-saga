@@ -283,8 +283,13 @@ function acceptWalkerNode(
   // 文档级 <html>/<body> 不会被 walker 访问到（遍历起始于
   // <main>/<article> 等下游容器），所以放行嵌套标签是安全的。
   const skipSetMatch = SKIP_SET.has(tag);
-  const isNestedBody = tag === 'body' && el.parentElement?.tagName?.toLowerCase() !== 'html';
-  const isNestedHtml = tag === 'html' && el.parentElement !== null && el.parentElement !== undefined;
+  // 嵌套 <body>: WordPress CMS 会在正文容器内注入完整 HTML 文档,
+  //   <section class="post__content"><html><body><p>正文</p></body></html></section>
+  // linkedom 解析后保留这些嵌套标签, 但其父元素不是 document.documentElement。
+  // 旧版用 parentElement.tagName !== 'html' 判断, 但嵌套 <body> 的父元素也是
+  // 嵌套 <html>, 导致误判为文档级 body 而整棵拒绝, 正文全部丢失。
+  const isNestedBody = tag === 'body' && el.parentElement !== el.ownerDocument?.documentElement;
+  const isNestedHtml = tag === 'html' && el.parentElement !== null && el.parentElement !== undefined && el.parentElement !== el.ownerDocument?.documentElement;
   if ((skipSetMatch && !isNestedBody && !isNestedHtml) || hasTranslateBlockClass(el) || isContentEditable(el)) {
     cache.rejected.add(el);
     counters.rejected++;

@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { parseHTML } from 'linkedom';
 import { extractBlocks, findBlockNode, buildNodeMap, extractBlocksFromMarkedHtml, collapseSpacedText } from '../lib/translate/blockExtractor';
 import { shouldSkipByClass, isLowPriorityElement, isOverlayElement } from '../lib/translate/blockExtractor/rules';
 import { detectArticleRoot } from '../lib/translate/contentDetector';
@@ -4578,6 +4579,41 @@ describe('extractBlocks - nested <body> (WordPress CMS injection)', () => {
     expect(texts).toContain('When you open a pull request, Copilot code review reads the diff.');
     expect(texts).toContain('Same tools wrong instincts');
     expect(texts).toContain('The existing review tools were not thin wrappers.');
+  });
+
+  it('linkedom: nested <body> inside <html> inside post__content must be traversed (regression: github.blog)', () => {
+    // jsdom 对嵌套 <html>/<body> 的解析与 linkedom 不同, 可能掩盖旧 bug。
+    // 用 linkedom 直接复现真实 github.blog 结构, 确保嵌套 body 不被误判为
+    // 文档级 body 而整棵拒绝。
+    const html = `
+      <!DOCTYPE html>
+      <html>
+        <body>
+          <main>
+            <section class="post__content category-ai-and-ml tag-agentic-workflows">
+              <html><body>
+                <p>First paragraph inside nested body.</p>
+                <p>Second paragraph inside nested body.</p>
+                <h2>Heading inside nested body</h2>
+                <p>Third paragraph inside nested body.</p>
+              </body></html>
+            </section>
+          </main>
+        </body>
+      </html>
+    `;
+    const doc = parseHTML(html).document;
+    const blocks = extractBlocks(doc, 'https://github.blog/test');
+    const texts = blocks.map((b) => b.text);
+
+    // 旧版 isNestedBody 用 parentElement.tagName !== 'html' 判断,
+    // 嵌套 body 的父元素是嵌套 html, tagName 也是 'html',
+    // 导致 isNestedBody=false, body 被 reject, 下面 4 个 block 全部丢失。
+    expect(blocks).toHaveLength(4);
+    expect(texts).toContain('First paragraph inside nested body.');
+    expect(texts).toContain('Second paragraph inside nested body.');
+    expect(texts).toContain('Heading inside nested body');
+    expect(texts).toContain('Third paragraph inside nested body.');
   });
 });
 
