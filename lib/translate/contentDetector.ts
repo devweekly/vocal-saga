@@ -751,7 +751,7 @@ function isFragmentedArticleRoot(best: Element, doc: Document): boolean {
   return bestLen / totalLen < 0.3;
 }
 
-function tryReadabilityRoot(doc: Document): Element | null {
+export function tryReadabilityRoot(doc: Document): Element | null {
   try {
     // Readability 会修改传入的文档树，因此必须在克隆的文档上运行。
     // linkedom 没有 document.implementation.createHTMLDocument，故通过 outerHTML 重新解析。
@@ -863,10 +863,17 @@ function tryReadabilityRoot(doc: Document): Element | null {
  *                   - semanticHints: 语义提示 (isArticle/hasCode/hasMath)
  * @returns 最佳候选元素，或 null（分数不够，建议回退 body）
  */
+export interface DetectArticleRootOptions {
+  /** 是否启用 Readability fallback（默认 true，保持旧行为）。 */
+  useReadability?: boolean;
+}
+
 export function detectArticleRoot(
   doc: Document,
   contextOut?: Partial<ArticleContext>,
+  options: DetectArticleRootOptions = {},
 ): Element | null {
+  const { useReadability = true } = options;
   // Per-traversal 缓存: 一次 detectArticleRoot 调用内共享, 结束后 GC。
   // - textCache: 缓存 el.textContent.length, 消除 O(N²) subtree traversal
   // - consentMemo: 缓存 consent SDK 安全阀判定, 避免全局 WeakSet 跨调用残留
@@ -894,7 +901,7 @@ export function detectArticleRoot(
   // 判断当前最佳候选是否可靠：分数不足、占 body 文本比例过低，
   // 或者 best 是孤立的 section 等局部容器时，启用 Readability fallback。
   let shouldTryReadability = false;
-  if (bestEl && doc.body) {
+  if (useReadability && bestEl && doc.body) {
     const bodyText = getTextLength(doc.body, textCache);
     const bestTextLen = getTextLength(bestEl, textCache);
     const ratio = bodyText > 0 ? bestTextLen / bodyText : 0;
@@ -906,7 +913,7 @@ export function detectArticleRoot(
       );
       shouldTryReadability = true;
     }
-  } else {
+  } else if (useReadability) {
     shouldTryReadability = true;
   }
 

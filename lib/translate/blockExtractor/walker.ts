@@ -74,8 +74,6 @@ interface WalkCache {
   directSetDescendant: WeakMap<Element, boolean>;
   classify: WeakMap<Element, ChildClassification>;
   validText: WeakMap<Element, boolean>;
-  // ⭐ NEW: lightweight soft score hint (VERY cheap heuristic)
-  scoreHint: WeakMap<Element, number>;
   // 噪声安全阀缓存 (per-traversal, 避免全局 WeakSet 跨调用残留)
   noiseMemo: WeakMap<Element, boolean>;
   /** root detection 已识别的噪声元素 (O(1) 跳过, 避免重复 shouldSkipByClass) */
@@ -131,30 +129,6 @@ function getTextValid(
   const result = isValidText(el.textContent, pageUrl);
   cache.set(el, result);
   return result;
-}
-
-// =============================================================================
-// NEW: ultra-cheap heuristic score hint
-// =============================================================================
-//
-// 只用于：
-// - sidebar / article 混排
-// - SPA wrapper vs real article body
-// - 提前"倾向性"判断，而不是硬过滤
-//
-function computeSoftHint(el: Element): number {
-  let score = 0;
-
-  const cls = (el.className || '').toLowerCase();
-
-  if (cls.includes('article') || cls.includes('post')) score += 2;
-  if (cls.includes('content') || cls.includes('body')) score += 2;
-  if (cls.includes('main')) score += 1;
-
-  if (cls.includes('sidebar') || cls.includes('nav')) score -= 3;
-  if (cls.includes('footer') || cls.includes('comment')) score -= 2;
-
-  return score;
 }
 
 // =============================================================================
@@ -354,13 +328,7 @@ function acceptWalkerNode(
     return FILTER_REJECT;
   }
 
-  // ==========================================================
-  // soft hint: 只用于评分参考, 不影响遍历 (避免误杀)
-  // ==========================================================
-  const hint = cache.scoreHint.get(el) ?? computeSoftHint(el);
-  cache.scoreHint.set(el, hint);
-
-  // DIRECT_SET: 不再因 hint < 0 而 SKIP (会误杀 content-sidebar 等合法容器)
+  // DIRECT_SET: 只按文本有效性决定 ACCEPT / SKIP
   if (DIRECT_SET.has(tag)) {
     return getTextValid(el, cache.validText, pageUrl)
       ? FILTER_ACCEPT
@@ -419,8 +387,6 @@ export function collectBlocks(
     directSetDescendant: new WeakMap<Element, boolean>(),
     classify: new WeakMap<Element, ChildClassification>(),
     validText: new WeakMap<Element, boolean>(),
-    // ⭐ NEW
-    scoreHint: new WeakMap(),
     noiseMemo: new WeakMap(),
     // 共享 root detection 的 noiseSet: 已识别的 consent SDK 容器直接 O(1) 跳过,
     // 避免 collectBlocks 重复调用 shouldSkipByClass / isConsentSdkContainer。
