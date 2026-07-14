@@ -21,6 +21,7 @@
 
 import { collectBlocks, getXPath } from './walker';
 import type { TextBlock } from './types';
+import type { WalkerCounters } from './constants';
 
 export type { TextBlock };
 
@@ -61,10 +62,17 @@ export function collapseSpacedText(text: string): string {
  * @param pageUrl 当前页面 URL，用于站点规则匹配（不再读 window.location.href）
  * @returns 顺序的 TextBlock 数组
  */
+/** 最近一次 extractBlocks 调用的 walker 计数, 供 ExtractionReport 使用 */
+let _lastCounters: WalkerCounters | null = null;
+
+/** 获取最近一次 extractBlocks 的 walker 计数 */
+export function getLastCounters(): WalkerCounters | null {
+  return _lastCounters;
+}
+
 export function extractBlocks(rootNode: Node, pageUrl: string): TextBlock[] {
   const blocks: TextBlock[] = [];
   const blockIdRef = { value: 0 };
-  // 跨段落去重: 同一文本多次出现只取第一个 (HBR summary callout 模式)。
   const seenTexts = new Set<string>();
 
   const startNode =
@@ -76,11 +84,10 @@ export function extractBlocks(rootNode: Node, pageUrl: string): TextBlock[] {
     return [];
   }
 
-  collectBlocks(startNode, blocks, blockIdRef, seenTexts, pageUrl);
+  const counters = collectBlocks(startNode, blocks, blockIdRef, seenTexts, pageUrl);
+  _lastCounters = counters;
 
   // 后处理：合并 CSS letter-spacing 渲染的分散单词。
-  // 在 collectBlocks 之后做，因为 walker 内部用原始文本做 seenTexts 去重，
-  // collapse 后的文本与原文不同，不应影响去重逻辑。
   for (const block of blocks) {
     block.text = collapseSpacedText(block.text);
   }

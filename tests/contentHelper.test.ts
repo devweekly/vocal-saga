@@ -1,6 +1,11 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { prepareDocument, extractFromDataIsland } from '../lib/translate/contentHelper';
 
+function setupHTML(html: string): Document {
+  document.body.innerHTML = html;
+  return document;
+}
+
 describe('prepareDocument', () => {
   beforeEach(() => {
     document.body.innerHTML = '';
@@ -751,5 +756,51 @@ describe('prepareDocument data island integration', () => {
 
     expect(fullText).toContain(domContent);
     expect(fullText).not.toContain(islandContent);
+  });
+
+  // ── ExtractionReport ─────────────────────────────────────
+  it('prepareDocument returns ExtractionReport with confidence', () => {
+    setupHTML(`
+      <article>
+        <h1>Test Article</h1>
+        <p>This is a paragraph with enough text for translation testing purposes.</p>
+        <p>Another paragraph with sufficient content for the extraction pipeline.</p>
+      </article>
+    `);
+    const result = prepareDocument(document, "https://example.com/test");
+    expect(result.report).toBeTruthy();
+    expect(result.report.blockCount).toBeGreaterThanOrEqual(2);
+    expect(result.report.confidence).toBeGreaterThan(0);
+    expect(result.report.textLength).toBeGreaterThan(0);
+    expect(['selector', 'heuristic', 'readability', 'data-island', 'body-fallback']).toContain(result.report.strategy);
+  });
+
+  // ── hasArticleLikeHeading: 短文本 h1 不停止向上扫描 ──────────
+  it('chooseBestRoot does not stop at short h1 (e.g. "Home")', () => {
+    setupHTML(`
+      <header><h1>Home</h1></header>
+      <main>
+        <article>
+          <h1>This is a Long Article Title</h1>
+          <p>This is the real article body with enough text.</p>
+        </article>
+      </main>
+    `);
+    const result = prepareDocument(document, "https://example.com/test");
+    // 确保正文被翻译, 不因 header 里的 <h1>Home</h1> 停止
+    expect(result.fullText).toContain('real article body');
+  });
+
+  // ── Block merge: 相邻 inline 块合并 ────────────────────────
+  it('mergeInlineBlocks combines adjacent short inline candidates', () => {
+    setupHTML(`
+      <article>
+        <p>This is <strong>important</strong> text with enough content.</p>
+      </article>
+    `);
+    const result = prepareDocument(document, "https://example.com/test");
+    // 如果产生了多个 inline 候选, 它们应该被合并
+    // 确保翻译文本完整
+    expect(result.fullText).toContain('important');
   });
 });

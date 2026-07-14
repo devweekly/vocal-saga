@@ -1,7 +1,72 @@
-import { extractBlocks, type TextBlock } from './blockExtractor';
+import { extractBlocks, getLastCounters, type TextBlock } from './blockExtractor';
 import { buildChunks, type Chunk } from './chunkBuilder';
 import { detectArticleRoot } from './contentDetector';
 import { matchSiteRule } from './rules';
+
+// =============================================================================
+// ExtractionReport: 抽取质量报告
+// =============================================================================
+// 输出抽取过程的元数据, 用于诊断翻译失败和质量监控。
+// 低 confidence 时可触发 retry root strategy。
+
+export interface ExtractionReport {
+  /** 最终选中的文章根选择器 (tag.class 格式) */
+  rootSelector: string;
+  /** 提取的翻译块数 */
+  blockCount: number;
+  /** 总文本长度 (字符) */
+  textLength: number;
+  /** heading 数量 */
+  headingCount: number;
+  /** chunk 数量 */
+  chunkCount: number;
+  /** 噪声比例 (被跳过的节点 / 总节点), 0~1 */
+  noiseRatio: number;
+  /** 置信度 0~1, 基于块数/文本长度/噪声比例综合计算 */
+  confidence: number;
+  /** 使用了哪个策略: "selector" | "heuristic" | "readability" | "data-island" | "body-fallback" */
+  strategy: string;
+}
+
+function buildReport(
+  rootSelector: string,
+  blocks: TextBlock[],
+  chunks: Chunk[],
+  strategy: string,
+  rejected: number,
+  skipped: number,
+  accepted: number,
+): ExtractionReport {
+  const textLength = blocks.reduce((sum, b) => sum + b.text.length, 0);
+  const headingCount = blocks.filter((b) => /^h[1-6]$/.test(b.tag)).length;
+  const totalNodes = rejected + skipped + accepted;
+  const noiseRatio = totalNodes > 0 ? (rejected + skipped) / totalNodes : 0;
+
+  // 置信度: 综合块数/文本长度/噪声比例
+  // - 块数 >= 5 → +0.3
+  // - 文本 >= 500 → +0.3
+  // - 噪声比例 < 0.5 → +0.2
+  // - heading >= 1 → +0.2
+  let confidence = 0;
+  if (blocks.length >= 5) confidence += 0.3;
+  else if (blocks.length >= 1) confidence += 0.1;
+  if (textLength >= 500) confidence += 0.3;
+  else if (textLength >= 100) confidence += 0.15;
+  if (noiseRatio < 0.5) confidence += 0.2;
+  if (headingCount >= 1) confidence += 0.2;
+  confidence = Math.min(confidence, 1);
+
+  return {
+    rootSelector,
+    blockCount: blocks.length,
+    textLength,
+    headingCount,
+    chunkCount: chunks.length,
+    noiseRatio,
+    confidence,
+    strategy,
+  };
+}
 
 // 优先级：先 class 后标签，先更具体的子容器再更通用的包裹元素。
 // 像 bankingdive.com 把 <article> 用作整页 wrapper、正文放在
@@ -259,33 +324,47 @@ function scoreArticleContainer(container: Element): RootScore {
 }
 
 /**
+ * 判断元素是否含有"文章级" h1 标题（非导航/Logo 短文本）。
+ *
+ * 旧版直接用 querySelector('h1') 判断，但现代网站的 header/nav 里
+ * 经常有 <h1>Home</h1> / <h1>Products</h1> 等短文本 h1，不是文章标题。
+ * 这会导致 chooseBestRoot 在 nav 层就停止向上扫描，错过真正的文章根。
+ *
+ * 改进：h1 文本长度 5~200 字符才视为文章标题，排除 "Home" / "Sign in" 等短文本。
+ */
+function hasArticleLikeHeading(el: Element): boolean {
+  const h1 = el.querySelector('h1');
+  if (!h1) return false;
+  const text = (h1.textContent || '').trim();
+  return text.length >= 5 && text.length < 200;
+}
+
+/**
  * 对 candidate / parent / grandParent 三层评分，选最高分。
  * 把"hero 和正文分属兄弟 section"这类判断从规则改为评分：
  * 如果 parent（包含 hero + 正文）的分数比 candidate（只含正文）高，就选 parent。
  *
- * 守卫：candidate 已有 h1 时直接返回。h1 是文章主标题，candidate 有 h1
+ * 守卫：candidate 已有文章级 h1 时直接返回。h1 是文章主标题，candidate 有 h1
  * 说明它就是文章根（如 .post-content 自己带 h1），不需要向上找。
- * 只有 candidate 缺 h1（如 claude.com 的 h1 在 hero section）时才向上评分。
+ * 只有 candidate 缺文章级 h1（如 claude.com 的 h1 在 hero section）时才向上评分。
  */
 function chooseBestRoot(candidate: Element): Element {
-  // h1 守卫：candidate 已有 h1（文章主标题），直接返回。
-  // 如 Jane Street 的 .post-content 自带 h1，说明它就是文章根。
-  if (candidate.querySelector('h1')) {
+  // h1 守卫：candidate 已有文章级 h1（文章主标题），直接返回。
+  if (hasArticleLikeHeading(candidate)) {
     return candidate;
   }
 
-  // candidate 缺 h1 时（如 claude.com 的 h1 在 hero section，正文 section 缺 h1），
-  // 向上扫描直到遇到含 h1 的祖先或 body/html，收集所有候选后评分选最高分。
-  // 固定 3 层不够：claude.com 的 .u-rich-text-blog 到 main.page_main 有 7 层嵌套。
+  // candidate 缺文章级 h1 时（如 claude.com 的 h1 在 hero section，正文 section 缺 h1），
+  // 向上扫描直到遇到含文章级 h1 的祖先或 body/html，收集所有候选后评分选最高分。
   const list: Element[] = [];
   let p: Element | null = candidate;
   while (p) {
     const tag = p.tagName.toLowerCase();
     if (tag === 'body' || tag === 'html') break;
     list.push(p);
-    // 遇到含 h1 的祖先就停止向上 —— h1 是文章主标题的标志，
+    // 遇到含文章级 h1 的祖先就停止向上 —— h1 是文章主标题的标志，
     // 更上层的容器（如 page_wrap 含整个页面）只会引入噪声。
-    if (p.querySelector('h1')) break;
+    if (hasArticleLikeHeading(p)) break;
     p = p.parentElement;
   }
 
@@ -413,16 +492,24 @@ const DATA_ISLAND_SKIP_FIELDS =
 /** 短于此长度的字符串不算正文（过滤标题、面包屑、按钮文案）。 */
 const DATA_ISLAND_MIN_TEXT_LEN = 50;
 
+/** DataIsland 块类型：保留结构信息, 让 chunk builder 优化分块 */
+interface DataIslandBlock {
+  text: string;
+  type: 'heading' | 'paragraph' | 'code' | 'quote';
+  level?: number;
+}
+
 /**
- * 递归遍历 JSON 数据，提取正文字符串。
- * - 命中 PRIORITY_FIELDS 的字段：长度 ≥ 1 即采集（标题、description 可能短）
- * - 其他字段：长度 ≥ DATA_ISLAND_MIN_TEXT_LEN 才采集（避免短字段污染）
+ * 递归遍历 JSON 数据，提取正文字符串（保留 block type）。
+ * - 命中 PRIORITY_FIELDS 的字段：长度 ≥ 1 即采集
+ * - 其他字段：长度 ≥ DATA_ISLAND_MIN_TEXT_LEN 才采集
  * - SKIP_FIELDS 字段：跳过
+ * - 保留 type 信息: 根据 fieldName 和 parent context 推断 heading/paragraph/code/quote
  */
 function walkDataIsland(
   obj: unknown,
   fieldName: string | undefined,
-  texts: string[],
+  blocks: DataIslandBlock[],
   seen: Set<string>,
 ): void {
   if (obj == null || typeof obj === 'number' || typeof obj === 'boolean') return;
@@ -434,25 +521,64 @@ function walkDataIsland(
 
     if (fieldName && DATA_ISLAND_SKIP_FIELDS.test(fieldName)) return;
 
-    // 优先字段：短文本也采集（如 description、summary）
-    // 其他字段：长度阈值过滤
     const isPriority = fieldName && DATA_ISLAND_PRIORITY_FIELDS.test(fieldName);
     if (!isPriority && trimmed.length < DATA_ISLAND_MIN_TEXT_LEN) return;
 
     seen.add(trimmed);
-    texts.push(trimmed);
+
+    // 推断 block type: 根据字段名和内容特征
+    let type: DataIslandBlock['type'] = 'paragraph';
+    let level: number | undefined;
+    if (fieldName && /^(title|heading|headline)$/i.test(fieldName)) {
+      type = 'heading';
+      level = 2;
+    } else if (fieldName && /^(subtitle|subtitle)$/i.test(fieldName)) {
+      type = 'heading';
+      level = 3;
+    } else if (fieldName && /^(code|snippet|codeBlock)$/i.test(fieldName)) {
+      type = 'code';
+    } else if (fieldName && /^(quote|blockquote|citation)$/i.test(fieldName)) {
+      type = 'quote';
+    }
+
+    blocks.push({ text: trimmed, type, level });
     return;
   }
 
   if (Array.isArray(obj)) {
-    for (const item of obj) walkDataIsland(item, fieldName, texts, seen);
+    // 数组中的对象可能含 type 字段 (如 Next.js 的 blocks 数组)
+    for (const item of obj) {
+      if (typeof item === 'object' && item !== null && !Array.isArray(item)) {
+        const record = item as Record<string, unknown>;
+        // 检查是否有 type 字段指示 block 类型
+        const itemType = typeof record.type === 'string' ? record.type : '';
+        const itemText = typeof record.text === 'string' ? record.text.trim() : '';
+        if (itemText && itemType) {
+          if (seen.has(itemText)) continue;
+          seen.add(itemText);
+          let bt: DataIslandBlock['type'] = 'paragraph';
+          let bl: number | undefined;
+          if (itemType === 'heading' || itemType === 'header') {
+            bt = 'heading';
+            bl = typeof record.level === 'number' ? record.level : 2;
+          } else if (itemType === 'code' || itemType === 'codeBlock') {
+            bt = 'code';
+          } else if (itemType === 'quote' || itemType === 'blockquote') {
+            bt = 'quote';
+          }
+          blocks.push({ text: itemText, type: bt, level: bl });
+          continue;
+        }
+      }
+      walkDataIsland(item, fieldName, blocks, seen);
+    }
     return;
   }
 
   if (typeof obj === 'object') {
     const record = obj as Record<string, unknown>;
     for (const key of Object.keys(record)) {
-      walkDataIsland(record[key], key, texts, seen);
+      walkDataIsland(record[key], key, blocks, seen);
     }
   }
 }
@@ -491,29 +617,104 @@ export function extractFromDataIsland(doc: Document): TextBlock[] {
 
   if (candidates.length === 0) return [];
 
-  const texts: string[] = [];
+  const islandBlocks: DataIslandBlock[] = [];
   const seen = new Set<string>();
   for (const candidate of candidates) {
     try {
       const data = JSON.parse(candidate);
-      walkDataIsland(data, undefined, texts, seen);
+      walkDataIsland(data, undefined, islandBlocks, seen);
     } catch {
       // JSON 解析失败，跳过这个 script
     }
   }
 
-  if (texts.length === 0) return [];
+  if (islandBlocks.length === 0) return [];
 
   console.log(
-    `[ContentHelper] Extracted ${texts.length} blocks from data island (${candidates.length} script(s) scanned)`,
+    `[ContentHelper] Extracted ${islandBlocks.length} blocks from data island (${candidates.length} script(s) scanned)`,
   );
 
-  return texts.map((text, i) => ({
+  // 将 DataIslandBlock 转换为 TextBlock, 保留 type 信息到 renderHint
+  return islandBlocks.map((b, i) => ({
     id: `data-island-${i}`,
     xpath: `/data-island/${i}`,
-    tag: 'p',
-    text,
+    tag: b.type === 'heading' ? `h${b.level || 2}` : b.type === 'code' ? 'pre' : b.type === 'quote' ? 'blockquote' : 'p',
+    text: b.text,
+    renderHint: b.type !== 'paragraph' ? { dataIslandType: b.type, dataIslandLevel: b.level } : undefined,
   }));
+}
+
+/**
+ * 合并相邻的短 inline 候选块, 减少翻译碎片。
+ *
+ * 问题: walker 对 <p>This is <strong>important</strong> text.</p> 可能产生
+ * 3 个独立 block ("This is", "important", "text"), 翻译后拼接不自然。
+ *
+ * 策略:
+ *   - 相邻的 inlineCandidate 块, 如果合并后总长度 < 500 字符, 合并
+ *   - 合并后取第一个块的 xpath/id, 文本用空格连接
+ *   - 只合并同一 parent 下的相邻块 (通过 xpath 前缀判断)
+ */
+function mergeInlineBlocks(blocks: TextBlock[]): TextBlock[] {
+  if (blocks.length <= 1) return blocks;
+
+  const MAX_MERGE_LEN = 500;
+  const merged: TextBlock[] = [];
+  let currentGroup: TextBlock[] = [];
+
+  /** 获取 xpath 的 parent 路径 (去掉最后一段) */
+  function parentPath(xpath: string): string {
+    const lastSlash = xpath.lastIndexOf('/');
+    return lastSlash > 0 ? xpath.slice(0, lastSlash) : '/';
+  }
+
+  /** 尝试将当前 group 合并为一个 block */
+  function flushGroup() {
+    if (currentGroup.length === 0) return;
+    if (currentGroup.length === 1) {
+      merged.push(currentGroup[0]);
+      currentGroup = [];
+      return;
+    }
+    // 合并 group: 取第一个块的 id/xpath, 文本用空格连接
+    const first = currentGroup[0];
+    const combinedText = currentGroup.map((b) => b.text).join(' ');
+    merged.push({
+      ...first,
+      text: combinedText,
+      renderHint: { ...first.renderHint, inlineCandidate: false },
+    });
+    currentGroup = [];
+  }
+
+  for (let i = 0; i < blocks.length; i++) {
+    const block = blocks[i];
+    const isInline = block.renderHint?.inlineCandidate === true;
+
+    if (isInline) {
+      // 检查是否与 currentGroup 的最后一个块相邻 (同一 parent)
+      const blockParent = parentPath(block.xpath);
+      const groupParent =
+        currentGroup.length > 0 ? parentPath(currentGroup[currentGroup.length - 1].xpath) : blockParent;
+
+      // 检查合并后总长度
+      const groupLen = currentGroup.reduce((sum, b) => sum + b.text.length + 1, 0);
+      const newLen = groupLen + block.text.length;
+
+      if (blockParent === groupParent && newLen <= MAX_MERGE_LEN) {
+        currentGroup.push(block);
+      } else {
+        flushGroup();
+        currentGroup.push(block);
+      }
+    } else {
+      flushGroup();
+      merged.push(block);
+    }
+  }
+  flushGroup();
+
+  return merged;
 }
 
 export function prepareDocument(
@@ -523,41 +724,62 @@ export function prepareDocument(
   blocks: TextBlock[];
   chunks: Chunk[];
   fullText: string;
+  report: ExtractionReport;
 } {
   // 优先使用文章容器，减少 TreeWalker 遍历范围
-  // rootNode 是 Document 时找主文章容器 (article / main / [role=main])；
-  // 否则直接用 rootNode (linkedom / jsdom 的 Document 是不同 class，不能 instanceof)
   const isDoc = root.nodeType === 9;
   const effectiveRoot: Element = isDoc ? findArticleRoot(root as Document, pageUrl) : (root as Element);
   let blocks = extractBlocks(effectiveRoot, pageUrl);
+  let strategy = 'selector';
+  let rootSelector = `<${effectiveRoot.tagName.toLowerCase()}>.${(effectiveRoot.className || '').toString().split(/\s+/)[0] || ''}`;
 
-  // 防御性回退: 当 detectArticleRoot 误判 (e.g. 选了一个高密度但被 walker 整棵
-  // 剪枝的容器, 如 cookie banner) 导致 0 块时, 从整个 body 重试。
-  // 走到 body 后, walker 仍会用 overlay/cookie 规则过滤掉同意 SDK, 真正的正文
-  // 会被抓到。回归 case: databricks.com 博客。
+  // 防御性回退: 当 detectArticleRoot 误判导致 0 块时, 从整个 body 重试。
   if (blocks.length === 0 && isDoc && effectiveRoot !== (root as Document).body) {
     console.warn(
       `[ContentHelper] Detected root <${effectiveRoot.tagName}> yielded 0 blocks, falling back to <body>`,
     );
     blocks = extractBlocks((root as Document).body || (root as Document).documentElement, pageUrl);
+    strategy = 'body-fallback';
+    rootSelector = '<body>';
   }
 
-  // Data Island fallback: SPA 站点（Next.js / Nuxt / SvelteKit）首屏 DOM
-  // 是骨架，内容塞在 __NEXT_DATA__ / __NUXT_DATA__ / application/json
-  // script 里。body fallback 仍 0 块时，从结构化数据提取正文。
-  // 回归 case: vercel.com 文档站、部分 Next.js SSR 站点首屏未 hydrate。
+  // Data Island fallback
   if (blocks.length === 0 && isDoc) {
     blocks = extractFromDataIsland(root as Document);
+    strategy = 'data-island';
+    rootSelector = '/data-island';
   }
 
   if (blocks.length === 0) {
     throw new Error('No translatable content found');
   }
 
+  // Block merge: 合并相邻的短 inline 候选块, 减少翻译碎片。
+  // 问题: walker 对 <p>This is <strong>important</strong> text.</p> 可能产生
+  // 3 个独立 block ("This is", "important", "text"), 翻译后拼接不自然。
+  // 策略: 相邻的 inlineCandidate 块如果总长度 < 500 字符, 合并为一个 block。
+  blocks = mergeInlineBlocks(blocks);
+
   const fullText = blocks.map((b) => b.text).join('\n\n');
   const chunks = buildChunks(blocks);
 
-  return { blocks, chunks, fullText };
+  // 构建 ExtractionReport (使用 walker counters)
+  const counters = getLastCounters();
+  const report = buildReport(
+    rootSelector,
+    blocks,
+    chunks,
+    strategy,
+    counters?.rejected || 0,
+    counters?.skipped || 0,
+    counters?.accepted || blocks.length,
+  );
+
+  console.log(
+    `[ContentHelper] ExtractionReport: strategy=${strategy}, blocks=${report.blockCount}, textLen=${report.textLength}, headings=${report.headingCount}, chunks=${report.chunkCount}, noise=${report.noiseRatio.toFixed(2)}, confidence=${report.confidence.toFixed(2)}`,
+  );
+
+  return { blocks, chunks, fullText, report };
 }
 
 export type { TextBlock, Chunk };

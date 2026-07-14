@@ -38,6 +38,7 @@
 
 import { Readability } from '@mozilla/readability';
 import { parseHTML } from 'linkedom';
+import { SKIP_CLASS_PATTERNS } from './blockExtractor/constants';
 
 // =============================================================================
 // 常量
@@ -204,20 +205,23 @@ const CONSENT_SDK_CLASS_RE =
  */
 const CONSENT_SAFE_VALVE = 5000;
 
-const _consentSafeValveMemo = new WeakSet<Element>();
-
 /**
  * 检查元素是否因文本过长而豁免 consent SDK 判定。
- * 用 WeakSet 缓存，同一元素不会重复计算 textContent。
+ * 不再使用全局 WeakSet 缓存——SPA 路由切换后同一 DOM 元素内容可能变化,
+ * 全局缓存会导致旧判断残留。改为每次 detectArticleRoot 调用时传参缓存。
  */
-function isConsentSafeValve(el: Element): boolean {
-  if (_consentSafeValveMemo.has(el)) return true;
-  const text = el.textContent || '';
-  if (text.length > CONSENT_SAFE_VALVE) {
-    _consentSafeValveMemo.add(el);
-    return true;
+function isConsentSafeValve(
+  el: Element,
+  memo?: WeakMap<Element, boolean>,
+): boolean {
+  if (memo) {
+    const cached = memo.get(el);
+    if (cached !== undefined) return cached;
   }
-  return false;
+  const text = el.textContent || '';
+  const result = text.length > CONSENT_SAFE_VALVE;
+  if (memo) memo.set(el, result);
+  return result;
 }
 
 /**
@@ -227,7 +231,10 @@ function isConsentSafeValve(el: Element): boolean {
  * 安全阀：若元素 textContent > 5000 字符，即使命中 consent SDK 模式也不排除，
  * 防止误杀长隐私政策 / 长 FAQ 等正文内容。
  */
-function isConsentSdkContainer(el: Element): boolean {
+function isConsentSdkContainer(
+  el: Element,
+  memo?: WeakMap<Element, boolean>,
+): boolean {
   let current: Element | null = el;
   while (current) {
     const tag = current.tagName.toLowerCase();
@@ -236,14 +243,14 @@ function isConsentSdkContainer(el: Element): boolean {
     const id = current.id || '';
     if (id && CONSENT_SDK_ID_RE.test(id)) {
       // 安全阀：文本过长的元素不视为 consent SDK 容器
-      if (isConsentSafeValve(el)) return false;
+      if (isConsentSafeValve(el, memo)) return false;
       return true;
     }
 
     const cls = typeof current.className === 'string' ? current.className : '';
     if (cls && CONSENT_SDK_CLASS_RE.test(cls)) {
       // 安全阀：文本过长的元素不视为 consent SDK 容器
-      if (isConsentSafeValve(el)) return false;
+      if (isConsentSafeValve(el, memo)) return false;
       return true;
     }
 
@@ -344,6 +351,96 @@ function collectSignals(
 }
 
 // =============================================================================
+// TextContent 缓存（消除 O(N²) 重复 subtree traversal）
+// =============================================================================
+
+/**
+ * 缓存 el.textContent 长度, 避免同一元素在 scoreElement + sibling normalization
+ * + global ratio 等多处重复触发 DOM subtree traversal。
+ *
+ * 生命周期: 一次 detectArticleRoot 调用, 随调用结束 GC。
+ */
+type TextLenCache = WeakMap<Element, number>;
+
+function getTextLength(el: Element, cache?: TextLenCache): number {
+  if (cache) {
+    const cached = cache.get(el);
+    if (cached !== undefined) return cached;
+  }
+  const len = (el.textContent || '').length;
+  if (cache) cache.set(el, len);
+  return len;
+}
+
+/**
+ * 计算 "可读文本" 长度: 排除噪声子元素 (cookie banner, nav, ad 等) 后的文本长度。
+ *
+ * 问题: raw textContent 包含所有后代文本, 包括嵌套的 cookie 弹窗 / 广告 /
+ * 导航等噪声内容。scoreElement 用 raw textLength 会把噪声也算进正文,
+ * 导致 <article> 内嵌 <div class="cookie-policy"> 50k chars 的场景误判为高分。
+ *
+ * 方案: 遍历直接子元素, 对命中 SKIP_CLASS_PATTERNS 或 SEMANTIC_SKIP_TAGS
+ * 的子树跳过, 只累计 "可读" 子树的文本长度。
+ *
+ * 性能: 只遍历直接子元素 (不递归), 每个子元素用 textLengthCache 查长度。
+ */
+function getReadableTextLength(
+  el: Element,
+  textCache?: TextLenCache,
+  noiseSet?: Set<Element>,
+): number {
+  // 快速路径: 无子元素时直接返回自身文本长度
+  const childCount = el.children?.length || 0;
+  if (childCount === 0) {
+    return getTextLength(el, textCache);
+  }
+
+  // 遍历子节点, 保留 Text Node 内容 + 非噪声子元素内容
+  let readableLen = 0;
+  const childNodes = el.childNodes;
+  for (let i = 0; i < childNodes.length; i++) {
+    const node = childNodes[i];
+    if (node.nodeType === 3 /* TEXT_NODE */) {
+      readableLen += (node.textContent || '').length;
+    } else if (node.nodeType === 1 /* ELEMENT_NODE */) {
+      const child = node as Element;
+      // 跳过噪声子元素
+      if (noiseSet && noiseSet.has(child)) continue;
+      // 内联检查: 跳过 script/style/nav/footer/aside 等
+      const tag = child.tagName.toLowerCase();
+      if (tag === 'script' || tag === 'style' || tag === 'noscript' ||
+          tag === 'nav' || tag === 'footer' || tag === 'aside' ||
+          tag === 'iframe' || tag === 'template') {
+        continue;
+      }
+      // 跳过 class 命中 SKIP_CLASS_PATTERNS 的子元素
+      if (shouldSkipByClassName(child)) continue;
+      readableLen += getTextLength(child, textCache);
+    }
+  }
+  return readableLen;
+}
+
+/**
+ * 快速检查 class 是否命中 SKIP_CLASS_PATTERNS (从 contentDetector 本地判断,
+ * 不依赖 blockExtractor 的 shouldSkipByClass, 避免循环依赖)。
+ */
+const SKIP_CLASS_SET = new Set(SKIP_CLASS_PATTERNS.map((p) => p.toLowerCase()));
+
+function shouldSkipByClassName(el: Element): boolean {
+  const cls = typeof el.className === 'string' ? el.className.toLowerCase() : '';
+  if (!cls) return false;
+  for (const pattern of SKIP_CLASS_SET) {
+    if (cls === pattern || cls.startsWith(pattern + '-') || cls.startsWith(pattern + '_') ||
+        cls.endsWith('-' + pattern) || cls.endsWith('_' + pattern) ||
+        cls.includes(' ' + pattern + ' ') || cls.includes(pattern + '-') || cls.includes(pattern + '_')) {
+      return true;
+    }
+  }
+  return false;
+}
+
+// =============================================================================
 // 评分函数
 // =============================================================================
 
@@ -351,39 +448,41 @@ function collectSignals(
  * 核心评分函数（Text Density 算法，纯 multiplicative 模型）。
  *
  * 主指标（density）:
- *   density = (bodyTextLength / (linkCount + 1)) * log(textLength + 1)
+ *   density = (bodyTextLength / (linkCount + 1)) * log(readableTextLength + 1)
+ *
+ * 改进 (P0):
+ *   - 使用 readableTextLength 替代 raw textContent.length, 排除噪声子元素
+ *   - 新增 textDensity = readableTextLength / totalTextLength 评分信号
+ *   - textLengthCache 缓存避免重复 subtree traversal
  *
  * 公式直觉：
  *   - 主体文本多、链接少 → 高 density（典型正文）
  *   - 主体文本少、链接多 → 低 density（导航、链接列表、相关推荐）
  *   - log 缩放：长正文自然占优，避免短链接列表偶然获得高密度
+ *   - textDensity: 可读文本 / 总文本 → 排除内嵌噪声后的纯度
  *
  * 调整项（全部 multiplicative, ranking 单调）:
+ *   - textDensity * 30 加成 (纯度越高正文可能性越大)
  *   - 链接文本占比 > 50% → 0.5x（典型链接列表）
  *   - <article> 1.3x / <main> 1.2x / <section> 1.05x / role=article 1.3x
  *   - class POSITIVE → 1.2x；NEGATIVE → 0.5x
- *   - META (author/timestamp 等 metadata) → 0.85x 弱 penalty
- *
- * 旧版 (mixed additive) 问题:
- *   - semantic += 500/300/50 在小 DOM 上把 article tag 拉爆
- *   - ranking 在不同 scale 下不稳定, 阈值难以统一
- *
- * 典型得分参考（自然对数）:
- *   - 普通博客（2000 字符）              ≈ 15000 * structureBoost
- *   - 长文（30000 字符）                 ≈ 300000+
- *   - 短文（500 字符）                    ≈ 3000
- *   - 导航菜单（200 字符 + 15a）          ≈ 0
- *   - 相关推荐（1500 字符 + 20a）         ≈ 200
- *   - CTA 框（100 字符 + 1a，mbox 负向）  ≈ 100-150
+ *   - META (author/timestamp 等 metadata) → 0.92x 弱 penalty
  */
-export function scoreElement(el: Element): number {
+export function scoreElement(
+  el: Element,
+  textCache?: TextLenCache,
+): number {
+  // 使用缓存获取文本长度, 避免 O(N²) 重复 subtree traversal
+  const totalTextLength = getTextLength(el, textCache);
+  if (totalTextLength < MIN_TEXT_LENGTH) return 0;
+
+  // 计算 "可读文本" 长度 (排除噪声子元素)
+  const readableTextLength = getReadableTextLength(el, textCache);
+
   const text = (el.textContent || '').trim();
   if (text.length < MIN_TEXT_LENGTH) return 0;
 
   // ---- 链接分析 ----
-  // linkTextLength 修复: 旧版用 a.textContent 会包含嵌套 DOM (icon font / aria-label /
-  // 嵌入 <span> 等), 出现 double count 和 overshoot。改为只统计直接 text node,
-  // 与"用户在浏览器看到的链接文字"语义一致。
   const aEls = el.querySelectorAll('a');
   const linkCount = aEls.length;
   let linkTextLength = 0;
@@ -397,20 +496,27 @@ export function scoreElement(el: Element): number {
       }
     }
   }
-  // 主体文本 = 总文本 - 链接文本
-  const bodyTextLength = text.length - linkTextLength;
+  const bodyTextLength = readableTextLength - linkTextLength;
 
   // ---- 核心 Text Density ----
-  // (bodyText / (linkCount + 1)) * log(text + 1)
-  // - 分子：主体文本（去除链接后）
-  // - 分母：链接数 + 1（避免除零，平滑无链接情况）
-  // - log 缩放：长正文自然占优，短链接列表被压制
-  let score = (bodyTextLength / (linkCount + 1)) * Math.log(text.length + 1);
+  // (bodyText / (linkCount + 1)) * log(readableText + 1)
+  let score = (bodyTextLength / (linkCount + 1)) * Math.log(readableTextLength + 1);
+
+  // ---- 新增: Text Density 纯度信号 ----
+  // density = readableTextLength / totalTextLength
+  // 正文容器通常 > 0.8; 导航/链接列表 < 0.3
+  const textDensity = totalTextLength > 0
+    ? readableTextLength / totalTextLength
+    : 1;
+  // 纯度 > 0.7 → 1.1x 加成; < 0.4 → 0.7x 惩罚
+  let densityBoost = 1;
+  if (textDensity > 0.7) densityBoost *= 1.1;
+  else if (textDensity < 0.4) densityBoost *= 0.7;
 
   // ---- 信号收集 (multiplicative 体系) ----
   const { positive, negative, meta } = collectSignals(el);
 
-  // 1) 语义标签乘性加成 (替代旧版 semantic += 500)
+  // 1) 语义标签乘性加成
   const tag = el.tagName.toLowerCase();
   const role = el.getAttribute('role');
   let structureBoost = 1;
@@ -420,51 +526,38 @@ export function scoreElement(el: Element): number {
 
   // 2) class 乘性调整
   let classMultiplier = 1;
-  if (positive) classMultiplier *= 1.2;   // article-content / post-content 等
-  if (negative) classMultiplier *= 0.5;   // nav / sidebar / footer / mbox 等
-  if (meta) classMultiplier *= 0.92;      // author / timestamp / tag (弱)
+  if (positive) classMultiplier *= 1.2;
+  if (negative) classMultiplier *= 0.5;
+  if (meta) classMultiplier *= 0.92;
 
-  // -------------------------
   // FIX 1: smooth link penalty
-  // -------------------------
-  const linkRatio = linkTextLength / Math.max(text.length, 1);
+  const linkRatio = linkTextLength / Math.max(readableTextLength, 1);
   score *= 1 / (1 + linkRatio * 2);
 
-  // -------------------------
   // FIX 2: container penalty
-  // -------------------------
   const childCount = el.children?.length || 0;
-  const densityPerChild = text.length / Math.max(childCount, 1);
-
+  const densityPerChild = readableTextLength / Math.max(childCount, 1);
   let containerPenalty = 1;
   if (childCount > 20 && densityPerChild < 25) {
     containerPenalty *= 0.85;
   }
 
-  // -------------------------
-  // FIX 3: sibling normalization
-  // -------------------------
+  // FIX 3: sibling normalization (用缓存避免重复 textContent)
   let siblingBoost = 1;
   const parent = el.parentElement;
-
   if (parent) {
     const siblings = parent.children;
-
     let maxSiblingText = 0;
     let total = 0;
-
     for (let i = 0; i < siblings.length; i++) {
-      const len = (siblings[i].textContent || '').length;
+      const len = getTextLength(siblings[i], textCache);
       total += len;
       if (len > maxSiblingText) maxSiblingText = len;
     }
-
-    const myLen = text.length;
-
+    const myLen = readableTextLength;
     if (maxSiblingText > 0 && myLen < maxSiblingText * 0.7) {
       siblingBoost *= 0.85;
     }
-
     if (siblings.length > 3) {
       const avg = total / siblings.length;
       if (Math.abs(myLen - avg) / avg < 0.25) {
@@ -473,30 +566,25 @@ export function scoreElement(el: Element): number {
     }
   }
 
-  // -------------------------
   // FIX 4: depth normalization
-  // -------------------------
   let depthBoost = 1;
   let depth = 0;
   let p: Element | null = el.parentElement;
-
   while (p) {
     depth++;
     p = p.parentElement;
   }
-
   if (depth < 3) depthBoost = 0.95;
   if (depth > 7) depthBoost *= 0.9;
 
-  // global ratio boost: 真正文章根通常占 body 文本大部分；
-  // 压制只占 body 很小比例的高密度碎片（如 .inner-block-content.rich-content）。
+  // global ratio boost: 用 readableTextLength 而非 raw textContent
   let globalRatioBoost = 1;
   const ownerDoc = el.ownerDocument;
   const bodyEl = ownerDoc?.body;
   if (bodyEl && bodyEl !== el) {
-    const bodyText = (bodyEl.textContent || '').length;
-    if (bodyText > 0) {
-      const ratio = text.length / bodyText;
+    const bodyTextLen = getTextLength(bodyEl, textCache);
+    if (bodyTextLen > 0) {
+      const ratio = readableTextLength / bodyTextLen;
       if (ratio >= 0.4) {
         globalRatioBoost = 1.3;
       } else if (ratio >= 0.25) {
@@ -509,6 +597,7 @@ export function scoreElement(el: Element): number {
 
   return (
     score *
+    densityBoost *
     structureBoost *
     classMultiplier *
     containerPenalty *
@@ -538,15 +627,17 @@ export function scoreElement(el: Element): number {
  *   如未来要重做 dedupe, 需区分"严格 ancestor 关系"vs"兄弟级合并",
  *   避免误伤 article inside wrapper 的常见 CMS 布局。
  */
-export function collectCandidates(doc: Document): Element[] {
+export function collectCandidates(
+  doc: Document,
+  consentMemo?: WeakMap<Element, boolean>,
+): Element[] {
   const seen = new Set<Element>();
   const candidates: Element[] = [];
 
   function add(el: Element | null) {
     if (!el || seen.has(el) || el === doc.body || el === doc.documentElement) return;
     // 绝对排除: 隐私同意 / Cookie / 广告 SDK 容器 (含祖先命中)。
-    // 它们文本密度高、会拿到超高评分, 但 extractBlocks 后必然 0 块。
-    if (isConsentSdkContainer(el)) return;
+    if (isConsentSdkContainer(el, consentMemo)) return;
     seen.add(el);
     candidates.push(el);
   }
@@ -675,30 +766,44 @@ function tryReadabilityRoot(doc: Document): Element | null {
     if (!signature) return null;
 
     // 在原始 DOM 中定位 Readability 提取的段落。
-    // 清理后的文本可能跨多个后代节点（如 <span>LiteRT.js</span> 被单独包裹），
-    // 因此先尝试完整签名，再逐步缩短到词前缀，直到在某个文本节点中命中。
-    let matchedTextNode: Text | null = null;
-    const signatureCandidates: string[] = [signature];
-    const words = signature.split(/\s+/);
-    for (let i = Math.min(words.length - 1, 6); i >= 2; i--) {
-      const prefix = words.slice(0, i).join(' ');
-      if (prefix.length >= 12) signatureCandidates.push(prefix);
-    }
+    // 旧版用 includes(signature) 精确子串匹配, 但现代网站经常有
+    // <p>TensorFlow <span>LiteRT</span> is...</p> 等嵌套结构,
+    // 导致 textContent 被拆分, includes 匹配失败。
+    //
+    // 改进: 使用 token overlap (Jaccard 相似度) 匹配:
+    //   1. 将签名拆成 token set
+    //   2. 遍历 DOM 文本节点, 计算 Jaccard = |A∩B| / |A∪B|
+    //   3. 相似度 > 0.5 视为匹配 (允许部分 token 跨节点拆分)
+    const signatureTokens = new Set(
+      signature.toLowerCase().split(/\s+/).filter((t) => t.length >= 3),
+    );
+    if (signatureTokens.size < 2) return null;
 
-    for (const candidate of signatureCandidates) {
-      const treeWalker = doc.createTreeWalker(
-        doc.body,
-        typeof NodeFilter !== 'undefined' ? NodeFilter.SHOW_TEXT : 4,
-        null,
+    let matchedTextNode: Text | null = null;
+    const treeWalker = doc.createTreeWalker(
+      doc.body,
+      typeof NodeFilter !== 'undefined' ? NodeFilter.SHOW_TEXT : 4,
+      null,
+    );
+    while (treeWalker.nextNode()) {
+      const node = treeWalker.currentNode as Text;
+      const text = node.textContent || '';
+      if (text.length < 10) continue;
+      const nodeTokens = new Set(
+        text.toLowerCase().split(/\s+/).filter((t) => t.length >= 3),
       );
-      while (treeWalker.nextNode()) {
-        const node = treeWalker.currentNode as Text;
-        if (node.textContent && node.textContent.includes(candidate)) {
-          matchedTextNode = node;
-          break;
-        }
+      if (nodeTokens.size === 0) continue;
+      // Jaccard = |A∩B| / |A∪B|
+      let intersection = 0;
+      for (const t of signatureTokens) {
+        if (nodeTokens.has(t)) intersection++;
       }
-      if (matchedTextNode) break;
+      const union = signatureTokens.size + nodeTokens.size - intersection;
+      const jaccard = union > 0 ? intersection / union : 0;
+      if (jaccard >= 0.5) {
+        matchedTextNode = node;
+        break;
+      }
     }
     if (!matchedTextNode) return null;
 
@@ -728,7 +833,7 @@ function tryReadabilityRoot(doc: Document): Element | null {
     }
 
     // 排除 consent SDK 容器，避免误把 cookie 弹窗当正文
-    if (root && isConsentSdkContainer(root)) return null;
+    if (root && isConsentSdkContainer(root, new WeakMap())) return null;
 
     return root;
   } catch (e) {
@@ -748,14 +853,20 @@ function tryReadabilityRoot(doc: Document): Element | null {
  * @returns 最佳候选元素，或 null（分数不够，建议回退 body）
  */
 export function detectArticleRoot(doc: Document): Element | null {
-  const candidates = collectCandidates(doc);
+  // Per-traversal 缓存: 一次 detectArticleRoot 调用内共享, 结束后 GC。
+  // - textCache: 缓存 el.textContent.length, 消除 O(N²) subtree traversal
+  // - consentMemo: 缓存 consent SDK 安全阀判定, 避免全局 WeakSet 跨调用残留
+  const textCache: TextLenCache = new WeakMap();
+  const consentMemo = new WeakMap<Element, boolean>();
+
+  const candidates = collectCandidates(doc, consentMemo);
   if (candidates.length === 0) return null;
 
   let bestEl: Element | null = null;
   let bestScore = -1;
 
   for (const el of candidates) {
-    const score = scoreElement(el);
+    const score = scoreElement(el, textCache);
     if (score > bestScore) {
       bestScore = score;
       bestEl = el;
@@ -766,14 +877,12 @@ export function detectArticleRoot(doc: Document): Element | null {
   // 或者 best 是孤立的 section 等局部容器时，启用 Readability fallback。
   let shouldTryReadability = false;
   if (bestEl && doc.body) {
-    const bodyText = (doc.body.textContent || '').length;
-    const bestTextLen = (bestEl.textContent || '').length;
+    const bodyText = getTextLength(doc.body, textCache);
+    const bestTextLen = getTextLength(bestEl, textCache);
     const ratio = bodyText > 0 ? bestTextLen / bodyText : 0;
     if (bestScore < SCORE_THRESHOLD || ratio < 0.15) {
       shouldTryReadability = true;
     } else if (isFragmentedArticleRoot(bestEl, doc)) {
-      // 页面由多个同级 section 构成，best 可能只是其中一个小节。
-      // Readability 更擅长把整篇文章聚合起来。
       console.log(
         `[ContentDetector] Best candidate looks like a fragmented section, trying Readability fallback`,
       );
@@ -786,14 +895,9 @@ export function detectArticleRoot(doc: Document): Element | null {
   if (shouldTryReadability) {
     const readabilityRoot = tryReadabilityRoot(doc);
     if (readabilityRoot) {
-      // Readability 已经是一个相对可靠的正文提取器；
-      // 当现有评分算法不可靠时才启用 fallback，因此直接采用其结果，
-      // 并用保底分数确保能跨过阈值。
-      // 注意：这里不再和 bestScore 比较。原 best 本身已因分数不足 / 占比过低 /
-      // 碎片化被判定为不可靠，直接采用 Readability 结果才能聚合多 section 文章。
-      const s = scoreElement(readabilityRoot);
-      const readabilityTextLen = (readabilityRoot.textContent || '').length;
-      const bestTextLen = bestEl ? (bestEl.textContent || '').length : 0;
+      const s = scoreElement(readabilityRoot, textCache);
+      const readabilityTextLen = getTextLength(readabilityRoot, textCache);
+      const bestTextLen = bestEl ? getTextLength(bestEl, textCache) : 0;
       if (readabilityTextLen >= bestTextLen * 0.5) {
         bestScore = Math.max(s, SCORE_THRESHOLD + 1);
         bestEl = readabilityRoot;
@@ -811,7 +915,7 @@ export function detectArticleRoot(doc: Document): Element | null {
 
   // 防御: 即便通过了 collectCandidates 过滤, 也再校验一次冠军不是 consent SDK
   // (理论上不会命中, 但 collectCandidates 的祖先展开可能引入外层包装)。
-  if (bestEl && isConsentSdkContainer(bestEl)) {
+  if (bestEl && isConsentSdkContainer(bestEl, consentMemo)) {
     console.log(
       `[ContentDetector] Best candidate is a consent/cookie SDK container, ignoring (score: ${bestScore})`,
     );

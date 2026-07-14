@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { extractBlocks, findBlockNode, buildNodeMap, extractBlocksFromMarkedHtml, collapseSpacedText } from '../lib/translate/blockExtractor';
 import { shouldSkipByClass, isLowPriorityElement, isOverlayElement } from '../lib/translate/blockExtractor/rules';
+import { detectArticleRoot } from '../lib/translate/contentDetector';
 
 // Mock matchSiteRule for shouldSkipBySiteRules tests
 vi.mock('../lib/translate/rules', () => ({
@@ -832,6 +833,62 @@ describe('extractBlocks - Heading Context', () => {
     expect(paragraph!.context).toBeTruthy();
     expect(paragraph!.context!.headingPath).toContain('Main Article Title');
     expect(paragraph!.context!.headingPath).toContain('Section Title');
+  });
+
+  it('heading outline: 同级新 heading 应清除旧 heading (不再累积)', () => {
+    // 回归: 旧版 headingStack 只 push 不 pop, 导致后面所有 block 拿到
+    // 所有前面的 heading。新版基于级别 pop, 同级新 heading 出现时旧 heading 被清除。
+    setupHTML(`
+      <article>
+        <h1>React Hooks</h1>
+        <p>React hooks paragraph content here.</p>
+        <h1>Vue Signals</h1>
+        <p>Vue signals paragraph content here.</p>
+      </article>
+    `);
+
+    const blocks = extractBlocks(document, "https://example.com/test");
+    const reactBlock = blocks.find(b => b.text.startsWith('React hooks'));
+    const vueBlock = blocks.find(b => b.text.startsWith('Vue signals'));
+
+    expect(reactBlock).toBeTruthy();
+    expect(vueBlock).toBeTruthy();
+
+    // React 段落: headingPath 应包含 "React Hooks"
+    expect(reactBlock!.context!.headingPath).toContain('React Hooks');
+    expect(reactBlock!.context!.headingPath).not.toContain('Vue Signals');
+
+    // Vue 段落: headingPath 应包含 "Vue Signals" 但不再包含 "React Hooks"
+    expect(vueBlock!.context!.headingPath).toContain('Vue Signals');
+    expect(vueBlock!.context!.headingPath).not.toContain('React Hooks');
+  });
+
+  it('heading outline: 子级别 heading 保留父 heading', () => {
+    setupHTML(`
+      <article>
+        <h1>Main Title</h1>
+        <h2>Subsection</h2>
+        <p>Paragraph under subsection with enough text.</p>
+        <h2>Another Subsection</h2>
+        <p>Another paragraph with enough text.</p>
+      </article>
+    `);
+
+    const blocks = extractBlocks(document, "https://example.com/test");
+    const p1 = blocks.find(b => b.text.startsWith('Paragraph under subsection'));
+    const p2 = blocks.find(b => b.text.startsWith('Another paragraph'));
+
+    expect(p1).toBeTruthy();
+    expect(p2).toBeTruthy();
+
+    // p1: headingPath 应包含 h1 和 h2
+    expect(p1!.context!.headingPath).toContain('Main Title');
+    expect(p1!.context!.headingPath).toContain('Subsection');
+
+    // p2: headingPath 应包含 h1 和第二个 h2, 但不应包含第一个 h2
+    expect(p2!.context!.headingPath).toContain('Main Title');
+    expect(p2!.context!.headingPath).toContain('Another Subsection');
+    expect(p2!.context!.headingPath).not.toContain('Subsection');
   });
 });
 
@@ -4496,6 +4553,32 @@ describe('extractBlocks - nested <body> (WordPress CMS injection)', () => {
     expect(texts).toContain('Real article paragraph inside nested body element.');
     expect(texts).toContain('Second paragraph also inside nested body.');
   });
+
+  it('should not reject nested <html><body> inside section (regression: github.blog)', () => {
+    // github.blog（WordPress）在 <section class="post__content"> 内注入
+    //   <!DOCTYPE html><html><body><p>正文段落</p></body></html>
+    // linkedom 解析后产生嵌套 <html><body>，walker 不应跳过其子节点。
+    setupHTML(`
+      <main>
+        <section class="post__content">
+          <html><body>
+            <p>Give an agent better tools and it should do better work.</p>
+            <p>When you open a pull request, Copilot code review reads the diff.</p>
+            <h2>Same tools wrong instincts</h2>
+            <p>The existing review tools were not thin wrappers.</p>
+          </body></html>
+        </section>
+      </main>
+    `);
+
+    const blocks = extractBlocks(document, 'https://github.blog/test');
+    const texts = blocks.map(b => b.text);
+
+    expect(texts).toContain('Give an agent better tools and it should do better work.');
+    expect(texts).toContain('When you open a pull request, Copilot code review reads the diff.');
+    expect(texts).toContain('Same tools wrong instincts');
+    expect(texts).toContain('The existing review tools were not thin wrappers.');
+  });
 });
 
 describe('extractBlocks - Print-only elements', () => {
@@ -6230,6 +6313,81 @@ describe('blockExtractor - short pattern word boundary (\\b)', () => {
       expect(isOverlayElement(el)).toBe(true);
       el.remove();
     }
+  });
+
+  // ── heading outline 栈: 级别 pop 行为 ──────────────────────
+  it('heading outline: h1 后新 h1 应清除旧 h1', () => {
+    setupHTML(`
+      <article>
+        <h1>First Section</h1>
+        <p>First paragraph with enough text.</p>
+        <h1>Second Section</h1>
+        <p>Second paragraph with enough text.</p>
+      </article>
+    `);
+    const blocks = extractBlocks(document, "https://example.com/test");
+    const firstP = blocks.find(b => b.text.startsWith('First paragraph'));
+    const secondP = blocks.find(b => b.text.startsWith('Second paragraph'));
+    expect(firstP).toBeTruthy();
+    expect(secondP).toBeTruthy();
+    expect(firstP!.context!.headingPath).toContain('First Section');
+    expect(firstP!.context!.headingPath).not.toContain('Second Section');
+    expect(secondP!.context!.headingPath).toContain('Second Section');
+    expect(secondP!.context!.headingPath).not.toContain('First Section');
+  });
+
+  it('heading outline: h2 保留父 h1, 同级新 h2 清除旧 h2', () => {
+    setupHTML(`
+      <article>
+        <h1>Main Title</h1>
+        <h2>Subsection A</h2>
+        <p>Content under A with enough text.</p>
+        <h2>Subsection B</h2>
+        <p>Content under B with enough text.</p>
+      </article>
+    `);
+    const blocks = extractBlocks(document, "https://example.com/test");
+    const pA = blocks.find(b => b.text.startsWith('Content under A'));
+    const pB = blocks.find(b => b.text.startsWith('Content under B'));
+    expect(pA).toBeTruthy();
+    expect(pB).toBeTruthy();
+    expect(pA!.context!.headingPath).toContain('Main Title');
+    expect(pA!.context!.headingPath).toContain('Subsection A');
+    expect(pB!.context!.headingPath).toContain('Main Title');
+    expect(pB!.context!.headingPath).toContain('Subsection B');
+    expect(pB!.context!.headingPath).not.toContain('Subsection A');
+  });
+
+  // ── shouldSkipByClass: noiseMemo per-traversal ──────────────
+  it('shouldSkipByClass accepts noiseMemo parameter', () => {
+    const el = document.createElement('div');
+    el.className = 'cookie-banner';
+    document.body.appendChild(el);
+    const memo = new WeakMap();
+    expect(shouldSkipByClass(el, memo)).toBe(true);
+    // 长文本安全阀
+    el.textContent = 'x'.repeat(6000);
+    const memo2 = new WeakMap();
+    expect(shouldSkipByClass(el, memo2)).toBe(false);
+    el.remove();
+  });
+
+  // ── Readability fallback: Jaccard token overlap ────────────
+  it('detectArticleRoot uses Jaccard overlap for Readability fallback', () => {
+    // 这个测试验证 detectArticleRoot 在 Readability fallback 时
+    // 能处理跨节点拆分的文本
+    setupHTML(`
+      <html><head><title>Test</title></head><body>
+        <div class="article-body">
+          <h1>Test Article</h1>
+          <p>This is a longer paragraph that should be detected by the readability fallback even with nested spans.</p>
+          <p>Second paragraph with additional content for the article body.</p>
+        </div>
+      </body></html>
+    `);
+    const root = detectArticleRoot(document);
+    expect(root).toBeTruthy();
+    expect(root!.textContent).toContain('Test Article');
   });
 });
 

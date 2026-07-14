@@ -85,45 +85,70 @@ function matchesSkipClass(token: string, pattern: string): boolean {
 /**
  * 噪声类元素文本长度安全阀：超过此长度的元素不视为噪声，防误杀长 FAQ。
  *
- * webclaw 借鉴：cookie/consent/footer 等噪声类元素若 textContent > 5000 字符，
- * 很可能是长 FAQ / 长隐私政策正文 / 长评论，不应被整棵跳过。
- *
  * 回归 case: #cookiesModal (Bootstrap modal 含 cookie policy tabs) 有 ~50k
  * 字符文本，因 class 含 "cookie" 被跳过，但它实际是页面正文。
  */
 const NOISE_TEXT_SAFE_VALVE = 5000;
 
-const _noiseSafeValveMemo = new WeakSet<Element>();
-
 /**
  * 检查元素是否因文本过长而豁免噪声判定。
- * 用 WeakSet 缓存，同一元素不会重复计算 textContent。
+ * 不再使用全局 WeakSet 缓存——SPA 路由切换后同一 DOM 元素内容可能变化,
+ * 全局缓存会导致旧判断残留。改为每次遍历传参缓存。
  */
-function isNoiseSafeValve(el: Element): boolean {
-  if (_noiseSafeValveMemo.has(el)) return true;
-  const text = el.textContent || '';
-  if (text.length > NOISE_TEXT_SAFE_VALVE) {
-    _noiseSafeValveMemo.add(el);
-    return true;
+function isNoiseSafeValve(
+  el: Element,
+  memo?: WeakMap<Element, boolean>,
+): boolean {
+  if (memo) {
+    const cached = memo.get(el);
+    if (cached !== undefined) return cached;
   }
-  return false;
+  const text = el.textContent || '';
+  const result = text.length > NOISE_TEXT_SAFE_VALVE;
+  if (memo) memo.set(el, result);
+  return result;
 }
+
+// =============================================================================
+// Token skip 优化: Set 快速匹配 + 全量 pattern 慢速匹配
+// =============================================================================
+//
+// 旧版: O(tokens * patterns) 双层循环, 每次都做 startsWith/endsWith。
+// 大页面 (10000 nodes × 5 tokens × 300 patterns ≈ 15M 次匹配) 性能差。
+//
+// 优化: 先用 Set O(1) 精确匹配 (命中率约 60%, 大多数 class 是精确匹配),
+// 只在 Set miss 时走全量 pattern 前后缀匹配。
+const SKIP_CLASS_EXACT_SET: ReadonlySet<string> = new Set(SKIP_CLASS_PATTERNS);
 
 /**
  * 是否因 class 命中 SKIP_CLASS_PATTERNS 而应跳过 (整棵子树拒绝)。
  * 跨站通用: 广告 / cookie / 推荐 / 弹窗 / 导航 等。
  *
+ * 优化: 先用 Set O(1) 精确匹配, 再用前后缀 pattern 慢速匹配。
+ *
  * 安全阀：若元素 textContent > 5000 字符，即使 class 命中噪声模式也不跳过，
  * 防止误杀长 FAQ / 长隐私政策等正文内容。
  */
-export function shouldSkipByClass(el: Element): boolean {
+export function shouldSkipByClass(
+  el: Element,
+  noiseMemo?: WeakMap<Element, boolean>,
+): boolean {
   const tokens = tokenizeClass(el);
   if (tokens.length === 0) return false;
+
+  // 快速路径: Set O(1) 精确匹配
+  for (const token of tokens) {
+    if (SKIP_CLASS_EXACT_SET.has(token)) {
+      if (isNoiseSafeValve(el, noiseMemo)) return false;
+      return true;
+    }
+  }
+
+  // 慢速路径: 前后缀 pattern 匹配 (startsWith/endsWith)
   for (const token of tokens) {
     for (const pattern of SKIP_CLASS_PATTERNS) {
       if (matchesSkipClass(token, pattern)) {
-        // 安全阀：噪声类元素若 text > 5000 字符则不视为噪声
-        if (isNoiseSafeValve(el)) return false;
+        if (isNoiseSafeValve(el, noiseMemo)) return false;
         return true;
       }
     }

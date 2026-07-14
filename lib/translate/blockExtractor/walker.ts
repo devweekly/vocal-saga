@@ -76,6 +76,8 @@ interface WalkCache {
   validText: WeakMap<Element, boolean>;
   // ⭐ NEW: lightweight soft score hint (VERY cheap heuristic)
   scoreHint: WeakMap<Element, number>;
+  // 噪声安全阀缓存 (per-traversal, 避免全局 WeakSet 跨调用残留)
+  noiseMemo: WeakMap<Element, boolean>;
 }
 
 /**
@@ -271,14 +273,17 @@ function acceptWalkerNode(
     counters.rejected++;
     return FILTER_REJECT;
   }
-  // 嵌套 <body>（parent 不是 <html>）不拒绝：WordPress CMS 注入的非标准
-  // HTML 会在正文中产生 <!DOCTYPE><div><body>…</body></div>，其内容
-  // 是正文的一部分，不应因 <body> 在 SKIP_SET 中而被整棵跳过。
-  // 文档级 <body>（parent 是 <html>）不会被 walker 访问到（遍历
-  // 起始于 <main>/<article> 等下游容器），所以放行嵌套 body 是安全的。
+  // 嵌套 <body> / <html>（parent 不是文档级 <html> 或 #document）不拒绝：
+  // WordPress CMS（如 github.blog）会在正文 <section> 内注入
+  //   <!DOCTYPE><html><body><p>正文段落</p></body></html>
+  // linkedom 解析后产生嵌套 <html><body>，其子节点是正文内容，
+  // 不应因 <html>/<body> 在 SKIP_SET 中而被整棵跳过。
+  // 文档级 <html>/<body> 不会被 walker 访问到（遍历起始于
+  // <main>/<article> 等下游容器），所以放行嵌套标签是安全的。
   const skipSetMatch = SKIP_SET.has(tag);
   const isNestedBody = tag === 'body' && el.parentElement?.tagName?.toLowerCase() !== 'html';
-  if ((skipSetMatch && !isNestedBody) || hasTranslateBlockClass(el) || isContentEditable(el)) {
+  const isNestedHtml = tag === 'html' && el.parentElement !== null && el.parentElement !== undefined;
+  if ((skipSetMatch && !isNestedBody && !isNestedHtml) || hasTranslateBlockClass(el) || isContentEditable(el)) {
     cache.rejected.add(el);
     counters.rejected++;
     return FILTER_REJECT;
@@ -288,7 +293,7 @@ function acceptWalkerNode(
     counters.rejected++;
     return FILTER_REJECT;
   }
-  if (shouldSkipByClass(el) || shouldSkipBySiteRules(el, pageUrl)) {
+  if (shouldSkipByClass(el, cache.noiseMemo) || shouldSkipBySiteRules(el, pageUrl)) {
     cache.rejected.add(el);
     counters.rejected++;
     return FILTER_REJECT;
@@ -337,17 +342,13 @@ function acceptWalkerNode(
   }
 
   // ==========================================================
-  // ⭐ NEW: soft ranking hint injection (minimal change)
+  // soft hint: 只用于评分参考, 不影响遍历 (避免误杀)
   // ==========================================================
   const hint = cache.scoreHint.get(el) ?? computeSoftHint(el);
   cache.scoreHint.set(el, hint);
 
-  // ⭐ NEW: instead of hard skip for DIRECT_SET, bias via hint
+  // DIRECT_SET: 不再因 hint < 0 而 SKIP (会误杀 content-sidebar 等合法容器)
   if (DIRECT_SET.has(tag)) {
-    if (hint < 0) {
-      counters.skipped++;
-      return FILTER_SKIP;
-    }
     return getTextValid(el, cache.validText, pageUrl)
       ? FILTER_ACCEPT
       : FILTER_SKIP;
@@ -358,8 +359,7 @@ function acceptWalkerNode(
     getClassification(el, cache.classify);
 
   if (!hasOnlyInlineChildren) {
-    // ⭐ CHANGED: soft skip instead of hard structural skip
-    if (hint >= 2) return FILTER_SKIP;
+    // 容器元素: 走子树 (skip 自身, 不影响遍历)
     counters.skipped++;
     return FILTER_SKIP;
   }
@@ -406,24 +406,27 @@ export function collectBlocks(
     validText: new WeakMap<Element, boolean>(),
     // ⭐ NEW
     scoreHint: new WeakMap(),
+    noiseMemo: new WeakMap(),
   };
-  // headingStack: 维护 DFS 过程中遇到的所有 h1-h6, 块提取时 O(1) snapshot.
-  // 与原 getHeadingPath (向上 + 向左 + 递归子树) 语义对齐: 反映"文档顺序
-  // previous-headings 链", 即到当前节点为止见过的所有 h1-h6.
+  // headingStack / headingLevels: 基于 heading 级别的 outline 栈。
   //
-  // 实现选择: 只 push 不 pop.
-  //   - 优点: 简单, O(1) per heading, 兄弟子树间天然连续 (例如 h1/h2/h2 三个
-  //     兄弟 heading, 第二个 h2 的 block 仍能拿到第一个 h2 的文本作为上下文).
-  //   - 缺点: 栈会随 heading 数增长, 但单页 h1-h6 通常 < 30, 完全可接受.
-  //   - pop 方案 (DFS enter/exit 对称) 在兄弟结构上会过早弹出, 导致第二个
-  //     heading 的 headingPath 看不到第一个 heading, 行为偏离原 getHeadingPath.
+  // 语义: 遇到 heading 时, 先弹出所有 >= 当前级别的旧 heading, 再 push。
+  //   - h1 "React Hooks" → push → 后续 block 的 headingPath = ["React Hooks"]
+  //   - h2 "Hooks Intro" → push → headingPath = ["React Hooks", "Hooks Intro"]
+  //   - h1 "Vue Signals" → pop "Hooks Intro" + "React Hooks", push "Vue Signals"
+  //     → headingPath = ["Vue Signals"]
+  //
+  // 这解决了旧版 "只 push 不 pop" 的问题 (所有 heading 累积, 后面 block 拿到
+  // 所有前面的 heading), 同时保留了 HTML 中 heading 作为 sibling 的语义
+  // (heading 后续的同级 block 能拿到 heading 作为上下文)。
   const headingStack: string[] = [];
+  const headingLevels: number[] = [];
 
   // startNode 自身不被 visit（与 TreeWalker 行为一致：root 是位置，不是节点），
   // 第一个 visit 的是它的 childNodes。
   const children = startNode.childNodes;
   for (let i = 0; i < children.length; i++) {
-    walkNode(children[i], blocks, blockIdRef, seenTexts, counters, cache, headingStack, pageUrl);
+    walkNode(children[i], blocks, blockIdRef, seenTexts, counters, cache, headingStack, headingLevels, pageUrl);
   }
 
   // Shadow DOM 处理已合并到 walkNode 内部, 不再需要 collectFromShadowHosts 第二轮扫描.
@@ -452,25 +455,40 @@ function walkNode(
   counters: WalkerCounters,
   cache: WalkCache,
   headingStack: string[],
+  headingLevels: number[],
   pageUrl: string
 ): void {
   const verdict = acceptWalkerNode(node, counters, cache, pageUrl);
   if (verdict === FILTER_REJECT) return;
+
+  // Heading outline stack: 遇到 heading 时, 先弹出 >= 当前级别的旧 heading,
+  // 再 push。这样后续同级 block 能拿到 heading 作为上下文,
+  // 而同级新 heading 出现时旧 heading 被自动清除。
+  if (verdict !== FILTER_REJECT && node.nodeType === ELEMENT_NODE_TYPE) {
+    const tag = (node as Element).tagName.toLowerCase();
+    const headingMatch = tag.match(/^h([1-6])$/);
+    if (headingMatch) {
+      const level = parseInt(headingMatch[1], 10);
+      // 弹出所有 >= 当前级别的 heading (开启新 section)
+      while (headingLevels.length > 0 && headingLevels[headingLevels.length - 1] >= level) {
+        headingStack.pop();
+        headingLevels.pop();
+      }
+      headingStack.push((node as Element).textContent?.trim() || '');
+      headingLevels.push(level);
+    }
+  }
 
   if (verdict === FILTER_ACCEPT) {
     const translateNode = grabNode(node, cache, pageUrl);
     if (translateNode) {
       const text = translateNode.textContent?.trim();
       if (text) {
-        // 去重: 同样的段落出现在多个 callout (e.g. HBR summary box + body) 只取一个。
-        // 节省 API 调用 + 避免堆叠相同译文。
         if (seenTexts.has(text)) {
           counters.skipped++;
         } else {
           seenTexts.add(text);
           const id = `b${++blockIdRef.value}`;
-          // dataset 写入：linkedom 支持；jsdom 支持；旧浏览器不支持
-          // （dataset 是 ES2015 起的标准，所有目标环境都满足）
           try {
             (translateNode as unknown as { dataset: Record<string, string> }).dataset.fanyiBlockId = id;
           } catch {
@@ -484,8 +502,8 @@ function walkNode(
             text,
             renderHint: isCandidate ? { inlineCandidate: true } : undefined,
             context: {
-              // O(1) snapshot: headingStack 是当前节点之前遇到的 h1-h6,
-              // 自身 heading 不包含在自身 headingPath 里 (与原 getHeadingPath 行为一致).
+              // O(1) snapshot: headingStack 反映当前节点的 heading outline 路径。
+              // heading 自身已 push, 所以 heading block 的 headingPath 含自身。
               headingPath: headingStack.slice(),
               position: blockIdRef.value,
             },
@@ -495,39 +513,21 @@ function walkNode(
     }
   }
 
-  // 维护 headingStack: 当前节点是 h1-h6 时 push (不 pop, 单调增长).
-  // push 在 block 创建之后, 这样:
-  //   - 当前 heading 自身的 block.headingPath 不含自己 (snapshot 在 push 前)
-  //   - 后续兄弟节点能拿到这个 heading 作为上下文
-  // 复杂度: O(1) per heading, 栈大小受页内 h1-h6 总数限制 (通常 < 30).
-  // 注: PATTERNS.HEADING 是 /^H[1-6]$/ (大写 H), tagName 在 HTML 中是
-  // 大写, 在 linkedom/svg 中可能是小写, 统一在测试时 /i case-insensitive.
-  if (node.nodeType === ELEMENT_NODE_TYPE) {
-    const tag = (node as Element).tagName.toLowerCase();
-    if (/^h[1-6]$/.test(tag)) {
-      headingStack.push((node as Element).textContent?.trim() || '');
-    }
-  }
-
   // Shadow DOM 合并: 若当前节点是 shadow host, 立即递归 shadowRoot.
-  // 整次 DFS 同时覆盖 light DOM + shadow tree, 避免 collectFromShadowHosts
-  // 二次扫描整树. host 自身的 light DOM 也会被正常访问 (下面的 childNodes 循环),
-  // shadowRoot 内部节点通过本次调用栈独立处理, 与原 collectFromShadowHosts 行为一致.
   if (node.nodeType === ELEMENT_NODE_TYPE) {
     const shadow = (node as unknown as { shadowRoot?: { mode: string; childNodes: NodeListOf<ChildNode> } | null }).shadowRoot;
     if (shadow && shadow.mode === 'open') {
       const shadowChildren = shadow.childNodes;
       for (let i = 0; i < shadowChildren.length; i++) {
-        walkNode(shadowChildren[i], blocks, blockIdRef, seenTexts, counters, cache, headingStack, pageUrl);
+        walkNode(shadowChildren[i], blocks, blockIdRef, seenTexts, counters, cache, headingStack, headingLevels, pageUrl);
       }
     }
   }
 
   // ACCEPT 和 SKIP 都要继续 recurse 子节点（TreeWalker 行为一致）
-  // indexed for 替代 Array.from, 避免每次迭代分配临时数组
   const childList = node.childNodes;
   for (let i = 0; i < childList.length; i++) {
-    walkNode(childList[i], blocks, blockIdRef, seenTexts, counters, cache, headingStack, pageUrl);
+    walkNode(childList[i], blocks, blockIdRef, seenTexts, counters, cache, headingStack, headingLevels, pageUrl);
   }
 }
 
