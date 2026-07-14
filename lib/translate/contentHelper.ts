@@ -1,4 +1,4 @@
-import { extractBlocks, getLastCounters, type TextBlock } from './blockExtractor';
+import { extractBlocks, getLastCounters, type TextBlock, type ArticleContext } from './blockExtractor';
 import { buildChunks, type Chunk } from './chunkBuilder';
 import { detectArticleRoot } from './contentDetector';
 import { matchSiteRule } from './rules';
@@ -388,7 +388,17 @@ function hasMeaningfulContent(el: Element): boolean {
   return (el.textContent || '').trim().length > 0;
 }
 
-function findArticleRoot(doc: Document, pageUrl: string): Element {
+function findArticleRoot(
+  doc: Document,
+  pageUrl: string,
+  /**
+   * 可选 out 参数: 透传给 detectArticleRoot, 当 Layer 2 命中时填充
+   * noiseSet / textCache / confidence / semanticHints。
+   * 调用方 (prepareDocument) 拿到 noiseSet 后传给 extractBlocks,
+   * 实现 root detection → block extraction 共享 ArticleContext。
+   */
+  contextOut?: Partial<ArticleContext>,
+): Element {
   // Layer 0: 站点特定 articleRootSelector（最高优先级）
   // 当通用选择器无法正确定位正文根时（如 claude.com 的 hero 和正文
   // 分属兄弟 section），用站点规则的 articleRootSelector 直接指定。
@@ -435,7 +445,7 @@ function findArticleRoot(doc: Document, pageUrl: string): Element {
   }
 
   // Layer 2: 智能评分（处理未知站点）
-  const detected = detectArticleRoot(doc);
+  const detected = detectArticleRoot(doc, contextOut);
   if (detected && hasMeaningfulContent(detected)) return detected;
 
   // Layer 3: 兜底 — 直接遍历 body 抓取所有符合规则的 TextNode
@@ -726,10 +736,16 @@ export function prepareDocument(
   fullText: string;
   report: ExtractionReport;
 } {
+  // ArticleContext: 共享 root detection → block extraction 的上下文。
+  // detectArticleRoot 在 collectCandidates 期间把被排除的 consent SDK 容器
+  // 加入 noiseSet; prepareDocument 把 noiseSet 传给 extractBlocks, 让 walker
+  // 通过 WalkCache.knownNoise 直接 O(1) 跳过这些已识别的噪声, 避免重复判定。
+  const articleContext: Partial<ArticleContext> = {};
+
   // 优先使用文章容器，减少 TreeWalker 遍历范围
   const isDoc = root.nodeType === 9;
-  const effectiveRoot: Element = isDoc ? findArticleRoot(root as Document, pageUrl) : (root as Element);
-  let blocks = extractBlocks(effectiveRoot, pageUrl);
+  const effectiveRoot: Element = isDoc ? findArticleRoot(root as Document, pageUrl, articleContext) : (root as Element);
+  let blocks = extractBlocks(effectiveRoot, pageUrl, articleContext);
   let strategy = 'selector';
   let rootSelector = `<${effectiveRoot.tagName.toLowerCase()}>.${(effectiveRoot.className || '').toString().split(/\s+/)[0] || ''}`;
 
@@ -738,7 +754,7 @@ export function prepareDocument(
     console.warn(
       `[ContentHelper] Detected root <${effectiveRoot.tagName}> yielded 0 blocks, falling back to <body>`,
     );
-    blocks = extractBlocks((root as Document).body || (root as Document).documentElement, pageUrl);
+    blocks = extractBlocks((root as Document).body || (root as Document).documentElement, pageUrl, articleContext);
     strategy = 'body-fallback';
     rootSelector = '<body>';
   }

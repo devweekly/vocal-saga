@@ -78,6 +78,8 @@ interface WalkCache {
   scoreHint: WeakMap<Element, number>;
   // 噪声安全阀缓存 (per-traversal, 避免全局 WeakSet 跨调用残留)
   noiseMemo: WeakMap<Element, boolean>;
+  /** root detection 已识别的噪声元素 (O(1) 跳过, 避免重复 shouldSkipByClass) */
+  knownNoise: WeakSet<Element>;
 }
 
 /**
@@ -293,6 +295,12 @@ function acceptWalkerNode(
     counters.rejected++;
     return FILTER_REJECT;
   }
+  // 快速路径: root detection 已标记的噪声元素直接拒绝 (O(1) WeakSet 查找)
+  if (cache.knownNoise.has(el)) {
+    cache.rejected.add(el);
+    counters.rejected++;
+    return FILTER_REJECT;
+  }
   if (shouldSkipByClass(el, cache.noiseMemo) || shouldSkipBySiteRules(el, pageUrl)) {
     cache.rejected.add(el);
     counters.rejected++;
@@ -395,7 +403,9 @@ export function collectBlocks(
   blocks: TextBlock[],
   blockIdRef: { value: number },
   seenTexts: Set<string>,
-  pageUrl: string
+  pageUrl: string,
+  /** root detection 已识别的噪声集合 (可选, 注入到 WalkCache.knownNoise) */
+  preNoiseSet?: WeakSet<Element>,
 ): WalkerCounters {
   const t0 = performance.now();
   const counters = { rejected: 0, skipped: 0, accepted: 0 };
@@ -407,6 +417,10 @@ export function collectBlocks(
     // ⭐ NEW
     scoreHint: new WeakMap(),
     noiseMemo: new WeakMap(),
+    // 共享 root detection 的 noiseSet: 已识别的 consent SDK 容器直接 O(1) 跳过,
+    // 避免 collectBlocks 重复调用 shouldSkipByClass / isConsentSdkContainer。
+    // 未传 preNoiseSet 时回退到空 WeakSet, 保持原有行为。
+    knownNoise: preNoiseSet ?? new WeakSet(),
   };
   // headingStack / headingLevels: 基于 heading 级别的 outline 栈。
   //

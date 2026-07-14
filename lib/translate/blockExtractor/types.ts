@@ -21,3 +21,25 @@ export interface TextBlock {
     position: number;
   };
 }
+
+/**
+ * ArticleContext: root detection 阶段产生的上下文, 传递给 block extraction。
+ *
+ * 解决问题: detectArticleRoot 和 collectBlocks 各自独立判断 "是否噪声",
+ * 导致重复计算且可能不一致。通过共享 context, block extraction 可以
+ * 直接跳过 root detection 已识别为噪声的元素。
+ */
+export interface ArticleContext {
+  /** root detection 已识别的噪声元素集合 (O(1) 查找) */
+  noiseSet: WeakSet<Element>;
+  /** root detection 的 textLength 缓存 (复用给 block extraction) */
+  textCache: WeakMap<Element, number>;
+  /** 文章根的置信度 (0~1) */
+  confidence: number;
+  /** 语义提示 */
+  semanticHints: {
+    isArticle: boolean;
+    hasCode: boolean;
+    hasMath: boolean;
+  };
+}

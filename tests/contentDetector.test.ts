@@ -5,6 +5,7 @@ import {
   detectArticleRoot,
   SCORE_THRESHOLD,
 } from '../lib/translate/contentDetector';
+import type { ArticleContext } from '../lib/translate/blockExtractor/types';
 
 describe('contentDetector', () => {
   beforeEach(() => {
@@ -973,6 +974,90 @@ describe('contentDetector', () => {
       // mid should be highest (no depth penalty)
       expect(sMid).toBeGreaterThan(sShallow);
       expect(sMid).toBeGreaterThan(sDeep);
+    });
+  });
+
+  // =============================================================================
+  // ArticleContext 共享: root detection → block extraction
+  // =============================================================================
+  // chatgpt0714.md P1 建议: detectArticleRoot 已识别的噪声应共享给 collectBlocks,
+  // 避免两个阶段各自独立过滤 (浪费 CPU + 可能产生冲突)。
+  describe('ArticleContext sharing', () => {
+    it('detectArticleRoot populates contextOut.noiseSet with consent SDK containers', () => {
+      // 构造一个 consent SDK 容器 + 一个真正文章容器
+      document.body.innerHTML = `
+        <div id="onetrust-banner-sdk" class="onetrust-banner">
+          <p>We use cookies to improve your experience. Read our privacy policy.</p>
+          <a href="#">Accept</a>
+          <a href="#">Reject</a>
+        </div>
+        <article class="post-content">
+          <h1>Real Article Title</h1>
+          <p>This is the genuine article content with sufficient text length.</p>
+          <p>Another paragraph to ensure good text density and structure.</p>
+          <p>Yet another paragraph to further strengthen the article signal.</p>
+        </article>
+      `;
+
+      const context: Partial<ArticleContext> = {};
+      const root = detectArticleRoot(document, context);
+      expect(root).not.toBeNull();
+      expect(root!.className).toContain('post-content');
+
+      // noiseSet 应被填充, 且 onetrust banner 元素应被标记为噪声
+      expect(context.noiseSet).toBeDefined();
+      const oneTrustEl = document.getElementById('onetrust-banner-sdk')!;
+      expect(context.noiseSet!.has(oneTrustEl)).toBe(true);
+
+      // 真正的 article 容器不应被标记为噪声
+      const articleEl = document.querySelector('.post-content')!;
+      expect(context.noiseSet!.has(articleEl)).toBe(false);
+
+      // confidence / semanticHints 应被填充
+      expect(context.confidence).toBeGreaterThanOrEqual(0.5);
+      expect(context.confidence).toBeLessThanOrEqual(1);
+      expect(context.semanticHints).toBeDefined();
+      expect(context.semanticHints!.isArticle).toBe(true);
+      expect(context.semanticHints!.hasCode).toBe(false);
+    });
+
+    it('detectArticleRoot without contextOut remains backward compatible', () => {
+      // 不传 contextOut 时, 行为应与旧版完全一致 (返回 Element | null)
+      document.body.innerHTML = `
+        <article class="post-content">
+          <h1>Title</h1>
+          <p>Sufficient article content for detection.</p>
+          <p>Another paragraph for healthy text density.</p>
+        </article>
+      `;
+      const root = detectArticleRoot(document);
+      expect(root).not.toBeNull();
+      expect(root!.className).toContain('post-content');
+    });
+
+    it('collectCandidates populates noiseSet via the third parameter', () => {
+      // 直接测试 collectCandidates 的 noiseSet 共享机制
+      document.body.innerHTML = `
+        <div id="cookie-banner" class="cookie-consent">
+          <p>We use cookies. Accept to continue.</p>
+        </div>
+        <article class="post-content">
+          <h1>Article</h1>
+          <p>Article body paragraph with enough text.</p>
+        </article>
+      `;
+
+      const noiseSet = new WeakSet<Element>();
+      const candidates = collectCandidates(document, undefined, noiseSet);
+
+      // cookie-banner 应被加入 noiseSet (因 isConsentSdkContainer 排除)
+      const cookieEl = document.getElementById('cookie-banner')!;
+      expect(noiseSet.has(cookieEl)).toBe(true);
+
+      // article 应作为候选加入, 不在 noiseSet 中
+      const articleEl = document.querySelector('.post-content')!;
+      expect(candidates).toContain(articleEl);
+      expect(noiseSet.has(articleEl)).toBe(false);
     });
   });
 });

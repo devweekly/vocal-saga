@@ -39,6 +39,7 @@
 import { Readability } from '@mozilla/readability';
 import { parseHTML } from 'linkedom';
 import { SKIP_CLASS_PATTERNS } from './blockExtractor/constants';
+import type { ArticleContext } from './blockExtractor/types';
 
 // =============================================================================
 // 常量
@@ -630,6 +631,7 @@ export function scoreElement(
 export function collectCandidates(
   doc: Document,
   consentMemo?: WeakMap<Element, boolean>,
+  noiseSet?: WeakSet<Element>,
 ): Element[] {
   const seen = new Set<Element>();
   const candidates: Element[] = [];
@@ -637,7 +639,11 @@ export function collectCandidates(
   function add(el: Element | null) {
     if (!el || seen.has(el) || el === doc.body || el === doc.documentElement) return;
     // 绝对排除: 隐私同意 / Cookie / 广告 SDK 容器 (含祖先命中)。
-    if (isConsentSdkContainer(el, consentMemo)) return;
+    if (isConsentSdkContainer(el, consentMemo)) {
+      // 共享给 block extraction: 标记为已知噪声, O(1) 跳过避免重复判定
+      if (noiseSet) noiseSet.add(el);
+      return;
+    }
     seen.add(el);
     candidates.push(el);
   }
@@ -850,16 +856,28 @@ function tryReadabilityRoot(doc: Document): Element | null {
  * 智能识别文章正文容器。
  *
  * @param doc Document
+ * @param contextOut 可选的 out 参数: 函数返回时, contextOut 中会填充
+ *                   - noiseSet: 已识别的噪声元素集合 (consent SDK 容器)
+ *                   - textCache: textLength 缓存, 供 block extraction 复用
+ *                   - confidence: root 的置信度 (0~1)
+ *                   - semanticHints: 语义提示 (isArticle/hasCode/hasMath)
  * @returns 最佳候选元素，或 null（分数不够，建议回退 body）
  */
-export function detectArticleRoot(doc: Document): Element | null {
+export function detectArticleRoot(
+  doc: Document,
+  contextOut?: Partial<ArticleContext>,
+): Element | null {
   // Per-traversal 缓存: 一次 detectArticleRoot 调用内共享, 结束后 GC。
   // - textCache: 缓存 el.textContent.length, 消除 O(N²) subtree traversal
   // - consentMemo: 缓存 consent SDK 安全阀判定, 避免全局 WeakSet 跨调用残留
+  // - noiseSet: 收集 collectCandidates 期间被排除的 consent SDK 容器,
+  //             共享给 block extraction 的 WalkCache.knownNoise, 实现
+  //             "root detection 已识别的噪声 → block extractor O(1) 跳过"。
   const textCache: TextLenCache = new WeakMap();
   const consentMemo = new WeakMap<Element, boolean>();
+  const noiseSet = new WeakSet<Element>();
 
-  const candidates = collectCandidates(doc, consentMemo);
+  const candidates = collectCandidates(doc, consentMemo, noiseSet);
   if (candidates.length === 0) return null;
 
   let bestEl: Element | null = null;
@@ -924,5 +942,26 @@ export function detectArticleRoot(doc: Document): Element | null {
 
   const firstClass = (bestEl!.className || '').split(/\s+/)[0] || '';
   console.log(`[ContentDetector] Best: <${bestEl!.tagName}> .${firstClass} (score: ${bestScore})`);
+
+  // 把 root detection 期间收集的 noiseSet / textCache / confidence 共享给
+  // block extraction, 避免 detectArticleRoot 已识别的噪声在 collectBlocks
+  // 中被重复判定 (旧版两个阶段各自独立过滤, 既浪费 CPU 又可能产生冲突)。
+  if (contextOut) {
+    contextOut.noiseSet = noiseSet;
+    contextOut.textCache = textCache;
+    // confidence: 分数超过阈值 5x 视为高置信 (0.95), 否则按比例缩放到 0.5~0.9
+    contextOut.confidence = bestScore >= SCORE_THRESHOLD * 5
+      ? 0.95
+      : 0.5 + Math.min(0.4, (bestScore - SCORE_THRESHOLD) / (SCORE_THRESHOLD * 5) * 0.4);
+    // semanticHints: 简单基于 best 元素的内容推断
+    const bestTag = bestEl!.tagName.toLowerCase();
+    const bestCls = typeof bestEl!.className === 'string' ? bestEl!.className : '';
+    contextOut.semanticHints = {
+      isArticle: bestTag === 'article' || /article|post|entry/i.test(bestCls),
+      hasCode: !!bestEl!.querySelector('pre, code'),
+      hasMath: !!bestEl!.querySelector('math, .math, .katex'),
+    };
+  }
+
   return bestEl;
 }

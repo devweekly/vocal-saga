@@ -24,6 +24,7 @@ import type { TextBlock } from './types';
 import type { WalkerCounters } from './constants';
 
 export type { TextBlock };
+export type { ArticleContext } from './types';
 
 /**
  * 合并 CSS letter-spacing 渲染的"分散单词"。
@@ -70,7 +71,16 @@ export function getLastCounters(): WalkerCounters | null {
   return _lastCounters;
 }
 
-export function extractBlocks(rootNode: Node, pageUrl: string): TextBlock[] {
+export function extractBlocks(
+  rootNode: Node,
+  pageUrl: string,
+  /**
+   * 可选的 ArticleContext: 来自 detectArticleRoot 的 root detection 上下文。
+   * 如果传入 noiseSet, 会被注入到 WalkCache.knownNoise, 实现 root detection
+   * 已识别的噪声 → block extractor O(1) 跳过的复用, 避免两个阶段重复判定。
+   */
+  context?: { noiseSet?: WeakSet<Element> },
+): TextBlock[] {
   const blocks: TextBlock[] = [];
   const blockIdRef = { value: 0 };
   const seenTexts = new Set<string>();
@@ -84,7 +94,7 @@ export function extractBlocks(rootNode: Node, pageUrl: string): TextBlock[] {
     return [];
   }
 
-  const counters = collectBlocks(startNode, blocks, blockIdRef, seenTexts, pageUrl);
+  const counters = collectBlocks(startNode, blocks, blockIdRef, seenTexts, pageUrl, context?.noiseSet);
   _lastCounters = counters;
 
   // 后处理：合并 CSS letter-spacing 渲染的分散单词。
