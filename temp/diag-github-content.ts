@@ -48,7 +48,7 @@ async function main() {
   // 运行 prepareDocument
   console.log('\n[Diagnose] Running prepareDocument ...');
   const { blocks, fullText, report } = prepareDocument(doc, page.finalUrl);
-  console.log(`[Diagnose] blocks=${blocks.length} totalText=${fullText.length} strategy=${report.strategy} root=${report.rootSelector} confidence=${report.confidence}`);
+  console.log(`[Diagnose] blocks=${blocks.length} totalText=${fullText.length} strategy=${report.strategy} root=${report.rootSelector} quality=${report.extractionQuality}`);
 
   console.log('\n[Diagnose] All blocks:');
   blocks.forEach((b, i) => {

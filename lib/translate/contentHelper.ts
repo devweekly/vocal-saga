@@ -21,8 +21,17 @@ export interface ExtractionReport {
   chunkCount: number;
   /** 噪声比例 (被跳过的节点 / 总节点), 0~1 */
   noiseRatio: number;
-  /** 置信度 0~1, 基于块数/文本长度/噪声比例综合计算 */
-  confidence: number;
+  /**
+   * 抽取质量分 0~1, 基于块数/文本长度/噪声比例/heading 数综合计算。
+   *
+   * 语义区别（P1-3 统一）：
+   *   - `ExtractionReport.extractionQuality`：抽取**过程**的置信度，
+   *     反映 prepareDocument 完成后实际拿到了多少可用内容。
+   *   - `ArticleCandidate.confidence`（extraction/scoring.ts）：候选**根**
+   *     的质量分，反映选根阶段 provider 候选本身的文本密度/结构等。
+   * 两者都叫过 confidence 容易混淆，故本字段改名以明确语义。
+   */
+  extractionQuality: number;
   /** 使用了哪个策略: "site-rule" | "selector" | "density" | "readability" | "data-island" | "body-fallback" */
   strategy: string;
 }
@@ -41,19 +50,19 @@ function buildReport(
   const totalNodes = rejected + skipped + accepted;
   const noiseRatio = totalNodes > 0 ? (rejected + skipped) / totalNodes : 0;
 
-  // 置信度: 综合块数/文本长度/噪声比例
+  // 抽取质量分: 综合块数/文本长度/噪声比例
   // - 块数 >= 5 → +0.3
   // - 文本 >= 500 → +0.3
   // - 噪声比例 < 0.5 → +0.2
   // - heading >= 1 → +0.2
-  let confidence = 0;
-  if (blocks.length >= 5) confidence += 0.3;
-  else if (blocks.length >= 1) confidence += 0.1;
-  if (textLength >= 500) confidence += 0.3;
-  else if (textLength >= 100) confidence += 0.15;
-  if (noiseRatio < 0.5) confidence += 0.2;
-  if (headingCount >= 1) confidence += 0.2;
-  confidence = Math.min(confidence, 1);
+  let extractionQuality = 0;
+  if (blocks.length >= 5) extractionQuality += 0.3;
+  else if (blocks.length >= 1) extractionQuality += 0.1;
+  if (textLength >= 500) extractionQuality += 0.3;
+  else if (textLength >= 100) extractionQuality += 0.15;
+  if (noiseRatio < 0.5) extractionQuality += 0.2;
+  if (headingCount >= 1) extractionQuality += 0.2;
+  extractionQuality = Math.min(extractionQuality, 1);
 
   return {
     rootSelector,
@@ -62,13 +71,9 @@ function buildReport(
     headingCount,
     chunkCount: chunks.length,
     noiseRatio,
-    confidence,
+    extractionQuality,
     strategy,
   };
-}
-
-function hasMeaningfulContent(el: Element): boolean {
-  return (el.textContent || '').trim().length > 0;
 }
 
 function findArticleRoot(
@@ -80,41 +85,10 @@ function findArticleRoot(
    */
   contextOut?: Partial<ArticleContext>,
 ): { root: Element; strategy: string } {
-  // 多策略文章根选择：site-rule / selector / density / readability 并行产生候选，
-  // 统一 ArticleQualityScorer 评分选优。
+  // P1-3 后 selectBestRoot 已整合 body-fallback（候选质量分 < 阈值或无候选时
+  // 直接返回 doc.body）。contentHelper 不再单独实现 L3 兜底。
   const selection = selectBestRoot(doc, pageUrl, contextOut);
-  if (selection && hasMeaningfulContent(selection.root)) {
-    return { root: selection.root, strategy: selection.strategy };
-  }
-
-  // 兜底：直接遍历 body 抓取所有可翻译块
-  return { root: findArticleRootL3(doc), strategy: 'body-fallback' };
-}
-
-/**
- * Layer 3 兜底：在没有明显文章容器时，直接遍历 body 抓取所有可翻译块。
- *
- * 策略：walker 自身的噪声过滤（SKIP_SET、SEMANTIC_SKIP_TAGS、class 跳过规则）
- * 仍然有效，会自动跳过 nav/aside/footer/script/style 等。所以"用 body 作 root"
- * 实际上等价于"提取页面所有非噪声文本"，不需要单独的 walker 实现。
- *
- * 与 L1/L2 的关键区别：
- *   - L1/L2 试图定位**单一正文容器**，让 chunk 切分更聚焦
- *   - L3 放弃"容器"概念，让 walker 自由抓取所有合法 TextBlock
- *
- * @param doc Document
- * @returns 兜底用的 root（通常是 body）
- */
-export function findArticleRootL3(doc: Document): Element {
-  const root = doc.body || doc.documentElement;
-  if (!root) {
-    throw new Error('L3 fallback failed: no body or documentElement');
-  }
-  console.log(
-    `[ContentHelper] L3 fallback: extraction pipeline failed. ` +
-      `Walking body directly. Root: <${root.tagName.toLowerCase()}>`,
-  );
-  return root;
+  return { root: selection.root, strategy: selection.strategy };
 }
 
 // =============================================================================
@@ -388,17 +362,11 @@ export function prepareDocument(
   let strategy = rootResult.strategy;
   let rootSelector = `<${effectiveRoot.tagName.toLowerCase()}>.${(effectiveRoot.className || '').toString().split(/\s+/)[0] || ''}`;
 
-  // 防御性回退: 当 extraction pipeline 误判导致 0 块时, 从整个 body 重试。
-  if (blocks.length === 0 && isDoc && effectiveRoot !== (root as Document).body) {
-    console.warn(
-      `[ContentHelper] Detected root <${effectiveRoot.tagName}> yielded 0 blocks, falling back to <body>`,
-    );
-    blocks = extractBlocks((root as Document).body || (root as Document).documentElement, pageUrl, articleContext);
-    strategy = 'body-fallback';
-    rootSelector = '<body>';
-  }
-
-  // Data Island fallback
+  // P1-3：body-fallback 已整合到 selectBestRoot（候选质量分 < 阈值或无候选时直接返回 body）。
+  // 这里只剩 data-island 兜底：当 body 仍然 0 块（SPA 首屏 DOM 是骨架，
+  // 内容在 __NEXT_DATA__ / __NUXT_DATA__ 等 script 里）时从 JSON 提取。
+  // 注意：data-island 不是"选根"（不返回 Element），是 prepareDocument 的最终兜底，
+  // 属于 contentHelper 职责，不属于 extraction 模块。
   if (blocks.length === 0 && isDoc) {
     blocks = extractFromDataIsland(root as Document);
     strategy = 'data-island';
@@ -431,7 +399,7 @@ export function prepareDocument(
   );
 
   console.log(
-    `[ContentHelper] ExtractionReport: strategy=${strategy}, blocks=${report.blockCount}, textLen=${report.textLength}, headings=${report.headingCount}, chunks=${report.chunkCount}, noise=${report.noiseRatio.toFixed(2)}, confidence=${report.confidence.toFixed(2)}`,
+    `[ContentHelper] ExtractionReport: strategy=${strategy}, blocks=${report.blockCount}, textLen=${report.textLength}, headings=${report.headingCount}, chunks=${report.chunkCount}, noise=${report.noiseRatio.toFixed(2)}, quality=${report.extractionQuality.toFixed(2)}`,
   );
 
   return { blocks, chunks, fullText, report };

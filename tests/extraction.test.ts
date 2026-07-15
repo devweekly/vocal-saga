@@ -221,13 +221,16 @@ describe('extraction pipeline (chatgpt0714.md architecture)', () => {
     expect(context.semanticHints!.isArticle).toBe(true);
   });
 
-  it('findBestArticleRoot returns null when no candidate is good enough', () => {
+  it('findBestArticleRoot falls back to <body> when no candidate is good enough', () => {
+    // P1-3：selectBestRoot 已整合 body-fallback，不再返回 null。
+    // 当候选质量分 < 阈值时直接返回 doc.body 作为兜底根。
     document.body.innerHTML = `
       <nav><a href="/">Home</a><a href="/x">X</a></nav>
       <div><a href="/a">A</a></div>
     `;
 
     const root = findBestArticleRoot(document, 'https://example.com/nocontent');
-    expect(root).toBeNull();
+    expect(root).not.toBeNull();
+    expect(root?.tagName.toLowerCase()).toBe('body');
   });
 });

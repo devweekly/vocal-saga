@@ -759,7 +759,7 @@ describe('prepareDocument data island integration', () => {
   });
 
   // ── ExtractionReport ─────────────────────────────────────
-  it('prepareDocument returns ExtractionReport with confidence', () => {
+  it('prepareDocument returns ExtractionReport with extractionQuality', () => {
     setupHTML(`
       <article>
         <h1>Test Article</h1>
@@ -770,7 +770,8 @@ describe('prepareDocument data island integration', () => {
     const result = prepareDocument(document, "https://example.com/test");
     expect(result.report).toBeTruthy();
     expect(result.report.blockCount).toBeGreaterThanOrEqual(2);
-    expect(result.report.confidence).toBeGreaterThan(0);
+    // P1-3：字段从 confidence 改名为 extractionQuality，语义更明确
+    expect(result.report.extractionQuality).toBeGreaterThan(0);
     expect(result.report.textLength).toBeGreaterThan(0);
     expect(['selector', 'heuristic', 'readability', 'data-island', 'body-fallback']).toContain(result.report.strategy);
   });
