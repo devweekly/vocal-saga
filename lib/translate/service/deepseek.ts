@@ -1,7 +1,7 @@
 import type { TranslationService } from './_service';
 import { parseSSEStream } from './streamParser';
 import { getDSApiKey } from '../../config';
-import { buildTranslationBody, stripThinkingTags, stripMarkdownCodeBlock, cleanJsonString, repairTruncatedJson, type PromptStyle } from './shared';
+import { buildTranslationBody, stripThinkingTags, stripMarkdownCodeBlock, cleanJsonString, repairJson, type PromptStyle } from './shared';
 
 const API_URL = 'https://api.deepseek.com/v1/chat/completions';
 const MODEL = 'deepseek-v4-flash';
@@ -98,7 +98,7 @@ async function callApi(body: string, apiKey?: string): Promise<string> {
     const snippetStart = Math.max(0, errorPos - 200);
     const snippetEnd = Math.min(cleaned.length, errorPos + 200);
     console.error('[DeepSeek] Cleaned content snippet around error:', cleaned.substring(snippetStart, snippetEnd));
-    cleaned = repairTruncatedJson(cleaned);
+    cleaned = repairJson(cleaned);
     try {
       JSON.parse(cleaned);
       return cleaned;

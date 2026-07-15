@@ -1,5 +1,5 @@
 import { translationCache } from './cacheManager';
-import { cleanJsonString, repairTruncatedJson } from './service/shared';
+import { cleanJsonString, repairJson } from './service/shared';
 
 export async function getCachedTranslation(cacheKey: string): Promise<Map<string, string> | null> {
   const raw = await translationCache.get<Record<string, string>>(cacheKey);
@@ -151,7 +151,7 @@ export function processTranslationWithCheck(
       parsed = JSON.parse(cleaned);
     } catch {
       // 尝试修复截断 JSON（LLM 因 max_tokens 截断输出）
-      cleaned = repairTruncatedJson(cleaned);
+      cleaned = repairJson(cleaned);
       parsed = JSON.parse(cleaned);
     }
   }

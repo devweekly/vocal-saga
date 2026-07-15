@@ -4,6 +4,7 @@
  * 所有 LLM 服务（DeepSeek / OpenRouter / NVIDIA / Cloudflare）共用。
  */
 
+import { jsonrepair } from 'jsonrepair';
 import type { Glossary } from './_service';
 import { buildJinyongSystemContent } from './jinyong-prompt';
 import { buildAchengSystemContent } from './acheng-prompt';
@@ -14,141 +15,35 @@ import { buildWangxiaoboSystemContent } from './wangxiaobo-prompt';
 /** 翻译文风选项：default=通用直译, jinyong=金庸武侠, acheng=阿城白描, wangxiaobo=王小波大白话 */
 export type PromptStyle = 'default' | 'jinyong' | 'acheng' | 'wangxiaobo';
 
-// ── JSON 截断修复 ────────────────────────────────────────────
+// ── JSON 修复 ────────────────────────────────────────────────
 
 /**
- * 修复 LLM 返回的截断 JSON。
- * 当模型输出因 max_tokens 达到上限被截断时，JSON 字符串/对象/数组可能未闭合。
- * 本函数尝试截断到最近的完整元素边界，并补全闭合括号，以保留已翻译的内容。
+ * 通用 JSON 修复：包装 jsonrepair 库处理 LLM 偶发输出错误。
  *
- * 仅处理最常见的翻译响应结构：{"translations":[{"id":"...","translated_text":"..."},...]}
- * 或 [{"id":"...","translated_text":"..."},...]；
- * 不支持任意 JSON 恢复；如果无法修复，原样返回字符串，让调用方抛出原始错误。
+ * jsonrepair 能修复：
+ * - 截断（max_tokens 不足导致的未闭合 JSON，会保留已写出的部分内容）
+ * - 缺逗号 / 缺引号 / 缺括号
+ * - 单引号 → 双引号
+ * - 特殊空格 → 普通空格
+ * - Python 常量 None/True/False → null/true/false
+ * - 尾随逗号
+ * - JSON 注释、JSONP 包裹、MongoDB 类型等
+ *
+ * 注意：jsonrepair 对 "重复引号" 这种 LLM 特有错误修不对（会把
+ * `" "text"` 当成合法的 `" \"text"` property name），所以调用方
+ * 应先调 cleanJsonString 修复已知模式，再 fallback 到本函数。
+ *
+ * @throws 当 jsonrepair 也无法修复、或修复结果不是对象/数组时抛错
  */
-export function repairTruncatedJson(str: string): string {
-  const trimmed = str.trim();
-  // 如果已经能解析，直接返回
-  try {
-    JSON.parse(trimmed);
-    return trimmed;
-  } catch {
-    // 继续修复
+export function repairJson(str: string): string {
+  const repaired = jsonrepair(str);
+  // 防御：jsonrepair 对完全无法识别的输入（如纯文本 'not json'）会
+  // 包装成字符串 '"not json"'，下游 parsed.translations 会拿到字符串
+  // 而不是对象，引发更难排查的 bug。校验修复后必须是 object/array。
+  const parsed = JSON.parse(repaired);
+  if (typeof parsed !== 'object' || parsed === null) {
+    throw new Error(`jsonrepair returned non-object: ${repaired.slice(0, 100)}`);
   }
-
-  // 辅助：去掉尾部未闭合的字符串。
-  // 如果最后一个字符落在未闭合的字符串中，回退到该字符串开始引号之前，
-  // 让后续的元素边界扫描能继续工作。
-  function trimTrailingPartialString(s: string): string {
-    let inString = false;
-    let escaped = false;
-    let lastOpenQuote = -1;
-    for (let i = 0; i < s.length; i++) {
-      const ch = s[i];
-      if (escaped) {
-        escaped = false;
-        continue;
-      }
-      if (ch === '\\') {
-        escaped = true;
-        continue;
-      }
-      if (ch === '"') {
-        const wasInString = inString;
-        inString = !inString;
-        if (!wasInString) {
-          lastOpenQuote = i;
-        }
-      }
-    }
-    if (inString && lastOpenQuote >= 0) {
-      return s.slice(0, lastOpenQuote);
-    }
-    return s;
-  }
-
-  let s = trimTrailingPartialString(trimmed);
-
-  // 辅助：从前往后扫描，找到最后一个完整顶层元素结束的位置。
-  // 返回该元素结束字符（} 或 ]）的索引；找不到返回 -1。
-  function findLastCompleteElementEnd(text: string): number {
-    let depth = 0;
-    let inString = false;
-    let escaped = false;
-    let lastCompleteEnd = -1;
-    for (let i = 0; i < text.length; i++) {
-      const ch = text[i];
-      if (escaped) {
-        escaped = false;
-        continue;
-      }
-      if (ch === '\\') {
-        escaped = true;
-        continue;
-      }
-      if (ch === '"') {
-        inString = !inString;
-        continue;
-      }
-      if (inString) continue;
-
-      if (ch === '{' || ch === '[') {
-        depth++;
-      } else if (ch === '}' || ch === ']') {
-        depth--;
-        // 记录每一个不在字符串内的闭合括号位置；
-        // 截断到该位置后，补全剩余未闭合的外层括号。
-        lastCompleteEnd = i;
-      }
-    }
-    return lastCompleteEnd;
-  }
-
-  const lastCompleteEnd = findLastCompleteElementEnd(s);
-  if (lastCompleteEnd < 0) {
-    return trimmed; // 无法找到完整元素，放弃修复
-  }
-
-  // 截断到完整元素之后，保留该元素；去掉后面不完整的碎片
-  let repaired = s.slice(0, lastCompleteEnd + 1);
-
-  // 去掉末尾多余的逗号、空白
-  repaired = repaired.replace(/,\s*$/, '');
-
-  // 重新扫描前缀，统计未闭合的 { 和 [，并补全
-  let openObjects = 0;
-  let openArrays = 0;
-  let inStr = false;
-  let escaped = false;
-  for (let j = 0; j < repaired.length; j++) {
-    const ch = repaired[j];
-    if (escaped) {
-      escaped = false;
-      continue;
-    }
-    if (ch === '\\') {
-      escaped = true;
-      continue;
-    }
-    if (ch === '"') {
-      inStr = !inStr;
-      continue;
-    }
-    if (inStr) continue;
-    if (ch === '{') openObjects++;
-    else if (ch === '[') openArrays++;
-    else if (ch === '}') openObjects--;
-    else if (ch === ']') openArrays--;
-  }
-
-  while (openArrays > 0) {
-    repaired += ']';
-    openArrays--;
-  }
-  while (openObjects > 0) {
-    repaired += '}';
-    openObjects--;
-  }
-
   return repaired;
 }
 
@@ -316,8 +211,22 @@ export function stripMarkdownCodeBlock(text: string): string {
 }
 
 /**
- * 清理 JSON：修复尾随逗号。
+ * 清理 JSON：修复 LLM 偶发输出错误。
+ *
+ * 处理两类问题：
+ * 1. 尾随逗号：`{"a":1,}` → `{"a":1}`（旧逻辑）
+ * 2. 重复引号（DeepSeek 等模型偶发）：在 property name 前多输出一个引号，
+ *    例如 `"id": "b1",\n      " "text": "..."` 应该是 `"text":`。
+ *    错误模式下 JSON.parse 报 "Expected ':' after property name"，
+ *    因为 parser 把 `" "` 当成空字符串 property name，但后面紧跟 `text` 而非 `:`。
+ *
+ * 修复策略：限定上下文为逗号/花括号 + 空白 之间，避免误伤合法的 `" "` property name
+ * （例如 `{" ":"value"}` 极少见，且要求引号之间至少有一个空白字符）。
  */
 export function cleanJsonString(str: string): string {
-  return str.replace(/,\s*([}\]])/g, '$1');
+  return str
+    // 1. 去尾随逗号
+    .replace(/,\s*([}\]])/g, '$1')
+    // 2. 修复 LLM 偶发 " "propName": 重复引号模式（去掉前一个多余的引号和空白）
+    .replace(/([,{}]\s*)"(\s+)"([a-zA-Z_][a-zA-Z0-9_]*)"\s*:/g, '$1"$3":');
 }

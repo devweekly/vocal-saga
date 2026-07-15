@@ -15,7 +15,7 @@ import {
   buildTranslationBody,
   stripThinkingTags,
   stripMarkdownCodeBlock,
-  repairTruncatedJson,
+  repairJson,
   type PromptStyle,
 } from './shared';
 
@@ -115,7 +115,7 @@ async function callApi(body: string): Promise<string> {
     JSON.parse(cleaned);
     return cleaned;
   } catch {
-    cleaned = repairTruncatedJson(cleaned);
+    cleaned = repairJson(cleaned);
     JSON.parse(cleaned);
     return cleaned;
   }

@@ -5,7 +5,7 @@
  * 需要环境变量 CLOUDFLARE_ACCOUNT_ID 与 CLOUDFLARE_API_TOKEN。
  */
 import type { TranslationService, Glossary } from './_service';
-import { buildSystemContent, stripThinkingTags, stripMarkdownCodeBlock, cleanJsonString, repairTruncatedJson, estimateMaxTokens, type PromptStyle } from './shared';
+import { buildSystemContent, stripThinkingTags, stripMarkdownCodeBlock, cleanJsonString, repairJson, estimateMaxTokens, type PromptStyle } from './shared';
 import { getCfAccountId, getCfApiToken } from '../../config';
 
 const MODEL = '@cf/moonshotai/kimi-k2.6';
@@ -121,7 +121,7 @@ Return ONLY the final JSON object. No prose, no explanation, no markdown outside
         JSON.parse(cleaned);
       } catch {
         // LLM 输出可能因 max_tokens 被截断，尝试修复未闭合的 JSON
-        cleaned = repairTruncatedJson(cleaned);
+        cleaned = repairJson(cleaned);
       }
     }
 

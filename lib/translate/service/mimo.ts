@@ -16,7 +16,7 @@ import {
   stripThinkingTags,
   stripMarkdownCodeBlock,
   cleanJsonString,
-  repairTruncatedJson,
+  repairJson,
   type PromptStyle,
 } from './shared';
 
@@ -159,7 +159,7 @@ async function callApi(body: string): Promise<string> {
       JSON.parse(cleaned);
     } catch {
       // LLM 输出可能因 max_tokens 被截断，尝试修复未闭合的 JSON
-      cleaned = repairTruncatedJson(cleaned);
+      cleaned = repairJson(cleaned);
     }
   }
   return cleaned;

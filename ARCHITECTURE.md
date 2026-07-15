@@ -423,10 +423,10 @@ interface TranslationService {
 
 **共享工具**（[shared.ts](file:///Users/saga/code-repos/vocal-saga/lib/translate/service/shared.ts)）：
 - `estimateMaxTokens`：6x input token，上限 131072
-- `repairTruncatedJson`：修复 LLM 截断的 JSON
+- `repairJson`：包装 jsonrepair 库修复 LLM 偶发输出错误（截断/缺逗号/单引号等）
 - `stripThinkingTags`：去除 `<think>...</think>` 标签
 - `stripMarkdownCodeBlock`：去除 markdown 代码块包裹
-- `cleanJsonString`：移除尾随逗号
+- `cleanJsonString`：移除尾随逗号 + 修复 LLM 偶发"重复引号"模式（jsonrepair 修不对这个）
 - `buildSystemContent`：根据 PromptStyle 选择 system prompt
 - `buildTranslationBody`：构造请求体
 
@@ -671,8 +671,8 @@ LLM 输出处理顺序（必须按此顺序）：
 
 1. `stripThinkingTags`：去除 `<think>...</think>` 标签（完整 + 截断两种情况）。必须在 `stripMarkdownCodeBlock` 之前调用，因为 thinking 标签可能出现在 ```json 块内部。
 2. `stripMarkdownCodeBlock`：去除 ```json 包裹（处理完整包裹和只有开头无结尾两种情况）
-3. `cleanJsonString`：移除尾随逗号（DeepSeek 常见问题）
-4. `repairTruncatedJson`：修复因 max_tokens 截断的 JSON（截断到最近完整元素 + 补全闭合括号）
+3. `cleanJsonString`：移除尾随逗号 + 修复 LLM 偶发"重复引号"模式（jsonrepair 修不对这个特定 bug）
+4. `repairJson`：调用 jsonrepair 库修复 LLM 偶发输出错误（截断/缺逗号/单引号/特殊空格等，比手写 repairTruncatedJson 覆盖更广，且会保留不完整字符串的部分内容而非丢弃）
 
 `estimateMaxTokens` 使用 6x input token 倍数，上限 131072，留足余量应对中文扩词和 JSON 包装。
 

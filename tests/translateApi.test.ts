@@ -23,7 +23,7 @@ import {
   cacheTranslation,
   clearAllCache,
 } from '../lib/translate/translateApi';
-import { repairTruncatedJson } from '../lib/translate/service/shared';
+import { repairJson, cleanJsonString } from '../lib/translate/service/shared';
 
 describe('processTranslationResult', () => {
   it('parses JSON with translations array', () => {
@@ -328,17 +328,19 @@ describe('processTranslationWithCheck — JSON cleanup', () => {
   });
 
   it('repairs truncated JSON with unclosed last string', () => {
+    // jsonrepair 比 repairTruncatedJson 更优：保留不完整字符串已写出的部分内容，
+    // 用户能看到部分翻译而不是丢失整个块。
     const json = '{"translations":[{"id":"b1","translated_text":"你好"},{"id":"b2","translated_text":"世';
     const result = processTranslationWithCheck(json);
     expect(result.get('b1')).toBe('你好');
-    expect(result.has('b2')).toBe(false);
+    expect(result.get('b2')).toBe('世');
   });
 
   it('repairs truncated JSON with unclosed object and array', () => {
     const json = '{"translations":[{"id":"b1","translated_text":"你好"},{"id":"b2","translated_text":"世界"';
     const result = processTranslationWithCheck(json);
     expect(result.get('b1')).toBe('你好');
-    expect(result.has('b2')).toBe(false);
+    expect(result.get('b2')).toBe('世界');
   });
 
   it('repairs truncated JSON after a complete earlier item', () => {
@@ -346,46 +348,117 @@ describe('processTranslationWithCheck — JSON cleanup', () => {
     const result = processTranslationWithCheck(json);
     expect(result.get('b1')).toBe('你好');
     expect(result.get('b2')).toBe('世界');
-    expect(result.has('b3')).toBe(false);
+    expect(result.get('b3')).toBe('foo');
   });
 
   it('repairs bare array truncated JSON', () => {
     const json = '[{"id":"b1","translated_text":"你好"},{"id":"b2","translated_text":"世界"';
     const result = processTranslationWithCheck(json);
     expect(result.get('b1')).toBe('你好');
-    expect(result.has('b2')).toBe(false);
+    expect(result.get('b2')).toBe('世界');
   });
 });
 
-describe('repairTruncatedJson', () => {
+describe('repairJson', () => {
   it('returns valid JSON unchanged', () => {
     const json = '{"translations":[{"id":"b1","translated_text":"你好"}]}';
-    expect(repairTruncatedJson(json)).toBe(json);
+    expect(repairJson(json)).toBe(json);
   });
 
-  it('repairs unclosed trailing string', () => {
+  it('repairs unclosed trailing string and preserves partial content', () => {
+    // jsonrepair 比 repairTruncatedJson 更优：保留不完整字符串的内容
+    // （原手写实现会丢弃整个 b2 块，jsonrepair 保留 b2 + 部分翻译）
     const raw = '{"translations":[{"id":"b1","translated_text":"你好"},{"id":"b2","translated_text":"世';
-    const repaired = repairTruncatedJson(raw);
-    expect(JSON.parse(repaired)).toEqual({ translations: [{ id: 'b1', translated_text: '你好' }] });
+    const repaired = repairJson(raw);
+    expect(JSON.parse(repaired)).toEqual({
+      translations: [
+        { id: 'b1', translated_text: '你好' },
+        { id: 'b2', translated_text: '世' },
+      ],
+    });
   });
 
   it('repairs unclosed object and outer array/object', () => {
     const raw = '{"translations":[{"id":"b1","translated_text":"你好"},{"id":"b2","translated_text":"世界"';
-    const repaired = repairTruncatedJson(raw);
+    const repaired = repairJson(raw);
     expect(JSON.parse(repaired)).toEqual({
-      translations: [{ id: 'b1', translated_text: '你好' }],
+      translations: [
+        { id: 'b1', translated_text: '你好' },
+        { id: 'b2', translated_text: '世界' },
+      ],
     });
   });
 
   it('repairs trailing comma before truncation', () => {
     const raw = '{"translations":[{"id":"b1","translated_text":"你好"},';
-    const repaired = repairTruncatedJson(raw);
+    const repaired = repairJson(raw);
     expect(JSON.parse(repaired)).toEqual({ translations: [{ id: 'b1', translated_text: '你好' }] });
   });
 
-  it('gives up when no recognizable structure', () => {
-    const raw = 'not json at all';
-    expect(repairTruncatedJson(raw)).toBe(raw);
+  it('repairs single quotes to double quotes', () => {
+    // jsonrepair 覆盖的额外场景：单引号 → 双引号（手写 repairTruncatedJson 不支持）
+    const raw = "{'translations':[{'id':'b1','translated_text':'你好'}]}";
+    const repaired = repairJson(raw);
+    expect(JSON.parse(repaired)).toEqual({ translations: [{ id: 'b1', translated_text: '你好' }] });
+  });
+
+  it('repairs missing comma between properties', () => {
+    // jsonrepair 覆盖的额外场景：缺逗号（手写 repairTruncatedJson 不支持）
+    const raw = '{"translations":[{"id":"b1" "translated_text":"你好"}]}';
+    const repaired = repairJson(raw);
+    expect(JSON.parse(repaired)).toEqual({ translations: [{ id: 'b1', translated_text: '你好' }] });
+  });
+
+  it('throws when input is non-JSON text (defensive guard)', () => {
+    // 防御：jsonrepair 对纯文本会包装成字符串 '"not json at all"'，
+    // 包装函数校验修复结果必须是 object/array，否则抛错让上层走错误处理路径。
+    expect(() => repairJson('not json at all')).toThrow();
+  });
+});
+
+describe('cleanJsonString', () => {
+  it('removes trailing comma before } and ]', () => {
+    expect(cleanJsonString('{"a":1,}')).toBe('{"a":1}');
+    expect(cleanJsonString('{"a":[1,2,]}')).toBe('{"a":[1,2]}');
+  });
+
+  it('returns valid JSON unchanged', () => {
+    const json = '{"translations":[{"id":"b1","translated_text":"你好"}]}';
+    expect(cleanJsonString(json)).toBe(json);
+  });
+
+  it('fixes duplicated leading quote in property name (DeepSeek 偶发输出错误)', () => {
+    // 真实生产 bug：DeepSeek 在 "id": "b1", 后输出 " "text": （前导多了一个引号），
+    // JSON.parse 报 "Expected ':' after property name at position 55"。
+    // 修复后应能正常解析。
+    const raw = '{\n  "translations": [\n    {\n      "id": "b1",\n      " "text": "InfoQ 首页"\n    }\n  ]\n}';
+    const cleaned = cleanJsonString(raw);
+    expect(cleaned).not.toContain('" "text"');
+    expect(cleaned).toContain('"text":');
+    const parsed = JSON.parse(cleaned);
+    expect(parsed.translations[0].text).toBe('InfoQ 首页');
+  });
+
+  it('fixes duplicated leading quote for multiple properties', () => {
+    // 多个 property 同时出现重复引号时一次性修复
+    const raw = '{\n  " "text": "a",\n  " "translated_text": "b"\n}';
+    const cleaned = cleanJsonString(raw);
+    expect(JSON.parse(cleaned)).toEqual({ text: 'a', translated_text: 'b' });
+  });
+
+  it('does not break合法 " " property name (空字符串 name with spaces)', () => {
+    // 限定上下文修复，不应误伤合法的空字符串 property name（虽然极少见）
+    // 此处验证包含空格但前后没有逗号/花括号的情况
+    const json = '{"a": " " , "b": 1}';
+    // 修复后 `:` 后的空字符串值仍应保留
+    expect(cleanJsonString(json)).toBe('{"a": " " , "b": 1}');
+  });
+
+  it('fixes duplicated quote after comma with newlines and spaces', () => {
+    // 模拟真实生产场景：逗号 + 换行 + 多空格 + " + 空格 + " + 标识符
+    const raw = '{"id":"b1",\n      " "text":"hello"}';
+    const cleaned = cleanJsonString(raw);
+    expect(JSON.parse(cleaned)).toEqual({ id: 'b1', text: 'hello' });
   });
 });
 

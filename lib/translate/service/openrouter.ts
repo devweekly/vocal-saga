@@ -7,7 +7,7 @@
 import type { TranslationService, Glossary } from './_service';
 import { parseSSEStream } from './streamParser';
 import { getOpenrouterApiKey } from '../../config';
-import { buildTranslationBody, stripThinkingTags, stripMarkdownCodeBlock, cleanJsonString, repairTruncatedJson, type PromptStyle } from './shared';
+import { buildTranslationBody, stripThinkingTags, stripMarkdownCodeBlock, cleanJsonString, repairJson, type PromptStyle } from './shared';
 
 const API_URL = 'https://openrouter.ai/api/v1/chat/completions';
 const MODEL = 'openai/gpt-oss-20b:free';
@@ -83,7 +83,7 @@ async function callApi(body: string): Promise<string> {
       JSON.parse(cleaned);
     } catch {
       // LLM 输出可能因 max_tokens 被截断，尝试修复未闭合的 JSON
-      cleaned = repairTruncatedJson(cleaned);
+      cleaned = repairJson(cleaned);
     }
   }
 
