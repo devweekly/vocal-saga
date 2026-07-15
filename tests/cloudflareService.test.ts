@@ -1,25 +1,28 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { CloudflareAITranslationService } from '../lib/translate/service/cloudflare';
+import { setCfAccountId, setCfApiToken } from '../lib/config';
 
 describe('CloudflareAITranslationService', () => {
   const originalFetch = globalThis.fetch;
-  const originalEnv = process.env;
 
+  // P0-3 后 service 从 config 单例读取 CF 凭证，不再直接读 process.env。
+  // 测试通过 setter 显式注入（与 createApp(env) 生产路径一致）。
   beforeEach(() => {
-    process.env = { ...originalEnv };
-    process.env.CLOUDFLARE_ACCOUNT_ID = 'test-account';
-    process.env.CLOUDFLARE_API_TOKEN = 'test-token';
+    setCfAccountId('test-account');
+    setCfApiToken('test-token');
   });
 
   afterEach(() => {
     globalThis.fetch = originalFetch;
-    process.env = originalEnv;
+    // 清空 config 单例，避免跨用例污染
+    setCfAccountId('');
+    setCfApiToken('');
     vi.restoreAllMocks();
   });
 
   it('throws when Cloudflare credentials are missing', async () => {
-    delete process.env.CLOUDFLARE_ACCOUNT_ID;
-    delete process.env.CLOUDFLARE_API_TOKEN;
+    setCfAccountId('');
+    setCfApiToken('');
 
     const service = new CloudflareAITranslationService();
     await expect(service.translate('[{"id":"1","text":"hello"}]', 'en', 'zh')).rejects.toThrow(

@@ -21,13 +21,11 @@ import {
 } from './translate/glossaryStore';
 import { setDefaultStorage, type StorageAdapter } from './storage';
 import { requireAuth } from './auth';
-import { normalizeUrl, cacheKeyUrl } from './urlUtils';
+import { normalizeUrl, cacheKeyUrl, assertPublicUrl } from './urlUtils';
 import { injectRedirectGuard } from './redirectGuard';
 import { stripDangerousScripts, stripNavigationScripts } from './spaGuard';
 import { devirtualizeLayout } from './devirtualize';
 import {
-  CF_ACCOUNT_ID,
-  CF_API_TOKEN,
   CF_BASE,
   DS_BASE,
   NVIDIA_BASE,
@@ -42,12 +40,17 @@ import {
   setGeminiApiKey1,
   setGeminiApiKey2,
   setOpencodeApiKey,
+  setCfAccountId,
+  setCfApiToken,
+  setAuthKey,
   getDSApiKey,
   getOpenrouterApiKey,
   getNvidiaApiKey,
   getGeminiApiKey1,
   getGeminiApiKey2,
   getOpencodeApiKey,
+  getCfAccountId,
+  getCfApiToken,
 } from './config';
 
 // ── extractor 懒加载 ────────────────────────────────────────
@@ -62,22 +65,35 @@ async function getExtractor(): Promise<Extractor> {
 }
 
 // ── 工厂 ────────────────────────────────────────────────────
-export function createApp(storage?: StorageAdapter): Hono {
+export function createApp(env?: Record<string, unknown>, storage?: StorageAdapter): Hono {
   if (storage) setDefaultStorage(storage);
 
-  // 从环境变量设置 API keys（模块级变量）
-  const dsKey = process.env.DEEPSEEK_API_KEY || '';
-  const openrouterKey = process.env.OPENROUTER_API_KEY || '';
-  const nvidiaKey = process.env.NVIDIA_API_KEY || '';
-  const geminiKey1 = process.env.GEMINI_API_KEY || '';
-  const geminiKey2 = process.env.GEMINI_API_KEY_2 || '';
-  const opencodeKey = process.env.OPENCODE_API_KEY || '';
+  // 配置注入（单一入口）：优先从 CF env bindings 读取（生产路径），
+  // env 缺失时回退 process.env（Node 测试兼容入口）。
+  // 注入后所有 service / modelResolver / auth 统一走 config getter，不再直接读 process.env。
+  const getEnv = (key: string): string => {
+    const fromEnv = env?.[key];
+    if (typeof fromEnv === 'string' && fromEnv) return fromEnv;
+    return process.env[key] || '';
+  };
+  const dsKey = getEnv('DEEPSEEK_API_KEY');
+  const openrouterKey = getEnv('OPENROUTER_API_KEY');
+  const nvidiaKey = getEnv('NVIDIA_API_KEY');
+  const geminiKey1 = getEnv('GEMINI_API_KEY');
+  const geminiKey2 = getEnv('GEMINI_API_KEY_2');
+  const opencodeKey = getEnv('OPENCODE_API_KEY');
+  const cfAccountId = getEnv('CLOUDFLARE_ACCOUNT_ID');
+  const cfApiToken = getEnv('CLOUDFLARE_API_TOKEN');
+  const authKey = getEnv('AUTH_KEY');
   if (dsKey) setDSApiKey(dsKey);
   if (openrouterKey) setOpenrouterApiKey(openrouterKey);
   if (nvidiaKey) setNvidiaApiKey(nvidiaKey);
   if (geminiKey1) setGeminiApiKey1(geminiKey1);
-    if (geminiKey2) setGeminiApiKey2(geminiKey2);
+  if (geminiKey2) setGeminiApiKey2(geminiKey2);
   if (opencodeKey) setOpencodeApiKey(opencodeKey);
+  if (cfAccountId) setCfAccountId(cfAccountId);
+  if (cfApiToken) setCfApiToken(cfApiToken);
+  if (authKey) setAuthKey(authKey);
 
   // 简单的 HTML 转义，防止列表页 title XSS
   function escapeHtml(text: string): string {
@@ -288,11 +304,11 @@ ${pager}
     let targetUrl: string, headers: Record<string, string>;
 
     if (backend === 'cloudflare') {
-      if (!CF_ACCOUNT_ID() || !CF_API_TOKEN()) {
+      if (!getCfAccountId() || !getCfApiToken()) {
         return c.json({ error: 'Cloudflare AI not configured' }, 500);
       }
       targetUrl = `${CF_BASE()}/v1/chat/completions`;
-      headers = { 'Authorization': `Bearer ${CF_API_TOKEN()}`, 'Content-Type': 'application/json' };
+      headers = { 'Authorization': `Bearer ${getCfApiToken()}`, 'Content-Type': 'application/json' };
     } else if (backend === 'nvidia') {
       if (!getNvidiaApiKey()) {
         return c.json({ error: 'NVIDIA Build not configured' }, 500);
@@ -609,6 +625,12 @@ ${pager}
       // 强制 https（用户输入 http:// 也强制升 https，避免明文抓取）
       return c.json({ error: 'url must be https' }, 400);
     }
+    // SSRF 防护：拒绝私网/保留/链路本地地址，防止服务端被用作内网探测代理
+    try {
+      assertPublicUrl(url);
+    } catch (e) {
+      return c.json({ error: (e as Error).message }, 400);
+    }
     console.log(`[translate/url-page] url=${url} src=${sourceStored} tgt=${targetStored} mode=${mode} force=${force}`);
 
     // ── D1 去重：同 URL+source+target 已存在则直接返回（force 模式跳过） ──
@@ -838,6 +860,12 @@ ${pager}
       parsed = new URL(url);
     } catch {
       return c.json({ error: 'url is not a valid URL' }, 400);
+    }
+    // SSRF 防护：拒绝私网/保留/链路本地地址
+    try {
+      assertPublicUrl(url);
+    } catch (e) {
+      return c.json({ error: (e as Error).message }, 400);
     }
 
     try {

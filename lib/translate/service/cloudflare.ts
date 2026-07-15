@@ -6,6 +6,7 @@
  */
 import type { TranslationService, Glossary } from './_service';
 import { buildSystemContent, stripThinkingTags, stripMarkdownCodeBlock, cleanJsonString, repairTruncatedJson, estimateMaxTokens, type PromptStyle } from './shared';
+import { getCfAccountId, getCfApiToken } from '../../config';
 
 const MODEL = '@cf/moonshotai/kimi-k2.6';
 
@@ -54,8 +55,8 @@ export class CloudflareAITranslationService implements TranslationService {
 Do NOT output any reasoning, thinking, chain-of-thought, or analysis.
 Return ONLY the final JSON object. No prose, no explanation, no markdown outside the JSON block.`;
 
-    const accountId = process.env.CLOUDFLARE_ACCOUNT_ID;
-    const apiToken = process.env.CLOUDFLARE_API_TOKEN;
+    const accountId = getCfAccountId();
+    const apiToken = getCfApiToken();
     if (!accountId || !apiToken) {
       throw new Error('Cloudflare AI not configured');
     }

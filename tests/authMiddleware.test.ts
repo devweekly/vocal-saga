@@ -14,6 +14,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { Hono } from 'hono';
 import { factory, requireAuth } from '../lib/auth';
+import { setAuthKey } from '../lib/config';
 
 const AUTH = 'unit-test-auth-key-123456';
 
@@ -26,8 +27,10 @@ function buildApp(): Hono {
     });
 }
 
+// P0-3 后 requireAuth 从 config 单例读 AUTH_KEY，不再读 c.env / process.env。
+// 测试通过 setter 显式注入（与 createApp(env) 生产路径一致）。
 beforeEach(() => {
-  process.env.AUTH_KEY = AUTH;
+  setAuthKey(AUTH);
 });
 
 function req(path: string, opts: { method?: string; headers?: Record<string, string>; body?: string } = {}): Request {
@@ -65,24 +68,22 @@ describe('requireAuth — rejection paths', () => {
   });
 
   it('401 when AUTH_KEY env is missing entirely', async () => {
-    const saved = process.env.AUTH_KEY;
-    delete process.env.AUTH_KEY;
+    setAuthKey('');
     try {
       const res = await buildApp().request(req('/protected', { headers: { Authorization: `Bearer ${AUTH}` } }));
       expect(res.status).toBe(401);
     } finally {
-      process.env.AUTH_KEY = saved;
+      setAuthKey(AUTH);
     }
   });
 
   it('401 when AUTH_KEY is too short (<6 chars)', async () => {
-    const saved = process.env.AUTH_KEY;
-    process.env.AUTH_KEY = 'short';
+    setAuthKey('short');
     try {
       const res = await buildApp().request(req('/protected', { headers: { Authorization: 'Bearer short' } }));
       expect(res.status).toBe(401);
     } finally {
-      process.env.AUTH_KEY = saved;
+      setAuthKey(AUTH);
     }
   });
 });

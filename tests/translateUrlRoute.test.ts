@@ -230,3 +230,42 @@ describe('legacy /api/translate/url — fully removed', () => {
     expect(res.status).toBe(404);
   });
 });
+
+describe('GET /translate/<target> — SSRF protection', () => {
+  // SSRF 防护：私网/保留/链路本地地址必须在调用 translateUrl 之前被拦截。
+  // 验证：返回 400，且 pipeline 的 translateUrl mock 未被调用。
+
+  it('rejects private IPv4 (192.168.1.1) with 400 and skips pipeline', async () => {
+    const app = buildApp();
+    const res = await app.request(req('/translate/192.168.1.1'));
+    expect(res.status).toBe(400);
+    const { translateUrl } = await import('../lib/translate/pipeline');
+    expect(translateUrl).not.toHaveBeenCalled();
+  });
+
+  it('rejects AWS metadata IP (169.254.169.254) with 400', async () => {
+    const app = buildApp();
+    const res = await app.request(req('/translate/169.254.169.254'));
+    expect(res.status).toBe(400);
+    const { translateUrl } = await import('../lib/translate/pipeline');
+    expect(translateUrl).not.toHaveBeenCalled();
+  });
+
+  it('rejects loopback (127.0.0.1) with 400', async () => {
+    const app = buildApp();
+    const res = await app.request(req('/translate/127.0.0.1'));
+    expect(res.status).toBe(400);
+  });
+
+  it('rejects 10/8 private range', async () => {
+    const app = buildApp();
+    const res = await app.request(req('/translate/10.0.0.5'));
+    expect(res.status).toBe(400);
+  });
+
+  it('rejects non-standard port (example.com:8080) with 400', async () => {
+    const app = buildApp();
+    const res = await app.request(req('/translate/example.com:8080'));
+    expect(res.status).toBe(400);
+  });
+});

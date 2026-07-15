@@ -18,6 +18,10 @@
  * 为什么不让 Cloudflare edge 直接返回静态文件：
  *   wrangler dev 的 [assets] 实现不能保证所有动态路由（/、/:id、/s/*）
  *   正确落到 Worker；统一走 Hono 后按 404 fallback 最可靠。
+ *
+ * 配置注入：env bindings 由 createApp(env) 在首次构造 app 时一次性写入 config
+ * 单例，所有 service / modelResolver / auth 统一走 config getter。不再需要
+ * injectEnv 把 env → process.env 同步（已删除）。
  */
 
 /// <reference types="@cloudflare/workers-types" />
@@ -32,36 +36,18 @@ interface Env {
 }
 
 // ── 单例：app 复用（同一 isolate 共享模块作用域） ──
+// env 在 isolate 生命周期内不变，首次 createApp(env) 注入 config 后续请求复用。
 let _app: Hono | null = null;
 
 function getApp(env: Env): Hono {
   if (_app) return _app;
   setDefaultStorage(new CloudflareKVStorage(env.VOCAL_SAGA_KV));
-  _app = createApp();
+  _app = createApp(env);
   return _app;
-}
-
-/**
- * 把 Workers env bindings 同步到 process.env。
- * lib/ 里有些代码会读 process.env（AUTH_KEY / 上游 API key），直接同步一次避免双源。
- *   - 只复制字符串值（KV / ASSETS binding 这种对象不复制）
- *   - 只在缺失时设置，避免覆盖 CI 注入
- */
-let _envInjected = false;
-
-function injectEnv(env: Env): void {
-  if (_envInjected) return;
-  for (const [k, v] of Object.entries(env)) {
-    if (typeof v === 'string' && !process.env[k]) {
-      process.env[k] = v;
-    }
-  }
-  _envInjected = true;
 }
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
-    injectEnv(env);
     const app = getApp(env);
     const res = await app.fetch(request, env);
     // Hono 返回 404 时回退到 ASSETS 静态文件
