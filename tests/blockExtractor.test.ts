@@ -614,6 +614,54 @@ describe('extractBlocks - Content Editable', () => {
     const editableBlocks = blocks.filter(b => b.text.includes('Editable'));
     expect(editableBlocks).toHaveLength(0);
   });
+
+  it('should not skip contenteditable="false" containers (X longform Draft.js)', () => {
+    setupHTML(`
+      <article>
+        <div data-testid="twitterArticleRichTextView">
+          <div class="DraftEditor-root">
+            <div class="DraftEditor-editorContainer">
+              <div class="public-DraftEditor-content" contenteditable="false">
+                <div class="public-DraftStyleDefault-block">
+                  <span>Model routing is so hot right now. In the last few months, OpenRouter shipped Fusion.</span>
+                </div>
+                <div class="public-DraftStyleDefault-block">
+                  <span>The pitch converges on a common pattern: nobody wants to pay frontier prices for every token.</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </article>
+    `);
+
+    const blocks = extractBlocks(document, "https://x.com/jerryjliu0/status/2077537847951945742");
+    expect(blocks.length).toBeGreaterThanOrEqual(2);
+    const texts = blocks.map(b => b.text);
+    expect(texts.some(t => t.includes('Model routing is so hot right now'))).toBe(true);
+    expect(texts.some(t => t.includes('The pitch converges on a common pattern'))).toBe(true);
+  });
+
+  it('should treat Draft.js paragraph blocks as single units and not fragment inline children', () => {
+    setupHTML(`
+      <article>
+        <div class="public-DraftEditor-content" contenteditable="false">
+          <div class="public-DraftStyleDefault-block">
+            <span>Model routing is hot. OpenRouter shipped </span>
+            <div class="inline-link"><a href="/fusion">Fusion</a></div>
+            <span>, a compound model that fans your prompt out.</span>
+          </div>
+        </div>
+      </article>
+    `);
+
+    const blocks = extractBlocks(document, "https://x.com/jerryjliu0/status/2077537847951945742");
+    // 应只提取出 1 个段落块，而不是把 span/a 拆成多个块
+    expect(blocks).toHaveLength(1);
+    expect(blocks[0].text).toContain('Model routing is hot');
+    expect(blocks[0].text).toContain('Fusion');
+    expect(blocks[0].text).toContain('compound model');
+  });
 });
 
 describe('extractBlocks - Real-world Scenarios', () => {

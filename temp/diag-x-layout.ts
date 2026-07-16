@@ -6,7 +6,7 @@ import { stripDangerousScripts } from '../lib/spaGuard';
 import { prepareDocument } from '../lib/translate/contentHelper';
 import { parseHTML } from 'linkedom';
 
-const ORIGIN_URL = 'https://x.com/NousResearch/status/2077517414464410091';
+const ORIGIN_URL = 'https://x.com/jerryjliu0/status/2077537847951945742';
 const OUT_DIR = '/Users/saga/code-repos/vocal-saga/temp';
 const CDP_PORT = 9222;
 
@@ -128,7 +128,7 @@ function analyzeHtml(html: string, label: string) {
 async function main() {
   const targets = await fetchJson('/json/list');
   // 优先找已打开的 X 页面；否则连接任意顶层 page 标签页再导航
-  let target = targets.find((t) => t.type === 'page' && !t.parentId && t.url.includes('x.com/NousResearch'));
+  let target = targets.find((t) => t.type === 'page' && !t.parentId && t.url.includes('x.com/jerryjliu0'));
   if (!target) {
     target = targets.find((t) => t.type === 'page' && !t.parentId);
   }
@@ -160,30 +160,30 @@ async function main() {
   await sleep(3000);
 
   const screenshot = await client.send('Page.captureScreenshot', { format: 'png' });
-  fs.writeFileSync(`${OUT_DIR}/x-origin-screenshot.png`, Buffer.from(screenshot.data, 'base64'));
+  fs.writeFileSync(`${OUT_DIR}/x-jerry-origin-screenshot.png`, Buffer.from(screenshot.data, 'base64'));
   console.log('Origin screenshot saved');
 
   const { root } = await client.send('DOM.getDocument', { depth: -1, pierce: false });
   const { nodeId: htmlNodeId } = await client.send('DOM.querySelector', { nodeId: root.nodeId, selector: 'html' });
   const htmlResult = await client.send('DOM.getOuterHTML', { nodeId: htmlNodeId });
   const rawHtml = htmlResult.outerHTML;
-  fs.writeFileSync(`${OUT_DIR}/x-origin-raw.html`, rawHtml);
+  fs.writeFileSync(`${OUT_DIR}/x-jerry-raw.html`, rawHtml);
   console.log('Origin HTML saved, length:', rawHtml.length);
 
   analyzeHtml(rawHtml, 'raw origin');
 
   const stripped = stripDangerousScripts(rawHtml);
-  fs.writeFileSync(`${OUT_DIR}/x-origin-stripped.html`, stripped);
+  fs.writeFileSync(`${OUT_DIR}/x-jerry-stripped.html`, stripped);
   analyzeHtml(stripped, 'stripped');
 
   const devirtualized = devirtualizeLayout(stripped);
-  fs.writeFileSync(`${OUT_DIR}/x-origin-devirtualized.html`, devirtualized);
+  fs.writeFileSync(`${OUT_DIR}/x-jerry-devirtualized.html`, devirtualized);
   analyzeHtml(devirtualized, 'devirtualized');
 
   try {
     const { document: doc } = parseHTML(devirtualized) as unknown as { document: Document };
     const prep = prepareDocument(doc, ORIGIN_URL);
-    fs.writeFileSync(`${OUT_DIR}/x-origin-prepared.html`, '<!doctype html>\n' + doc.documentElement.outerHTML);
+    fs.writeFileSync(`${OUT_DIR}/x-jerry-prepared.html`, '<!doctype html>\n' + doc.documentElement.outerHTML);
     console.log('\n[prepareDocument] blocks:', prep.blocks.length, 'chunks:', prep.chunks.length, 'strategy:', prep.report.strategy, 'quality:', prep.report.extractionQuality);
     prep.blocks.slice(0, 10).forEach((b, i) => {
       console.log(`  [${i}] ${b.tag}: ${b.text.slice(0, 80).replace(/\n/g, ' ')}`);

@@ -48,6 +48,7 @@ import {
   isMetadataClass,
   isNonHTMLNamespace,
   isOverlayElement,
+  isParagraphLikeElement,
   isValidText,
   shouldSkipByClass,
   shouldSkipBySiteRules,
@@ -165,10 +166,10 @@ function grabNode(node: Node, cache: WalkCache, pageUrl: string): Element | fals
   const el = node as Element;
   const tag = el.tagName.toLowerCase();
 
-  // 1) 块级元素 (DIRECT_SET): 若子树还有 DIRECT_SET 元素,自身不算
-  //    (子块会被独立抓到,避免重复)
-  if (DIRECT_SET.has(tag)) {
-    if (hasDirectSetDescendant(el, cache.directSetDescendant)) return false;
+  // 1) 块级元素 (DIRECT_SET) 或段落类容器 (如 Draft.js 段落): 若子树还有 DIRECT_SET 元素,自身不算
+  //    (子块会被独立抓到,避免重复)。段落类 div 自身作为整块返回。
+  if (DIRECT_SET.has(tag) || isParagraphLikeElement(el)) {
+    if (DIRECT_SET.has(tag) && hasDirectSetDescendant(el, cache.directSetDescendant)) return false;
     return getTextValid(el, cache.validText, pageUrl) ? el : false;
   }
 
@@ -328,8 +329,8 @@ function acceptWalkerNode(
     return FILTER_REJECT;
   }
 
-  // DIRECT_SET: 只按文本有效性决定 ACCEPT / SKIP
-  if (DIRECT_SET.has(tag)) {
+  // DIRECT_SET 与段落类容器: 只按文本有效性决定 ACCEPT / SKIP
+  if (DIRECT_SET.has(tag) || isParagraphLikeElement(el)) {
     return getTextValid(el, cache.validText, pageUrl)
       ? FILTER_ACCEPT
       : FILTER_SKIP;
