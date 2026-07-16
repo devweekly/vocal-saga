@@ -93,6 +93,10 @@ const HYDRATION_CHUNK_PATTERNS: RegExp[] = [
   /\/svelte-kit\//i,
   // X/Twitter — SPA 客户端 chunk（abs.twimg.com）
   /abs\.twimg\.com\/responsive-web\//i,
+  // Google Publisher Tag / AdSense — 翻译页不需要广告脚本，
+  // 滚动时 GPT 可能动态填充广告槽并覆盖/替换已有翻译节点。
+  /securepubads\.g\.doubleclick\.net\//i,
+  /googletagservices\.com\//i,
 ];
 
 /**
@@ -106,6 +110,12 @@ const HYDRATION_INLINE_PATTERNS: RegExp[] = [
   /self\.__next_f\.push/,
   // X/Twitter — 初始状态
   /window\.__INITIAL_STATE__/,
+  // X/Twitter — 脚本加载状态 / 失败上报 / GPT 广告槽初始化。
+  // 删除 main.js 后这些脚本仍会执行，可能触发广告渲染或显示失败提示，
+  // 一并清理确保翻译页完全静态。
+  /window\.__SCRIPTS_LOADED__/,
+  /window\.__SCRIPT_LOAD_FAILURE__/,
+  /window\.__SSP_PROMISE__/,
   // Nuxt.js — 全局状态
   /window\.__NUXT__/,
   // SvelteKit — 内联数据

@@ -1,0 +1,32 @@
+<script nonce="">(function () {
+  function onReady() {
+    if (performance && performance.measure) {
+      try {
+        performance.measure('scripts-deferred', 'scripts-deferred-start');
+      } catch (e) {}
+    }
+    if (!window.__SCRIPTS_LOADED__['main']) {
+      var failureEl = document.getElementById('ScriptLoadFailure');
+      if (failureEl) failureEl.style.display = 'block';
+      var failedScript = window.__SCRIPT_LOAD_FAILURE__ && window.__SCRIPT_LOAD_FAILURE__.failures && window.__SCRIPT_LOAD_FAILURE__.failures[0] && window.__SCRIPT_LOAD_FAILURE__.failures[0].failedScript;
+      var criticalScripts = ["vendor","main"];
+      for (var i = 0; i < criticalScripts.length; i++) {
+        var criticalScript = criticalScripts[i];
+        if (!window.__SCRIPTS_LOADED__[criticalScript]) {
+          failedScript = failedScript || criticalScript;
+          break;
+        }
+      }
+      var failedInputs = document.getElementsByName('failedScript');
+      if (failedInputs[0] && failedScript) failedInputs[0].value = failedScript;
+      if (failedScript && window.__SCRIPT_LOAD_FAILURE__ && window.__SCRIPT_LOAD_FAILURE__.report) {
+        window.__SCRIPT_LOAD_FAILURE__.report(failedScript, '', 'DOMContentLoaded');
+      }
+    }
+  }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', onReady);
+  } else {
+    onReady();
+  }
+})();</script>

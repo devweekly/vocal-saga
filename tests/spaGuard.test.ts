@@ -202,6 +202,8 @@ describe('stripDangerousScripts（组合：导航 + hydration）', () => {
       <script src="https://abs.twimg.com/responsive-web/client-web/vendor.bd8db7da.js"></script>
       <script src="https://abs.twimg.com/responsive-web/client-web/main.ea67863a.js"></script>
       <script src="https://securepubads.g.doubleclick.net/tag/js/gpt.js"></script>
+      <script>window.__SCRIPTS_LOADED__ = {}; window.__SCRIPT_LOAD_FAILURE__ = {};</script>
+      <script>window.__SSP_PROMISE__ = new Promise((resolve) => { window.googletag = { cmd: [] }; });</script>
       <link rel="stylesheet" href="https://abs.twimg.com/responsive-web/client-web/main.css">
     </head><body>
       <p class="fanyi-translation">这是翻译内容</p>
@@ -213,13 +215,17 @@ describe('stripDangerousScripts（组合：导航 + hydration）', () => {
     expect(out).not.toContain('jsdOnload');
     // SPA chunk 和 bootstrap 删除
     expect(out).not.toContain('__INITIAL_STATE__');
+    expect(out).not.toContain('__SCRIPTS_LOADED__');
+    expect(out).not.toContain('__SCRIPT_LOAD_FAILURE__');
+    expect(out).not.toContain('__SSP_PROMISE__');
     expect(out).not.toContain('abs.twimg.com/responsive-web/client-web/main.ea67863a.js');
     expect(out).not.toContain('abs.twimg.com/responsive-web/client-web/vendor.bd8db7da.js');
+    // 广告脚本删除（防止滚动时广告渲染覆盖翻译）
+    expect(out).not.toContain('securepubads.g.doubleclick.net');
     // CSS 保留
     expect(out).toContain('abs.twimg.com/responsive-web/client-web/main.css');
     // 无害脚本保留
     expect(out).toContain('document.cookie="lang=zh-CN');
-    expect(out).toContain('securepubads.g.doubleclick.net');
     // 翻译内容保留
     expect(out).toContain('这是翻译内容');
     expect(out).toContain('Original text');

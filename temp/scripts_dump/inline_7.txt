@@ -1,0 +1,28 @@
+<script nonce="">
+  // Set up promise resolver for lazy loading
+  window.__SSP_PROMISE__ = new Promise((resolve) => {
+    window.googletag = window.googletag || { cmd: [] };
+    googletag.cmd.push(function () {
+      // Page-level config must run before defineSlot(): GPT captures page-level
+      // settings (including forceSafeFrame) when a slot is defined. Setting it
+      // afterwards is ignored, so ads render in same-origin "friendly" iframes
+      // (about:srcdoc) that inherit our nonce-based CSP and get their inline
+      // creative scripts blocked. Forcing SafeFrame renders ads in cross-origin
+      // frames that do not inherit the page CSP.
+      googletag.pubads().enableSingleRequest();
+      googletag.pubads().collapseEmptyDivs();
+      googletag.pubads().setForceSafeFrame(true);
+
+      
+      // Add a banner ad slot
+      googletag
+        .defineSlot('/22849053685/web_banner_programmatic', [[300, 250], [336, 280], [300, 200]], 'div-gpt-ad-1740520505566-0')
+        .addService(googletag.pubads());
+      
+
+      googletag.enableServices();
+
+      resolve();
+    });
+  });
+</script>
