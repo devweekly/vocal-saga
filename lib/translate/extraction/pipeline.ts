@@ -94,10 +94,13 @@ export function selectBestRoot(
     }
   }
 
-  // Fallback 1：无候选或最佳候选 confidence 低于阈值 → 返回 body 作为兜底根。
+  // Fallback 1：所有 provider 都无候选 → 返回 body 作为兜底根。
   // contentHelper.prepareDocument 会用 body 作 root 跑 extractBlocks，
   // walker 自身的 SKIP_SET / SEMANTIC_SKIP_TAGS 会过滤 nav/aside/footer 等。
-  const CONFIDENCE_THRESHOLD = 0.5;
+  //
+  // 注意：不在低 confidence 时主动 fallback——原行为是"有候选就用候选"，
+  // 让 prepareDocument 通过 0 块检测再触发 data-island 兜底。
+  // 主动 fallback 会破坏 selectorProvider 的细粒度容器选择（.post-content 等）。
   if (candidates.length === 0) {
     console.warn('[ExtractionPipeline] No candidates from any provider, falling back to <body>');
     return buildBodyFallback(doc, contextOut);
@@ -105,20 +108,6 @@ export function selectBestRoot(
 
   const ranked = rankCandidates(candidates, doc);
   const best = ranked[0];
-
-  if (best.confidence < CONFIDENCE_THRESHOLD) {
-    console.warn(
-      `[ExtractionPipeline] Best confidence ${best.confidence.toFixed(3)} below threshold ${CONFIDENCE_THRESHOLD}, falling back to <body>`,
-    );
-    // 仍把 context（noiseSet/textCache）写回 contextOut，供 body 兜底复用
-    writeContextOut(context, contextOut, best);
-    return {
-      root: doc.body || doc.documentElement!,
-      candidate: best,
-      strategy: 'body-fallback',
-      confidence: best.confidence,
-    };
-  }
 
   // 将 context 中的 noiseSet/textCache 写回 contextOut，供 block extraction 复用。
   writeContextOut(context, contextOut, best);

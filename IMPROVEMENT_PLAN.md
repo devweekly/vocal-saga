@@ -117,7 +117,14 @@ SQL 散落在路由层，无法独立测试，且 `isHealthyCachedHtml` 健康�
 
 **影响面**：新增 `lib/repository/`，重构 [lib/app.ts](file:///Users/saga/code-repos/vocal-saga/lib/app.ts)
 
-### P1-3 extraction 与 contentHelper 职责清理
+### P1-3 extraction 与 contentHelper 职责清理 [已完成 2026-07-16]
+
+**落地说明**：
+- body-fallback 整合进 `selectBestRoot`（无候选时返回 doc.body，strategy='body-fallback'）
+- data-island 保留在 `contentHelper.prepareDocument`（属"从 JSON 提取"，非"选根"，明确分层）
+- `ExtractionReport.confidence` → `extractionQuality`，与 `ArticleCandidate.confidence` 语义区分
+- 删除 `findArticleRootL3` / `hasMeaningfulContent`
+- 验证：1061 测试通过，typecheck / build:lib 通过
 
 **问题**：[lib/translate/contentHelper.ts](file:///Users/saga/code-repos/vocal-saga/lib/translate/contentHelper.ts) 与 extraction 模块存在重叠：
 - `findArticleRoot` 调 `selectBestRoot`，但下面又有 `findArticleRootL3` 作为兜底

@@ -3,6 +3,75 @@ import { buildChunks, type Chunk } from './chunkBuilder';
 import { selectBestRoot } from './extraction/pipeline';
 
 // =============================================================================
+// Global Noise Marker: 标记根容器外的 UI 噪声
+// =============================================================================
+//
+// extractBlocks 只在选定的 effectiveRoot（如 <main>）内遍历，因此 <main>
+// 之外的侧边栏、fixed 底部栏、登录提示等不会被 walker 标记。
+// 这里在 prepareDocument 早期对整篇文档做一次轻量扫描，给这些元素打上
+// data-fanyi-remove / data-fanyi-low-priority，让翻译结果页的视觉样式生效。
+
+/** 判断元素是否通过 fixed/sticky 类名或 inline style 固定在底部。 */
+function isFixedBottomElement(el: Element): boolean {
+  const cls = (el.className || '').toString().toLowerCase();
+  const style = (el.getAttribute('style') || '').toLowerCase();
+
+  const isFixed =
+    /\bfixed\b/.test(cls) ||
+    /\bsticky\b/.test(cls) ||
+    style.includes('position:fixed') ||
+    style.includes('position: sticky');
+  if (!isFixed) return false;
+
+  const isBottom =
+    /\bbottom-0\b/.test(cls) ||
+    /\binset-x-0\s+bottom/.test(cls) ||
+    /bottom\s*:\s*0/.test(style);
+  return isBottom;
+}
+
+/**
+ * 全文档噪声标记。
+ * 注意：只设置 data-fanyi-* 属性，不修改 DOM 结构，避免影响 extraction。
+ */
+function markGlobalNoise(doc: Document, pageUrl: string): void {
+  const body = doc.body;
+  if (!body) return;
+
+  // 1. 语义噪声容器直接移除（侧边栏 / 弹窗）
+  body.querySelectorAll('aside, dialog').forEach((el) => {
+    // 若 <aside> 位于 <article> 内部，可能是文章注释/边注，保留
+    let parent: Element | null = el.parentElement;
+    let insideArticle = false;
+    while (parent && parent !== body) {
+      if (parent.tagName.toLowerCase() === 'article') {
+        insideArticle = true;
+        break;
+      }
+      parent = parent.parentElement;
+    }
+    if (!insideArticle) {
+      el.setAttribute('data-fanyi-remove', 'true');
+    }
+  });
+
+  // 2. fixed/sticky 底部栏（X/Twitter 登录提示、Cookie 条等）
+  body.querySelectorAll('*').forEach((el) => {
+    if (isFixedBottomElement(el)) {
+      el.setAttribute('data-fanyi-remove', 'true');
+    }
+  });
+
+  // 3. X/Twitter 站点特定：侧边栏列
+  const host = pageUrl ? new URL(pageUrl).hostname : '';
+  if (host === 'x.com' || host === 'twitter.com') {
+    body.querySelectorAll('[data-testid="sidebarColumn"]').forEach((el) => {
+      el.setAttribute('data-fanyi-remove', 'true');
+    });
+  }
+}
+
+// =============================================================================
 // ExtractionReport: 抽取质量报告
 // =============================================================================
 // 输出抽取过程的元数据, 用于诊断翻译失败和质量监控。
@@ -267,17 +336,77 @@ export function extractFromDataIsland(doc: Document): TextBlock[] {
 }
 
 /**
+ * 段落类容器集合: 块级元素或语义段落容器。
+ * 用于 mergeInlineBlocks 判断“同一自然段落”的边界。
+ */
+const PARAGRAPH_CONTAINER_TAGS = new Set([
+  'p',
+  'h1',
+  'h2',
+  'h3',
+  'h4',
+  'h5',
+  'h6',
+  'li',
+  'td',
+  'th',
+  'figcaption',
+  'blockquote',
+  'pre',
+]);
+
+/** 判断元素是否为段落类容器 (语义段落或站点特定的正文容器)。 */
+function isParagraphContainer(el: Element): boolean {
+  const tag = el.tagName.toLowerCase();
+  if (PARAGRAPH_CONTAINER_TAGS.has(tag)) return true;
+
+  const dataTestid = el.getAttribute('data-testid') || '';
+  if (dataTestid === 'tweetText') return true;
+
+  const cls = (el.getAttribute('class') || '').toLowerCase();
+  if (cls.includes('public-draftstyledefault-block')) return true;
+
+  const role = el.getAttribute('role') || '';
+  if (role === 'paragraph' || role === 'heading') return true;
+
+  return false;
+}
+
+/**
+ * 从元素向上查找最近的段落容器。
+ * 遇到 body/main/article/section/header/footer/nav/aside 或 document 边界时停止,
+ * 返回 null 表示该元素不在可合并的段落容器内。
+ */
+function findParagraphContainer(el: Element, doc?: Document): Element | null {
+  let current: Element | null = el;
+  const stopTags = new Set(['body', 'main', 'article', 'section', 'header', 'footer', 'nav', 'aside']);
+
+  while (current && current.nodeType === 1) {
+    const tag = current.tagName.toLowerCase();
+    if (stopTags.has(tag)) return null;
+    if (isParagraphContainer(current)) return current;
+    if (current === doc?.documentElement) return null;
+    current = current.parentElement;
+  }
+  return null;
+}
+
+/**
  * 合并相邻的短 inline 候选块, 减少翻译碎片。
  *
  * 问题: walker 对 <p>This is <strong>important</strong> text.</p> 可能产生
  * 3 个独立 block ("This is", "important", "text"), 翻译后拼接不自然。
+ * X/Twitter 等站点更极端: 一段正文被拆成 <span>text<div><a>@user</a></div>text</span>。
  *
  * 策略:
  *   - 相邻的 inlineCandidate 块, 如果合并后总长度 < 500 字符, 合并
  *   - 合并后取第一个块的 xpath/id, 文本用空格连接
- *   - 只合并同一 parent 下的相邻块 (通过 xpath 前缀判断)
+ *   - 优先按“段落容器”合并: 同一 <p> / <div data-testid="tweetText"> 内的碎片
+ *     即使父节点不同也合并; 跨段落则不合并
+ *   - 若有 doc, 同步合并 DOM: 把后续 inline 元素的内容移入第一个元素,
+ *     并移除后续元素, 避免回填时原文被拆碎。
  */
-function mergeInlineBlocks(blocks: TextBlock[]): TextBlock[] {
+function mergeInlineBlocks(blocks: TextBlock[], doc?: Document): TextBlock[] {
   if (blocks.length <= 1) return blocks;
 
   const MAX_MERGE_LEN = 500;
@@ -288,6 +417,54 @@ function mergeInlineBlocks(blocks: TextBlock[]): TextBlock[] {
   function parentPath(xpath: string): string {
     const lastSlash = xpath.lastIndexOf('/');
     return lastSlash > 0 ? xpath.slice(0, lastSlash) : '/';
+  }
+
+  /** 判断 block 是否为可合并的 inline 元素 */
+  function isInlineBlock(block: TextBlock): boolean {
+    if (block.renderHint?.inlineCandidate === true) return true;
+    const inlineTags = new Set([
+      'span', 'a', 'em', 'strong', 'i', 'b', 'u', 'code', 'small', 'label',
+      'time', 'mark', 'q', 'dfn', 'abbr', 'cite', 'sup', 'sub', 'samp', 'kbd',
+      'var', 'wbr', 's', 'data', 'bdi', 'bdo', 'ruby', 'rb', 'rt', 'rp', 'del',
+      'ins', 'font', 'tt', 'big', 'strike', 'img',
+    ]);
+    return inlineTags.has(block.tag.toLowerCase());
+  }
+
+  /** 同步合并 DOM: 把 group 中后续 block 对应的元素移入第一个元素 */
+  function mergeDomGroup(group: TextBlock[]) {
+    if (!doc || group.length <= 1) return;
+    const first = group[0];
+    const firstEl = doc.querySelector(`[data-fanyi-block-id="${first.id}"]`);
+    if (!firstEl || firstEl.nodeType !== 1) return;
+
+    for (let i = 1; i < group.length; i++) {
+      const other = group[i];
+      const otherEl = doc.querySelector(`[data-fanyi-block-id="${other.id}"]`);
+      if (!otherEl || otherEl.nodeType !== 1) continue;
+
+      // 把 otherEl 的所有子节点移入 firstEl, 并在文本节点之间补一个空格
+      // 避免 "with @NVIDIAAI" 变成 "with@NVIDIAAI"
+      if (firstEl.lastChild && firstEl.lastChild.nodeType === 3) {
+        const lastText = firstEl.lastChild.textContent || '';
+        if (lastText.length > 0 && !/\s$/.test(lastText)) {
+          firstEl.appendChild(doc.createTextNode(' '));
+        }
+      }
+      while (otherEl.firstChild) {
+        firstEl.appendChild(otherEl.firstChild);
+      }
+      otherEl.removeAttribute('data-fanyi-block-id');
+      (otherEl as HTMLElement).remove();
+    }
+  }
+
+  /** 查找 block 对应的段落容器 */
+  function getParagraphContainer(block: TextBlock): Element | null {
+    if (!doc) return null;
+    const el = doc.querySelector(`[data-fanyi-block-id="${block.id}"]`);
+    if (!el || el.nodeType !== 1) return null;
+    return findParagraphContainer(el, doc);
   }
 
   /** 尝试将当前 group 合并为一个 block */
@@ -301,6 +478,7 @@ function mergeInlineBlocks(blocks: TextBlock[]): TextBlock[] {
     // 合并 group: 取第一个块的 id/xpath, 文本用空格连接
     const first = currentGroup[0];
     const combinedText = currentGroup.map((b) => b.text).join(' ');
+    mergeDomGroup(currentGroup);
     merged.push({
       ...first,
       text: combinedText,
@@ -311,19 +489,26 @@ function mergeInlineBlocks(blocks: TextBlock[]): TextBlock[] {
 
   for (let i = 0; i < blocks.length; i++) {
     const block = blocks[i];
-    const isInline = block.renderHint?.inlineCandidate === true;
+    const blockParent = parentPath(block.xpath);
+    const lastBlock = currentGroup.length > 0 ? currentGroup[currentGroup.length - 1] : null;
+    const groupParent = lastBlock ? parentPath(lastBlock.xpath) : blockParent;
 
-    if (isInline) {
-      // 检查是否与 currentGroup 的最后一个块相邻 (同一 parent)
-      const blockParent = parentPath(block.xpath);
-      const groupParent =
-        currentGroup.length > 0 ? parentPath(currentGroup[currentGroup.length - 1].xpath) : blockParent;
+    // 优先按段落容器合并: 同一段落容器内的相邻 inline 块合并,
+    // 即使它们不是同一 parent (X/Twitter 的 tweetText 常见)
+    const blockContainer = getParagraphContainer(block);
+    const groupContainer = lastBlock ? getParagraphContainer(lastBlock) : blockContainer;
+    const sameParagraphContainer =
+      blockContainer !== null && groupContainer !== null && blockContainer === groupContainer;
 
+    const canMerge =
+      isInlineBlock(block) && (blockParent === groupParent || sameParagraphContainer);
+
+    if (canMerge) {
       // 检查合并后总长度
       const groupLen = currentGroup.reduce((sum, b) => sum + b.text.length + 1, 0);
       const newLen = groupLen + block.text.length;
 
-      if (blockParent === groupParent && newLen <= MAX_MERGE_LEN) {
+      if (newLen <= MAX_MERGE_LEN) {
         currentGroup.push(block);
       } else {
         flushGroup();
@@ -354,13 +539,26 @@ export function prepareDocument(
   // 通过 WalkCache.knownNoise 直接 O(1) 跳过这些已识别的噪声, 避免重复判定。
   const articleContext: Partial<ArticleContext> = {};
 
-  // 优先使用文章容器，减少 TreeWalker 遍历范围
+  // 优先判断 root 类型，供后续逻辑复用
   const isDoc = root.nodeType === 9;
+
+  // 先在整篇文档上标记根容器外的 UI 噪声（如侧边栏、fixed 底部栏），
+  // 再进入选根和块提取。这一步只打 data-fanyi-* 标记，不删节点。
+  if (isDoc) {
+    markGlobalNoise(root as Document, pageUrl);
+  }
+
+  // 优先使用文章容器，减少 TreeWalker 遍历范围
   const rootResult = isDoc ? findArticleRoot(root as Document, pageUrl, articleContext) : { root: root as Element, strategy: 'selector' };
   const effectiveRoot: Element = rootResult.root;
   let blocks = extractBlocks(effectiveRoot, pageUrl, articleContext);
   let strategy = rootResult.strategy;
   let rootSelector = `<${effectiveRoot.tagName.toLowerCase()}>.${(effectiveRoot.className || '').toString().split(/\s+/)[0] || ''}`;
+
+  // 合并 walker 产生的 inline 碎片（如 X/Twitter 的 <span>text<a>@user</a>text</span>）。
+  // 传入 doc 以便同步合并 DOM，避免回填后原文被拆碎。
+  const doc = isDoc ? (root as Document) : (root as Element).ownerDocument;
+  blocks = mergeInlineBlocks(blocks, doc ?? undefined);
 
   // P1-3：body-fallback 已整合到 selectBestRoot（候选质量分 < 阈值或无候选时直接返回 body）。
   // 这里只剩 data-island 兜底：当 body 仍然 0 块（SPA 首屏 DOM 是骨架，

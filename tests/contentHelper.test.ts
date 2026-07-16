@@ -448,15 +448,17 @@ describe('prepareDocument', () => {
 });
 
 // =============================================================================
-// L3 兜底：L1/L2 都失败时直接遍历 body 抓取所有 TextNode
+// body-fallback：L1/L2 候选质量分 < 阈值时，selectBestRoot 返回 doc.body 作兜底根，
+// walker 自身的 SKIP_SET / SEMANTIC_SKIP_TAGS 过滤 nav/aside/footer 等。
+// P1-3 后 fallback 整合到 selectBestRoot，contentHelper 不再单独实现 L3。
 // =============================================================================
 
-describe('L3 fallback (findArticleRootL3)', () => {
+describe('body-fallback (selectBestRoot integration)', () => {
   beforeEach(() => {
     document.body.innerHTML = '';
   });
 
-  it('L1/L2 fail on hostile class names → L3 extracts via walker', () => {
+  it('L1/L2 fail on hostile class names → body-fallback extracts via walker', () => {
     // 场景：class 同时含正文+负向 token，detector 拒绝，
     // ARTICLE_SELECTORS 也不命中，但 walker 仍能抓出 <p>/<h2> 文本。
     // 这是搜索结果页 / 评论流 / 无主文章容器的典型场景。
@@ -474,9 +476,9 @@ describe('L3 fallback (findArticleRootL3)', () => {
       <footer>Site Footer Copyright</footer>
     `;
 
-    const { blocks, fullText } = prepareDocument(document, "https://example.com/results");
+    const { blocks, fullText, report } = prepareDocument(document, "https://example.com/results");
 
-    // 验证 walker 在 L3 模式下抓到了内容（不依赖 L1/L2 的容器识别）
+    // 验证 walker 在 body-fallback 模式下抓到了内容（不依赖 L1/L2 的容器识别）
     expect(blocks.length).toBeGreaterThan(0);
     expect(fullText).toContain('Result One');
     expect(fullText).toContain('Result Two');
@@ -484,12 +486,15 @@ describe('L3 fallback (findArticleRootL3)', () => {
     // walker 的噪声过滤仍然生效
     expect(fullText).not.toContain('Site Header Navigation');
     expect(fullText).not.toContain('Site Footer Copyright');
+
+    // P1-3：fallback 路径现在由 selectBestRoot 内部触发，strategy 应反映
+    expect(report.strategy).toBe('body-fallback');
   });
 
-  it('L3 handles page with only loose <p> tags (no container)', () => {
+  it('body-fallback handles page with only loose <p> tags (no container)', () => {
     // 极端场景：body 直接是游离 <p>，没有 div 包装
     // L1 失败（无 article / main），L2 失败（短文 Text Density < 300）
-    // L3 应该用 body 作 root，walker 抓出所有 <p>
+    // body-fallback 应该用 body 作 root，walker 抓出所有 <p>
     document.body.innerHTML = `
       <p>Result one short.</p>
       <p>Result two short.</p>
@@ -502,21 +507,6 @@ describe('L3 fallback (findArticleRootL3)', () => {
     expect(fullText).toContain('Result one');
     expect(fullText).toContain('Result two');
     expect(fullText).toContain('Result three');
-  });
-
-  it('L3 returns body element (verify the fallback path explicitly)', async () => {
-    const { findArticleRootL3 } = await import('../lib/translate/contentHelper');
-
-    document.body.innerHTML = `<p>Some body content here for L3 to detect and return properly.</p>`;
-    const root = findArticleRootL3(document);
-    expect(root).toBe(document.body);
-  });
-
-  it('L3 throws when no body or documentElement exists', async () => {
-    const { findArticleRootL3 } = await import('../lib/translate/contentHelper');
-    // Mock a minimal document-like object with neither body nor documentElement
-    const fakeDoc = {} as Document;
-    expect(() => findArticleRootL3(fakeDoc)).toThrow('L3 fallback failed');
   });
 });
 

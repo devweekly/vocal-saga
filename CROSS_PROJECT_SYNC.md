@@ -188,7 +188,7 @@
 - **差异**：
   - fanyi-extension 的 `prepareDocument` 调用 `hideBodyOverlays`（隐藏文章根节点外的 body 层级弹窗）
   - vocal-saga 不需要 `hideBodyOverlays`（服务端不渲染页面，无遮挡问题）
-  - L3 兜底：fanyi-extension 直接返回 `doc.body`，vocal-saga 有 `findArticleRootL3`
+  - L3 兜底：fanyi-extension 直接返回 `doc.body`，vocal-saga P1-3 后 selectBestRoot 内部整合 body-fallback（候选质量分 < 0.5 或无候选时返回 doc.body，strategy='body-fallback'）
   - `extractBlocks` 签名：fanyi-extension 不传 pageUrl，vocal-saga 传 pageUrl
 - **同步建议**：文章根节点选择逻辑必须同步；`hideBodyOverlays` 不需要同步到 vocal-saga
 
@@ -230,7 +230,7 @@
 - `lib/translate/pipeline.ts` — 翻译流水线
 - `lib/translate/urlFetcher.ts` — URL 抓取
 - `lib/translate/rules/arxiv-rules.ts` — arxiv 站点规则
-- `findArticleRootL3`（在 contentHelper.ts 中）— 服务端 L3 兜底
+- `selectBestRoot` body-fallback（在 extraction/pipeline.ts 中）— 候选质量分 < 阈值或无候选时返回 doc.body，strategy='body-fallback'
 
 ---
 
