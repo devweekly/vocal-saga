@@ -184,6 +184,30 @@ describe('prepareDocument', () => {
     expect(() => prepareDocument(document, "https://example.com/test")).toThrow('No translatable content found');
   });
 
+  // PDF.js viewer pages render content as <canvas> bitmaps via JavaScript.
+  // Server-side fetches only the HTML shell (#viewer.pdfViewer), which has no
+  // translatable text. The error should be specific and actionable.
+  it('throws PDF.js-specific error for PDF.js viewer pages with no translatable content', () => {
+    document.body.innerHTML = `
+      <div id="outerContainer">
+        <div id="mainContainer">
+          <div class="toolbar"></div>
+          <div id="viewerContainer">
+            <div id="viewer" class="pdfViewer"></div>
+          </div>
+        </div>
+      </div>
+    `;
+
+    expect(() => prepareDocument(document, "https://example.com/viewer.html")).toThrow('PDF.js viewer pages render content client-side');
+  });
+
+  it('throws PDF.js-specific error when only #viewerContainer is present', () => {
+    document.body.innerHTML = '<div id="viewerContainer"></div>';
+
+    expect(() => prepareDocument(document, "https://example.com/viewer.html")).toThrow('PDF.js viewer pages render content client-side');
+  });
+
   it('should use .u-rich-text-blog for Webflow sites (claude.com)', () => {
     // claude.com/blog 使用 Webflow，文章内容在 .u-rich-text-blog.w-richtext 内
     document.body.innerHTML = `

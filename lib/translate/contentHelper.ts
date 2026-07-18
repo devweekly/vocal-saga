@@ -524,6 +524,28 @@ function mergeInlineBlocks(blocks: TextBlock[], doc?: Document): TextBlock[] {
   return merged;
 }
 
+/**
+ * 检测文档是否是 PDF.js viewer 页面。
+ *
+ * PDF.js viewer 把 PDF 内容渲染为 <canvas> 位图，.textLayer span 是透明的
+ * 文字选择层。服务端（vocal-saga）不执行 JavaScript，抓取到的 HTML 只有
+ * 空壳（#viewer.pdfViewer + <canvas>），没有可翻译的文本。
+ *
+ * 检测信号（按可靠性排序）：
+ *   1. #viewer.pdfViewer — PDF.js viewer 初始化时加的 class，在初始 HTML 中就存在
+ *   2. #viewerContainer — PDF.js viewer 的页面容器，ID 足够独特
+ *
+ * 注：.textLayer 在服务端抓取的 HTML 中不存在（由 JavaScript 在客户端创建），
+ * 所以不作为服务端检测信号。
+ */
+function isPdfJsViewerHtml(root: Document | Element): boolean {
+  const doc = root instanceof Document ? root : root.ownerDocument;
+  if (!doc) return false;
+  const viewer = doc.getElementById('viewer');
+  if (viewer && viewer.classList.contains('pdfViewer')) return true;
+  return doc.getElementById('viewerContainer') !== null;
+}
+
 export function prepareDocument(
   root: Document | Element,
   pageUrl: string
@@ -572,6 +594,13 @@ export function prepareDocument(
   }
 
   if (blocks.length === 0) {
+    if (isPdfJsViewerHtml(root)) {
+      throw new Error(
+        'PDF.js viewer pages render content client-side as canvas bitmap. ' +
+        'Server-side translation cannot extract text. ' +
+        'Please use the browser extension directly on this URL for client-side PDF translation.',
+      );
+    }
     throw new Error('No translatable content found');
   }
 
