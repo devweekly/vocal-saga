@@ -463,7 +463,7 @@ describe('GET /fanyi/page/check', () => {
       source_lang: 'en',
       target_lang: 'zh',
       // 健康缓存：保留原页面内联样式
-      html: '<html><head><style>.original { color: black; }</style></head><body>cached translation</body></html>',
+      html: '<html><head><style>.original { color: black; }</style></head><body>cached translation<span class="fanyi-translation">译文</span></body></html>',
       created_at: new Date().toISOString(),
     });
 
@@ -712,7 +712,7 @@ describe('POST /fanyi/page', () => {
       source_lang: 'en',
       target_lang: 'zh',
       // 健康缓存需保留原页面样式
-      html: '<html><head><link rel="stylesheet" href="/style.css"></head><body>cached from d1</body></html>',
+      html: '<html><head><link rel="stylesheet" href="/style.css"></head><body>cached from d1<span class="fanyi-translation">译文</span></body></html>',
       created_at: new Date().toISOString(),
     });
 
@@ -969,7 +969,7 @@ describe('GET /article/:id', () => {
       source_lang: 'en',
       target_lang: 'zh',
       // 健康缓存需保留原页面样式
-      html: '<html><head><style>.original { color: black; }</style></head><body>healthy cached translation</body></html>',
+      html: '<html><head><style>.original { color: black; }</style></head><body>healthy cached translation<span class="fanyi-translation">译文</span></body></html>',
       created_at: new Date().toISOString(),
     });
 

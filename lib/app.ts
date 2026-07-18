@@ -10,6 +10,8 @@
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { translateText, translateUrl, translateHtml } from './translate/pipeline';
+import { validateTranslationCompleteness } from './translate/translationValidator';
+import { simpleHash } from './translate/cacheKey';
 import type { PromptStyle } from './translate/service/shared';
 import {
   getGlossary,
@@ -111,18 +113,38 @@ export function createApp(env?: Record<string, unknown>, storage?: StorageAdapte
    * 样式被清空，只剩 OneTrust / fanyi 样式，也要视为 miss 重新翻译。
    */
   function isHealthyCachedHtml(html: string): boolean {
+    // ── 结构检查（保留原有逻辑） ──
+    // 旧版 pipeline 曾输出缺少 <html> 标签、<head> 被吞掉的损坏 HTML，
+    // 导致页面 CSS 全部丢失。某些损坏缓存虽保留 <html>，但原页面内联
+    // 样式被清空，只剩 OneTrust / fanyi 双语样式，也要视为 miss 重新翻译。
     if (!/<html\b/i.test(html)) return false;
+
+    let structurallyHealthy = false;
     // 有外联样式表 → 健康
-    if (/<link\b[^>]*\brel\s*=\s*["']stylesheet["']/i.test(html)) return true;
-    // 有原页面内联样式（非 OneTrust、非 fanyi 双语样式）→ 健康
-    const styleBlocks = html.match(/<style\b[^>]*>[\s\S]*?<\/style>/gi) || [];
-    return styleBlocks.some((block) => {
-      const contentStart = block.slice(block.indexOf('>') + 1).trimStart();
-      return (
-        !contentStart.startsWith('#onetrust-banner-sdk') &&
-        !contentStart.startsWith('/* 双语对照样式')
-      );
-    });
+    if (/<link\b[^>]*\brel\s*=\s*["']stylesheet["']/i.test(html)) {
+      structurallyHealthy = true;
+    } else {
+      // 有原页面内联样式（非 OneTrust、非 fanyi 双语样式）→ 健康
+      const styleBlocks = html.match(/<style\b[^>]*>[\s\S]*?<\/style>/gi) || [];
+      structurallyHealthy = styleBlocks.some((block) => {
+        const contentStart = block.slice(block.indexOf('>') + 1).trimStart();
+        return (
+          !contentStart.startsWith('#onetrust-banner-sdk') &&
+          !contentStart.startsWith('/* 双语对照样式')
+        );
+      });
+    }
+    if (!structurallyHealthy) return false;
+
+    // ── 翻译完整性校验（S7 新增） ──
+    // 原有检查只看 HTML 结构 + 样式表，不检查翻译是否完整。
+    // 调用 validateTranslationCompleteness 校验翻译标记存在 + 内容非空。
+    const validation = validateTranslationCompleteness(html);
+    if (!validation.healthy) {
+      console.warn(`[isHealthyCachedHtml] translation validation failed: ${validation.reason}`);
+      return false;
+    }
+    return true;
   }
 
   const app = new Hono();
@@ -382,6 +404,8 @@ ${pager}
 
     const source = c.req.query('source') || 'en';
     const target = c.req.query('target') || 'zh';
+    // 可选：客户端传来的内容哈希，用于检测页面内容是否已更新
+    const clientContentHash = c.req.query('contentHash');
 
     const VALID_LANG_RE = /^(auto|[a-zA-Z]{2,3})(-[a-zA-Z]{2,3})?$/;
     const sourceStored = source && VALID_LANG_RE.test(source) ? source : 'en';
@@ -390,13 +414,25 @@ ${pager}
     const db = (c.env as any)?.DB999;
     if (db) {
       try {
+        // 按 url+lang 取最新一条，在代码中比对 content_hash
+        // （向后兼容：旧记录 content_hash 为 NULL 或空，无法比对时直接返回缓存）
         const existing: any = await db
           .prepare(
-            'SELECT html FROM translations WHERE url = ? AND source_lang = ? AND target_lang = ? LIMIT 1',
+            'SELECT html, content_hash FROM translations WHERE url = ? AND source_lang = ? AND target_lang = ? ORDER BY created_at DESC LIMIT 1',
           )
           .bind(cacheKeyUrl(url), sourceStored, targetStored)
           .first();
         if (existing && isHealthyCachedHtml(existing.html)) {
+          // 命中但客户端传了 contentHash 且缓存有有效 content_hash 且不匹配 → 410（内容已变，客户端应重新 POST）
+          if (
+            clientContentHash &&
+            existing.content_hash &&
+            existing.content_hash !== '' &&
+            clientContentHash !== existing.content_hash
+          ) {
+            console.log(`[fanyi/page/check] D1 cache stale for ${url} (content_hash mismatch)`);
+            return new Response(null, { status: 410 });
+          }
           console.log(`[fanyi/page/check] D1 cache hit for ${url}`);
           return new Response(processTranslationHtml(existing.html), {
             status: 200,
@@ -464,26 +500,31 @@ ${pager}
 
     console.log(`[fanyi/page] url=${url} src=${sourceStored} tgt=${targetStored} mode=${mode} provider=${provider} html=${html.length} bytes`);
 
-    // ── D1 缓存：同 URL+source+target 已存在则直接返回 ──
+    // ── D1 缓存：同 URL+source+target 已存在且 content_hash 匹配则直接返回 ──
+    // 计算 contentHash：用于检测页面内容是否已更新（同一 URL 内容变了应重新翻译）
+    const contentHash = String(simpleHash(html));
     const db = (c.env as any)?.DB999;
     const cacheKey = cacheKeyUrl(url);
     if (db) {
       try {
         const existing: any = await db.prepare(
-          'SELECT html FROM translations WHERE url = ? AND source_lang = ? AND target_lang = ? LIMIT 1'
+          'SELECT html, content_hash FROM translations WHERE url = ? AND source_lang = ? AND target_lang = ? ORDER BY created_at DESC LIMIT 1'
         ).bind(cacheKey, sourceStored, targetStored).first();
         if (existing && isHealthyCachedHtml(existing.html)) {
-          console.log(`[fanyi/page] D1 cache hit for ${url}`);
-          return new Response(processTranslationHtml(existing.html), {
-            status: 200,
-            headers: {
-              'Content-Type': 'text/html; charset=utf-8',
-              'Cache-Control': 'public, max-age=3600',
-              'X-Translate-Source': 'd1-cache',
-            },
-          });
-        }
-        if (existing) {
+          // 缓存命中：content_hash 为空（旧记录/URL 翻译）或匹配时返回缓存；不匹配则跳过重新翻译
+          if (!existing.content_hash || existing.content_hash === '' || existing.content_hash === contentHash) {
+            console.log(`[fanyi/page] D1 cache hit for ${url}`);
+            return new Response(processTranslationHtml(existing.html), {
+              status: 200,
+              headers: {
+                'Content-Type': 'text/html; charset=utf-8',
+                'Cache-Control': 'public, max-age=3600',
+                'X-Translate-Source': 'd1-cache',
+              },
+            });
+          }
+          console.log(`[fanyi/page] D1 cache stale for ${url} (content_hash mismatch), re-translating`);
+        } else if (existing) {
           console.warn(`[fanyi/page] D1 cache for ${url} is unhealthy, treating as miss`);
         }
       } catch (e) {
@@ -513,17 +554,18 @@ ${pager}
       }
 
       // 写入 D1：SQLite UPSERT，www 和非 www 共享同一缓存
+      // content_hash 纳入 UNIQUE 约束：内容变化时插入新行，内容不变时更新已有行
       if (db) {
         try {
           await db.prepare(`
-            INSERT INTO translations (url, title, source_lang, target_lang, html)
-            VALUES (?, ?, ?, ?, ?)
-            ON CONFLICT(url, source_lang, target_lang)
+            INSERT INTO translations (url, title, source_lang, target_lang, html, content_hash)
+            VALUES (?, ?, ?, ?, ?, ?)
+            ON CONFLICT(url, source_lang, target_lang, content_hash)
             DO UPDATE SET
               title = excluded.title,
               html = excluded.html,
               created_at = CURRENT_TIMESTAMP
-          `).bind(cacheKey, result.title || '', sourceStored, targetStored, result.html).run();
+          `).bind(cacheKey, result.title || '', sourceStored, targetStored, result.html, contentHash).run();
         } catch (e) {
           console.error('[D1] save error:', e);
         }
@@ -640,7 +682,7 @@ ${pager}
     if (db && !force) {
       try {
         const existing: any = await db.prepare(
-          'SELECT html FROM translations WHERE url = ? AND source_lang = ? AND target_lang = ? LIMIT 1'
+          'SELECT html FROM translations WHERE url = ? AND source_lang = ? AND target_lang = ? ORDER BY created_at DESC LIMIT 1'
         ).bind(cacheKey, sourceStored, targetStored).first();
         if (existing && isHealthyCachedHtml(existing.html)) {
           console.log(`[translate/url-page] D1 cache hit for ${url}`);
@@ -671,6 +713,7 @@ ${pager}
         provider,
         model,
         promptStyle,
+        skipCache: force,
       });
       console.log(`[translate/url-page] blocks=${result.blocks} translated=${result.translatedBlocks} chunks=${result.chunks} duration=${result.duration_ms}ms`);
 
@@ -684,17 +727,18 @@ ${pager}
 
       // 写入 D1：SQLite UPSERT（ON CONFLICT DO UPDATE），不再需要 force 时先 DELETE
       // 用 cacheKey 存储：www 和非 www 共享同一缓存
+      // URL 翻译不跟踪输入内容哈希，content_hash 用空串占位（UNIQUE 约束要求非 NULL 才能触发冲突更新）
       if (db) {
         try {
           await db.prepare(`
-            INSERT INTO translations (url, title, source_lang, target_lang, html)
-            VALUES (?, ?, ?, ?, ?)
-            ON CONFLICT(url, source_lang, target_lang)
+            INSERT INTO translations (url, title, source_lang, target_lang, html, content_hash)
+            VALUES (?, ?, ?, ?, ?, ?)
+            ON CONFLICT(url, source_lang, target_lang, content_hash)
             DO UPDATE SET
               title = excluded.title,
               html = excluded.html,
               created_at = CURRENT_TIMESTAMP
-          `).bind(cacheKey, result.title || '', sourceStored, targetStored, result.html).run();
+          `).bind(cacheKey, result.title || '', sourceStored, targetStored, result.html, '').run();
         } catch (e) {
           console.error('[D1] save error:', e);
         }

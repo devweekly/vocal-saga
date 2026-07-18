@@ -1,0 +1,17 @@
+[
+  {
+    "description": "基本缓存 key 生成",
+    "input": { "jsonContent": "[{\"id\":\"b1\",\"text\":\"hello\"}]", "sourceLang": "en", "targetLang": "zh" },
+    "expectedKeyPattern": "translation_en_zh_"
+  },
+  {
+    "description": "相同内容生成相同 key",
+    "input": { "jsonContent": "[{\"id\":\"b1\",\"text\":\"world\"}]", "sourceLang": "en", "targetLang": "zh" },
+    "expectedKeyPattern": "translation_en_zh_"
+  },
+  {
+    "description": "不同语言生成不同 key",
+    "input": { "jsonContent": "[{\"id\":\"b1\",\"text\":\"hello\"}]", "sourceLang": "en", "targetLang": "ja" },
+    "expectedKeyPattern": "translation_en_ja_"
+  }
+]

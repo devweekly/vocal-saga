@@ -1,0 +1,20 @@
+[
+  {
+    "description": "缺失 1 个 block 时应重试",
+    "input": { "chunkIds": ["b1", "b2", "b3"], "translatedIds": ["b1", "b2"], "isRetry": false },
+    "expectedShouldRetry": true,
+    "expectedMissingCount": 1
+  },
+  {
+    "description": "全部翻译完成时不重试",
+    "input": { "chunkIds": ["b1", "b2"], "translatedIds": ["b1", "b2"], "isRetry": false },
+    "expectedShouldRetry": false,
+    "expectedMissingCount": 0
+  },
+  {
+    "description": "已是重试轮次时不再重试",
+    "input": { "chunkIds": ["b1", "b2"], "translatedIds": ["b1"], "isRetry": true },
+    "expectedShouldRetry": false,
+    "expectedMissingCount": 1
+  }
+]

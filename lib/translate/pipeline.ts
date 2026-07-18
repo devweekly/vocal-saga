@@ -26,6 +26,7 @@ import {
   processTranslationWithCheck,
 } from './translateApi';
 import { generateTranslationCacheKey } from './cacheKey';
+import { translateSingleflight } from './singleflight.js';
 import { DeepSeekTranslationService } from './service/deepseek';
 import type { Glossary } from './service/_service';
 import type { PromptStyle } from './service/shared';
@@ -50,16 +51,23 @@ async function translateChunk(
   sourceLang: string,
   targetLang: string,
   glossary?: Glossary,
-  isRetry = false
+  isRetry = false,
+  /** LLM 提供方，纳入 cacheKey 避免 provider 切换后读到脏缓存 */
+  provider?: string,
+  /** 翻译文风，纳入 cacheKey 避免 style 切换后读到脏缓存 */
+  promptStyle?: string,
+  /** 跳过 chunk 缓存读取（强制刷新场景：/force/* 路由） */
+  skipCache = false,
 ): Promise<Map<string, string>> {
   const tChunk = performance.now();
   const chunkLabel = `[Chunk ${chunk.id}]`;
-  const cacheKey = generateTranslationCacheKey(chunk.jsonContent, sourceLang, targetLang);
+  const cacheKey = generateTranslationCacheKey(chunk.jsonContent, sourceLang, targetLang, provider, promptStyle);
 
   // 1) 缓存
   const us = (ms: number) => `${Math.round(ms * 1000)}µs`;
   console.log(`${chunkLabel} start (${chunk.blocks.length} blocks, ${chunk.estimatedTokens} tokens)`);
-  if (!isRetry) {
+  // skipCache=true 时跳过 chunk 缓存查询，直接调 LLM（强制刷新）
+  if (!isRetry && !skipCache) {
     const cached = await getCachedTranslation(cacheKey);
     if (cached) {
       console.log(`${chunkLabel} cache hit`);
@@ -70,13 +78,13 @@ async function translateChunk(
   // 2) 调 service（直接并行，不走队列）
   console.log(`${chunkLabel} api.call start`);
   const tApi = performance.now();
-  const raw = await service.translate(chunk.jsonContent, sourceLang, targetLang, glossary);
+  const raw = await translateSingleflight(cacheKey, () => service.translate(chunk.jsonContent, sourceLang, targetLang, glossary));
   console.log(`${chunkLabel} api.call done (${us(performance.now() - tApi)})`);
 
   // 一次 parse 完成 result 提取 + unchanged 检测（原流程 parse 两次）
   const result = processTranslationWithCheck(raw, chunk.blocks.map((b) => ({ id: b.id, text: b.text })));
 
-  // 3) 缓存（仅首次）
+  // 3) 缓存（仅首次；skipCache 时仍写入以刷新旧缓存，只跳过读取）
   if (!isRetry) {
     await cacheTranslation(cacheKey, result);
   }
@@ -97,7 +105,13 @@ async function translateChunksWithRetry(
    * CF Workers 限制同时最多 6 个 fetch 等待 response headers。
    * Server 端 KV cache 不跨请求，直接全并行。
    */
-  concurrency = 6
+  concurrency = 6,
+  /** LLM 提供方，透传给 translateChunk 纳入 cacheKey */
+  provider?: string,
+  /** 翻译文风，透传给 translateChunk 纳入 cacheKey */
+  promptStyle?: string,
+  /** 跳过 chunk 缓存读取（强制刷新场景） */
+  skipCache = false,
 ): Promise<Map<string, string>> {
   const finalTranslations = new Map<string, string>();
   if (chunks.length === 0) return finalTranslations;
@@ -109,7 +123,7 @@ async function translateChunksWithRetry(
   async function processOneChunk(
     chunk: ReturnType<typeof buildChunks>[number]
   ): Promise<void> {
-    const result = await translateChunk(service, chunk, sourceLang, targetLang, glossary);
+    const result = await translateChunk(service, chunk, sourceLang, targetLang, glossary, false, provider, promptStyle, skipCache);
 
     // 缺失检测 + 重试
     const inputIds = chunk.blocks.map((b) => b.id);
@@ -133,7 +147,10 @@ async function translateChunksWithRetry(
         sourceLang,
         targetLang,
         glossary,
-        /* isRetry */ true
+        /* isRetry */ true,
+        provider,
+        promptStyle,
+        skipCache,
       );
       for (const [id, text] of retryResult) {
         result.set(id, text);
@@ -198,7 +215,10 @@ export async function translateText(input: TranslateTextInput): Promise<Translat
     chunks,
     sourceLang,
     targetLang,
-    input.glossary
+    input.glossary,
+    6,
+    /* provider */ 'deepseek',
+    input.promptStyle,
   );
 
   return {
@@ -223,6 +243,8 @@ export interface TranslateUrlInput {
   model?: string;
   /** 翻译文风，默认通用直译 */
   promptStyle?: PromptStyle;
+  /** 跳过 chunk 缓存读取（强制刷新场景：/force/* 路由） */
+  skipCache?: boolean;
 }
 
 export interface TranslateUrlResult {
@@ -250,6 +272,8 @@ export interface TranslateHtmlInput {
   apiKey?: string;
   /** 翻译文风，默认通用直译 */
   promptStyle?: PromptStyle;
+  /** 跳过 chunk 缓存读取（强制刷新场景：/force/* 路由） */
+  skipCache?: boolean;
 }
 
 async function runTranslationPipeline(
@@ -265,6 +289,8 @@ async function runTranslationPipeline(
   existingChunks?: Chunk[],
   apiKey?: string,
   style?: PromptStyle,
+  /** 跳过 chunk 缓存读取（强制刷新场景） */
+  skipCache = false,
 ): Promise<{ title: string; html: string; blocks: number; translatedBlocks: number; chunks: number }> {
   const title =
     (doc.querySelector('title')?.textContent || '').trim().substring(0, 200) ||
@@ -327,7 +353,10 @@ async function runTranslationPipeline(
     sourceLang,
     targetLang,
     glossary,
-    concurrency
+    concurrency,
+    provider,
+    style,
+    skipCache,
   );
 
   // 回填：一次性 querySelectorAll 建 Map → O(1) 查找（原实现 O(blocks × N)）
@@ -471,6 +500,7 @@ export async function translateUrl(input: TranslateUrlInput): Promise<TranslateU
     undefined,
     undefined,
     input.promptStyle,
+    input.skipCache ?? false,
   );
 
   return {
@@ -528,6 +558,7 @@ export async function translateHtml(input: TranslateHtmlInput): Promise<Translat
     undefined,
     input.apiKey,
     input.promptStyle,
+    input.skipCache ?? false,
   );
 
   return {

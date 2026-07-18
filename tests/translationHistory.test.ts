@@ -73,7 +73,7 @@ beforeEach(async () => {
   const { translateUrl } = await import('../lib/translate/pipeline');
   (translateUrl as any).mockClear();
   (translateUrl as any).mockResolvedValue({
-    html: '<html><head><link rel="stylesheet" href="/style.css"></head><body>translated page</body></html>',
+    html: '<html><head><link rel="stylesheet" href="/style.css"></head><body>translated page<span class="fanyi-translation">译文</span></body></html>',
     title: 'Test',
     blocks: 3,
     chunks: 1,
@@ -120,7 +120,7 @@ describe('GET /article/:id — D1 translation history', () => {
     // 确认 D1 有一条记录
     expect(db._rows).toHaveLength(1);
     expect(db._rows[0].url).toBe('https://example.com');
-    expect(db._rows[0].html).toBe('<html><head><link rel="stylesheet" href="/style.css"></head><body>translated page</body></html>');
+    expect(db._rows[0].html).toBe('<html><head><link rel="stylesheet" href="/style.css"></head><body>translated page<span class="fanyi-translation">译文</span></body></html>');
     expect(db._rows[0].source_lang).toBe('en');
 
     // 通过 /article/1 取回
@@ -156,12 +156,12 @@ describe('GET /article/:id — D1 translation history', () => {
 
     const { translateUrl } = await import('../lib/translate/pipeline');
     (translateUrl as any).mockResolvedValueOnce({
-      html: '<html><head><style>.original { color: black; }</style></head><body>first</body></html>',
+      html: '<html><head><style>.original { color: black; }</style></head><body>first<span class="fanyi-translation">译文</span></body></html>',
       title: 'First',
       blocks: 1, chunks: 1, duration_ms: 10,
     });
     (translateUrl as any).mockResolvedValueOnce({
-      html: '<html><head><style>.original { color: black; }</style></head><body>second</body></html>',
+      html: '<html><head><style>.original { color: black; }</style></head><body>second<span class="fanyi-translation">译文</span></body></html>',
       title: 'Second',
       blocks: 1, chunks: 1, duration_ms: 10,
     });

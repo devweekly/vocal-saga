@@ -63,6 +63,35 @@ export class TranslationQueue {
     }
   }
 
+  /**
+   * 批量执行任务：先串行执行前 warmupCount 个任务（帮助 LLM 构建 KV cache 前缀），
+   * 然后并发执行剩余任务（由 maxConcurrency 控制并发度）。
+   * 每个任务失败时按 maxRetries + retryDelay 自动重试（由 add -> process 处理）。
+   */
+  async addAllWithWarmup<T>(
+    tasks: Task<T>[],
+    warmupCount: number,
+    maxConcurrency: number,
+  ): Promise<T[]> {
+    if (tasks.length === 0) return [];
+
+    const results: T[] = [];
+
+    // 先串行执行前 N 个任务（warmup，帮助 LLM 构建 KV cache 前缀）
+    for (let i = 0; i < Math.min(warmupCount, tasks.length); i++) {
+      results.push(await this.add(tasks[i]));
+    }
+
+    // 剩余任务通过 setConcurrency 提升并发度后并行执行
+    if (tasks.length > warmupCount) {
+      this.setConcurrency(maxConcurrency);
+      const remaining = tasks.slice(warmupCount).map((t) => this.add(t));
+      results.push(...(await Promise.all(remaining)));
+    }
+
+    return results;
+  }
+
   get pendingCount(): number {
     return this.queue.length;
   }
@@ -72,6 +101,9 @@ export class TranslationQueue {
   }
 }
 
+// 注意：在 vocal-saga 中 pipeline.ts 使用 Promise.all 直接并行，从不调用 globalQueue。
+// 此单例保留用于与 fanyi-extension 保持代码同步，实际未使用。
+//
 // Concurrency = 1 (serial)：DeepSeek 的 prompt cache (KV cache) 在
 // 第二个起飞的请求上才能命中——并行 4 个请求同 prefix 同时打过去会全
 // miss，串行则让每个请求都吃前一个的 cache，省钱 + 快。
