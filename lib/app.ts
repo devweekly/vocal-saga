@@ -158,6 +158,53 @@ export function createApp(env?: Record<string, unknown>, storage?: StorageAdapte
   const processOriginalHtml = (html: string) =>
     injectRedirectGuard(stripNavigationScripts(html));
 
+  /**
+   * 把任意错误信息清理成可放进 HTTP header 的安全字符串：
+   * - 去掉控制字符 / 换行（header 不允许 \r\n）
+   * - 截断到 200 字符，避免 header 过长
+   * - 兜底空字符串
+   *
+   * 用于 X-Translate-Warning header，让扩展端能程序化感知 D1 save 失败。
+   */
+  const sanitizeHeaderValue = (msg: string): string =>
+    (msg || '').replace(/[\x00-\x1f\x7f]/g, ' ').trim().slice(0, 200);
+
+  /**
+   * 在翻译结果 HTML 的 <body> 起始处注入一个小尺寸警告条：
+   * - 仅在 D1 save 失败时调用，让前端（扩展双语视图 + 浏览器直访）都能看到
+   * - 固定在右上角、12px 字号、琥珀色配色，避免大面积红色干扰阅读
+   * - 纯内联样式 + <details> 原生折叠，不依赖 JS，与已有重定向守卫脚本无冲突
+   *
+   * @param html 已经过 processTranslationHtml 处理的最终 HTML
+   * @param message 来自 catch (e) 的原始错误信息（会被转义 + 截断）
+   */
+  const injectSaveWarningBanner = (html: string, message: string): string => {
+    // 转义 < > & 防止错误信息破坏 HTML 结构
+    const safe = (message || '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .slice(0, 200)
+      .trim();
+    const banner =
+      '<details data-vs-save-warning open style="position:fixed;top:8px;right:8px;z-index:99999;' +
+      'max-width:360px;margin:0;padding:0;font-family:system-ui,-apple-system,sans-serif;">' +
+      '<summary style="padding:6px 10px;font-size:12px;line-height:1.4;cursor:pointer;' +
+      'background:#fef3c7;color:#92400e;border:1px solid #f59e0b;border-radius:4px;' +
+      'box-shadow:0 2px 8px rgba(0,0,0,0.15);list-style:none;">' +
+      '译文已生成，但服务端缓存失败（点击折叠）' +
+      '</summary>' +
+      '<div style="margin-top:4px;padding:6px 10px;font-size:11px;line-height:1.5;' +
+      'background:#fffbeb;color:#78350f;border:1px solid #fde68a;border-radius:4px;' +
+      'word-break:break-all;max-height:120px;overflow:auto;">' + safe + '</div>' +
+      '</details>';
+    // 注入到 <body ...> 之后；若无 <body>，附加到开头
+    if (/<body[^>]*>/i.test(html)) {
+      return html.replace(/<body[^>]*>/i, (m) => m + banner);
+    }
+    return banner + html;
+  };
+
   // 每页记录数
   const PAGE_SIZE = 30;
 
@@ -555,6 +602,9 @@ ${pager}
 
       // 写入 D1：SQLite UPSERT，www 和非 www 共享同一缓存
       // content_hash 纳入 UNIQUE 约束：内容变化时插入新行，内容不变时更新已有行
+      // save 失败不阻塞翻译返回，但要把错误 surface 给前端（header + HTML banner），
+      // 否则前端拿不到任何信号、下次访问会重复翻译却无人察觉
+      let saveError: string | null = null;
       if (db) {
         try {
           await db.prepare(`
@@ -567,11 +617,16 @@ ${pager}
               created_at = CURRENT_TIMESTAMP
           `).bind(cacheKey, result.title || '', sourceStored, targetStored, result.html, contentHash).run();
         } catch (e) {
+          saveError = (e as Error)?.message || String(e);
           console.error('[D1] save error:', e);
         }
       }
 
-      return new Response(processTranslationHtml(result.html), {
+      const finalHtml = saveError
+        ? injectSaveWarningBanner(processTranslationHtml(result.html), saveError)
+        : processTranslationHtml(result.html);
+
+      return new Response(finalHtml, {
         status: 200,
         headers: {
           'Content-Type': 'text/html; charset=utf-8',
@@ -579,6 +634,8 @@ ${pager}
           'X-Translate-Blocks': String(result.blocks),
           'X-Translate-Chunks': String(result.chunks),
           'X-Translate-Duration-Ms': String(result.duration_ms),
+          // save 失败时透出错误信息，让扩展端能 toast 提示
+          ...(saveError ? { 'X-Translate-Warning': sanitizeHeaderValue(saveError) } : {}),
         },
       });
     } catch (err) {
@@ -728,6 +785,9 @@ ${pager}
       // 写入 D1：SQLite UPSERT（ON CONFLICT DO UPDATE），不再需要 force 时先 DELETE
       // 用 cacheKey 存储：www 和非 www 共享同一缓存
       // URL 翻译不跟踪输入内容哈希，content_hash 用空串占位（UNIQUE 约束要求非 NULL 才能触发冲突更新）
+      // save 失败不阻塞翻译返回，但要把错误 surface 给前端（header + HTML banner），
+      // 否则用户直访该 URL 时无法察觉缓存失效、每次访问都重复翻译
+      let saveError: string | null = null;
       if (db) {
         try {
           await db.prepare(`
@@ -740,10 +800,14 @@ ${pager}
               created_at = CURRENT_TIMESTAMP
           `).bind(cacheKey, result.title || '', sourceStored, targetStored, result.html, '').run();
         } catch (e) {
+          saveError = (e as Error)?.message || String(e);
           console.error('[D1] save error:', e);
         }
       }
-      return new Response(processTranslationHtml(result.html), {
+      const finalHtml = saveError
+        ? injectSaveWarningBanner(processTranslationHtml(result.html), saveError)
+        : processTranslationHtml(result.html);
+      return new Response(finalHtml, {
         status: 200,
         headers: {
           'Content-Type': 'text/html; charset=utf-8',
@@ -753,6 +817,8 @@ ${pager}
           'X-Translate-Blocks': String(result.blocks),
           'X-Translate-Chunks': String(result.chunks),
           'X-Translate-Duration-Ms': String(result.duration_ms),
+          // save 失败时透出错误信息，前端可程序化感知
+          ...(saveError ? { 'X-Translate-Warning': sanitizeHeaderValue(saveError) } : {}),
         },
       });
     } catch (err) {

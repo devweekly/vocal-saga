@@ -80,8 +80,16 @@ function createMockDb() {
     return [...rows].sort((a, b) => b.id - a.id);
   }
 
-  return {
+  // 先定义 db，再让 prepare 内部通过闭包读取 db._insertError
+  const db: {
+    _rows: MockRow[];
+    _insertError: string | null;
+    prepare: (sql: string) => any;
+  } = {
     _rows: rows,
+    // 测试钩子：设为非空字符串后，下一次 INSERT 的 run() 会抛错，
+    // 用于验证 D1 save 失败时是否正确 surface 给前端（header + HTML banner）
+    _insertError: null,
     prepare: (_sql: string) => {
       const sql = _sql;
       // 无 bind 的查询（如 COUNT(*)、全量列表）
@@ -104,6 +112,10 @@ function createMockDb() {
         bind: (...args: any[]) => ({
           run: async () => {
             if (sql.trim().startsWith('INSERT')) {
+              // 测试钩子：模拟 D1 save 失败（如 schema 不匹配、UNIQUE 冲突等）
+              if (db._insertError) {
+                throw new Error(db._insertError);
+              }
               const url = args[0] as string;
               const title = args[1] as string;
               const sourceLang = args[2] as string;
@@ -158,6 +170,7 @@ function createMockDb() {
       };
     },
   };
+  return db;
 }
 
 function envWithDb(db: any): object {
@@ -798,6 +811,41 @@ describe('POST /fanyi/page', () => {
     const html = await res.text();
     expect(html).toContain('translated');
     expect(html).not.toContain('corrupted');
+  });
+
+  // ── D1 save 失败必须 surface 给前端（不再静默吞掉）──
+  // 回归：曾经 save 失败只 console.error，前端拿不到信号、无法察觉缓存失效。
+  // 现在通过 X-Translate-Warning header + HTML banner 双通道提示。
+  it('surfaces D1 save error via X-Translate-Warning header and HTML banner', async () => {
+    const db = createMockDb();
+    db._insertError = 'D1_ERROR: table translations has no column named content_hash: SQLITE_ERROR';
+
+    const app = buildApp();
+    const res = await app.request(
+      req('/fanyi/page', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          html: '<html><body>new</body></html>',
+          url: 'https://example.com',
+          apiKey: 'sk-test-api-key',
+        }),
+      }),
+      {},
+      envWithDb(db),
+    );
+    // 翻译本身成功，仍然返回 200（graceful degradation：缓存失败不阻塞翻译）
+    expect(res.status).toBe(200);
+    // header 透出错误信息，让扩展端能程序化感知并 toast 提示
+    expect(res.headers.get('X-Translate-Warning')).toContain('content_hash');
+    const html = await res.text();
+    // HTML 包含可见警告条，让直访用户也能看到
+    expect(html).toContain('data-vs-save-warning');
+    expect(html).toContain('译文已生成，但服务端缓存失败');
+    // 错误信息在 HTML 中可见（且不会被原样注入为 HTML 标签）
+    expect(html).toContain('content_hash');
+    // 翻译内容仍然返回
+    expect(html).toContain('translated');
   });
 });
 

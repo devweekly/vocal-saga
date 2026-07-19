@@ -269,3 +269,65 @@ describe('GET /translate/<target> — SSRF protection', () => {
     expect(res.status).toBe(400);
   });
 });
+
+// ── D1 save 失败必须 surface 给前端（不再静默吞掉）──
+// 回归：曾经 /translate/<url> 的 save 失败只 console.error，
+// 用户直访 URL 时拿不到任何信号，每次访问都重复翻译却无人察觉。
+// 现在通过 X-Translate-Warning header + HTML banner 双通道提示。
+describe('GET /translate/<target> — D1 save error surfacing', () => {
+  /**
+   * 最小 mock D1：prepare → bind → run/first/all
+   * @param insertError 非 null 时 INSERT 的 run() 抛此错误；null 表示 save 成功
+   */
+  function createMockDb(insertError: string | null) {
+    return {
+      prepare: (_sql: string) => {
+        const sql = _sql;
+        return {
+          all: async () => ({ results: [], success: true }),
+          first: async () => null,
+          bind: (..._args: any[]) => ({
+            run: async () => {
+              if (sql.trim().startsWith('INSERT') && insertError) {
+                throw new Error(insertError);
+              }
+              return { results: [], success: true };
+            },
+            first: async () => null,
+            all: async () => ({ results: [], success: true }),
+          }),
+        };
+      },
+    };
+  }
+
+  it('surfaces D1 save error via X-Translate-Warning header and HTML banner', async () => {
+    const db = createMockDb(
+      'D1_ERROR: table translations has no column named content_hash: SQLITE_ERROR',
+    );
+
+    const app = buildApp();
+    const res = await app.request(req('/translate/example.com'), {}, { DB999: db });
+    // 翻译本身成功，仍然返回 200（graceful degradation：缓存失败不阻塞翻译）
+    expect(res.status).toBe(200);
+    // header 透出错误信息
+    expect(res.headers.get('X-Translate-Warning')).toContain('content_hash');
+    const html = await res.text();
+    // HTML 包含可见警告条
+    expect(html).toContain('data-vs-save-warning');
+    expect(html).toContain('译文已生成，但服务端缓存失败');
+    // 翻译内容仍然返回
+    expect(html).toContain('ok');
+  });
+
+  it('does not surface warning when D1 save succeeds (no banner, no header)', async () => {
+    const db = createMockDb(null);
+
+    const app = buildApp();
+    const res = await app.request(req('/translate/example.com'), {}, { DB999: db });
+    expect(res.status).toBe(200);
+    expect(res.headers.get('X-Translate-Warning')).toBeNull();
+    const html = await res.text();
+    expect(html).not.toContain('data-vs-save-warning');
+  });
+});
