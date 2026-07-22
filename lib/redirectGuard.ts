@@ -163,7 +163,13 @@ export const REDIRECT_GUARD_SCRIPT = `
           headers: { 'Content-Type': 'application/json' }
         }));
       }
-      return origFetch.apply(window, arguments);
+      try {
+        return origFetch.apply(window, arguments);
+      } catch (e) {
+        // 原生 fetch 同步抛错（如 URL 非法），返回 rejected Promise 不让 SPA 崩溃
+        console.log('[vocal-saga] 吞掉 fetch 错误:', e.message, url);
+        return Promise.reject(e);
+      }
     };
     results.fetch = true;
   } catch (e) {
@@ -204,7 +210,22 @@ export const REDIRECT_GUARD_SCRIPT = `
         }, 0);
         return;
       }
-      return origXhrSend.apply(this, arguments);
+      try {
+        return origXhrSend.apply(this, arguments);
+      } catch (e) {
+        // 原生 XHR.send 同步抛错（如网络层拒绝），触发 onerror 不让 SPA 崩溃
+        console.log('[vocal-saga] 吞掉 XHR.send 错误:', e.message, this.__vsUrl);
+        var self = this;
+        setTimeout(function () {
+          try {
+            Object.defineProperty(self, 'status', { configurable: true, value: 0 });
+            Object.defineProperty(self, 'readyState', { configurable: true, value: 4 });
+            if (typeof self.onerror === 'function') self.onerror(new ProgressEvent('error'));
+            self.dispatchEvent(new ProgressEvent('error'));
+            self.dispatchEvent(new ProgressEvent('loadend'));
+          } catch (e2) {}
+        }, 0);
+      }
     };
     results.xhr = true;
   } catch (e) {
@@ -214,6 +235,8 @@ export const REDIRECT_GUARD_SCRIPT = `
 
   // ── 4. history.pushState / replaceState ──
   // 拦截跨页 SPA 路由跳转（同页 hash 跳转允许）。
+  // 额外用 try/catch 包裹原生调用：跨域 URL 会触发 SecurityError，
+  // 静默吞掉避免 SPA 崩溃（如 Substack 的 componentDidMount 崩溃）。
   try {
     ['pushState', 'replaceState'].forEach(function (m) {
       var orig = history[m];
@@ -222,7 +245,12 @@ export const REDIRECT_GUARD_SCRIPT = `
           console.log('[vocal-saga] 拦截 history.' + m + ':', url);
           return;
         }
-        return orig.apply(history, arguments);
+        try {
+          return orig.apply(history, arguments);
+        } catch (e) {
+          // 跨域 URL 触发 SecurityError，静默吞掉
+          console.log('[vocal-saga] 吞掉 history.' + m + ' 错误:', e.message, url);
+        }
       };
     });
     results.pushState = true;
@@ -235,6 +263,7 @@ export const REDIRECT_GUARD_SCRIPT = `
 
   // ── 5. history.go(0) ──
   // history.go(0) 等同于 reload，拦截。
+  // 其他值用 try/catch 包裹原生调用，防止抛错崩溃 SPA。
   try {
     var origGo = history.go;
     history.go = function (delta) {
@@ -242,7 +271,11 @@ export const REDIRECT_GUARD_SCRIPT = `
         console.log('[vocal-saga] 拦截 history.go(0)');
         return;
       }
-      return origGo.apply(history, arguments);
+      try {
+        return origGo.apply(history, arguments);
+      } catch (e) {
+        console.log('[vocal-saga] 吞掉 history.go 错误:', e.message);
+      }
     };
     results.go = true;
   } catch (e) {
@@ -252,18 +285,28 @@ export const REDIRECT_GUARD_SCRIPT = `
 
   // ── 6. window.open ──
   // 拦截当前窗口（_self）打开内部跨页链接，_blank 和外部链接放行。
+  // 原生调用用 try/catch 包裹，弹窗被拦截或安全策略抛错时不崩溃 SPA。
   try {
     var origOpen = window.open;
     window.open = function (url, target, features) {
-      if (!url) return origOpen.apply(window, arguments);
+      var args = arguments;
+      function callOrig() {
+        try {
+          return origOpen.apply(window, args);
+        } catch (e) {
+          console.log('[vocal-saga] 吞掉 window.open 错误:', e.message, url);
+          return null;
+        }
+      }
+      if (!url) return callOrig();
       if (target === '_blank' || isExternal(url)) {
-        return origOpen.apply(window, arguments);
+        return callOrig();
       }
       if (isCrossPage(url)) {
         console.log('[vocal-saga] 拦截 window.open:', url);
         return null;
       }
-      return origOpen.apply(window, arguments);
+      return callOrig();
     };
     results.open = true;
   } catch (e) {

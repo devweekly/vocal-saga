@@ -160,6 +160,18 @@ describe('守卫脚本运行时行为', () => {
     expect(window.location.pathname).toBe(before);
   });
 
+  it('history.replaceState 跨域 URL 不抛 SecurityError（静默吞掉）', () => {
+    runGuard();
+    // 模拟 Substack SPA 传入跨域 URL，浏览器原生 replaceState 会抛 SecurityError。
+    // 守卫应吞掉该错误，不让 SPA 崩溃。
+    expect(() => window.history.replaceState({}, '', 'https://magazine.sebastianraschka.com/414')).not.toThrow();
+  });
+
+  it('history.pushState 跨域 URL 不抛 SecurityError（静默吞掉）', () => {
+    runGuard();
+    expect(() => window.history.pushState({}, '', 'https://magazine.sebastianraschka.com/414')).not.toThrow();
+  });
+
   it('拦截 history.go(0)（不抛错、页面不刷新）', () => {
     runGuard();
     expect(() => window.history.go(0)).not.toThrow();
