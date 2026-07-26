@@ -550,6 +550,66 @@ function isPdfJsViewerHtml(root: Document | Element): boolean {
   return doc.getElementById('viewerContainer') !== null;
 }
 
+/**
+ * 如果 content detector 选中的根是 <table>，把表格内容展平到一个 <div> 包装器中。
+ *
+ * 背景：walker 的 SKIP_SET 包含 table/thead/tbody/tr/td/th（数据表不应翻译）。
+ * 但有些老式 CMS 用 <table> 做整页布局，正文段落实际放在 <td> 里。
+ * 直接以 <table> 为 root 遍历会导致整棵子树被 reject，一块都抓不到。
+ *
+ * 解决：把 <table> 下的 <td>/<th> 内容移动到新建的 <div class="fanyi-table-unwrapped">中，
+ * 用这个 div 替换原 table 的位置，并作为新的 effectiveRoot 返回。
+ * block id 会标记在 wrapper 内的元素上，回填阶段仍可正常查找。
+ */
+function unwrapTableRoot(table: Element): Element {
+  const doc = table.ownerDocument;
+  if (!doc) return table;
+
+  const wrapper = doc.createElement('div');
+  wrapper.className = 'fanyi-table-unwrapped';
+
+  // 收集 table 内所有 td/th 的直接子节点，保持原有顺序
+  const cells = table.querySelectorAll('td, th');
+  cells.forEach((cell) => {
+    while (cell.firstChild) {
+      wrapper.appendChild(cell.firstChild);
+    }
+  });
+
+  // 如果没有 td/th（理论上不应发生），把整个 table 子树移进去兜底
+  if (!wrapper.firstChild) {
+    while (table.firstChild) {
+      wrapper.appendChild(table.firstChild);
+    }
+  }
+
+  table.parentElement?.replaceChild(wrapper, table);
+  return wrapper;
+}
+
+/**
+ * 原地递归展平容器内的所有 <table>。
+ *
+ * 用于表格布局兜底：当某个 root 内部嵌套 table，但 walker 因 SKIP_SET
+ * 拒绝 table 导致 0 块时，把每个 table 的 td/th 内容提升到 table 原位置，
+ * 让 walker 能抓到其中的段落文本。
+ *
+ * 注意：这是一个破坏性 DOM 修改，只应在副本或已确认需要处理的根上调用。
+ */
+function unwrapAllTablesInPlace(container: Element): void {
+  // 先处理子 table，从深层向外层，避免 replaceChild 后 querySelectorAll 失效
+  const tables = Array.from(container.querySelectorAll('table'));
+  tables.forEach((table) => {
+    unwrapTableRoot(table);
+  });
+
+  // 如果容器自身就是 table，也一并处理
+  if (container.tagName.toLowerCase() === 'table') {
+    // unwrapTableRoot 已经需要父元素，这里不做特殊处理；
+    // 调用方通常在 prepareDocument 里已单独处理 root === table 的情况。
+  }
+}
+
 export function prepareDocument(
   root: Document | Element,
   pageUrl: string
@@ -576,7 +636,14 @@ export function prepareDocument(
 
   // 优先使用文章容器，减少 TreeWalker 遍历范围
   const rootResult = isDoc ? findArticleRoot(root as Document, pageUrl, articleContext) : { root: root as Element, strategy: 'selector' };
-  const effectiveRoot: Element = rootResult.root;
+  let effectiveRoot: Element = rootResult.root;
+
+  // 如果 content detector 选中的根是 <table>，需要把表格内容展平。
+  // walker 默认拒绝所有表格元素，否则以 table 为 root 会一块都抓不到。
+  if (effectiveRoot.tagName.toLowerCase() === 'table') {
+    effectiveRoot = unwrapTableRoot(effectiveRoot);
+  }
+
   let blocks = extractBlocks(effectiveRoot, pageUrl, articleContext);
   let strategy = rootResult.strategy;
   let rootSelector = `<${effectiveRoot.tagName.toLowerCase()}>.${(effectiveRoot.className || '').toString().split(/\s+/)[0] || ''}`;
@@ -585,6 +652,23 @@ export function prepareDocument(
   // 传入 doc 以便同步合并 DOM，避免回填后原文被拆碎。
   const doc = isDoc ? (root as Document) : (root as Element).ownerDocument;
   blocks = mergeInlineBlocks(blocks, doc ?? undefined);
+
+  // 表格布局兜底：如果第一次提取 0 块，且 effectiveRoot 内包含 <table>，
+  // 说明内容可能被困在表格元素里（老式 CMS 用 table 做页面布局）。
+  // walker 默认拒绝所有 table 元素，因此把它们展平后重试。
+  if (blocks.length === 0 && effectiveRoot.querySelector('table')) {
+    const clonedRoot = effectiveRoot.cloneNode(true) as Element;
+    unwrapAllTablesInPlace(clonedRoot);
+    const clonedBlocks = extractBlocks(clonedRoot, pageUrl, articleContext);
+    if (clonedBlocks.length > 0) {
+      // 把展平后的 DOM 应用到原文档，让后续翻译回填能找到 block id
+      effectiveRoot.replaceWith(clonedRoot);
+      effectiveRoot = clonedRoot;
+      blocks = clonedBlocks;
+      strategy = `${strategy}-table-unwrap`;
+      rootSelector = `<${effectiveRoot.tagName.toLowerCase()}>.${(effectiveRoot.className || '').toString().split(/\s+/)[0] || ''}`;
+    }
+  }
 
   // P1-3：body-fallback 已整合到 selectBestRoot（候选质量分 < 阈值或无候选时直接返回 body）。
   // 这里只剩 data-island 兜底：当 body 仍然 0 块（SPA 首屏 DOM 是骨架，

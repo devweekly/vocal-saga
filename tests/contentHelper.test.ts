@@ -818,4 +818,58 @@ describe('prepareDocument data island integration', () => {
     // 确保翻译文本完整
     expect(result.fullText).toContain('important');
   });
+
+  // ── Table layout fallback: 老式 CMS 用 table 做页面布局 ─────────────
+  it('unwraps table root when content is inside <table>', () => {
+    document.body.innerHTML = `
+      <table>
+        <tr>
+          <td>
+            <h1>Red Flag Act 1865</h1>
+            <p>This is the first paragraph inside a table cell.</p>
+            <p>This is the second paragraph inside a table cell.</p>
+          </td>
+        </tr>
+      </table>
+    `;
+
+    const result = prepareDocument(document, 'https://example.com/table-layout');
+
+    expect(result.fullText).toContain('Red Flag Act 1865');
+    expect(result.fullText).toContain('first paragraph inside a table cell');
+    expect(result.fullText).toContain('second paragraph inside a table cell');
+    expect(result.blocks.length).toBeGreaterThan(0);
+    expect(result.report.strategy).toContain('table-unwrap');
+  });
+
+  it('unwraps nested tables when selected root contains only table content', () => {
+    // extraction pipeline 可能选中 readability 的 <div>，但其内部全是 <table>
+    document.body.innerHTML = `
+      <div id="content">
+        <table>
+          <tr>
+            <td>
+              <h2>Heading in nested table</h2>
+              <p>Paragraph one in nested table.</p>
+            </td>
+          </tr>
+        </table>
+        <table>
+          <tr>
+            <td>
+              <p>Paragraph two in another nested table.</p>
+            </td>
+          </tr>
+        </table>
+      </div>
+    `;
+
+    const result = prepareDocument(document, 'https://example.com/nested-tables');
+
+    expect(result.fullText).toContain('Heading in nested table');
+    expect(result.fullText).toContain('Paragraph one in nested table');
+    expect(result.fullText).toContain('Paragraph two in another nested table');
+    expect(result.blocks.length).toBeGreaterThanOrEqual(3);
+    expect(result.report.strategy).toContain('table-unwrap');
+  });
 });
