@@ -881,7 +881,7 @@ ${pager}
   // ── 强制翻译：跳过 D1 缓存，强制重新抓取+翻译 ──────────
   // 流量限制：每 IP 每分钟最多 1 次（防滥用）
   const forceRateLimit = new Map<string, number>();
-  const FORCE_RATE_LIMIT_MS = 45_000; // 1 分钟
+  const FORCE_RATE_LIMIT_MS = 30_000; //
 
   app.get('/force/*', (c) => {
     const ip = c.req.header('cf-connecting-ip') || c.req.header('x-forwarded-for') || 'unknown';
@@ -889,7 +889,7 @@ ${pager}
     const last = forceRateLimit.get(ip) || 0;
     if (now - last < FORCE_RATE_LIMIT_MS) {
       const retryAfter = Math.ceil((FORCE_RATE_LIMIT_MS - (now - last)) / 1000);
-      return c.json({ error: `Rate limit: 1 request per 45s. Retry after ${retryAfter}s` }, 429);
+      return c.json({ error: `Rate limit: 1 request per 30s. Retry after ${retryAfter}s` }, 429);
     }
     forceRateLimit.set(ip, now);
     // 清理过期条目（防止内存泄漏）
