@@ -97,6 +97,9 @@ const HYDRATION_CHUNK_PATTERNS: RegExp[] = [
   // 滚动时 GPT 可能动态填充广告槽并覆盖/替换已有翻译节点。
   /securepubads\.g\.doubleclick\.net\//i,
   /googletagservices\.com\//i,
+  // Substack — SPA 客户端 chunk（React hydration 后会用客户端路由覆盖 SSR 翻译 DOM，
+  // 且因代理域 URL 不匹配 Substack 路由而渲染 "Page not found"）
+  /substackcdn\.com\/bundle\/static\/js\//i,
 ];
 
 /**

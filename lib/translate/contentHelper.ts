@@ -539,7 +539,11 @@ function mergeInlineBlocks(blocks: TextBlock[], doc?: Document): TextBlock[] {
  * 所以不作为服务端检测信号。
  */
 function isPdfJsViewerHtml(root: Document | Element): boolean {
-  const doc = root instanceof Document ? root : root.ownerDocument;
+  // 不依赖全局 Document 构造函数：Workers 环境没有全局 Document。
+  const doc =
+    root.nodeType === 9 /* DOCUMENT_NODE */
+      ? (root as Document)
+      : (root as Element).ownerDocument;
   if (!doc) return false;
   const viewer = doc.getElementById('viewer');
   if (viewer && viewer.classList.contains('pdfViewer')) return true;

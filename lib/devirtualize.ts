@@ -158,6 +158,32 @@ export function devirtualizeLayout(html: string): string {
     cleanTimelineContainer(primaryColumn as Element, document);
   }
 
+  // 5. 移除阻挡正文的 modal / overlay
+  // SPA 站点（如 Substack）的 SSR HTML 中包含订阅弹窗等 modal，
+  // 正常情况下由 SPA 脚本控制显隐。删除 SPA chunk 后脚本不执行，
+  // modal 残留在页面上遮挡正文内容。
+  const modals = document.querySelectorAll(
+    '[role="dialog"][aria-label*="subscribe" i], ' +
+    '[role="dialog"][aria-label*="modal" i], ' +
+    '[class*="subscribeDialog" i], ' +
+    '[class*="paywall-modal" i]',
+  );
+  modals.forEach((el) => {
+    (el as Element).remove();
+    totalCleaned++;
+  });
+
+  // 6. 移除 SVG 内的 <title> 元素
+  // HTML5 规范将 SVG <title> 视为 "HTML integration point"，
+  // 其内容按 HTML 规则解析。在 HTML 模式下 <path .../> 的自闭合斜杠被忽略，
+  // 导致 <path> 不自闭合，后续的 HTML 内容（包括正文 div）被解析为 <path> 的子元素，
+  // 最终被困在 20x20px 的 SVG 图标内不可见。
+  // 移除 SVG <title>（仅用于无障碍 tooltip，翻译页不需要）可避免此问题。
+  document.querySelectorAll('svg title').forEach((el) => {
+    (el as Element).remove();
+    totalCleaned++;
+  });
+
   if (totalCleaned > 0) {
     console.log(`[devirtualize] 清理了 ${totalCleaned} 个元素的 virtual 定位样式`);
   }

@@ -77,11 +77,22 @@ describe('stripNavigationScripts（第一层：导航防护）', () => {
 describe('stripHydrationScripts（第二层：hydration 防护）', () => {
   it('删除 X/Twitter SPA chunk（abs.twimg.com）', () => {
     const html = `<html><head>
-      <script src="https://abs.twimg.com/responsive-web/client-web/main.ea67863a.js"></script>
+      <script src="https://abs.twimg.com/responsive-web/client-web/main.ea67843a.js"></script>
       <script src="https://abs.twimg.com/responsive-web/client-web/vendor.bd8db7da.js"></script>
     </head><body><p class="fanyi-translation">译文</p></body></html>`;
     const out = stripHydrationScripts(html);
     expect(out).not.toContain('abs.twimg.com/responsive-web');
+    expect(out).toContain('fanyi-translation');
+  });
+
+  it('删除 Substack SPA chunk（substackcdn.com/bundle/static/js/）', () => {
+    const html = `<html><head>
+      <script src="https://substackcdn.com/bundle/static/js/49903.c9e1464c.js"></script>
+      <script src="https://substackcdn.com/bundle/static/js/78444.b32cb399.js"></script>
+      <script src="https://substackcdn.com/bundle/static/js/71142.5669f08b.js"></script>
+    </head><body><p class="fanyi-translation">译文</p></body></html>`;
+    const out = stripHydrationScripts(html);
+    expect(out).not.toContain('substackcdn.com/bundle/static/js/');
     expect(out).toContain('fanyi-translation');
   });
 

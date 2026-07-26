@@ -355,21 +355,119 @@ export const REDIRECT_GUARD_SCRIPT = `
  */
 export function injectRedirectGuard(html: string): string {
   const scriptTag = `<script>${REDIRECT_GUARD_SCRIPT}</script>`;
+  const rescueScript = `<script>${SVG_RESCUE_SCRIPT}</script>`;
 
-  // 情况 1：有 <head ...> 标签 → 插到 head 内最前面
+  // 情况 1：有 <head ...> 标签 → 守卫脚本插到 head 内最前面
   const headOpenMatch = html.match(/<head(\s[^>]*)?>/i);
   if (headOpenMatch) {
     const insertAt = headOpenMatch.index! + headOpenMatch[0].length;
-    return html.slice(0, insertAt) + scriptTag + html.slice(insertAt);
+    let result = html.slice(0, insertAt) + scriptTag + html.slice(insertAt);
+    // 救援脚本放在 </body> 前（最后执行）
+    result = injectBeforeBodyClose(result, rescueScript);
+    return result;
   }
 
   // 情况 2：有 <html ...> 但没 <head> → 在 html 标签后补一个 head
   const htmlOpenMatch = html.match(/<html(\s[^>]*)?>/i);
   if (htmlOpenMatch) {
     const insertAt = htmlOpenMatch.index! + htmlOpenMatch[0].length;
-    return html.slice(0, insertAt) + `<head>${scriptTag}</head>` + html.slice(insertAt);
+    let result = html.slice(0, insertAt) + `<head>${scriptTag}</head>` + html.slice(insertAt);
+    result = injectBeforeBodyClose(result, rescueScript);
+    return result;
   }
 
   // 情况 3：HTML 片段，无结构标签 → 直接前置拼接
-  return scriptTag + html;
+  return scriptTag + rescueScript + html;
 }
+
+/** 把脚本注入到 </body> 前（如果有的话） */
+function injectBeforeBodyClose(html: string, scriptTag: string): string {
+  const bodyCloseMatch = html.match(/<\/body>/i);
+  if (bodyCloseMatch) {
+    const insertAt = bodyCloseMatch.index!;
+    return html.slice(0, insertAt) + scriptTag + html.slice(insertAt);
+  }
+  return html + scriptTag;
+}
+
+/**
+ * SVG 救援脚本 — 在所有脚本执行后运行。
+ *
+ * 某些站点（如 Substack）的运行时 JavaScript 会动态创建带 <title> 的 SVG 图标。
+ * 浏览器将 SVG <title> 视为 HTML integration point，其内部 <path> 不自闭合，
+ * 导致后续 HTML 内容被困在 SVG 内不可见。
+ *
+ * 此脚本检测被困内容并移出 SVG。
+ */
+export const SVG_RESCUE_SCRIPT = `
+(function () {
+  if (window.__vsSvgRescue) return;
+  window.__vsSvgRescue = true;
+
+  var SVG_TAGS = ['svg', 'path', 'g', 'rect', 'circle', 'ellipse', 'line',
+    'polyline', 'polygon', 'title', 'defs', 'use', 'symbol', 'mask',
+    'clippath', 'lineargradient', 'radialgradient', 'stop', 'text', 'tspan'];
+
+  function isInsideSvg(el) {
+    var parent = el.parentElement;
+    while (parent) {
+      if (parent.tagName === 'SVG' || SVG_TAGS.indexOf(parent.tagName.toLowerCase()) >= 0) {
+        return true;
+      }
+      parent = parent.parentElement;
+    }
+    return false;
+  }
+
+  function findSvgAncestor(el) {
+    var parent = el.parentElement;
+    while (parent) {
+      if (parent.tagName === 'SVG') return parent;
+      parent = parent.parentElement;
+    }
+    return null;
+  }
+
+  function rescueTrappedContent() {
+    // 查找可能被困在 SVG 内的内容元素
+    var selectors = '.available-content, .body.markup, .body, [class*="body markup"]';
+    var trapped = document.querySelectorAll(selectors);
+    trapped.forEach(function (el) {
+      if (!isInsideSvg(el)) return;
+      var svg = findSvgAncestor(el);
+      if (!svg) return;
+      // 找到 SVG 的最近非 SVG 祖先（通常是 button 或 div）
+      var safeParent = svg.parentElement;
+      while (safeParent && isInsideSvg(safeParent)) {
+        safeParent = safeParent.parentElement;
+      }
+      if (safeParent) {
+        // 移到 SVG 的父元素中（SVG 之后）
+        safeParent.insertBefore(el, svg.nextSibling);
+        console.log('[vocal-saga] SVG rescue: moved', el.className, 'out of SVG');
+      }
+    });
+  }
+
+  // DOMContentLoaded 时执行一次
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', rescueTrappedContent);
+  } else {
+    rescueTrappedContent();
+  }
+
+  // 用 MutationObserver 监控后续 DOM 变化
+  var rescueTimer = null;
+  var observer = new MutationObserver(function () {
+    if (rescueTimer) return;
+    rescueTimer = setTimeout(function () {
+      rescueTimer = null;
+      rescueTrappedContent();
+    }, 100);
+  });
+  observer.observe(document.documentElement, { childList: true, subtree: true });
+
+  // 5 秒后停止监听（避免长期性能开销）
+  setTimeout(function () { observer.disconnect(); }, 5000);
+})();
+`;

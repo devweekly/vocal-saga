@@ -153,4 +153,55 @@ describe('devirtualizeLayout', () => {
     expect(out).toContain('font-size:14px');
     expect(out).toContain('normal page');
   });
+
+  it('移除 Substack 订阅弹窗（role=dialog + subscribe）', () => {
+    const html = `<html><body>
+      <article><p class="fanyi-translation">正文译文</p></article>
+      <div role="dialog" aria-label="Subscribe modal" class="subscribeDialog-ApxQJS" style="position:absolute;top:100px;left:50px">
+        <p>Subscribe now!</p>
+        <p>立即订阅</p>
+      </div>
+    </body></html>`;
+    const out = devirtualizeLayout(html);
+    expect(out).not.toContain('subscribeDialog');
+    expect(out).not.toContain('Subscribe modal');
+    expect(out).toContain('正文译文');
+  });
+
+  it('移除 paywall modal', () => {
+    const html = `<html><body>
+      <article><p class="fanyi-translation">正文</p></article>
+      <div class="paywall-modal-overlay">
+        <p>Subscribe to continue reading</p>
+      </div>
+    </body></html>`;
+    const out = devirtualizeLayout(html);
+    expect(out).not.toContain('paywall-modal');
+    expect(out).toContain('正文');
+  });
+
+  it('移除 SVG 内的 <title> 元素（避免 HTML 解析器陷阱）', () => {
+    // SVG <title> 是 HTML integration point，里面的 <path .../> 不自闭合，
+    // 会导致后续 HTML 内容被困在 SVG 内部
+    const html = `<html><body>
+      <article>
+        <div class="post-header"><h1>Title</h1></div>
+        <button>
+          <svg class="icon"><g><title><path d="M2.53 7.8" /></title></g></svg>
+        </button>
+        <div><div class="available-content">
+          <div class="body markup">
+            <p class="fanyi-translation">正文译文第一段</p>
+            <p class="fanyi-translation">正文译文第二段</p>
+          </div>
+        </div></div>
+      </article>
+    </body></html>`;
+    const out = devirtualizeLayout(html);
+    // SVG <title> 应被移除
+    expect(out).not.toContain('<title>');
+    // 正文内容应保留
+    expect(out).toContain('正文译文第一段');
+    expect(out).toContain('正文译文第二段');
+  });
 });
