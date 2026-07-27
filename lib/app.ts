@@ -136,6 +136,24 @@ export function createApp(env?: Record<string, unknown>, storage?: StorageAdapte
     }
     if (!structurallyHealthy) return false;
 
+    // ── <base> 位置检查 ──
+    // 旧缓存里 <base> 可能位于相对 CSS 之后，浏览器会用代理域解析这些资源，
+    // 导致 arxiv / ar5iv 等页面的 CSS 404、排版全乱。若 <head> 中任何相对路径
+    // stylesheet 出现在 <base> 之前，视为损坏并触发重新翻译。
+    const headMatch = html.match(/<head\b[^>]*>[\s\S]*?<\/head>/i);
+    if (headMatch) {
+      const headSection = headMatch[0];
+      const baseMatch = headSection.match(/<base\b/i);
+      if (baseMatch && baseMatch.index !== undefined) {
+        const beforeBase = headSection.slice(0, baseMatch.index);
+        const linkMatches = beforeBase.match(/<link\b[^>]*\brel\s*=\s*["']stylesheet["'][^>]*>/gi) || [];
+        if (linkMatches.some((link) => /\shref\s*=\s*["']\/[^"']*["']/i.test(link))) {
+          console.warn('[isHealthyCachedHtml] <base> appears after relative stylesheet, treating as unhealthy');
+          return false;
+        }
+      }
+    }
+
     // ── 翻译完整性校验（S7 新增） ──
     // 原有检查只看 HTML 结构 + 样式表，不检查翻译是否完整。
     // 调用 validateTranslationCompleteness 校验翻译标记存在 + 内容非空。
@@ -983,16 +1001,21 @@ ${pager}
       const { fetchPage } = await import('./translate/urlFetcher');
       const page = await fetchPage(url);
 
-      // 注入 <base> 标签让浏览器原生解析相对 URL（图片、链接等）
+      // 注入 <base> 标签让浏览器原生解析相对 URL（图片、链接等）。
+      // 原页面若把 <base> 放在相对 CSS/JS 之后，必须移到 <head> 最前面，
+      // 否则浏览器仍用当前页面地址解析这些资源（如 arxiv / ar5iv）。
       const baseUrl = page.finalUrl.replace(/\/?$/, '/');
       const { document } = parseHTML(page.html) as { document: Document };
+      const head = document.head;
       const existingBase = document.querySelector('head > base');
       if (existingBase) {
         existingBase.setAttribute('href', baseUrl);
+        if (head && head.firstChild !== existingBase) {
+          head.insertBefore(existingBase, head.firstChild);
+        }
       } else {
         const base = document.createElement('base');
         base.setAttribute('href', baseUrl);
-        const head = document.head;
         if (head) head.insertBefore(base, head.firstChild);
       }
 

@@ -58,6 +58,18 @@ function startServer(): Promise<{ server: http.Server; baseUrl: string }> {
   <body><p>Hello</p></body>
 </html>`);
           break;
+        case '/base-after-css':
+          // arxiv / ar5iv 真实结构：<base> 放在相对 CSS 之后，翻译后必须移到最前面
+          res.end(`<!doctype html>
+<html>
+  <head>
+    <title>Base after CSS</title>
+    <link href="/static/style.css" rel="stylesheet" type="text/css">
+    <base href="/old/">
+  </head>
+  <body><article><p>Hello from base after CSS</p></article></body>
+</html>`);
+          break;
         case '/article.html':
           res.end(`<!doctype html>
 <html>
@@ -148,6 +160,19 @@ describe('translateUrl — end-to-end with linkedom', () => {
     const result = await translateUrl({ url: `${baseUrl}/base-no-href` });
     expect(baseTarget(result.html)).toBe('_blank');
     expect(baseHref(result.html)).toBe(`${baseUrl}/base-no-href/`);
+  });
+
+  it('moves existing <base> to the start of <head> when it appears after relative CSS', async () => {
+    const result = await translateUrl({ url: `${baseUrl}/base-after-css` });
+    expect(baseHref(result.html)).toBe(`${baseUrl}/base-after-css/`);
+    const headMatch = result.html.match(/<head[^>]*>[\s\S]*?<\/head>/i);
+    expect(headMatch).toBeTruthy();
+    const head = headMatch![0];
+    const baseIndex = head.indexOf('<base');
+    const linkIndex = head.indexOf('<link');
+    expect(baseIndex).toBeGreaterThanOrEqual(0);
+    expect(linkIndex).toBeGreaterThanOrEqual(0);
+    expect(baseIndex).toBeLessThan(linkIndex);
   });
 
   it('uses parent directory for .html file URLs to fix relative CSS paths', async () => {

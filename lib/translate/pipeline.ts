@@ -401,18 +401,24 @@ async function runTranslationPipeline(
   } else {
     baseUrl = cleanUrl + '/';
   }
+  // 用 <base> 标签让浏览器原生解析相对 URL，避免手动遍历 DOM。
+  // 注意：<base> 必须位于所有相对 URL 引用之前（如 <link rel="stylesheet">、<script src="/...">），
+  // 否则浏览器会用当前页面地址解析这些资源。arxiv / ar5iv 等站点的原页面常把 <base>
+  // 放在 <head> 末尾，翻译后会导致 CSS/JS 404，因此更新 href 后必须把它移到最前面。
+  const head = doc.head;
   const existingBase = doc.querySelector('head > base');
   if (existingBase) {
     existingBase.setAttribute('href', baseUrl);
+    if (head && head.firstChild !== existingBase) {
+      head.insertBefore(existingBase, head.firstChild);
+    }
   } else {
     const base = doc.createElement('base');
     base.setAttribute('href', baseUrl);
-    const head = doc.head;
     if (head) head.insertBefore(base, head.firstChild);
   }
 
   // 注入双语显示 CSS —— 只针对我们注入的 span，不覆盖原页面任何已有元素的样式。
-  const head = doc.head;
   if (head && !head.querySelector('#fanyi-bilingual-styles')) {
     const style = doc.createElement('style');
     style.id = 'fanyi-bilingual-styles';

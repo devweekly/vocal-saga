@@ -1047,6 +1047,25 @@ describe('GET /article/:id', () => {
     expect(res.headers.get('Location')).toBe('/translate/example.com%2Fpost');
   });
 
+  it('redirects to re-translate when <base> appears after relative stylesheet', async () => {
+    // arxiv / ar5iv 旧缓存：<base> 在相对 CSS 之后，浏览器用代理域解析导致 404
+    const db = createMockDb();
+    db._rows.push({
+      id: 43,
+      url: 'https://arxiv.org/html/2501.00000',
+      title: 'Paper',
+      source_lang: 'en',
+      target_lang: 'zh',
+      html: '<html><head><link href="/static/browse/style.css" rel="stylesheet"><base href="https://arxiv.org/html/"></head><body>cached translation<span class="fanyi-translation">译文</span></body></html>',
+      created_at: new Date().toISOString(),
+    });
+
+    const app = buildApp();
+    const res = await app.request(req('/article/43'), {}, envWithDb(db));
+    expect(res.status).toBe(302);
+    expect(res.headers.get('Location')).toBe('/translate/arxiv.org%2Fhtml%2F2501.00000');
+  });
+
   it('returns 404 when translation id does not exist', async () => {
     const app = buildApp();
     const db = createMockDb();
