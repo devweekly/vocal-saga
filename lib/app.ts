@@ -336,22 +336,38 @@ ${pager}
     if (!db) return c.json({ error: 'D1 not available' }, 500);
     try {
       const row: any = await db.prepare(
-        'SELECT url, html FROM translations WHERE id = ?'
+        'SELECT url, source_lang, target_lang, html FROM translations WHERE id = ?'
       ).bind(Number(id)).first();
       if (!row) return c.json({ error: 'translation not found' }, 404);
-      // 缓存 HTML 损坏（缺 <html>）时重定向到重新翻译，避免展示无 CSS 的畸形页面
-      if (!isHealthyCachedHtml(row.html)) {
-        console.warn(`[D1] article/${id} cached HTML is unhealthy, redirecting to re-translate`);
-        if (row.url) {
-          return c.redirect(`/translate/${encodeURIComponent(row.url.replace(/^https?:\/\//i, ''))}`);
-        }
-        return c.json({ error: 'cached translation is corrupted' }, 500);
+
+      // 若当前记录健康，直接返回（保持 /article/:id 的语义）
+      if (isHealthyCachedHtml(row.html)) {
+        return new Response(processTranslationHtml(row.html), {
+          status: 200,
+          headers: { 'Content-Type': 'text/html; charset=utf-8' },
+        });
       }
-      // 注入重定向守卫：原站 SPA 脚本会把用户带离翻译页（详见 redirectGuard.ts）
-      return new Response(processTranslationHtml(row.html), {
-        status: 200,
-        headers: { 'Content-Type': 'text/html; charset=utf-8' },
-      });
+
+      // 当前记录损坏时，先查同一 URL+语言是否有更新的健康缓存。
+      // 典型场景：/fanyi/page 保存了带 content_hash 的记录（id=432），而
+      // /translate/* 后来保存了 URL 级记录（id=433），后者应能被 /article/:id 使用。
+      const latest: any = await db.prepare(
+        'SELECT html FROM translations WHERE url = ? AND source_lang = ? AND target_lang = ? ORDER BY created_at DESC LIMIT 1'
+      ).bind(row.url, row.source_lang, row.target_lang).first();
+      if (latest && isHealthyCachedHtml(latest.html)) {
+        console.log(`[D1] article/${id} found newer healthy cache for same URL, serving it`);
+        return new Response(processTranslationHtml(latest.html), {
+          status: 200,
+          headers: { 'Content-Type': 'text/html; charset=utf-8' },
+        });
+      }
+
+      // 没有可用缓存时重定向到重新翻译，避免展示无 CSS 的畸形页面
+      console.warn(`[D1] article/${id} cached HTML is unhealthy, redirecting to re-translate`);
+      if (row.url) {
+        return c.redirect(`/translate/${encodeURIComponent(row.url.replace(/^https?:\/\//i, ''))}`);
+      }
+      return c.json({ error: 'cached translation is corrupted' }, 500);
     } catch (e) {
       console.error('[D1] fetch error:', e);
       return c.json({ error: (e as Error).message }, 500);

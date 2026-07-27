@@ -145,11 +145,13 @@ function createMockDb() {
           first: async () => {
             if (sql.includes('WHERE url = ? AND source_lang = ? AND target_lang = ?')) {
               const [url, sourceLang, targetLang] = args;
-              return (
-                rows.find(
-                  (r) => r.url === url && r.source_lang === sourceLang && r.target_lang === targetLang,
-                ) || null
+              const matches = rows.filter(
+                (r) => r.url === url && r.source_lang === sourceLang && r.target_lang === targetLang,
               );
+              if (sql.match(/ORDER\s+BY\s+created_at\s+DESC/i)) {
+                matches.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+              }
+              return matches[0] || null;
             }
             if (sql.includes('WHERE id = ?')) {
               const [id] = args;
@@ -1064,6 +1066,36 @@ describe('GET /article/:id', () => {
     const res = await app.request(req('/article/43'), {}, envWithDb(db));
     expect(res.status).toBe(302);
     expect(res.headers.get('Location')).toBe('/translate/arxiv.org%2Fhtml%2F2501.00000');
+  });
+
+  it('serves newer healthy cache for same URL when requested id is unhealthy', async () => {
+    const db = createMockDb();
+    // id=44 是旧的损坏缓存（base 在相对 CSS 之后）
+    db._rows.push({
+      id: 44,
+      url: 'https://arxiv.org/html/2501.00000',
+      source_lang: 'en',
+      target_lang: 'zh',
+      title: 'Old',
+      html: '<html><head><link href="/static/browse/style.css" rel="stylesheet"><base href="https://arxiv.org/html/"></head><body>old<span class="fanyi-translation">旧</span></body></html>',
+      created_at: '2026-07-01T00:00:00Z',
+    });
+    // id=45 是同一 URL 的新健康缓存
+    db._rows.push({
+      id: 45,
+      url: 'https://arxiv.org/html/2501.00000',
+      source_lang: 'en',
+      target_lang: 'zh',
+      title: 'New',
+      html: '<html><head><base href="https://arxiv.org/html/"><link href="/static/browse/style.css" rel="stylesheet"></head><body>new<span class="fanyi-translation">新</span></body></html>',
+      created_at: '2026-07-27T00:00:00Z',
+    });
+
+    const app = buildApp();
+    const res = await app.request(req('/article/44'), {}, envWithDb(db));
+    expect(res.status).toBe(200);
+    const html = await res.text();
+    expect(html).toContain('新');
   });
 
   it('returns 404 when translation id does not exist', async () => {
