@@ -41,6 +41,28 @@ function logCost(label: string, startMs: number): void {
   console.log(`[PERF] ${label} ${Math.round((performance.now() - startMs) * 1000)}µs`);
 }
 
+/**
+ * 防御：data-fanyi-remove 是抽取/清理阶段的运行时标记，不应出现在对外输出的 HTML 中。
+ * 尤其不能留在 <main> 的祖先（例如 Drupal 的 dialog-off-canvas-main-canvas）上——
+ * 否则输出 HTML 自带的 [data-fanyi-remove]{display:none} CSS 会把整页容器隐藏，导致白屏。
+ * 这里只剥离"正文根祖先"上的标记；真正的浮层/广告（与正文平级）仍保留隐藏，保持干净的译文视图。
+ */
+function stripRemoveMarkersFromAncestors(doc: Document): void {
+  const main = doc.querySelector('main, article, [role="main"]');
+  if (!main) return;
+  const ancestors = new Set<Element>();
+  let p: Element | null = main.parentElement;
+  while (p) {
+    ancestors.add(p);
+    p = p.parentElement;
+  }
+  for (const el of Array.from(doc.querySelectorAll('[data-fanyi-remove="true"]'))) {
+    if (ancestors.has(el)) {
+      el.removeAttribute('data-fanyi-remove');
+    }
+  }
+}
+
 // =============================================================================
 // 内部：chunk → translation
 // =============================================================================
@@ -467,6 +489,10 @@ async function runTranslationPipeline(
     ].join('\n');
     head.appendChild(style);
   }
+
+  // 防御：剥离正文根祖先上的 data-fanyi-remove（见 stripRemoveMarkersFromAncestors）。
+  // 否则对外输出的 HTML 自带 [data-fanyi-remove]{display:none} CSS，会隐藏整页容器 → 白屏。
+  stripRemoveMarkersFromAncestors(doc);
 
   const html = '<!doctype html>\n' + doc.documentElement.outerHTML;
 
