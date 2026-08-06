@@ -23,6 +23,7 @@ vi.mock('../lib/translate/glossaryStore', () => ({
 import { createApp } from '../lib/app';
 import { MapStorage, setDefaultStorage } from '../lib/storage';
 import { cacheKeyUrl } from '../lib/urlUtils';
+import { simpleHash } from '../lib/translate/cacheKey';
 
 function mockClearAll(...mocks: any[]) {
   for (const m of mocks) m.mockClear();
@@ -479,6 +480,7 @@ describe('GET /fanyi/page/check', () => {
       target_lang: 'zh',
       // 健康缓存：保留原页面内联样式
       html: '<html><head><style>.original { color: black; }</style></head><body>cached translation<span class="fanyi-translation">译文</span></body></html>',
+      content_hash: 'cached-content-hash-1',
       created_at: new Date().toISOString(),
     });
 
@@ -492,6 +494,32 @@ describe('GET /fanyi/page/check', () => {
     expect(res.headers.get('X-Translate-Source')).toBe('d1-cache');
     const html = await res.text();
     expect(html).toContain('cached translation');
+  });
+
+  it('treats cache with empty content_hash as miss (cross-path pollution guard)', async () => {
+    // /translate/url-page 等路径存的缓存 content_hash 为空串，其 block ID 由服务端自行分配，
+    // 与扩展端 walker 编号体系不同。/fanyi/page 路径下空 content_hash 必须视为未命中（返回 204），
+    // 否则扩展端按自己的 b1/b2 去查服务端缓存 → 译文错位到错误 DOM 元素。
+    const app = buildApp();
+    const db = createMockDb();
+    db._rows.push({
+      id: 1,
+      url: cacheKeyUrl('https://example.com/article'),
+      title: 'Test',
+      source_lang: 'en',
+      target_lang: 'zh',
+      html: '<html><head><style>.original { color: black; }</style></head><body>cached translation<span class="fanyi-translation">译文</span></body></html>',
+      content_hash: '',
+      created_at: new Date().toISOString(),
+    });
+
+    const res = await app.request(
+      req('/fanyi/page/check?url=https://example.com/article&source=en&target=zh'),
+      {},
+      envWithDb(db),
+    );
+
+    expect(res.status).toBe(204);
   });
 
   it('returns 204 when cache miss', async () => {
@@ -728,6 +756,8 @@ describe('POST /fanyi/page', () => {
       target_lang: 'zh',
       // 健康缓存需保留原页面样式
       html: '<html><head><link rel="stylesheet" href="/style.css"></head><body>cached from d1<span class="fanyi-translation">译文</span></body></html>',
+      // content_hash 必须等于提交 html 的 simpleHash 才能命中（与线上修复一致）
+      content_hash: String(simpleHash('<html><body>new</body></html>')),
       created_at: new Date().toISOString(),
     });
 
@@ -752,6 +782,41 @@ describe('POST /fanyi/page', () => {
     expect(html).toContain('cached from d1');
     expect(html).toContain('__vsRedirectGuard');
     expect(translateHtml).not.toHaveBeenCalled();
+  });
+
+  it('re-translates when cached content_hash is empty (cross-path pollution guard)', async () => {
+    // 空 content_hash 的缓存（来自 /translate/url-page 等非预标记路径）block ID 与扩展端不兼容，
+    // /fanyi/page 必须视为未命中并重新翻译，而非直接返回导致译文错位。
+    const { translateHtml } = await import('../lib/translate/pipeline');
+    const db = createMockDb();
+    db._rows.push({
+      id: 1,
+      url: 'https://example.com',
+      title: 'Cached',
+      source_lang: 'en',
+      target_lang: 'zh',
+      html: '<html><head><link rel="stylesheet" href="/style.css"></head><body>cached from d1<span class="fanyi-translation">译文</span></body></html>',
+      content_hash: '',
+      created_at: new Date().toISOString(),
+    });
+
+    const app = buildApp();
+    const res = await app.request(
+      req('/fanyi/page', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          html: '<html><body>new</body></html>',
+          url: 'https://example.com',
+          apiKey: 'sk-test-api-key',
+        }),
+      }),
+      {},
+      envWithDb(db),
+    );
+    expect(res.status).toBe(200);
+    expect(res.headers.get('X-Translate-Source')).not.toBe('d1-cache');
+    expect(translateHtml).toHaveBeenCalled();
   });
 
   it('saves translation result to D1 when cache miss', async () => {

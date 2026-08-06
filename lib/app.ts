@@ -23,6 +23,7 @@ import {
 } from './translate/glossaryStore';
 import { setDefaultStorage, type StorageAdapter } from './storage';
 import { requireAuth } from './auth';
+import { extractClientInfo, formatClientLabel } from './clientInfo';
 import { normalizeUrl, cacheKeyUrl, assertPublicUrl } from './urlUtils';
 import { injectRedirectGuard } from './redirectGuard';
 import { stripDangerousScripts, stripNavigationScripts } from './spaGuard';
@@ -483,6 +484,9 @@ ${pager}
       return c.json({ error: 'url is required' }, 400);
     }
 
+    // 单次翻译会话标识（扩展端 check→page 共享），用于关联整条链路日志。
+    const sid = c.req.header('x-session-id') || '-';
+
     const source = c.req.query('source') || 'en';
     const target = c.req.query('target') || 'zh';
     // 可选：客户端传来的内容哈希，用于检测页面内容是否已更新
@@ -505,17 +509,23 @@ ${pager}
           .first();
         if (existing && isHealthyCachedHtml(existing.html)) {
           // 命中但客户端传了 contentHash 且缓存有有效 content_hash 且不匹配 → 410（内容已变，客户端应重新 POST）
+          // 注意：/fanyi/page 接收扩展端预标记 HTML，block ID 由扩展端 walker 分配。
+          // /translate/url-page（浏览器直访）存的缓存 content_hash 为空串，其 block ID 是服务端
+          // 自行分配的，与扩展端 walker 的编号体系不同。若把这种缓存当命中返回，
+          // 扩展端按自己的 b1/b2/... 去查服务端缓存的 b1/b2/... → 译文错位到错误的 DOM 元素。
+          // 因此：空 content_hash 在 /fanyi/page 路径下必须视为未命中（强制走完整 pipeline）。
+          const hashValid = existing.content_hash && existing.content_hash !== '';
           if (
             clientContentHash &&
-            existing.content_hash &&
-            existing.content_hash !== '' &&
+            hashValid &&
             clientContentHash !== existing.content_hash
           ) {
-            console.log(`[fanyi/page/check] D1 cache stale for ${url} (content_hash mismatch)`);
+            console.log(`[fanyi/page/check] D1 cache stale for ${url} (content_hash mismatch) sid=${sid}`);
             return new Response(null, { status: 410 });
           }
-          console.log(`[fanyi/page/check] D1 cache hit for ${url}`);
-          return new Response(processTranslationHtml(existing.html), {
+          if (hashValid) {
+            console.log(`[fanyi/page/check] D1 cache hit for ${url} sid=${sid}`);
+            return new Response(processTranslationHtml(existing.html), {
             status: 200,
             headers: {
               'Content-Type': 'text/html; charset=utf-8',
@@ -523,9 +533,12 @@ ${pager}
               'X-Translate-Source': 'd1-cache',
             },
           });
+          }
+          // hashValid=false（content_hash 为空/NULL）：来自 /translate/url-page 等非预标记路径的缓存，
+          // block ID 编号体系与扩展端 walker 不同，不能当命中返回。视为未命中，走 204 让扩展端 POST。
         }
         if (existing) {
-          console.warn(`[fanyi/page/check] D1 cache for ${url} is unhealthy, treating as miss`);
+          console.warn(`[fanyi/page/check] D1 cache for ${url} is unhealthy, treating as miss sid=${sid}`);
         }
       } catch (e) {
         console.error('[D1] lookup error:', e);
@@ -546,6 +559,17 @@ ${pager}
   app.post('/fanyi/page', async (c) => {
     const body = await c.req.json().catch(() => ({} as any));
     const { html, url } = body;
+
+    // 客户端浏览器信息：优先用扩展端带来的精确 client 对象，缺失时由 UA header 推导。
+    // 用于错误日志定位「某浏览器失败」类问题（如 Firefox Android vs Chrome）。
+    const clientInfo = extractClientInfo({
+      client: body.client,
+      userAgentHeader: c.req.header('user-agent'),
+    });
+    const clientLabel = formatClientLabel(clientInfo);
+    // 单次翻译会话标识（扩展端 check→page 共享），用于关联整条链路日志。
+    const sid = c.req.header('x-session-id') || body.sessionId || '-';
+
     if (!html || typeof html !== 'string' || html.length === 0) {
       return c.json({ error: 'html is required' }, 400);
     }
@@ -579,7 +603,7 @@ ${pager}
     const sourceStored = source && VALID_LANG_RE.test(source) ? source : 'en';
     const targetStored = VALID_LANG_RE.test(target) ? target : 'zh';
 
-    console.log(`[fanyi/page] url=${url} src=${sourceStored} tgt=${targetStored} mode=${mode} provider=${provider} html=${html.length} bytes`);
+    console.log(`[fanyi/page] url=${url} src=${sourceStored} tgt=${targetStored} mode=${mode} provider=${provider} html=${html.length} bytes client=${clientLabel} sid=${sid}`);
 
     // ── D1 缓存：同 URL+source+target 已存在且 content_hash 匹配则直接返回 ──
     // 计算 contentHash：用于检测页面内容是否已更新（同一 URL 内容变了应重新翻译）
@@ -592,9 +616,16 @@ ${pager}
           'SELECT html, content_hash FROM translations WHERE url = ? AND source_lang = ? AND target_lang = ? ORDER BY created_at DESC LIMIT 1'
         ).bind(cacheKey, sourceStored, targetStored).first();
         if (existing && isHealthyCachedHtml(existing.html)) {
-          // 缓存命中：content_hash 为空（旧记录/URL 翻译）或匹配时返回缓存；不匹配则跳过重新翻译
-          if (!existing.content_hash || existing.content_hash === '' || existing.content_hash === contentHash) {
-            console.log(`[fanyi/page] D1 cache hit for ${url}`);
+          // /fanyi/page 接收扩展端预标记 HTML，block ID 由扩展端 walker 分配。
+          // /translate/url-page 等路径存的缓存 content_hash 为空串，其 block ID 是服务端
+          // 自行分配的，与扩展端 walker 编号体系不同。空 content_hash 必须视为未命中，
+          // 否则扩展端按自己的 b1/b2 查服务端缓存的 b1/b2 → 译文错位。
+          const hashValid = existing.content_hash && existing.content_hash !== '';
+          if (hashValid && existing.content_hash !== contentHash) {
+            console.log(`[fanyi/page] D1 cache stale for ${url} (content_hash mismatch), re-translating sid=${sid}`);
+            // fall through to translate
+          } else if (hashValid) {
+            console.log(`[fanyi/page] D1 cache hit for ${url} sid=${sid}`);
             return new Response(processTranslationHtml(existing.html), {
               status: 200,
               headers: {
@@ -604,8 +635,10 @@ ${pager}
               },
             });
           }
-          console.log(`[fanyi/page] D1 cache stale for ${url} (content_hash mismatch), re-translating`);
-        } else if (existing) {
+          // hashValid=false（content_hash 空/NULL）：非预标记路径的旧缓存，block ID 与扩展端不兼容，
+          // 视为未命中，fall through 走完整 pipeline。
+        }
+        else if (existing) {
           console.warn(`[fanyi/page] D1 cache for ${url} is unhealthy, treating as miss`);
         }
       } catch (e) {
@@ -673,8 +706,8 @@ ${pager}
         },
       });
     } catch (err) {
-      console.error('[fanyi/page] error:', err);
-      return c.json({ error: (err as Error).message }, 500);
+      console.error(`[fanyi/page] error: ${(err as Error).message} | client=${clientLabel} sid=${sid}`);
+      return c.json({ error: (err as Error).message, client: clientInfo, sessionId: sid }, 500);
     }
   });
 
