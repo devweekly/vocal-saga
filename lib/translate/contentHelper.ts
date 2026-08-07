@@ -610,6 +610,52 @@ function unwrapAllTablesInPlace(container: Element): void {
   }
 }
 
+/**
+ * Header Expansion（纯函数，便于单元测试）。
+ *
+ * 部分 CMS（如 MIT Sloan）的 DOM 布局为：
+ *   <article>
+ *     <header class="article_header">   ← h1 标题 + "What you'll learn" 摘要框在这里
+ *       <h1>...</h1>
+ *     </header>
+ *     <div class="article--body">       ← 被 content detector 选为 article root（含 h2 但无 h1）
+ *       <p>正文段落...</p>
+ *     </div>
+ *   </article>
+ *
+ * 当选中的 root 不含 h1（文章主标题）时，检查其前面的兄弟元素是否有含标题的
+ * <header> 或类似容器。若有，把 root 上溯到共同父容器（通常是 <article>），
+ * 确保标题区域被纳入 walker 遍历范围，避免标题和摘要框漏翻。
+ *
+ * 返回 { root, expanded }：expanded=true 表示发生了上溯。
+ * 注意：h1 在「兄弟 header」里（不是 root 的祖先），chooseBestRoot 向上找 h1 找不到，
+ * 只能靠本函数向前找兄弟 header 来解决。
+ */
+export function expandRootForHeader(
+  effectiveRoot: Element,
+): { root: Element; expanded: boolean } {
+  if (effectiveRoot.querySelector('h1')) {
+    return { root: effectiveRoot, expanded: false };
+  }
+  const parent = effectiveRoot.parentElement;
+  if (!parent) return { root: effectiveRoot, expanded: false };
+  let prev = effectiveRoot.previousElementSibling;
+  while (prev) {
+    const prevTag = prev.tagName.toLowerCase();
+    const prevClass = prev.getAttribute('class') || '';
+    const isHeaderLike =
+      prevTag === 'header' ||
+      /article[_-]?header|post[_-]?header|entry[_-]?header|page[_-]?title|hero/i.test(
+        prevClass,
+      );
+    if (isHeaderLike && prev.querySelector('h1, h2, h3, h4, h5, h6')) {
+      return { root: parent, expanded: true };
+    }
+    prev = prev.previousElementSibling;
+  }
+  return { root: effectiveRoot, expanded: false };
+}
+
 export function prepareDocument(
   root: Document | Element,
   pageUrl: string
@@ -637,6 +683,8 @@ export function prepareDocument(
   // 优先使用文章容器，减少 TreeWalker 遍历范围
   const rootResult = isDoc ? findArticleRoot(root as Document, pageUrl, articleContext) : { root: root as Element, strategy: 'selector' };
   let effectiveRoot: Element = rootResult.root;
+  let strategy = rootResult.strategy;   // 提前声明，供 Header Expansion 使用
+  let rootSelector = `<${effectiveRoot.tagName.toLowerCase()}>.${(effectiveRoot.className || '').toString().split(/\s+/)[0] || ''}`;  // 同上
 
   // 如果 content detector 选中的根是 <table>，需要把表格内容展平。
   // walker 默认拒绝所有表格元素，否则以 table 为 root 会一块都抓不到。
@@ -644,9 +692,24 @@ export function prepareDocument(
     effectiveRoot = unwrapTableRoot(effectiveRoot);
   }
 
+  // ── Header Expansion ──────────────────────────────────────────
+  // 部分 CMS（如 MIT Sloan）的 DOM 布局中，h1 标题在「兄弟 <header>」里而非
+  // 选中的 root 内部（详见 expandRootForHeader 注释）。调用纯函数上溯 root。
+  {
+    const expanded = expandRootForHeader(effectiveRoot);
+    if (expanded.expanded) {
+      const parent = expanded.root;
+      effectiveRoot = parent;
+      strategy = `${strategy}-header-expand`;
+      rootSelector = `<${parent.tagName.toLowerCase()}>.${(parent.className || '').toString().split(/\s+/)[0] || ''}`;
+      console.log(
+        `[ContentHelper] Header expansion: root expanded to <${parent.tagName.toLowerCase()}> (included preceding header with headings)`
+      );
+    }
+  }
+
   let blocks = extractBlocks(effectiveRoot, pageUrl, articleContext);
-  let strategy = rootResult.strategy;
-  let rootSelector = `<${effectiveRoot.tagName.toLowerCase()}>.${(effectiveRoot.className || '').toString().split(/\s+/)[0] || ''}`;
+  // strategy 和 rootSelector 已在 Header Expansion 前声明
 
   // 合并 walker 产生的 inline 碎片（如 X/Twitter 的 <span>text<a>@user</a>text</span>）。
   // 传入 doc 以便同步合并 DOM，避免回填后原文被拆碎。

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { prepareDocument, extractFromDataIsland } from '../lib/translate/contentHelper';
+import { prepareDocument, extractFromDataIsland, expandRootForHeader } from '../lib/translate/contentHelper';
 
 function setupHTML(html: string): Document {
   document.body.innerHTML = html;
@@ -468,6 +468,194 @@ describe('prepareDocument', () => {
     // 正文应该被提取
     expect(fullText).toContain('parsing companion');
     expect(fullText).toContain('PyMuPDF (fitz)');
+  });
+
+  it('expands to sibling <header> when root lacks h1 (mitsloan.mit.edu real structure)', () => {
+    // MIT Sloan 真实 DOM：
+    //   <article>
+    //     <header class="article_header">   ← h1 标题 + "What you'll learn" 摘要框在这里
+    //       <h1>...</h1>
+    //       <h2>What you'll learn</h2>
+    //       <ul><li>...</li></ul>
+    //     </header>
+    //     <div class="article--body">       ← 被 content detector 选为 article root（含 h2 但无 h1）
+    //       <p>正文...</p>
+    //       <h2>How the study was conducted</h2>
+    //     </div>
+    //   </article>
+    // h1 在「兄弟 <header>」里（不是 .article--body 的祖先），chooseBestRoot 向上找 h1 找不到，
+    // 只能靠 Header Expansion（向前找含标题的兄弟 header）把 root 上溯到 <article>。
+    // 修复前：.article--body 被选为 root，header 不在其内 → 标题与摘要框漏翻。
+    document.body.innerHTML = `
+      <article class="article">
+        <header class="article_header">
+          <h1>AI financial advice is surprisingly good — especially if you ask the right questions</h1>
+          <div class="article_subheading">New research from MIT Sloan examines when AI outperforms human advisors.</div>
+          <div class="article_learn">
+            <h2>What you'll learn</h2>
+            <ul>
+              <li>Why AI advice beats humans in some studies</li>
+              <li>How to phrase questions for better answers</li>
+              <li>When to verify AI recommendations</li>
+            </ul>
+          </div>
+        </header>
+        <div class="article--body">
+          <p>People are increasingly turning to AI for financial guidance.</p>
+          <p>A new study from MIT Sloan finds the quality of advice depends heavily on the question.</p>
+          <h2>How the study was conducted</h2>
+          <p>Researchers recruited participants to compare AI and human recommendations.</p>
+        </div>
+      </article>
+    `;
+
+    const { blocks, fullText } = prepareDocument(document, "https://mitsloan.mit.edu/ideas-made-to-matter/ai-financial-advice");
+
+    // 主标题（在兄弟 header 里）必须进入翻译
+    const h1Block = blocks.find(b => b.tag === 'h1' && b.text.includes('AI financial advice'));
+    expect(h1Block).toBeDefined();
+    expect(h1Block!.text).toContain('surprisingly good');
+
+    // "What you'll learn" 摘要框必须进入翻译
+    const wylearnHeading = blocks.find(b => b.tag === 'h2' && b.text.includes("What you'll learn"));
+    expect(wylearnHeading).toBeDefined();
+    const wylearnItem = blocks.find(b => b.text.includes('Why AI advice beats humans'));
+    expect(wylearnItem).toBeDefined();
+
+    // 正文段落必须进入翻译
+    expect(fullText).toContain('People are increasingly turning to AI');
+    expect(fullText).toContain('How the study was conducted');
+  });
+
+  it('does NOT expand when root lacks h1 but has no preceding header sibling with headings', () => {
+    // 反例：选中的 root 无 h1，但前面的兄弟是导航/侧栏（无标题元素），
+    // Header Expansion 不应触发，避免把无关内容（nav/aside）一并纳入。
+    document.body.innerHTML = `
+      <article class="article">
+        <nav class="article_toc">
+          <a href="#sec1">Section one</a>
+          <a href="#sec2">Section two</a>
+        </nav>
+        <div class="article--body">
+          <p>Body paragraph without an h1 anywhere in this subtree.</p>
+          <p>Another paragraph that should still be extracted.</p>
+          <h2>A subsection heading lives inside the body</h2>
+          <p>More body content.</p>
+        </div>
+      </article>
+    `;
+
+    const { fullText } = prepareDocument(document, "https://example.com/no-header-expand");
+
+    // 正文照常提取
+    expect(fullText).toContain('Body paragraph without an h1');
+    expect(fullText).toContain('A subsection heading lives inside the body');
+    // 前置 nav 的链接文案不应被当作正文块纳入（walker 的 SKIP_SET 过滤 nav）
+    expect(fullText).not.toContain('Section one');
+  });
+});
+
+// =============================================================================
+// expandRootForHeader（Header Expansion 纯函数）
+// 直接对选中的 root 元素做确定性单元测试，绕过 selectBestRoot，
+// 确保 jsdom 与 linkedom 的 content-detector 评分差异不会影响分支覆盖。
+// =============================================================================
+describe('expandRootForHeader', () => {
+  beforeEach(() => {
+    document.body.innerHTML = '';
+  });
+
+  it('expands to parent when root lacks h1 but preceding <header> has h1 (mitsloan)', () => {
+    document.body.innerHTML = `
+      <article class="article">
+        <header class="article_header">
+          <h1>AI financial advice is surprisingly good</h1>
+          <h2>What you'll learn</h2>
+        </header>
+        <div class="article--body">
+          <p>Body paragraph.</p>
+          <h2>How the study was conducted</h2>
+        </div>
+      </article>
+    `;
+    const body = document.querySelector('.article--body') as Element;
+    expect(body.querySelector('h1')).toBeNull(); // 前置条件：root 不含 h1
+
+    const { root, expanded } = expandRootForHeader(body);
+
+    expect(expanded).toBe(true);
+    // root 上溯到共同父 <article>
+    expect(root.tagName.toLowerCase()).toBe('article');
+    // 上溯后的 root 现在包含 h1（标题被纳入遍历范围）
+    expect(root.querySelector('h1')).not.toBeNull();
+  });
+
+  it('expands for header-like class even without <header> tag', () => {
+    document.body.innerHTML = `
+      <article class="article">
+        <div class="article_header">
+          <h1>Some Title</h1>
+        </div>
+        <div class="article--body">
+          <p>Body without h1.</p>
+        </div>
+      </article>
+    `;
+    const body = document.querySelector('.article--body') as Element;
+
+    const { root, expanded } = expandRootForHeader(body);
+
+    expect(expanded).toBe(true);
+    expect(root.tagName.toLowerCase()).toBe('article');
+  });
+
+  it('does NOT expand when root already contains h1', () => {
+    document.body.innerHTML = `
+      <article class="article">
+        <header><h1>Title</h1></header>
+        <div class="article--body">
+          <h1>Body also has an h1</h1>
+          <p>Content.</p>
+        </div>
+      </article>
+    `;
+    const body = document.querySelector('.article--body') as Element;
+    expect(body.querySelector('h1')).not.toBeNull();
+
+    const { root, expanded } = expandRootForHeader(body);
+
+    expect(expanded).toBe(false);
+    expect(root).toBe(body); // 原样返回，不修改
+  });
+
+  it('does NOT expand when preceding sibling lacks headings (e.g. nav)', () => {
+    document.body.innerHTML = `
+      <article class="article">
+        <nav class="article_toc">
+          <a href="#s1">Section one</a>
+        </nav>
+        <div class="article--body">
+          <p>Body without h1, sibling is nav.</p>
+          <h2>Subsection inside body</h2>
+        </div>
+      </article>
+    `;
+    const body = document.querySelector('.article--body') as Element;
+
+    const { root, expanded } = expandRootForHeader(body);
+
+    expect(expanded).toBe(false);
+    expect(root).toBe(body);
+  });
+
+  it('does NOT expand when root has no parent', () => {
+    const detached = document.createElement('div');
+    detached.innerHTML = '<p>no parent, no h1</p>';
+
+    const { root, expanded } = expandRootForHeader(detached);
+
+    expect(expanded).toBe(false);
+    expect(root).toBe(detached);
   });
 });
 
