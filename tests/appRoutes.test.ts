@@ -1170,3 +1170,52 @@ describe('GET /article/:id', () => {
     expect(res.status).toBe(404);
   });
 });
+
+// =============================================================================
+// injectTranslationCss — 确保翻译 CSS 被正确注入到各种 HTML 结构中
+// =============================================================================
+import { injectTranslationCss, TRANSLATION_CSS } from '../lib/app';
+
+describe('injectTranslationCss', () => {
+  it('injects before </head>', () => {
+    const html = '<html><head><title>Test</title></head><body>Hi</body></html>';
+    const result = injectTranslationCss(html);
+    expect(result).toContain('<style data-fanyi-css>');
+    expect(result).toContain(TRANSLATION_CSS);
+    expect(result.indexOf('<style data-fanyi-css>')).toBeLessThan(result.indexOf('</head>'));
+  });
+
+  it('injects inside <head> when no closing tag', () => {
+    const html = '<html><head><title>Test</title><body>Hi</body></html>';
+    const result = injectTranslationCss(html);
+    expect(result).toContain('<style data-fanyi-css>');
+    // style should be right after <head>
+    expect(result.match(/<head>(<style[^>]*>)/)?.[1]).toBeDefined();
+  });
+
+  it('injects after <body> when no head at all', () => {
+    const html = '<html><body><p>Hi</p></body></html>';
+    const result = injectTranslationCss(html);
+    expect(result).toContain('<style data-fanyi-css>');
+    expect(result.indexOf('<style data-fanyi-css>')).toBeGreaterThan(result.indexOf('<body'));
+  });
+
+  it('injects after <html> as fallback', () => {
+    const html = '<html><p>Minimal</p></html>';
+    const result = injectTranslationCss(html);
+    expect(result).toContain('<style data-fanyi-css>');
+    expect(result.indexOf('<style data-fanyi-css>')).toBeGreaterThan(result.indexOf('<html'));
+  });
+
+  it('prefixes completely empty/broken HTML', () => {
+    const result = injectTranslationCss('<p>Just a fragment</p>');
+    expect(result).toContain('<style data-fanyi-css>');
+    expect(result.startsWith('<style')).toBe(true);
+  });
+
+  it('contains critical !important rules for .fanyi-translation', () => {
+    expect(TRANSLATION_CSS).toContain('display:block!important');
+    expect(TRANSLATION_CSS).toContain('order:1!important');
+    expect(TRANSLATION_CSS).toContain('position:static!important');
+  });
+});

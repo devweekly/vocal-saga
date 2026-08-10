@@ -1,5 +1,6 @@
 import { translationCache } from './cacheManager';
 import { cleanJsonString, repairJson } from './service/shared';
+import { validateBlockMapping } from './mappingValidator';
 
 export async function getCachedTranslation(cacheKey: string): Promise<Map<string, string> | null> {
   const raw = await translationCache.get<Record<string, string>>(cacheKey);
@@ -163,6 +164,7 @@ export function processTranslationWithCheck(
   const seenIds = new Set<string>();
   let unchanged = 0;
   let extraIds = 0;
+  let mappingSuspect = 0;
 
   for (const item of translations) {
     if (typeof item?.id !== 'string') continue;
@@ -194,6 +196,30 @@ export function processTranslationWithCheck(
           original.substring(0, 80)
         );
       }
+
+      // 映射校验：原文/译文信息量严重不匹配 → 提示 block id 可能错配
+      const verdict = validateBlockMapping(original, translated);
+      if (verdict.suspect) {
+        mappingSuspect++;
+        console.warn(
+          '[TranslateApi] Block',
+          item.id,
+          'suspect mapping:',
+          verdict.reasons.join('; '),
+          '| origChars',
+          verdict.origChars,
+          'transChars',
+          verdict.transChars,
+          '| origSent',
+          verdict.origSentences,
+          'transSent',
+          verdict.transSentences,
+          '| orig=',
+          original.substring(0, 50),
+          '| trans=',
+          translated.substring(0, 50)
+        );
+      }
     }
   }
 
@@ -223,6 +249,15 @@ export function processTranslationWithCheck(
         '/',
         translations.length,
         'blocks returned unchanged'
+      );
+    }
+    if (mappingSuspect > 0) {
+      console.warn(
+        '[TranslateApi]',
+        mappingSuspect,
+        '/',
+        translations.length,
+        'blocks have suspect mapping (length/sentence mismatch) — possible block-id misalignment'
       );
     }
   }

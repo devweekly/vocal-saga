@@ -1,4 +1,35 @@
 /**
+ * 注入翻译显示所需的 CSS 到 HTML <head> 中。
+ * /force/ 和 /translate/ 路径返回的翻译 HTML 包含 .fanyi-original / .fanyi-translation
+ * 等 span 元素，但没有扩展端的 <style> 注入，必须由服务端补上。
+ */
+export const TRANSLATION_CSS = [
+  '.fanyi-original{display:block!important;position:static!important;float:none!important;',
+  'clear:both!important;margin:0!important;padding:0!important;max-width:100%!important;',
+  'box-sizing:border-box!important;order:0!important}',
+  '.fanyi-translation{display:block!important;position:static!important;float:none!important;',
+  'clear:both!important;margin:0!important;padding:0!important;max-width:100%!important;',
+  'box-sizing:border-box!important;order:1!important;margin-top:.3em!important}',
+].join('');
+
+export function injectTranslationCss(html: string): string {
+  const styleTag = `<style data-fanyi-css>${TRANSLATION_CSS}</style>`;
+  if (html.includes('</head>')) {
+    return html.replace('</head>', `${styleTag}</head>`);
+  }
+  if (html.includes('<head>')) {
+    return html.replace('<head>', `<head>${styleTag}`);
+  }
+  if (html.includes('<body')) {
+    return html.replace(/(<body[^>]*>)/, `$1${styleTag}`);
+  }
+  if (html.includes('<html')) {
+    return html.replace(/(<html[^>]*>)/, `$1${styleTag}`);
+  }
+  return styleTag + html;
+}
+
+/**
  * 平台无关的 Hono 应用工厂。
  *
  * 入口（Netlify Functions / Cloudflare Pages）在启动时构造一个 StorageAdapter
@@ -169,9 +200,9 @@ export function createApp(env?: Record<string, unknown>, storage?: StorageAdapte
   const app = new Hono();
   app.use('*', cors());
 
-  // 翻译 HTML 处理 pipeline：导航清理 → 去虚拟化 → 注入守卫
+  // 翻译 HTML 处理 pipeline：导航清理 → 去虚拟化 → 注入 CSS → 注入守卫
   const processTranslationHtml = (html: string) =>
-    injectRedirectGuard(devirtualizeLayout(stripDangerousScripts(html)));
+    injectRedirectGuard(injectTranslationCss(devirtualizeLayout(stripDangerousScripts(html))));
 
   // 原始 HTML 处理 pipeline：仅导航清理 → 注入守卫
   const processOriginalHtml = (html: string) =>

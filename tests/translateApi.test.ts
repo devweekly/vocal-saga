@@ -539,6 +539,68 @@ describe('processTranslationWithCheck', () => {
     warn.mockRestore();
   });
 
+  it('warns on suspect mapping (short title got long paragraph — block-id misalignment)', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    // 模拟 mitsloan 故障：标题（短）拿到了正文段落（长）的译文
+    const json = JSON.stringify({
+      translations: [
+        {
+          id: 'b3',
+          translated_text:
+            '人们越来越多地转向人工智能寻求财务建议。最近的一项研究发现，当被正确引导时，人工智能给出的建议质量出奇地高。研究还表明，提问的方式会显著影响回答的质量。',
+        },
+      ],
+    });
+    const original = [
+      {
+        id: 'b3',
+        text: 'AI financial advice is surprisingly good especially if you ask the right questions',
+      },
+    ];
+    processTranslationWithCheck(json, original);
+    const allArgs = warn.mock.calls.flat().map(String).join(' | ');
+    expect(allArgs).toMatch(/suspect mapping/);
+    expect(allArgs).toContain('b3');
+    warn.mockRestore();
+  });
+
+  it('does NOT flag a normal short title → short translation', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const json = JSON.stringify({
+      translations: [{ id: 'b3', translated_text: '人工智能理财建议出奇地好' }],
+    });
+    const original = [
+      { id: 'b3', text: 'AI financial advice is surprisingly good' },
+    ];
+    processTranslationWithCheck(json, original);
+    const allArgs = warn.mock.calls.flat().map(String).join(' | ');
+    expect(allArgs).not.toMatch(/suspect mapping/);
+    warn.mockRestore();
+  });
+
+  it('does NOT flag a normal body paragraph → body translation', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const json = JSON.stringify({
+      translations: [
+        {
+          id: 'b10',
+          translated_text:
+            '人们越来越多地转向人工智能寻求财务建议。研究发现提问方式会显著影响回答质量。',
+        },
+      ],
+    });
+    const original = [
+      {
+        id: 'b10',
+        text: 'People are increasingly turning to AI for financial advice. A study found that the way questions are asked significantly affects answer quality.',
+      },
+    ];
+    processTranslationWithCheck(json, original);
+    const allArgs = warn.mock.calls.flat().map(String).join(' | ');
+    expect(allArgs).not.toMatch(/suspect mapping/);
+    warn.mockRestore();
+  });
+
   it('accepts text field as fallback', () => {
     const json = JSON.stringify({
       translations: [
