@@ -230,3 +230,42 @@ export function cleanJsonString(str: string): string {
     // 2. 修复 LLM 偶发 " "propName": 重复引号模式（去掉前一个多余的引号和空白）
     .replace(/([,{}]\s*)"(\s+)"([a-zA-Z_][a-zA-Z0-9_]*)"\s*:/g, '$1"$3":');
 }
+
+/**
+ * 从可能混有前后散文的 LLM 输出中，抽取最外层的 JSON 对象或数组。
+ *
+ * 动机：jsonrepair 对"前后夹带了说明文字"的输入容错较差，容易抛
+ * "Colon expected" 之类错误。多数坏 JSON 失败的实际结构是——
+ *   模型在 JSON 前后加了 "Here is the translation:" / 结尾总结，
+ *   或 max_tokens 截断了尾巴（缺最后的 `}`/`]`）。
+ * 先定位首个 `{`/`[` 与最后一个匹配的 `}`/`]`，把这段纯净容器交给
+ * jsonrepair，修复成功率显著高于直接对整个字符串 repair。
+ *
+ * 纯 JSON 输入（首个即 `{`/`[`，末尾即 `}`/`]`）会原样返回，无副作用。
+ * 找不到任何 JSON 括号时回退为原串（让下游 JSON.parse 报原错）。
+ */
+export function extractJsonContainer(str: string): string {
+  const s = str.trim();
+  if (!s) return str;
+
+  const firstObj = s.indexOf('{');
+  const firstArr = s.indexOf('[');
+  // 没有 JSON 括号：直接回退
+  if (firstObj === -1 && firstArr === -1) return str;
+
+  let start: number;
+  let close: string;
+  if (firstArr === -1 || (firstObj !== -1 && firstObj < firstArr)) {
+    start = firstObj;
+    close = '}';
+  } else {
+    start = firstArr;
+    close = ']';
+  }
+
+  const lastClose = s.lastIndexOf(close);
+  // 找不到闭合括号，或闭合在开头之前（异常）：回退
+  if (lastClose <= start) return str;
+
+  return s.slice(start, lastClose + 1);
+}

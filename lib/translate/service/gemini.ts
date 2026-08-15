@@ -52,8 +52,16 @@ function cleanResponse(content: string): string {
     try {
       JSON.parse(cleaned);
     } catch {
-      // LLM 输出可能因 max_tokens 被截断，尝试修复未闭合的 JSON
-      cleaned = repairJson(cleaned);
+      // LLM 输出可能因 max_tokens 被截断，尝试修复未闭合的 JSON。
+      // repairJson 仍可能失败（如结构彻底损坏）——此时不抛错，
+      // 返回 best-effort 字符串，交由 processTranslationWithCheck 做最终容错
+      // （extractJsonContainer + 空 Map 降级），避免 gemini.translate 直接抛错
+      // 拖垮整页翻译。
+      try {
+        cleaned = repairJson(cleaned);
+      } catch (e) {
+        console.error('[Gemini] repairJson failed, returning best-effort cleaned content:', (e as Error)?.message);
+      }
     }
   }
   return cleaned;
@@ -99,6 +107,10 @@ export class GeminiTranslationService implements TranslationService {
           systemInstruction: systemContent,
           temperature: 0.5,
           maxOutputTokens: estimateMaxTokens(blocksJson),
+          // 强制 Gemini 输出严格 JSON（而非 Markdown 包裹 / 前后散文），
+          // 从源头消除 "Colon expected" 这类 malformed JSON 失败。
+          // 注意：与 thinkingConfig 不能同时使用；本路径未启用 thinking，安全。
+          responseMimeType: 'application/json',
           abortSignal: controller.signal,
         },
       });

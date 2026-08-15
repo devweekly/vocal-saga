@@ -174,10 +174,21 @@ function scoreCandidate(candidate: ArticleCandidate, doc: Document): number {
   let confidence = rawScore * purityMultiplier;
   confidence = Math.max(0, Math.min(1, confidence));
 
-  // Readability provider 有强先验：它经过 Firefox Reader Mode 长期验证,
-  // 在跨 provider 比较时给予小幅加成，使其更容易胜过粗粒度 <main>。
-  if (candidate.provider === 'readability' && confidence > 0.3) {
-    confidence = Math.min(1, confidence + 0.05);
+  // Readability evidence 加权（替代旧版固定的 +0.05）。
+  // 旧版不论映射质量如何都给 readability 同样的 +0.05，无法体现
+  // 「映射回流是否可靠」这一关键信号。现改为依据 evidence 动态加权：
+  //   - mappingConfidence 高 + 内容覆盖高 → 强先验（最高 +0.20）
+  //   - 映射可疑 → 几乎不给先验（最低 +0）
+  // 这只是「话语权」提升的一部分；真正的「优先胜出」由 pipeline 的
+  // dominance rule 在 ranking 阶段裁定（见 pipeline.ts）。
+  if (candidate.provider === 'readability' && candidate.evidence && confidence > 0.3) {
+    const { mappingConfidence, contentCoverage } = candidate.evidence;
+    let readabilityBonus = 0;
+    if (mappingConfidence >= 0.95 && contentCoverage >= 0.7) readabilityBonus = 0.2;
+    else if (mappingConfidence >= 0.8) readabilityBonus = 0.15;
+    else if (mappingConfidence >= 0.6) readabilityBonus = 0.08;
+    else readabilityBonus = 0;
+    confidence = Math.min(1, confidence + readabilityBonus);
   }
 
   return confidence;

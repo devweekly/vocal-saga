@@ -100,14 +100,34 @@ async function translateChunk(
   // 2) 调 service（直接并行，不走队列）
   console.log(`${chunkLabel} api.call start`);
   const tApi = performance.now();
-  const raw = await translateSingleflight(cacheKey, () => service.translate(chunk.jsonContent, sourceLang, targetLang, glossary));
+
+  // 故障隔离：单个 chunk 的 provider 调用或解析失败，不应拖垮整页翻译。
+  // 返回空 Map → 所有 block 计为缺失 → 触发一次缺失重试；重试仍失败则
+  // 这些 block 保持未翻译（页面原样渲染），而不是让 /fanyi/page 整体 500。
+  let raw: string;
+  try {
+    raw = await translateSingleflight(cacheKey, () => service.translate(chunk.jsonContent, sourceLang, targetLang, glossary));
+  } catch (err) {
+    console.error(`${chunkLabel} provider call failed, treating all blocks as missing (retry will follow):`, (err as Error)?.message);
+    return new Map<string, string>();
+  }
   console.log(`${chunkLabel} api.call done (${us(performance.now() - tApi)})`);
 
   // 一次 parse 完成 result 提取 + unchanged 检测（原流程 parse 两次）
-  const result = processTranslationWithCheck(raw, chunk.blocks.map((b) => ({ id: b.id, text: b.text })));
+  // processTranslationWithCheck 自身已容错（解析彻底失败返回空 Map），
+  // 这里再包一层防御，确保任何意外异常都能降级而非上抛。
+  let result: Map<string, string>;
+  try {
+    result = processTranslationWithCheck(raw, chunk.blocks.map((b) => ({ id: b.id, text: b.text })));
+  } catch (err) {
+    console.error(`${chunkLabel} translation parse failed, treating all blocks as missing:`, (err as Error)?.message);
+    result = new Map<string, string>();
+  }
 
   // 3) 缓存（仅首次；skipCache 时仍写入以刷新旧缓存，只跳过读取）
-  if (!isRetry) {
+  // 注意：空结果（provider/解析失败）绝不写入缓存，否则会污染 KV，
+  // 后续缓存命中直接返回空 → 永远缺失且不再重试。
+  if (!isRetry && result.size > 0) {
     await cacheTranslation(cacheKey, result);
   }
 

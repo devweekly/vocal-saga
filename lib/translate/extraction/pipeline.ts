@@ -37,6 +37,15 @@ export interface RootSelectionResult {
 
 /**
  * 对候选运行统一评分，返回排序后的候选列表（高 → 低）。
+ *
+ * Readability-preferred 机制（GPT 建议 + 本项目实测结论落地）：
+ *   - Readability 经 Firefox Reader Mode 长期验证，比手写正文发现算法更可靠，
+ *     因此系统在「其它条件相近」时应更相信它 —— 而不是让它永远平等竞争或永远赢。
+ *   - 评分阶段已对 readability 给予 evidence 动态加权（见 scoring.ts）。
+ *   - ranking 阶段补充两条规则：
+ *       1. dominance rule：Readability 高置信且分差很小时强制优先
+ *       2. agreement boost：Readability root 与 top root 重叠 → 额外加权
+ *          （多 provider 指向同一容器是极强的协同信号）
  */
 function rankCandidates(
   candidates: ArticleCandidate[],
@@ -48,6 +57,49 @@ function rankCandidates(
   }));
 
   scored.sort((a, b) => b.confidence - a.confidence);
+
+  // Readability 候选（可能存在 0 或 1 个）
+  const readabilityEntry = scored.find((s) => s.candidate.provider === 'readability');
+  const topEntry = scored[0];
+
+  if (readabilityEntry && topEntry && readabilityEntry !== topEntry) {
+    const ev = readabilityEntry.candidate.evidence;
+    // dominance rule 安全门：映射必须足够可信，避免偶尔的怪异 parse 接管。
+    const dominant =
+      !!ev &&
+      ev.mappingConfidence >= 0.85 &&
+      ev.contentCoverage >= 0.8 &&
+      ev.articleTextLength >= 500;
+
+    if (dominant) {
+      const gap = topEntry.confidence - readabilityEntry.confidence;
+      // 分差 < 0.15（"其它条件相近"）时优先采用 Readability。
+      if (gap <= 0.15) {
+        readabilityEntry.confidence = Math.max(readabilityEntry.confidence, topEntry.confidence);
+        scored.splice(scored.indexOf(readabilityEntry), 1);
+        scored.unshift(readabilityEntry);
+        console.log(
+          `[ExtractionPipeline] Readability dominance: promoted (gap=${gap.toFixed(3)} <= 0.15, mappingConf=${ev.mappingConfidence.toFixed(2)})`,
+        );
+      } else {
+        // 分差大：给 Readability 一个 moderate 让步，但不强制压倒。
+        readabilityEntry.confidence = Math.min(
+          topEntry.confidence,
+          readabilityEntry.confidence + 0.1,
+        );
+      }
+    }
+
+    // agreement boost：Readability 与 top 指向同一/包含关系容器 → 协同信号。
+    const topRoot = topEntry.candidate.root;
+    const rbRoot = readabilityEntry.candidate.root;
+    if (topRoot === rbRoot || topRoot.contains(rbRoot) || rbRoot.contains(topRoot)) {
+      topEntry.confidence = Math.min(1, topEntry.confidence + 0.1);
+      console.log(
+        `[ExtractionPipeline] Provider agreement: top root overlaps Readability root (+0.10)`,
+      );
+    }
+  }
 
   for (const { candidate, confidence } of scored) {
     console.log(

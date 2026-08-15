@@ -40,6 +40,10 @@ import { Readability } from '@mozilla/readability';
 import { parseHTML } from 'linkedom';
 import { SKIP_CLASS_PATTERNS } from './blockExtractor/constants';
 import type { ArticleContext } from './blockExtractor/types';
+import {
+  mapReadabilityToRoot,
+  type ReadabilityMappingResult,
+} from './readabilityRootMapper';
 
 // =============================================================================
 // 常量
@@ -751,7 +755,7 @@ function isFragmentedArticleRoot(best: Element, doc: Document): boolean {
   return bestLen / totalLen < 0.3;
 }
 
-export function tryReadabilityRoot(doc: Document): Element | null {
+export function tryReadabilityRoot(doc: Document): ReadabilityMappingResult | null {
   try {
     // Readability 会修改传入的文档树，因此必须在克隆的文档上运行。
     // linkedom 没有 document.implementation.createHTMLDocument，故通过 outerHTML 重新解析。
@@ -763,85 +767,20 @@ export function tryReadabilityRoot(doc: Document): Element | null {
       return null;
     }
 
-    // 取 Readability 正文中的第一个较长段落作为定位签名
-    const paragraphs = article.textContent
-      .split(/\n+/)
-      .map((s) => s.trim())
-      .filter(Boolean);
-    const signature = paragraphs.find((p) => p.length >= 40) || paragraphs[0];
-    if (!signature) return null;
+    // 多锚点 + LCA 映射（共享算法，见 readabilityRootMapper.ts）。
+    // 替代旧版「单签名 + Jaccard + 祖先爬升 80%」：跨首/中/尾多段定位、
+    // 取最低公共祖先、以内容覆盖率（语义）衡量可信度，降低噪声区 collision 风险。
+    const result = mapReadabilityToRoot(doc, article, {
+      isConsent: (el) => isConsentSdkContainer(el, new WeakMap()),
+    });
+    if (!result) return null;
 
-    // 在原始 DOM 中定位 Readability 提取的段落。
-    // 旧版用 includes(signature) 精确子串匹配, 但现代网站经常有
-    // <p>TensorFlow <span>LiteRT</span> is...</p> 等嵌套结构,
-    // 导致 textContent 被拆分, includes 匹配失败。
-    //
-    // 改进: 使用 token overlap (Jaccard 相似度) 匹配:
-    //   1. 将签名拆成 token set
-    //   2. 遍历 DOM 文本节点, 计算 Jaccard = |A∩B| / |A∪B|
-    //   3. 相似度 > 0.5 视为匹配 (允许部分 token 跨节点拆分)
-    const signatureTokens = new Set(
-      signature.toLowerCase().split(/\s+/).filter((t) => t.length >= 3),
+    console.log(
+      `[ContentDetector] Readability mapping: <${result.root.tagName}> .${(result.root.className || '').slice(0, 40)} ` +
+        `anchors=${result.matchedAnchors}/${result.totalAnchors} mappingConf=${result.mappingConfidence.toFixed(2)} ` +
+        `contentCov=${result.contentCoverage.toFixed(2)}`,
     );
-    if (signatureTokens.size < 2) return null;
-
-    let matchedTextNode: Text | null = null;
-    const treeWalker = doc.createTreeWalker(
-      doc.body,
-      typeof NodeFilter !== 'undefined' ? NodeFilter.SHOW_TEXT : 4,
-      null,
-    );
-    while (treeWalker.nextNode()) {
-      const node = treeWalker.currentNode as Text;
-      const text = node.textContent || '';
-      if (text.length < 10) continue;
-      const nodeTokens = new Set(
-        text.toLowerCase().split(/\s+/).filter((t) => t.length >= 3),
-      );
-      if (nodeTokens.size === 0) continue;
-      // Jaccard = |A∩B| / |A∪B|
-      let intersection = 0;
-      for (const t of signatureTokens) {
-        if (nodeTokens.has(t)) intersection++;
-      }
-      const union = signatureTokens.size + nodeTokens.size - intersection;
-      const jaccard = union > 0 ? intersection / union : 0;
-      if (jaccard >= 0.5) {
-        matchedTextNode = node;
-        break;
-      }
-    }
-    if (!matchedTextNode) return null;
-
-    // 从文本节点向上走到一个稳定的容器（div/section/article/main/body）。
-    // 对 sunxiunan 这类多 section 站点，Readability 正文可能直接位于 body 下的
-    // 多个 section 中，没有统一 wrapper；此时需要走到 body 才能聚合全文。
-    let root: Element | null = matchedTextNode.parentElement;
-    let candidate: Element | null = matchedTextNode.parentElement;
-    const readabilityTextLen = article.textContent.length;
-    const coverageThreshold = readabilityTextLen * 0.8;
-
-    while (
-      candidate &&
-      candidate !== doc.documentElement &&
-      candidate !== doc.body?.parentElement
-    ) {
-      const tag = candidate.tagName.toLowerCase();
-      if (tag === 'article' || tag === 'main' || tag === 'section' || tag === 'div' || tag === 'body') {
-        root = candidate;
-        const textLen = (candidate.textContent || '').length;
-        // 找到能覆盖 Readability 正文 80% 的最外层容器即可停止
-        if (textLen >= coverageThreshold) {
-          break;
-        }
-      }
-      candidate = candidate.parentElement;
-    }
-
-    // 排除 consent SDK 容器，避免误把 cookie 弹窗当正文
-    if (root && isConsentSdkContainer(root, new WeakMap())) return null;
-
-    return root;
+    return result;
   } catch (e) {
     console.warn('[ContentDetector] Readability fallback failed:', e);
     return null;
@@ -918,8 +857,9 @@ export function detectArticleRoot(
   }
 
   if (shouldTryReadability) {
-    const readabilityRoot = tryReadabilityRoot(doc);
-    if (readabilityRoot) {
+    const readabilityMapping = tryReadabilityRoot(doc);
+    if (readabilityMapping) {
+      const readabilityRoot = readabilityMapping.root;
       const s = scoreElement(readabilityRoot, textCache);
       const readabilityTextLen = getTextLength(readabilityRoot, textCache);
       const bestTextLen = bestEl ? getTextLength(bestEl, textCache) : 0;

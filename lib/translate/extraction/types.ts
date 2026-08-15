@@ -37,6 +37,31 @@ export interface ArticleCandidate {
   confidence: number;
   /** 元数据 */
   metadata?: ArticleMetadata;
+  /**
+   * Readability 映射证据（仅 readability provider 填充）。
+   * 用于将 Readability 从「固定 +0.05」升级为「high-confidence preferred provider」：
+   * ranking 阶段依据这些信号给予动态加权、dominance rule 与 agreement boost，
+   * 而不是让它永远平等竞争或永远赢。
+   */
+  evidence?: ReadabilityEvidence;
+}
+
+/**
+ * Readability 候选的质量证据。
+ *
+ * 由 shared readabilityRootMapper 在「克隆 DOM 上 Readability 解析 → 映射回原始 DOM」
+ * 的过程中产出。它描述的是「Readability 结果 → 原始 DOM 映射」是否可靠，而非
+ * Readability 算法本身是否可靠（后者默认高可信）。
+ */
+export interface ReadabilityEvidence {
+  /** 锚段落命中率 0..1（matchedAnchors / totalAnchors） */
+  anchorCoverage: number;
+  /** 映射本身置信度 0..1：主要由锚命中率推导，内容覆盖过低时压低 */
+  mappingConfidence: number;
+  /** Readability 正文内容被映射根覆盖的比例 0..1（语义覆盖，非 raw 长度） */
+  contentCoverage: number;
+  /** Readability 解析出的正文文本长度 */
+  articleTextLength: number;
 }
 
 /**

@@ -1,5 +1,5 @@
 import { translationCache } from './cacheManager';
-import { cleanJsonString, repairJson } from './service/shared';
+import { cleanJsonString, repairJson, extractJsonContainer } from './service/shared';
 import { validateBlockMapping } from './mappingValidator';
 
 export async function getCachedTranslation(cacheKey: string): Promise<Map<string, string> | null> {
@@ -146,14 +146,26 @@ export function processTranslationWithCheck(
   try {
     parsed = JSON.parse(jsonResult);
   } catch {
-    // 尝试清理 JSON 后再解析
-    let cleaned = cleanJsonString(jsonResult);
     try {
+      // 尝试清理 JSON 后再解析
+      let cleaned = cleanJsonString(jsonResult);
       parsed = JSON.parse(cleaned);
     } catch {
-      // 尝试修复截断 JSON（LLM 因 max_tokens 截断输出）
-      cleaned = repairJson(cleaned);
-      parsed = JSON.parse(cleaned);
+      try {
+        // 截取最外层 JSON 容器后再修复：避免前后散文干扰 jsonrepair，
+        // 显著降低 "Colon expected" 这类因模型夹带说明文字导致的修复失败。
+        const container = extractJsonContainer(jsonResult);
+        const cleaned = cleanJsonString(container);
+        parsed = JSON.parse(repairJson(cleaned));
+      } catch (e) {
+        // 所有修复手段都用尽仍无法解析：不再抛错拖垮整页翻译，
+        // 返回空 Map → 所有 block 计为缺失 → 触发 chunk 缺失重试/降级渲染。
+        console.error(
+          '[TranslateApi] Failed to parse translation JSON after all repair attempts; treating all blocks as missing:',
+          (e as Error)?.message,
+        );
+        return new Map<string, string>();
+      }
     }
   }
   const translations = parsed.translations || parsed;

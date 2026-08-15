@@ -98,12 +98,16 @@ async function callApi(body: string, apiKey?: string): Promise<string> {
     const snippetStart = Math.max(0, errorPos - 200);
     const snippetEnd = Math.min(cleaned.length, errorPos + 200);
     console.error('[DeepSeek] Cleaned content snippet around error:', cleaned.substring(snippetStart, snippetEnd));
-    cleaned = repairJson(cleaned);
     try {
+      cleaned = repairJson(cleaned);
       JSON.parse(cleaned);
       return cleaned;
-    } catch {
-      throw new Error(`DeepSeek returned invalid JSON: ${parseErr?.message || 'unknown parse error'}. Preview: ${cleaned.substring(0, 300)}`);
+    } catch (e) {
+      // repair 仍失败：不再抛错，返回 best-effort 字符串，交由
+      // processTranslationWithCheck 做最终容错（extractJsonContainer + 空 Map 降级），
+      // 避免 provider 抛错拖垮整页翻译。
+      console.error('[DeepSeek] repairJson also failed; returning best-effort cleaned content:', (e as Error)?.message);
+      return cleaned;
     }
   }
 }
