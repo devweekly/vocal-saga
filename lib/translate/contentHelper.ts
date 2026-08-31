@@ -31,10 +31,21 @@ function isFixedBottomElement(el: Element): boolean {
 }
 
 /**
+ * 安全解析 URL hostname，非法 URL 返回空串（避免 new URL 抛错中断整页标记）。
+ */
+function safeHostname(pageUrl: string): string {
+  try {
+    return new URL(pageUrl).hostname;
+  } catch {
+    return '';
+  }
+}
+
+/**
  * 全文档噪声标记。
  * 注意：只设置 data-fanyi-* 属性，不修改 DOM 结构，避免影响 extraction。
  */
-function markGlobalNoise(doc: Document, pageUrl: string): void {
+export function markGlobalNoise(doc: Document, pageUrl: string): void {
   const body = doc.body;
   if (!body) return;
 
@@ -62,12 +73,37 @@ function markGlobalNoise(doc: Document, pageUrl: string): void {
     }
   });
 
-  // 3. X/Twitter 站点特定：侧边栏列
-  const host = pageUrl ? new URL(pageUrl).hostname : '';
+  // 3. X/Twitter 站点特定：三列布局只保留中间内容列（primaryColumn），
+  //    左导航列 + 右 sidebarColumn 一并隐藏（离线阅读模式）。
+  const host = pageUrl ? safeHostname(pageUrl) : '';
   if (host === 'x.com' || host === 'twitter.com') {
-    body.querySelectorAll('[data-testid="sidebarColumn"]').forEach((el) => {
-      el.setAttribute('data-fanyi-remove', 'true');
-    });
+    hideXSideColumns(doc);
+  }
+}
+
+/**
+ * X/Twitter 三列布局（左导航 / 中 primaryColumn / 右 sidebarColumn）只保留中间内容列。
+ *
+ * 离线阅读模式：隐藏左导航与右 sidebarColumn，仅留内容列。
+ * 真实 DOM 中三者并非同一 flex 容器的兄弟节点，故用稳定选择器直接定位：
+ *   - 右栏：`[data-testid="sidebarColumn"]`（稳定 data-testid，直接嵌套在正文列内）
+ *   - 左导航：位于顶层 `<header>` 内（桌面端左栏），与 `<main>` 平级；
+ *            其 aria-label 随语言变化（主要/Primary/...），故用结构定位——
+ *            移除"不在 `<main>` 内且含 `<nav>`"的 `<header>`，绝不误伤正文内的返回栏。
+ * 任一选择器未命中（如 SPA 首屏未水合、无 primaryColumn）时静默跳过，不影响其它逻辑。
+ */
+function hideXSideColumns(doc: Document): void {
+  // 右栏（稳定 data-testid）
+  doc.querySelectorAll('[data-testid="sidebarColumn"]').forEach((el) => {
+    el.setAttribute('data-fanyi-remove', 'true');
+  });
+
+  // 左导航（顶层 header 内，与 main 平级）
+  const headers = Array.from(doc.querySelectorAll('header'));
+  for (const h of headers) {
+    if (!h.closest('main') && h.querySelector('nav')) {
+      h.setAttribute('data-fanyi-remove', 'true');
+    }
   }
 }
 
