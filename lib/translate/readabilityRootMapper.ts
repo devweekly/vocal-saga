@@ -15,7 +15,7 @@
  *   - 从 Readability 正文抽取 首/中/尾 多个「锚段落」(multi-anchor)
  *   - 在原始 DOM 中定位每个锚段落所在的「块级元素」(DOM block matching)
  *   - 取这些块级元素的【最低公共祖先 LCA】作为最小稳定正文容器
- *   - contentCoverage = 命中锚段落文本 / Readability 正文文本（语义覆盖，非 raw 长度）
+ *   - contentCoverage = 映射根文本长度 / Readability 正文文本（即「根是否装下整篇正文」的包含度）
  *
  * 环境无关：只使用标准 DOM API（递归文本遍历，不依赖 TreeWalker），
  * fanyi-extension（浏览器 DOM）与 vocal-saga（linkedom）均可使用。
@@ -40,7 +40,7 @@ export interface ReadabilityMappingResult {
   anchorCoverage: number;
   /** 映射本身的置信度 0..1（由 anchorCoverage 推导，含内容覆盖修正） */
   mappingConfidence: number;
-  /** Readability 正文内容被映射根覆盖的比例 0..1（语义覆盖，非 raw 长度） */
+  /** 映射根对 Readability 正文的包含度（root 文本长度 / 正文文本长度，0..1） */
   contentCoverage: number;
   /** Readability 解析出的正文文本长度 */
   articleTextLength: number;
@@ -229,11 +229,12 @@ export function mapReadabilityToRoot(
   const rootTextLen = (root.textContent || '').length;
   const coverage = articleTextLength > 0 ? Math.min(1, rootTextLen / articleTextLength) : 0;
 
-  // contentCoverage：命中锚段落文本之和 / Readability 正文文本（语义覆盖）
-  let matchedTextLen = 0;
-  for (const b of blocks) matchedTextLen += (b.textContent || '').length;
-  const contentCoverage =
-    articleTextLength > 0 ? Math.min(1, matchedTextLen / articleTextLength) : 0;
+  // contentCoverage：映射根对 Readability 正文的【包含度】（语义覆盖，修正 2026-09-01）。
+  // 旧实现用「命中锚段落字符和 / 全文」做分子，与文章长度成反比，正文超过约 4k 字时
+  // 恒 < 0.3 闸门，Readability 主条件对长文 100% 静默失效、退回手写评分
+  // （deeplearning.ai 实测仅翻 14%）。正确定义应为「映射根文本长度 / 正文文本长度」——
+  // 根装下整篇正文则 ≈1.0，与 anchorCoverage（锚命中率）正交。
+  const contentCoverage = coverage;
 
   const totalAnchors = anchors.length;
   const matchedAnchors = blocks.length;

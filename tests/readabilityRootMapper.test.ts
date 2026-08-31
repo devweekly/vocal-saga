@@ -91,4 +91,35 @@ describe('shared readabilityRootMapper (vocal-saga)', () => {
     const result = mapReadabilityToRoot(document, article);
     expect(result).toBeNull();
   });
+
+  it('keeps mapping on long articles (contentCoverage = containment, not anchor-sample ratio)', () => {
+    // 长文回归：60 段、每段约 100 字 → 全文约 6k 字。
+    // 旧实现用「命中锚段落字符和 / 全文」做 contentCoverage，对长文恒 < 0.3，
+    // 导致 mapReadabilityToRoot 返回 null、Readability 主条件静默失效、
+    // 退回手写评分（deeplearning.ai 实测仅翻 14%）。修正后 contentCoverage
+    // 表示「根是否装下整篇正文」≈1.0，长文不再漏映射。
+    const base =
+      '这是一段足够长的正文内容，用于构造一篇篇幅较大的文章来验证映射器在长文场景下不会因覆盖率指标定义错误而静默失效，必须稳定命中全部锚段落并落到正确的正文容器。';
+    const paras: string[] = [];
+    for (let i = 0; i < 60; i++) paras.push(`第${i + 1}段：${base}`);
+
+    document.body.innerHTML = `
+      <aside class="sidebar">侧边栏噪声区域不应被当作正文根节点内容。</aside>
+      <article class="long-post">
+        <h1>长文标题</h1>
+        ${paras.map((p) => `<p>${p}</p>`).join('\n')}
+      </article>`;
+
+    const article = mkArticle(paras.join('\n'));
+    const result = mapReadabilityToRoot(document, article);
+
+    expect(result, 'long article must map successfully (no silent null)').not.toBeNull();
+    const r = result!;
+    expect(r.root.tagName.toLowerCase()).toBe('article');
+    expect((r.root.className || '')).toContain('long-post');
+    // 关键：contentCoverage 现在表示「根装下整篇正文」≈1.0，而非锚段采样比 (< 0.3)
+    expect(r.contentCoverage).toBeGreaterThanOrEqual(0.9);
+    expect(r.matchedAnchors).toBe(r.totalAnchors);
+    expect(r.anchorCoverage).toBe(1);
+  });
 });
