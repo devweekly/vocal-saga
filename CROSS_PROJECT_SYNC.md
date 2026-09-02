@@ -79,6 +79,7 @@
 - `rules/fortune-rules.ts`
 - `rules/hackernews-rules.ts`
 - `rules/reddit-rules.ts`
+- `rules/gartner-rules.ts`（2026-09-01 新增：`*.gartner.com` + `articleRootSelector:'[class*="aem-Grid"]'`，应对 AEM 9 兄弟碎片结构；选择器在 linkedom 与 jsdom 下均验证可用）
 
 ### 9. `blockExtractor/constants.ts`（静态数据部分）
 以下常量**完全一致**：
