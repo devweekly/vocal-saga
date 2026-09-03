@@ -24,7 +24,5 @@ export const arxivRule: SiteRule = {
     '^Acknowledgments$',
     '^Acknowledgements$',
     '^Appendix',
-  ],
-  promptInstructions:
-    'This is an arXiv academic paper. Keep mathematical formulas, variable names, and technical terminology untranslated. Preserve citation references in their original format.',
+  ]
 };

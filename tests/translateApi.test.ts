@@ -614,7 +614,11 @@ describe('processTranslationWithCheck', () => {
     expect(result.get('b2')).toBe('世界');
   });
 
-  it('throws on invalid JSON', () => {
-    expect(() => processTranslationWithCheck('not json')).toThrow();
+  it('降级返回空 Map 而不是抛错（invalid JSON）', () => {
+    // 设计变更：彻底无法解析时不再抛错，否则单个 chunk 的解析失败会拖垮整页翻译。
+    // 返回空 Map → 所有 block 计为缺失 → 触发 chunk 缺失重试/降级渲染。
+    const result = processTranslationWithCheck('not json');
+    expect(result).toBeInstanceOf(Map);
+    expect(result.size).toBe(0);
   });
 });

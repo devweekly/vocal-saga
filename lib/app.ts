@@ -8,7 +8,10 @@ export const TRANSLATION_CSS = [
   'clear:both!important;margin:0!important;padding:0!important;max-width:100%!important;',
   'box-sizing:border-box!important;order:0!important}',
   '.fanyi-translation{display:block!important;position:static!important;float:none!important;',
-  'clear:both!important;margin:0!important;padding:0!important;max-width:100%!important;',
+  'clear:both!important;margin:0!important;padding:.15em .6em 0 0!important;',
+  // 兜底：旧版本注入的 `border-left: 3px solid currentColor` 在多数页面解析为黑色，
+  // 表现为中文译文段前的竖黑条。强制覆盖，确保历史缓存也被修正。
+  'border-left:0!important;border-left-width:0!important;max-width:100%!important;',
   'box-sizing:border-box!important;order:1!important;margin-top:.3em!important}',
 ].join('');
 
@@ -59,6 +62,7 @@ import { normalizeUrl, cacheKeyUrl, assertPublicUrl } from './urlUtils';
 import { injectRedirectGuard } from './redirectGuard';
 import { stripDangerousScripts, stripNavigationScripts } from './spaGuard';
 import { devirtualizeLayout } from './devirtualize';
+import { applyGlobalNoiseFromUrl } from './translate/contentHelper';
 import {
   CF_BASE,
   DS_BASE,
@@ -200,9 +204,20 @@ export function createApp(env?: Record<string, unknown>, storage?: StorageAdapte
   const app = new Hono();
   app.use('*', cors());
 
-  // 翻译 HTML 处理 pipeline：导航清理 → 去虚拟化 → 注入 CSS → 注入守卫
-  const processTranslationHtml = (html: string) =>
-    injectRedirectGuard(injectTranslationCss(devirtualizeLayout(stripDangerousScripts(html))));
+  /**
+   * 翻译 HTML 处理 pipeline：导航清理 → 去虚拟化 → 注入 CSS → 注入守卫。
+   *
+   * 接受可选 pageUrl：
+   *   - 提供时，对白名单 host（x.com / twitter.com）重新应用全局噪声标记，
+   *     修复早期翻译时规则尚未完善导致 .fanyi-remove 缺失的历史缓存；
+   *   - 不提供则不重新应用（原始翻译 pipeline 已自带 markGlobalNoise）。
+   *
+   * 应用对象：所有缓存 HTML 路径（/article/:id 等）。
+   */
+  const processTranslationHtml = (html: string, pageUrl?: string) => {
+    const reread = pageUrl ? applyGlobalNoiseFromUrl(html, pageUrl) : html;
+    return injectRedirectGuard(injectTranslationCss(devirtualizeLayout(stripDangerousScripts(reread))));
+  };
 
   // 原始 HTML 处理 pipeline：仅导航清理 → 注入守卫
   const processOriginalHtml = (html: string) =>
@@ -374,7 +389,9 @@ ${pager}
 
       // 若当前记录健康，直接返回（保持 /article/:id 的语义）
       if (isHealthyCachedHtml(row.html)) {
-        return new Response(processTranslationHtml(row.html), {
+        // 传入 row.url：对白名单 host 重新应用全局噪声标记，修复旧缓存里
+        // .fanyi-remove 缺失导致侧边栏不隐藏的问题（典型：x.com 文章页）。
+        return new Response(processTranslationHtml(row.html, row.url || ''), {
           status: 200,
           headers: { 'Content-Type': 'text/html; charset=utf-8' },
         });
@@ -388,7 +405,7 @@ ${pager}
       ).bind(row.url, row.source_lang, row.target_lang).first();
       if (latest && isHealthyCachedHtml(latest.html)) {
         console.log(`[D1] article/${id} found newer healthy cache for same URL, serving it`);
-        return new Response(processTranslationHtml(latest.html), {
+        return new Response(processTranslationHtml(latest.html, row.url || ''), {
           status: 200,
           headers: { 'Content-Type': 'text/html; charset=utf-8' },
         });
@@ -556,7 +573,7 @@ ${pager}
           }
           if (hashValid) {
             console.log(`[fanyi/page/check] D1 cache hit for ${url} sid=${sid}`);
-            return new Response(processTranslationHtml(existing.html), {
+            return new Response(processTranslationHtml(existing.html, url), {
             status: 200,
             headers: {
               'Content-Type': 'text/html; charset=utf-8',
@@ -657,7 +674,7 @@ ${pager}
             // fall through to translate
           } else if (hashValid) {
             console.log(`[fanyi/page] D1 cache hit for ${url} sid=${sid}`);
-            return new Response(processTranslationHtml(existing.html), {
+            return new Response(processTranslationHtml(existing.html, url), {
               status: 200,
               headers: {
                 'Content-Type': 'text/html; charset=utf-8',
@@ -841,7 +858,7 @@ ${pager}
         ).bind(cacheKey, sourceStored, targetStored).first();
         if (existing && isHealthyCachedHtml(existing.html)) {
           console.log(`[translate/url-page] D1 cache hit for ${url}`);
-          return new Response(processTranslationHtml(existing.html), {
+          return new Response(processTranslationHtml(existing.html, url), {
             status: 200,
             headers: {
               'Content-Type': 'text/html; charset=utf-8',

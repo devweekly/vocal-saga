@@ -1,5 +1,12 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { prepareDocument, extractFromDataIsland, expandRootForHeader } from '../lib/translate/contentHelper';
+import {
+  prepareDocument,
+  extractFromDataIsland,
+  expandRootForHeader,
+  applyGlobalNoiseFromUrl,
+  markGlobalNoise,
+} from '../lib/translate/contentHelper';
+import { parseHTML } from 'linkedom';
 
 function setupHTML(html: string): Document {
   document.body.innerHTML = html;
@@ -1059,5 +1066,143 @@ describe('prepareDocument data island integration', () => {
     expect(result.fullText).toContain('Paragraph two in another nested table');
     expect(result.blocks.length).toBeGreaterThanOrEqual(3);
     expect(result.report.strategy).toContain('table-unwrap');
+  });
+});
+
+// =============================================================================
+// applyGlobalNoiseFromUrl — 缓存命中路径重新应用 noise 标记
+// =============================================================================
+
+describe('applyGlobalNoiseFromUrl', () => {
+  it('对 x.com URL 重新标记 sidebarColumn 和左导航 header', () => {
+    // 模拟"早期翻译"的脏缓存：x.com 页面的侧边栏元素没有任何 fanyi-remove 标记。
+    const dirtyCache = `<!doctype html>
+<html>
+  <body>
+    <header>
+      <nav aria-label="主要"><a>主页</a><a>探索</a></nav>
+    </header>
+    <main>
+      <div data-testid="primaryColumn">
+        <article><p>正文段落</p></article>
+      </div>
+      <div data-testid="sidebarColumn">
+        <span>趋势</span>
+      </div>
+    </main>
+  </body>
+</html>`;
+
+    const out = applyGlobalNoiseFromUrl(dirtyCache, 'https://x.com/some/status/1');
+
+    // 解析输出后再断言，避免受属性顺序影响
+    const { document: doc } = parseHTML(out) as unknown as { document: Document };
+    // 左导航被重新打标
+    expect(doc.querySelector('header')?.getAttribute('data-fanyi-remove')).toBe('true');
+    // 右 sidebar 被重新打标
+    expect(doc.querySelector('[data-testid="sidebarColumn"]')?.getAttribute('data-fanyi-remove')).toBe('true');
+    // 中间内容列未被打标
+    expect(doc.querySelector('[data-testid="primaryColumn"]')?.getAttribute('data-fanyi-remove')).toBeNull();
+  });
+
+  it('对 twitter.com URL 同样应用规则', () => {
+    const html = `<!doctype html><html><body>
+      <div data-testid="sidebarColumn"><span>相关用户</span></div>
+    </body></html>`;
+    const out = applyGlobalNoiseFromUrl(html, 'https://twitter.com/foo');
+    expect(out).toContain('data-fanyi-remove="true"');
+  });
+
+  it('非白名单 host 仍应用通用规则（分享栏 / aside / fixed-sticky 底栏）', () => {
+    const html = `<!doctype html><html><body>
+      <aside><p>侧栏</p></aside>
+      <div class="share-buttons" style="position:fixed;left:0;bottom:50px"><a>X</a></div>
+    </body></html>`;
+    const out = applyGlobalNoiseFromUrl(html, 'https://example.com/foo');
+    // 与原 HTML 不同：通用规则已生效
+    expect(out).not.toBe(html);
+    // 解析后核对标记
+    const { document: doc } = parseHTML(out) as unknown as { document: Document };
+    expect(doc.querySelector('aside')?.getAttribute('data-fanyi-remove')).toBe('true');
+    expect(doc.querySelector('.share-buttons')?.getAttribute('data-fanyi-remove')).toBe('true');
+  });
+
+  it('无 URL / 无 host 时直接返回原 HTML', () => {
+    const html = `<!doctype html><html><body><p>x</p></body></html>`;
+    expect(applyGlobalNoiseFromUrl(html, '')).toBe(html);
+    expect(applyGlobalNoiseFromUrl(html, 'not-a-url')).toBe(html);
+  });
+});
+
+describe('markGlobalNoise: share/social widget detection', () => {
+  beforeEach(() => {
+    document.body.innerHTML = '';
+  });
+
+  function parse(html: string): Document {
+    const { document } = parseHTML(html) as unknown as { document: Document };
+    return document;
+  }
+
+  it('fixed 浮动分享栏被打 data-fanyi-remove', () => {
+    const doc = parse(`<!doctype html><html><body>
+      <main><article><p>正文</p></article></main>
+      <div class="share-buttons" style="position:fixed;left:0;bottom:50px;z-index:9999">
+        <a>LinkedIn</a><a>Facebook</a><a>X</a>
+      </div>
+    </body></html>`);
+    markGlobalNoise(doc, 'https://example.com/article');
+    const share = doc.querySelector('.share-buttons');
+    expect(share?.getAttribute('data-fanyi-remove')).toBe('true');
+    // 正文不影响
+    expect(doc.querySelector('article p')?.textContent).toContain('正文');
+  });
+
+  it('sticky 分享栏同样被打标', () => {
+    const doc = parse(`<!doctype html><html><body>
+      <div class="social-share-bar" style="position:sticky;top:0">
+        <span>share this</span>
+      </div>
+    </body></html>`);
+    markGlobalNoise(doc, 'https://example.com/article');
+    expect(doc.querySelector('.social-share-bar')?.getAttribute('data-fanyi-remove')).toBe('true');
+  });
+
+  it('class 含 sharethis / addthis 关键词也匹配', () => {
+    const doc = parse(`<!doctype html><html><body>
+      <div class="sharethis-inline-share-buttons" style="position:fixed;bottom:0">
+        <span>share</span>
+      </div>
+      <div class="addthis_inline_share_toolbox" style="position:fixed;left:0;top:50%">
+        <span>share</span>
+      </div>
+    </body></html>`);
+    markGlobalNoise(doc, 'https://example.com/article');
+    expect(doc.querySelector('.sharethis-inline-share-buttons')?.getAttribute('data-fanyi-remove')).toBe('true');
+    expect(doc.querySelector('.addthis_inline_share_toolbox')?.getAttribute('data-fanyi-remove')).toBe('true');
+  });
+
+  it('非 fixed/sticky 的社交主体组件保留（不误伤）', () => {
+    const doc = parse(`<!doctype html><html><body>
+      <main><article><p>正文</p></article></main>
+      <div class="share-buttons" style="display:block">
+        <span>实际文章里的社交菜单</span>
+      </div>
+    </body></html>`);
+    markGlobalNoise(doc, 'https://example.com/article');
+    // 非 fixed/sticky 不应被分享规则命中（但可能仍被其它通用规则打标，例如 aside）
+    expect(doc.querySelector('.share-buttons')?.getAttribute('data-fanyi-remove')).toBeNull();
+  });
+
+  it('x.com 页面依旧隐藏 sidebarColumn（与之前行为兼容）', () => {
+    const doc = parse(`<!doctype html><html><body>
+      <main>
+        <div data-testid="primaryColumn"><span>正文</span></div>
+        <div data-testid="sidebarColumn"><span>右栏</span></div>
+      </main>
+    </body></html>`);
+    markGlobalNoise(doc, 'https://x.com/article');
+    expect(doc.querySelector('[data-testid="sidebarColumn"]')?.getAttribute('data-fanyi-remove')).toBe('true');
+    expect(doc.querySelector('[data-testid="primaryColumn"]')?.getAttribute('data-fanyi-remove')).toBeNull();
   });
 });

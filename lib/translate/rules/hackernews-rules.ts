@@ -36,7 +36,5 @@ export const hackernewsRule: SiteRule = {
     '.subtext',
     'code',
     'pre',
-  ],
-  promptInstructions:
-    'This is Hacker News. Keep navigation terms, voting-related vocabulary, YC-specific terminology, and code snippets untranslated.',
+  ]
 };

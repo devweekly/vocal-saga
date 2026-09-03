@@ -42,19 +42,3 @@ function hostMatches(host: string, pattern: string): boolean {
   }
   return host === pattern;
 }
-
-export function buildSitePrompt(rule: SiteRule): string {
-  const parts: string[] = [];
-
-  if (rule.documentTerms && rule.documentTerms.length > 0) {
-    parts.push(
-      `"document_terms":${JSON.stringify(rule.documentTerms, null, 2)}`
-    );
-  }
-
-  if (rule.promptInstructions) {
-    parts.push(rule.promptInstructions);
-  }
-
-  return parts.join('\n');
-}

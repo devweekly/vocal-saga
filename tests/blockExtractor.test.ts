@@ -7,7 +7,6 @@ import { detectArticleRoot } from '../lib/translate/contentDetector';
 // Mock matchSiteRule for shouldSkipBySiteRules tests
 vi.mock('../lib/translate/rules', () => ({
   matchSiteRule: vi.fn(),
-  buildSitePrompt: vi.fn(() => ''),
 }));
 
 import { matchSiteRule } from '../lib/translate/rules';

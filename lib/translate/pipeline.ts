@@ -9,7 +9,7 @@
  * Server 端策略：
  *   - chunk 内 missing 自动 retry 一次
  *   - 整 chunk 缓存 (translationCache)
- *   - 全并行翻译（KV cache 不跨请求）
+ *   - 有界并发翻译（KV cache 不跨请求）
  */
 
 import { prepareDocument } from './contentHelper';
@@ -31,6 +31,8 @@ import { DeepSeekTranslationService } from './service/deepseek';
 import type { Glossary } from './service/_service';
 import type { PromptStyle } from './service/shared';
 import { fetchPage } from './urlFetcher';
+import { runWithConcurrency } from './concurrency';
+import { matchSiteRule } from './rules';
 import { parseHTML } from 'linkedom';
 
 // =============================================================================
@@ -66,6 +68,27 @@ function stripRemoveMarkersFromAncestors(doc: Document): void {
 // =============================================================================
 // 内部：chunk → translation
 // =============================================================================
+
+/**
+ * 把站点规则里的 `documentTerms`（各站点手工维护的专有名词表）合并进 glossary。
+ *
+ * 合并而不是替换：调用方（/fanyi/page 等）可能已经传了自定义术语，站点词表
+ * 只是补充。重复项无需处理 —— 进 prompt 前 `sanitizeDocumentTerms` 会去重。
+ *
+ * 为什么放在这里：只有 pipeline 同时拿得到 `finalUrl`（决定命中哪条站点规则）
+ * 和 glossary，service 层两者都看不到。
+ */
+export function withSiteDocumentTerms(
+  glossary: Glossary | undefined,
+  finalUrl: string
+): Glossary | undefined {
+  const siteTerms = matchSiteRule(finalUrl)?.siteRule.documentTerms;
+  if (!siteTerms || siteTerms.length === 0) return glossary;
+  return {
+    ...glossary,
+    document_terms: [...(glossary?.document_terms ?? []), ...siteTerms],
+  };
+}
 
 async function translateChunk(
   service: DeepSeekTranslationService,
@@ -205,9 +228,10 @@ async function translateChunksWithRetry(
   }
 
   try {
-    // 全并行翻译（server 端 KV cache 不跨请求）
-    const pool = chunks.map((chunk) => processOneChunk(chunk));
-    await Promise.all(pool);
+    // 有界并发：始终只有 `concurrency` 个 chunk 在飞。
+    // 早期这里是 chunks.map(...) + Promise.all（全并发），concurrency 只进日志、
+    // 不生效，长文会瞬间打满上游触发 429。详见 lib/translate/concurrency.ts。
+    await runWithConcurrency(chunks, concurrency, processOneChunk);
     console.log(`[Pipeline] translateChunks done (${us(performance.now() - tAll)})`);
   } catch (err) {
     console.error(`[Pipeline] translateChunks failed after ${us(performance.now() - tAll)}:`, err);
@@ -287,6 +311,11 @@ export interface TranslateUrlInput {
   promptStyle?: PromptStyle;
   /** 跳过 chunk 缓存读取（强制刷新场景：/force/* 路由） */
   skipCache?: boolean;
+  /**
+   * 覆盖默认的 SSRF 校验函数，透传给 fetchPage，**仅用于单元测试**。
+   * 生产不传，使用默认的 assertPublicUrl。
+   */
+  ssrfGuard?: (url: string) => void;
 }
 
 export interface TranslateUrlResult {
@@ -384,17 +413,21 @@ async function runTranslationPipeline(
     service = new DeepSeekTranslationService(apiKey, style);
   }
   const tTrans = performance.now();
-  // OpenCode 限流严格（CF Worker 共享 IP 易触发 429），降低并发到 2
-  let concurrency = (provider === 'opencode' || provider === 'openrouter') ? 1 : 2;
-  if (provider === 'deepseek') {
-    concurrency = 4;
-  }
+  // 并发度：opencode 限流严格（CF Worker 共享 IP 易触发 429）与 openrouter 的
+  // 免费模型都串行；deepseek 放宽到 4；其余 provider 取 2。
+  // 该值此前只是打印进日志、实际全并发（见 lib/translate/concurrency.ts）。
+  const concurrency =
+    provider === 'opencode' || provider === 'openrouter'
+      ? 1
+      : provider === 'deepseek'
+        ? 4
+        : 2;
   const translations = await translateChunksWithRetry(
     service,
     chunks,
     sourceLang,
     targetLang,
-    glossary,
+    withSiteDocumentTerms(glossary, finalUrl),
     concurrency,
     provider,
     style,
@@ -470,8 +503,9 @@ async function runTranslationPipeline(
       '.fanyi-translation {',
       '  display: block;',
       '  margin: 0.2em 0 0.4em 0;',
-      '  padding: 0.15em 0.6em;',
-      '  border-left: 3px solid currentColor;',
+      // 说明：早期版本使用 `border-left: 3px solid currentColor` 作为视觉分隔，
+      // 但 currentColor 在绝大多数页面解析为黑色，导致中文译文段前出现明显的竖黑条，
+      // 视觉上像原文被"涂改"。移除该 border，保留 padding 维持缩进感。
       '}',
       '.fanyi-inline-original { /* 原文：继承原页面样式，不额外设颜色 */ }',
       '.fanyi-inline-translation {',
@@ -535,7 +569,10 @@ export async function translateUrl(input: TranslateUrlInput): Promise<TranslateU
   const targetLang = input.target || 'zh';
   const mode = input.mode || 'bilingual';
 
-  const page = await fetchPage(input.url);
+  const page = await fetchPage(input.url, {
+    // 生产路径不传 ssrfGuard，走默认 assertPublicUrl
+    ...(input.ssrfGuard ? { ssrfGuard: input.ssrfGuard } : {}),
+  });
 
   console.log(`[Pipeline] Fetched ${input.url} → ${page.finalUrl} (${page.status}, ${page.html.length} bytes)`);
 

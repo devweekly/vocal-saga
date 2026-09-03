@@ -52,7 +52,9 @@ export const xRule: SiteRule = {
     // Grok "显示翻译" 链接文案
     '^显示翻译$',
   ],
-  skipTerms: [
+  // X 的互动/导航文案应保持原样。经 withSiteDocumentTerms 合并进 glossary，
+  // 以"保留原文"的形式进入 system prompt。
+  documentTerms: [
     'Views',
     'View',
     '查看',
@@ -69,7 +71,5 @@ export const xRule: SiteRule = {
     '转帖',
     '喜欢',
     '书签',
-  ],
-  promptInstructions:
-    'This is an X (Twitter) post. Preserve @mentions, hashtags, URLs, and emoji as-is. Translate only the human-readable prose; do not translate metrics like view counts or dates.',
+  ]
 };

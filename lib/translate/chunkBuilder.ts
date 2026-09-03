@@ -14,7 +14,7 @@ const TARGET_TOKENS = 10000;
  * 估算 token 数：CJK 字符约 0.5 tokens/char，拉丁文约 0.25 tokens/char。
  * 原实现 text.length/4 对中文严重低估，导致 chunk 过大 → API 截断 → 重试。
  */
-function estimateTokens(text: string): number {
+export function estimateTokens(text: string): number {
   let cjkChars = 0;
   let otherChars = 0;
   for (const ch of text) {

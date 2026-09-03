@@ -6,11 +6,6 @@ export interface SiteRule {
   hostPattern: string;
 
   /**
-   * Terms that should NOT be translated, kept as-is
-   */
-  skipTerms?: string[];
-
-  /**
    * CSS selectors whose content should be skipped entirely
    */
   skipSelectors?: string[];
@@ -23,12 +18,10 @@ export interface SiteRule {
   skipTextPatterns?: string[];
 
   /**
-   * Additional prompt instructions for this site
-   */
-  promptInstructions?: string;
-
-  /**
-   * 文档级专有名词（公司/产品/服务名），用于 system prompt 中"保留原文"的提示
+   * 文档级专有名词（公司/产品/服务名，如 GitHub 的 "Pull requests"）。
+   *
+   * 由 pipeline 的 `withSiteDocumentTerms` 合并进 glossary.document_terms，
+   * 最终以"保留原文"的形式进入 system prompt（会先过 sanitizeDocumentTerms）。
    */
   documentTerms?: string[];
 

@@ -23,6 +23,7 @@
  *   - 只在 Node 环境下生效（避免污染 Workers 进程的 isolate globalThis）。
  */
 import { parseHTML } from 'linkedom';
+import { assertPublicUrl } from '../urlUtils';
 
 export interface FetchedPage {
   url: string;
@@ -32,11 +33,99 @@ export interface FetchedPage {
   status: number;
 }
 
+/**
+ * 重定向最大跟随次数。
+ *
+ * 超过即抛错，避免攻击者用重定向环把请求挂死在重定向链上消耗资源。
+ */
+const MAX_REDIRECTS = 5;
+
+/**
+ * 判定响应是否为需要跟随的重定向。
+ * 只认带语义的 3xx；300 Multiple Choices / 304 Not Modified 不跟随。
+ */
+function isRedirectStatus(status: number): boolean {
+  return status === 301 || status === 302 || status === 303 || status === 307 || status === 308;
+}
+
+/**
+ * 手动跟随重定向，每一跳都对目标地址重新执行 SSRF 校验。
+ *
+ * ## 为什么不能直接用 `redirect: 'follow'`
+ *
+ * 内置跟随会在运行时内部完成整条重定向链，最终只把 `response.url` 暴露出来。
+ * 入口处那次 `assertPublicUrl` 只校验了**链首**，而链尾可能已经跳到内网：
+ *
+ *   https://evil.example/redir  →  302  →  http://169.254.169.254/latest/meta-data/
+ *
+ * 公网页面作为链首能通过校验，云元数据服务则被整条绕过（连端口白名单一起绕过）。
+ * 因此改为 `redirect: 'manual'`，自己逐跳解析 `Location` 并校验。
+ *
+ * 注意：`Location` 可以是相对路径，必须按**当前跳的 URL** 解析成绝对 URL 后再校验，
+ * 否则攻击者可用相对 Location 拼接出非预期目标。
+ *
+ * @throws 命中 SSRF 拒绝规则、Location 非法或超过 MAX_REDIRECTS 时抛错
+ */
+async function fetchWithGuardedRedirects(
+  startUrl: string,
+  init: RequestInit,
+  signal: AbortSignal,
+  guard: (url: string) => void,
+): Promise<{ response: Response; finalUrl: string }> {
+  let currentUrl = startUrl;
+
+  for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
+    // 每一跳都校验：首跳校验链首，后续跳校验解析后的 Location 绝对地址
+    guard(currentUrl);
+
+    const response = await fetch(currentUrl, { ...init, redirect: 'manual', signal });
+
+    // 非重定向（或 3xx 但没有 Location，无法继续跟随）：原样返回给调用方处理
+    if (!isRedirectStatus(response.status)) return { response, finalUrl: currentUrl };
+    const location = response.headers.get('location');
+    if (!location) return { response, finalUrl: currentUrl };
+
+    // 丢弃重定向响应的 body，避免占用连接与内存
+    try {
+      await response.body?.cancel();
+    } catch {
+      /* 部分运行时不支持 cancel，忽略 */
+    }
+
+    let next: URL;
+    try {
+      next = new URL(location, currentUrl);
+    } catch {
+      throw new Error(`invalid redirect location: ${location}`);
+    }
+    currentUrl = next.href;
+  }
+
+  throw new Error(`too many redirects (> ${MAX_REDIRECTS})`);
+}
+
 export async function fetchPage(
   url: string,
-  opts: { timeoutMs?: number; userAgent?: string } = {}
+  opts: {
+    timeoutMs?: number;
+    userAgent?: string;
+    /**
+     * 覆盖默认的 SSRF 校验函数，逐跳（含重定向每一跳）调用。
+     *
+     * **仅用于单元测试**：测试用 `http://127.0.0.1:<随机端口>` 起本地 HTTP server，
+     * 必然命中 assertPublicUrl 的 loopback 与端口白名单规则，需要放行该地址。
+     *
+     * 生产路由不传本参数，使用默认的 `assertPublicUrl`。
+     *
+     * 与布尔开关的区别：这里只能**替换**校验实现，不能关闭校验本身，
+     * 因此不存在"忘记传参就不设防"的失效路径。
+     */
+    ssrfGuard?: (url: string) => void;
+  } = {}
 ): Promise<FetchedPage> {
   const timeoutMs = opts.timeoutMs ?? 15_000;
+  // 默认启用 SSRF 防护：fail-safe，忘记传参也仍然是安全的
+  const guard = opts.ssrfGuard ?? assertPublicUrl;
   const userAgent =
     opts.userAgent ??
     'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36';
@@ -45,29 +134,36 @@ export async function fetchPage(
   const timer = setTimeout(() => controller.abort(), timeoutMs);
 
   let response: Response;
+  let finalUrl: string;
   try {
-    response = await fetch(url, {
-      headers: {
-        'User-Agent': userAgent,
-        Accept:
-          'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
-        'Accept-Language': 'en-US,en;q=0.9',
-        'Accept-Encoding': 'gzip, deflate, br',
-        'Cache-Control': 'no-cache',
-        Pragma: 'no-cache',
-        // Client Hints：O'Reilly 等站点会检查这些头判断是否为真实浏览器
-        'Sec-Ch-Ua': '"Not/A.Brand";v="8", "Chromium";v="125", "Google Chrome";v="125"',
-        'Sec-Ch-Ua-Mobile': '?0',
-        'Sec-Ch-Ua-Platform': '"macOS"',
-        'Sec-Fetch-Dest': 'document',
-        'Sec-Fetch-Mode': 'navigate',
-        'Sec-Fetch-Site': 'none',
-        'Sec-Fetch-User': '?1',
-        'Upgrade-Insecure-Requests': '1',
+    const guarded = await fetchWithGuardedRedirects(
+      url,
+      {
+        headers: {
+          'User-Agent': userAgent,
+          Accept:
+            'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+          'Accept-Language': 'en-US,en;q=0.9',
+          'Accept-Encoding': 'gzip, deflate, br',
+          'Cache-Control': 'no-cache',
+          Pragma: 'no-cache',
+          // Client Hints：O'Reilly 等站点会检查这些头判断是否为真实浏览器
+          'Sec-Ch-Ua': '"Not/A.Brand";v="8", "Chromium";v="125", "Google Chrome";v="125"',
+          'Sec-Ch-Ua-Mobile': '?0',
+          'Sec-Ch-Ua-Platform': '"macOS"',
+          'Sec-Fetch-Dest': 'document',
+          'Sec-Fetch-Mode': 'navigate',
+          'Sec-Fetch-Site': 'none',
+          'Sec-Fetch-User': '?1',
+          'Upgrade-Insecure-Requests': '1',
+        },
+        signal: controller.signal,
       },
-      signal: controller.signal,
-      redirect: 'follow',
-    });
+      controller.signal,
+      guard,
+    );
+    response = guarded.response;
+    finalUrl = guarded.finalUrl;
   } finally {
     clearTimeout(timer);
   }
@@ -83,8 +179,6 @@ export async function fetchPage(
   const { document } = parseHTML(html) as unknown as {
     document: Document;
   };
-  // finalUrl = 跟随重定向后的真实地址（response.url 在 fetch API 里就是这个）
-  const finalUrl = response.url || url;
   try {
     // baseURI 改了之后，a / link / form 的相对 URL 解析才能用。
     // linkedom 不一定支持，但设了不报错。

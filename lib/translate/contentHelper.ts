@@ -1,6 +1,7 @@
 import { extractBlocks, getLastCounters, type TextBlock, type ArticleContext } from './blockExtractor';
 import { buildChunks, type Chunk } from './chunkBuilder';
 import { selectBestRoot } from './extraction/pipeline';
+import { parseHTML } from 'linkedom';
 
 // =============================================================================
 // Global Noise Marker: 标记根容器外的 UI 噪声
@@ -73,11 +74,124 @@ export function markGlobalNoise(doc: Document, pageUrl: string): void {
     }
   });
 
-  // 3. X/Twitter 站点特定：三列布局只保留中间内容列（primaryColumn），
+  // 3. 通用分享/社交组件（fixed/sticky 浮动分享栏、固定底部分享条等）
+  //    典型表现：覆盖在正文之上遮挡内容；过去版本依赖通用规则漏检，
+  //    表现为左侧 LinkedIn/Facebook/X/Reddit 等社交图标浮于正文之上。
+  //    检测策略：class/id 含 share/social/sharing/addthis/sharethis，
+  //    且 position: fixed 或 sticky → 标记移除。
+  body.querySelectorAll('*').forEach((el) => {
+    if (looksLikeShareWidget(el) && isAnyPosFixedOrSticky(el)) {
+      el.setAttribute('data-fanyi-remove', 'true');
+    }
+  });
+
+  // 4. X/Twitter 站点特定：三列布局只保留中间内容列（primaryColumn），
   //    左导航列 + 右 sidebarColumn 一并隐藏（离线阅读模式）。
   const host = pageUrl ? safeHostname(pageUrl) : '';
   if (host === 'x.com' || host === 'twitter.com') {
     hideXSideColumns(doc);
+  }
+}
+
+/**
+ * 元素是否含 share/social/sharing 关键字的 class 或 id。
+ * 用前后边界（空格/-/_/字符串两端）包围匹配常见的分享组件命名：
+ *   - share-buttons / share-bar / social-share / sharing-tools
+ *   - sharethis-inline / addthis_inline / addthis-toolbox
+ *   - social-icons / social-bar / social-widget
+ *
+ * 边界用 (^|\W) 与 (\W|$) 防止误命中散文中的 "share" 等子串（如 page-share-count 虽然也是命中目标，但不会误伤正文）。
+ *
+ * 注意：是"看起来像"判断，可能误伤极个别页面真有类似命名的主体组件。
+ * 实际误伤概率低，因正文通常被包在 <article>/<main> 内，外层 nav/aside 的
+ * 应用会更可靠（前面的 aside 规则已先行处理过 <aside> 容器）。
+ */
+function looksLikeShareWidget(el: Element): boolean {
+  const cls = (el.className || '').toString().toLowerCase();
+  const id = (el.id || '').toLowerCase();
+  if (!cls && !id) return false;
+  const blob = cls + ' ' + id;
+  // 边界符覆盖常见命名：空格、-、_、字符串两端
+  return /(?:^|[\s_-])(?:shares?|shared|social|sharing|sharethis|addthis)(?:[\s_-]|$)/.test(blob);
+}
+
+/**
+ * 元素是否在样式或 class 中表现为 fixed/sticky 定位（不限于 bottom）。
+ * 用于分享组件检测 —— 共享栏常为 fixed/sticky 但不一定是 bottom。
+ */
+function isAnyPosFixedOrSticky(el: Element): boolean {
+  const cls = (el.className || '').toString().toLowerCase();
+  const style = (el.getAttribute('style') || '').toLowerCase();
+  return (
+    /\bfixed\b/.test(cls) ||
+    /\bsticky\b/.test(cls) ||
+    /\bfixed\b/.test(style) ||
+    /\bsticky\b/.test(style) ||
+    style.includes('position:fixed') ||
+    style.includes('position: sticky') ||
+    style.includes('position:fixed')
+  );
+}
+
+/**
+ * 对已渲染的 HTML 字符串重新应用全局噪声标记。
+ *
+ * 用途：处理历史缓存里的页面（如早期翻译时某些规则尚未完善，
+ * 导致 .fanyi-remove 标记缺失 → /article/:id 直接吐出含侧边栏/分享栏的 HTML）。
+ *
+ * 应用范围：
+ *   - x.com / twitter.com：重新应用完整的 markGlobalNoise（包括 x.com 三列布局隐藏）
+ *   - 其它域名：仅重新应用通用规则（分享/社交浮动栏、aside、fixed/sticky 底部栏）。
+ *     站点特定规则（如 x.com 的 sidebarColumn）只对白名单 host 生效，避免误改。
+ *
+ * 安全性：与 runTranslationPipeline 的 markGlobalNoise 行为完全一致，
+ * 仅是把 DOM 标记阶段的入口包装成字符串级函数。
+ */
+export function applyGlobalNoiseFromUrl(html: string, pageUrl: string): string {
+  const host = safeHostname(pageUrl);
+  if (!host) return html;
+  // x.com / twitter.com：应用完整规则（含站点特定）
+  const X_HOSTS = new Set(['x.com', 'twitter.com']);
+  try {
+    const { document } = parseHTML(html) as unknown as { document: Document };
+    if (!document.body) return html;
+
+    if (X_HOSTS.has(host)) {
+      // 完整 markGlobalNoise：站点特定规则 + 通用规则
+      markGlobalNoise(document, pageUrl);
+    } else {
+      // 仅通用规则：<aside>、fixed/sticky 底部栏、浮动分享栏
+      // 不调用 hideXSideColumns 等站点特定逻辑，避免误改其它站点缓存
+      const body = document.body;
+      body.querySelectorAll('aside, dialog').forEach((el) => {
+        let parent: Element | null = el.parentElement;
+        let insideArticle = false;
+        while (parent && parent !== body) {
+          if (parent.tagName.toLowerCase() === 'article') {
+            insideArticle = true;
+            break;
+          }
+          parent = parent.parentElement;
+        }
+        if (!insideArticle) {
+          el.setAttribute('data-fanyi-remove', 'true');
+        }
+      });
+      body.querySelectorAll('*').forEach((el) => {
+        if (isFixedBottomElement(el)) {
+          el.setAttribute('data-fanyi-remove', 'true');
+        }
+      });
+      body.querySelectorAll('*').forEach((el) => {
+        if (looksLikeShareWidget(el) && isAnyPosFixedOrSticky(el)) {
+          el.setAttribute('data-fanyi-remove', 'true');
+        }
+      });
+    }
+    return '<!doctype html>\n' + document.documentElement.outerHTML;
+  } catch {
+    // 解析失败则保持原 HTML，不破坏现有渲染
+    return html;
   }
 }
 

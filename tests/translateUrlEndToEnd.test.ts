@@ -27,9 +27,25 @@ vi.mock('../lib/translate/service/deepseek', () => ({
 }));
 
 import { translateUrl } from '../lib/translate/pipeline';
+import { assertPublicUrl } from '../lib/urlUtils';
 
 let server: http.Server;
 let baseUrl: string;
+let localPort = 0;
+
+/**
+ * 本文件所有用例都打向 127.0.0.1:<随机端口> 的本地 server，必然命中
+ * assertPublicUrl 的 loopback + 端口白名单。注入一个只放行本地 server、
+ * 其余交回 assertPublicUrl 的校验函数（而不是整体关闭防护）。
+ */
+const localGuard = (url: string): void => {
+  const { hostname, port } = new URL(url);
+  if (hostname === '127.0.0.1' && port === String(localPort)) return;
+  assertPublicUrl(url);
+};
+
+/** 打本地 server 的 translateUrl，保留真实 SSRF 校验语义 */
+const translateLocal = (url: string) => translateUrl({ url, ssrfGuard: localGuard });
 
 /** 本地 HTTP server，根据 path 返回不同 HTML */
 function startServer(): Promise<{ server: http.Server; baseUrl: string }> {
@@ -94,6 +110,7 @@ function startServer(): Promise<{ server: http.Server; baseUrl: string }> {
     });
     srv.listen(0, '127.0.0.1', () => {
       const addr = srv.address() as AddressInfo;
+      localPort = addr.port;
       resolve({ server: srv, baseUrl: `http://127.0.0.1:${addr.port}` });
     });
   });
@@ -128,9 +145,7 @@ afterAll(async () => {
 
 describe('translateUrl — end-to-end with linkedom', () => {
   it('fetches, extracts, translates, and returns bilingual HTML', async () => {
-    const result = await translateUrl({
-      url: `${baseUrl}/`,
-    });
+    const result = await translateLocal(`${baseUrl}/`);
 
     expect(result.html).toContain('Graph abstractions at Netflix');
     expect(result.html).toContain('[zh]');
@@ -145,25 +160,25 @@ describe('translateUrl — end-to-end with linkedom', () => {
   }, 10_000);
 
   it('injects <base href> when none exists', async () => {
-      const result = await translateUrl({ url: `${baseUrl}/no-base` });
+      const result = await translateLocal(`${baseUrl}/no-base`);
     // base href 为页面目录 URL（含路径）
     expect(baseHref(result.html)).toBe(`${baseUrl}/no-base/`);
   });
 
   it('updates existing <base href>', async () => {
-    const result = await translateUrl({ url: `${baseUrl}/has-base` });
+    const result = await translateLocal(`${baseUrl}/has-base`);
     expect(baseHref(result.html)).toBe(`${baseUrl}/has-base/`);
     expect(result.html).not.toContain('old-origin.com');
   });
 
   it('preserves <base target> when adding href', async () => {
-    const result = await translateUrl({ url: `${baseUrl}/base-no-href` });
+    const result = await translateLocal(`${baseUrl}/base-no-href`);
     expect(baseTarget(result.html)).toBe('_blank');
     expect(baseHref(result.html)).toBe(`${baseUrl}/base-no-href/`);
   });
 
   it('moves existing <base> to the start of <head> when it appears after relative CSS', async () => {
-    const result = await translateUrl({ url: `${baseUrl}/base-after-css` });
+    const result = await translateLocal(`${baseUrl}/base-after-css`);
     expect(baseHref(result.html)).toBe(`${baseUrl}/base-after-css/`);
     const headMatch = result.html.match(/<head[^>]*>[\s\S]*?<\/head>/i);
     expect(headMatch).toBeTruthy();
@@ -176,7 +191,7 @@ describe('translateUrl — end-to-end with linkedom', () => {
   });
 
   it('uses parent directory for .html file URLs to fix relative CSS paths', async () => {
-    const result = await translateUrl({ url: `${baseUrl}/article.html` });
+    const result = await translateLocal(`${baseUrl}/article.html`);
     // .html 文件应视为文件而非目录，base 指向父目录，
     // 这样相对路径 style.css 会被解析为 /style.css 而不是 /article.html/style.css
     expect(baseHref(result.html)).toBe(`${baseUrl}/`);
@@ -186,7 +201,7 @@ describe('translateUrl — end-to-end with linkedom', () => {
     const savedWindow = (globalThis as { window?: unknown }).window;
     delete (globalThis as { window?: unknown }).window;
     try {
-      const result = await translateUrl({ url: `${baseUrl}/` });
+      const result = await translateLocal(`${baseUrl}/`);
       expect(result.html).toContain('Graph abstractions at Netflix');
     } finally {
       if (savedWindow !== undefined) (globalThis as { window: unknown }).window = savedWindow;
