@@ -100,6 +100,14 @@ const HYDRATION_CHUNK_PATTERNS: RegExp[] = [
   // Substack — SPA 客户端 chunk（React hydration 后会用客户端路由覆盖 SSR 翻译 DOM，
   // 且因代理域 URL 不匹配 Substack 路由而渲染 "Page not found"）
   /substackcdn\.com\/bundle\/static\/js\//i,
+  // GitHub — 全部 githubassets JS bundle。
+  // GitHub 的 repo 概览用 `react-partial` 做局部 hydration：
+  //   <react-partial><script type="application/json" data-target="react-partial.embeddedData">…
+  // React 挂载后会用 embeddedData 重新渲染 reactRoot，把 README 里注入的
+  // .fanyi-original / .fanyi-translation 整段替换掉 → 译文消失（article/601）。
+  // 只删 embeddedData 无效（客户端仍会用其它数据源重渲染），必须拦掉 JS bundle。
+  // README / issue 等正文都是 SSR 输出的，去掉 JS 不影响译文与排版。
+  /githubassets\.com\/assets\/[^"]*\.js/i,
 ];
 
 /**

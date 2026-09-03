@@ -36,6 +36,35 @@ export interface SiteRule {
    * expandIfFragmented（站点选择器是显式的，不需要启发式扩展）。
    */
   articleRootSelector?: string;
+
+  /**
+   * 展示期（/article/:id 等已缓存 HTML 的渲染阶段）额外移除的选择器。
+   *
+   * 与 skipSelectors 的区别：
+   *   - skipSelectors 作用在翻译前的抽取阶段，命中的文本不送进 LLM；
+   *   - removeSelectors 作用在展示阶段，文本已经翻译完了，只把容器隐藏掉。
+   *
+   * 典型用途：历史缓存翻译时还没写规则，现在只想把右侧栏隐藏而不需要重翻。
+   * 命中元素会被打上 data-fanyi-remove="true"，由页面已有的
+   * `[data-fanyi-remove="true"]{display:none!important}` 规则隐藏。
+   */
+  removeSelectors?: string[];
+
+  /**
+   * 展示期注入的站点专属 CSS（追加到 <head> 末尾，位于通用双语样式之后）。
+   *
+   * 用途：修正离线阅读场景下的排版，例如 x.com 正文列被限死在 600px。
+   * 只写必要的覆盖，选择器尽量收窄到站点特有结构，避免波及其它站点。
+   */
+  displayCss?: string;
+
+  /**
+   * 展示期注入的站点专属 JS（内联，追加到 </body> 前）。
+   *
+   * 仅在 CSS 无法表达时使用（如需要遍历 DOM 重排节点）。
+   * 内容为仓库内维护的常量，不接受外部输入。
+   */
+  displayJs?: string;
 }
 
 export interface MatchedRule {

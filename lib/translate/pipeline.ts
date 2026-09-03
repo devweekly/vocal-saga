@@ -34,6 +34,7 @@ import { fetchPage } from './urlFetcher';
 import { runWithConcurrency } from './concurrency';
 import { matchSiteRule } from './rules';
 import { parseHTML } from 'linkedom';
+import { inlineExternalStylesheets } from './cssInliner';
 
 // =============================================================================
 // 性能日志
@@ -610,8 +611,13 @@ export async function translateHtml(input: TranslateHtmlInput): Promise<Translat
   const targetLang = input.target || 'zh';
   const mode = input.mode || 'bilingual';
 
+  // 扩展传来的 HTML 里，样式表仍然是外链且多为内容哈希文件名（/assets/app-XXXX.css）。
+  // 存进 D1 后原站一发版就 404，页面布局类全部失效。这里和 translateUrl 一样
+  // 先内联再解析，让入库的 HTML 自包含。
+  const selfContainedHtml = await inlineExternalStylesheets(input.html, { baseUrl: input.url });
+
   // 用 linkedom 解析扩展传来的 HTML
-  const { document: doc } = parseHTML(input.html) as unknown as { document: Document };
+  const { document: doc } = parseHTML(selfContainedHtml) as unknown as { document: Document };
 
   // 设置 baseURI，让相对 URL 能正确解析
   try {

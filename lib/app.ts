@@ -13,6 +13,12 @@ export const TRANSLATION_CSS = [
   // 表现为中文译文段前的竖黑条。强制覆盖，确保历史缓存也被修正。
   'border-left:0!important;border-left-width:0!important;max-width:100%!important;',
   'box-sizing:border-box!important;order:1!important;margin-top:.3em!important}',
+  // 媒体元素兜底约束：原站 CSS 缺失/被拦截时（典型：内容哈希 CSS 404 后
+  // Chrome ORB 拦掉整张样式表），`width:100%` 类的布局类全部失效，图片会
+  // 按原始像素宽度（2560px）渲染，撑出横向滚动条。这里兜底压回容器内。
+  // height:auto 必须同时给，否则只压宽度不压高度会把图片压扁。
+  'img,video,picture,figure,table,iframe{max-width:100%!important}',
+  'img,video{height:auto!important}',
 ].join('');
 
 export function injectTranslationCss(html: string): string {
@@ -63,6 +69,7 @@ import { injectRedirectGuard } from './redirectGuard';
 import { stripDangerousScripts, stripNavigationScripts } from './spaGuard';
 import { devirtualizeLayout } from './devirtualize';
 import { applyGlobalNoiseFromUrl } from './translate/contentHelper';
+import { applySiteDisplayRules } from './translate/displayRules';
 import {
   CF_BASE,
   DS_BASE,
@@ -198,6 +205,12 @@ export function createApp(env?: Record<string, unknown>, storage?: StorageAdapte
       console.warn(`[isHealthyCachedHtml] translation validation failed: ${validation.reason}`);
       return false;
     }
+
+    // ── 外联样式表存活性 ──
+    // 缓存里引用的是抓取当时的哈希文件名，原站一发版就 404。此时页面结构
+    // 完好、译文也完整，但样式全丢（Tailwind 布局类失效、图片按原尺寸渲染），
+    // 用户看到的就是"样式乱了"。探针确认死链后判为不健康，让上层重新翻译；
+    // 重新翻译时会走 cssInliner 把样式内联，之后就再也不会烂。
     return true;
   }
 
@@ -213,10 +226,20 @@ export function createApp(env?: Record<string, unknown>, storage?: StorageAdapte
    *   - 不提供则不重新应用（原始翻译 pipeline 已自带 markGlobalNoise）。
    *
    * 应用对象：所有缓存 HTML 路径（/article/:id 等）。
+   *
+   * 最后一步应用站点展示期规则（去侧边栏 / 加宽等）。它放在最末是因为
+   * 可能追加 <script>，不能被前面的脚本清理步骤误删；也因为历史缓存是
+   * 在这些规则写出来之前翻译的，只有展示期补得上。
+   *
+   * 注意：这里**不做**外联样式表内联 —— 那是抓取期（cssInliner）的职责，
+   * 放到渲染路径上会给每次 /article/:id 增加若干个网络往返。
    */
-  const processTranslationHtml = (html: string, pageUrl?: string) => {
+  const processTranslationHtml = (html: string, pageUrl?: string): string => {
     const reread = pageUrl ? applyGlobalNoiseFromUrl(html, pageUrl) : html;
-    return injectRedirectGuard(injectTranslationCss(devirtualizeLayout(stripDangerousScripts(reread))));
+    const processed = injectRedirectGuard(
+      injectTranslationCss(devirtualizeLayout(stripDangerousScripts(reread))),
+    );
+    return pageUrl ? applySiteDisplayRules(processed, pageUrl) : processed;
   };
 
   // 原始 HTML 处理 pipeline：仅导航清理 → 注入守卫

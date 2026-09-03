@@ -85,6 +85,22 @@ describe('stripHydrationScripts（第二层：hydration 防护）', () => {
     expect(out).toContain('fanyi-translation');
   });
 
+  it('删除 GitHub JS bundle（react-partial hydration 会覆盖译文）', () => {
+    // GitHub 的 repo 概览用 react-partial 做局部 hydration，挂载后会把 README 里
+    // 注入的 .fanyi-original / .fanyi-translation 整段替换掉 → 译文消失。
+    const html = `<html><head>
+      <script src="https://github.githubassets.com/assets/environment-4badcaa18c85a049.js"></script>
+      <script src="https://github.githubassets.com/assets/vendors-node_modules_github_mini-throttle_dist_index_js-node_modules_stacktrace-65e6a2.js" crossorigin="anonymous" type="module"></script>
+      <script src="https://github.githubassets.com/assets/github-elements-ee4c581f815cdc2e.js" defer="defer"></script>
+    </head><body>
+      <article class="markdown-body"><h1><span class="fanyi-translation">中文标题</span></h1></article>
+    </body></html>`;
+    const out = stripHydrationScripts(html);
+    expect(out).not.toContain('githubassets.com/assets/');
+    expect(out).toContain('fanyi-translation');
+    expect(out).toContain('中文标题');
+  });
+
   it('删除 Substack SPA chunk（substackcdn.com/bundle/static/js/）', () => {
     const html = `<html><head>
       <script src="https://substackcdn.com/bundle/static/js/49903.c9e1464c.js"></script>

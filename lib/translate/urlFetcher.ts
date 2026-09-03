@@ -24,6 +24,7 @@
  */
 import { parseHTML } from 'linkedom';
 import { assertPublicUrl } from '../urlUtils';
+import { inlineExternalStylesheets } from './cssInliner';
 
 export interface FetchedPage {
   url: string;
@@ -172,11 +173,18 @@ export async function fetchPage(
     throw new Error(`fetch ${url} failed: HTTP ${response.status}`);
   }
 
-  const html = await response.text();
+  // 把外联样式表抓下来内联进 <style>，让翻译结果页自包含。
+  // 不这样做的话，缓存页里的哈希文件名（/assets/app-XXXX.css）在原站发版后
+  // 404 → Chrome ORB 拦掉 → 页面布局类全部失效、图片按原始尺寸渲染。
+  // 抓取前对每张样式表复用同一个 guard，页面里的 <link href> 是不可信输入。
+  const finalHtml = await inlineExternalStylesheets(await response.text(), {
+    baseUrl: finalUrl,
+    ssrfGuard: guard,
+  });
 
   // linkedom 没有 `url` 选项 —— 自己手动设置 baseURI（影响 a.href 解析）。
   // parseHTML 返回的是 Window-like 对象的 defaultView；.document 拿 Document。
-  const { document } = parseHTML(html) as unknown as {
+  const { document } = parseHTML(finalHtml) as unknown as {
     document: Document;
   };
   try {
@@ -193,7 +201,7 @@ export async function fetchPage(
     url,
     finalUrl,
     doc: document,
-    html,
+    html: finalHtml,
     status: response.status,
   };
 }

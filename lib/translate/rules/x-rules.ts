@@ -71,5 +71,23 @@ export const xRule: SiteRule = {
     '转帖',
     '喜欢',
     '书签',
-  ]
+  ],
+  /**
+   * 离线阅读：加宽正文列。
+   *
+   * X 把 primaryColumn 硬编码成 `max-width: 600px`，在线场景是为了给右侧
+   * 趋势栏留位置。离线展示时侧栏已经被 hideXSideColumns 移除，正文却被
+   * 一起挤在 600px 里，大屏上两侧大片空白、长段落读起来很窄。
+   * 放开到 980px（接近 Medium 的阅读宽度），并保持居中。
+   */
+  displayCss: [
+    '[data-testid="primaryColumn"] {',
+    '  max-width: 980px !important;',
+    '  min-width: 0 !important;',
+    '  flex-grow: 1 !important;',
+    '}',
+    'main[role="main"] {',
+    '  justify-content: center !important;',
+    '}',
+  ].join('\n'),
 };
