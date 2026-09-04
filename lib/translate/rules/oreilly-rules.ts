@@ -22,5 +22,8 @@ export const oreillyRule: SiteRule = {
     'div.sidebar',
     // 正文下方的「Related」推荐区与订阅 CTA
     '[data-testid="related-content"]',
+    // 正文底部「Related」相关阅读区块（id=postContent-related）
+    '#postContent-related',
+    'div.postContent-related',
   ],
 };

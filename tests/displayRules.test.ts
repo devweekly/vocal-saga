@@ -3,7 +3,9 @@
  *
  * 关键点：
  *   - 只对匹配 hostPattern 的 URL 生效，其它站点原样返回
- *   - removeSelectors 打 data-fanyi-remove，由页面已有 CSS 隐藏
+ *   - removeSelectors 打 data-fanyi-remove，由 injectTranslationCss 注入的
+ *     TRANSLATION_CSS 中 `[data-fanyi-remove="true"]{display:none}` 规则隐藏
+ *     （旧版 TRANSLATION_CSS 漏掉这条，导致 oreilly 侧栏被打标却仍显示，见下）
  *   - displayCss 进 <head>，displayJs 进 <body> 末尾
  *   - 非法选择器 / 无法解析的 HTML 都不能炸
  */
@@ -35,6 +37,35 @@ describe('applySiteDisplayRules', () => {
     expect(d.querySelector('article')?.getAttribute('data-fanyi-remove')).toBeNull();
   });
 
+  it('O’Reilly：也隐藏 #postContent-related 底部相关阅读区', () => {
+    const html = `<html><head></head><body>
+      <article>正文</article>
+      <div id="postContent-related"><div>Related reading</div></div>
+    </body></html>`;
+    const out = applySiteDisplayRules(html, 'https://www.oreilly.com/radar/foo/');
+    const d = doc(out);
+    const related = d.querySelector('#postContent-related');
+    expect(related?.getAttribute('data-fanyi-remove')).toBe('true');
+  });
+
+  it('Towards Data Science：注入约束图片与正文宽度的 displayCss', () => {
+    const html = `<html><head></head><body>
+      <article class="mx-auto w-full max-w-article"><img class="w-full absolute inset-0 h-full object-cover" src="x.png"></article>
+    </body></html>`;
+    const out = applySiteDisplayRules(html, 'https://towardsdatascience.com/p/foo');
+    const d = doc(out);
+    const siteCss = d.querySelector('style[data-fanyi-site-css]');
+    expect(siteCss).not.toBeNull();
+    // 撤销绝对定位 + 压回容器，解决"图片超大"
+    expect(siteCss?.textContent).toContain('position: static !important');
+    expect(siteCss?.textContent).toContain('max-width: 100% !important');
+    // 正文阅读宽度
+    expect(siteCss?.textContent).toContain('max-width: 720px !important');
+    // 隐藏顶部裸链接品牌栏与 Cookie 横幅
+    expect(siteCss?.textContent).toContain('header.bg-brand');
+    expect(siteCss?.textContent).toContain('[class*="cookie" i]');
+  });
+
   it('O’Reilly 子域名（radar.oreilly.com）同样命中', () => {
     const html = '<html><body><div id="right-rail">ad</div></body></html>';
     const out = applySiteDisplayRules(html, 'https://radar.oreilly.com/x');
@@ -48,7 +79,7 @@ describe('applySiteDisplayRules', () => {
     const siteCss = d.querySelector('style[data-fanyi-site-css]');
     expect(siteCss).not.toBeNull();
     expect(siteCss?.textContent).toContain('[data-testid="primaryColumn"]');
-    expect(siteCss?.textContent).toContain('max-width: 980px');
+    expect(siteCss?.textContent).toContain('max-width: 1000px');
     // 必须挂在 head 里，且排在原有样式之后
     expect(d.head?.lastElementChild).toBe(siteCss);
   });

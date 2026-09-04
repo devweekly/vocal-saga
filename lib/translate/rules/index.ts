@@ -8,6 +8,7 @@ import { arxivRule } from './arxiv-rules';
 import { xRule } from './x-rules';
 import { gartnerRule } from './gartner-rules';
 import { oreillyRule } from './oreilly-rules';
+import { towardsdatascienceRule } from './towardsdatascience-rules';
 
 const RULES: SiteRule[] = [
   githubRule,
@@ -18,6 +19,7 @@ const RULES: SiteRule[] = [
   xRule,
   gartnerRule,
   oreillyRule,
+  towardsdatascienceRule,
 ];
 
 export function matchSiteRule(url: string): MatchedRule | null {

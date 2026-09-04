@@ -3,6 +3,7 @@ import { parseHTML } from 'linkedom';
 import { extractBlocks } from '../lib/translate/blockExtractor';
 import { clearSiteRuleCache } from '../lib/translate/blockExtractor/rules';
 import { markGlobalNoise } from '../lib/translate/contentHelper';
+import { xRule } from '../lib/translate/rules/x-rules';
 
 function setupXHtml(html: string): Document {
   const { document } = parseHTML('<!doctype html><html><body>' + html + '</body></html>') as unknown as { document: Document };
@@ -146,5 +147,13 @@ describe('x-rules extraction', () => {
     markGlobalNoise(doc, 'https://example.com/foo');
     // 非 x.com 主机不应触发移除；且因无 primaryColumn，X 逻辑也不应误伤
     expect(doc.querySelector('[data-fanyi-remove="true"]')).toBeNull();
+  });
+
+  it('displayCss 放开 primaryColumn 宽度到 1000px 并吃满可用宽度（修复 article/585 离线太窄）', () => {
+    expect(xRule.displayCss).toContain('[data-testid="primaryColumn"]');
+    expect(xRule.displayCss).toContain('max-width: 1000px !important');
+    expect(xRule.displayCss).toContain('width: 100% !important');
+    // 父级 flex 容器也要放开，否则外层 max-width:600px 会反向约束子列
+    expect(xRule.displayCss).toContain('main[role="main"] > div');
   });
 });

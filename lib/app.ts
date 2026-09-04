@@ -19,6 +19,19 @@ export const TRANSLATION_CSS = [
   // height:auto 必须同时给，否则只压宽度不压高度会把图片压扁。
   'img,video,picture,figure,table,iframe{max-width:100%!important}',
   'img,video{height:auto!important}',
+  // 展示期标记兜底：processTranslationHtml 在渲染 D1 缓存时，会先跑
+  // applySiteDisplayRules（removeSelectors 打 data-fanyi-remove）和
+  // applyGlobalNoiseFromUrl（标记 sidebar / 分享栏 / 弹窗）。
+  // 这些标记依赖下面两组规则才能真正隐藏/弱化元素，但早期版本注入的
+  // TRANSLATION_CSS 漏掉了它们，导致：
+  //   1) Oreilly 的 #right-rail 被打上 data-fanyi-remove 却仍显示（article/588）；
+  //   2) 通用噪声（aside / 浮窗 / 订阅弹窗）被打标却不生效。
+  // 这里补齐，与 pipeline.ts 的 fanyi-bilingual-styles 保持一致。
+  '[data-fanyi-remove="true"]{display:none!important;visibility:hidden!important;pointer-events:none!important}',
+  '[data-fanyi-low-priority="true"]{opacity:.35;filter:grayscale(60%);transition:opacity .2s ease,filter .2s ease}',
+  '[data-fanyi-low-priority="true"]:hover{opacity:1;filter:none}',
+  // 动态注入的通知/订阅弹窗兜底隐藏（InfoWorld 等站点的 subscribers notification prompt）
+  '[class*="notification"],[id*="notification"],[class*="subscribers"],[id*="subscribers"],[class*="push-notification"],[id*="push-notification"]{display:none!important}',
 ].join('');
 
 export function injectTranslationCss(html: string): string {

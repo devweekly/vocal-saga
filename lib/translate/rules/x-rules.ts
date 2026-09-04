@@ -78,16 +78,33 @@ export const xRule: SiteRule = {
    * X 把 primaryColumn 硬编码成 `max-width: 600px`，在线场景是为了给右侧
    * 趋势栏留位置。离线展示时侧栏已经被 hideXSideColumns 移除，正文却被
    * 一起挤在 600px 里，大屏上两侧大片空白、长段落读起来很窄。
-   * 放开到 980px（接近 Medium 的阅读宽度），并保持居中。
+   *
+   * 修复策略（article/585 反馈"离线显示太窄"）：
+   *   - primaryColumn 放开到 1000px 并 `width:100%`，让它吃满可用宽度；
+   *   - 包裹它的 flex 容器（含 css-* 随机类名的 div）一并放开 max-width / width，
+   *     否则父级仍是 600px 会把子列重新夹住（外层约束优先于内层）；
+   *   - main[role="main"] 保持居中，避免宽列贴左。
    */
   displayCss: [
+    // 直接命中正文列：放开宽度并吃满
     '[data-testid="primaryColumn"] {',
-    '  max-width: 980px !important;',
+    '  max-width: 1000px !important;',
+    '  width: 100% !important;',
     '  min-width: 0 !important;',
     '  flex-grow: 1 !important;',
+    '  margin-left: auto !important;',
+    '  margin-right: auto !important;',
+    '}',
+    // 父级 flex 容器（X 用 css-* 随机类名包裹 primaryColumn）也要放开，
+    // 否则父级 max-width:600px 会反向约束子列
+    'main[role="main"] > div,',
+    'main[role="main"] > div > div {',
+    '  max-width: 100% !important;',
+    '  width: 100% !important;',
     '}',
     'main[role="main"] {',
     '  justify-content: center !important;',
+    '  max-width: 100% !important;',
     '}',
   ].join('\n'),
 };
