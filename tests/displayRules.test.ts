@@ -17,10 +17,16 @@ const doc = (html: string): Document =>
   (parseHTML(html) as unknown as { document: Document }).document;
 
 describe('applySiteDisplayRules', () => {
-  it('URL 为空或不匹配任何站点规则时原样返回', () => {
+  it('URL 为空或不匹配任何站点规则时：无噪声元素则内容原样保留', () => {
     const html = '<html><head></head><body><div id="right-rail">ad</div></body></html>';
+    // 空 URL：直接原样返回
     expect(applySiteDisplayRules(html, '')).toBe(html);
-    expect(applySiteDisplayRules(html, 'https://example.com/a')).toBe(html);
+    // 未匹配站点的真实 URL：全局规则会跑，但 right-rail 是 oreilly 专属选择器、
+    // 不在全局规则里，应保留内容、不打标
+    const out = applySiteDisplayRules(html, 'https://example.com/a');
+    const d = doc(out);
+    expect(d.querySelector('#right-rail')?.getAttribute('data-fanyi-remove')).toBeNull();
+    expect(d.querySelector('#right-rail')?.textContent).toBe('ad');
   });
 
   it('O’Reilly：隐藏 #right-rail 侧边栏', () => {
@@ -212,5 +218,58 @@ describe('applySiteDisplayRules', () => {
     expect(d.querySelector('.newsletter__subscribe')?.getAttribute('data-fanyi-remove')).toBe('true');
     // 正文不能被误伤
     expect(d.querySelector('article')?.getAttribute('data-fanyi-remove')).toBeNull();
+  });
+
+  it('全局规则：未匹配任何站点的域名也会清理 OneTrust / Cookie / modal', () => {
+    const html = `<html><head></head><body>
+      <article>正文</article>
+      <div id="onetrust-consent-sdk">cookie banner</div>
+      <div class="some-cookie-banner">cookie</div>
+      <div role="dialog">generic modal</div>
+      <div class="modal-backdrop">backdrop</div>
+    </body></html>`;
+    // 用一个没有任何专属规则的域名
+    const out = applySiteDisplayRules(html, 'https://some-random-blog.example.com/2026/foo/');
+    const d = doc(out);
+    expect(d.querySelector('#onetrust-consent-sdk')?.getAttribute('data-fanyi-remove')).toBe('true');
+    expect(d.querySelector('.some-cookie-banner')?.getAttribute('data-fanyi-remove')).toBe('true');
+    expect(d.querySelector('[role="dialog"]')?.getAttribute('data-fanyi-remove')).toBe('true');
+    expect(d.querySelector('.modal-backdrop')?.getAttribute('data-fanyi-remove')).toBe('true');
+    // 正文不能被误伤
+    expect(d.querySelector('article')?.getAttribute('data-fanyi-remove')).toBeNull();
+  });
+
+  it('全局规则与站点专属规则叠加：两者都生效', () => {
+    const html = `<html><head></head><body>
+      <article>正文</article>
+      <div id="right-rail"><div>Try the platform</div></div>
+      <div id="onetrust-consent-sdk">cookie banner</div>
+      <div role="dialog">modal</div>
+    </body></html>`;
+    const out = applySiteDisplayRules(html, 'https://www.oreilly.com/radar/foo/');
+    const d = doc(out);
+    // 站点专属（oreilly）：right-rail 隐藏
+    expect(d.querySelector('#right-rail')?.getAttribute('data-fanyi-remove')).toBe('true');
+    // 全局规则：OneTrust + modal 也隐藏（oreilly 规则本身没列这些）
+    expect(d.querySelector('#onetrust-consent-sdk')?.getAttribute('data-fanyi-remove')).toBe('true');
+    expect(d.querySelector('[role="dialog"]')?.getAttribute('data-fanyi-remove')).toBe('true');
+  });
+
+  it('全局规则：只在正文外的噪声上打标，不动正文内容', () => {
+    const html = `<html><head></head><body>
+      <article>
+        <h1>正文标题</h1>
+        <p>这是正文，里面提到 newsletter 一词但不含弹窗。</p>
+      </article>
+      <footer class="site-footer">版权信息</footer>
+    </body></html>`;
+    const out = applySiteDisplayRules(html, 'https://example.com/post/1');
+    const d = doc(out);
+    // 正文（含 "newsletter" 字样）不能被误删
+    const article = d.querySelector('article');
+    expect(article?.getAttribute('data-fanyi-remove')).toBeNull();
+    expect(article?.textContent).toContain('newsletter');
+    // footer 也不在全局规则里（只清理 cookie/modal/paywall 类噪声）
+    expect(d.querySelector('footer')?.getAttribute('data-fanyi-remove')).toBeNull();
   });
 });

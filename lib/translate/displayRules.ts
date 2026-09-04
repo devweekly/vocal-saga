@@ -18,6 +18,7 @@
 
 import { parseHTML } from 'linkedom';
 import { matchSiteRule } from './rules';
+import { GLOBAL_RULE } from './rules/globalRules';
 import type { SiteRule } from './rules/types';
 
 /**
@@ -28,19 +29,24 @@ import type { SiteRule } from './rules/types';
  * @returns 应用规则后的 HTML；无匹配规则或解析失败时原样返回
  */
 export function applySiteDisplayRules(html: string, pageUrl: string): string {
-  const matched = pageUrl ? matchSiteRule(pageUrl) : null;
-  if (!matched) return html;
-
-  const rule = matched.siteRule;
-  if (!hasDisplayConfig(rule)) return html;
+  // 空 URL：无法确定站点，也无全局噪声可应用，直接原样返回
+  if (!pageUrl) return html;
+  const matched = matchSiteRule(pageUrl);
+  // 全局规则（GLOBAL_RULE）始终生效；命中站点专属规则时两者都应用，
+  // 站点专属规则排在后面，优先级更高（displayCss 后追加、removeSelectors 叠加）。
+  const rules = [GLOBAL_RULE, ...(matched ? [matched.siteRule] : [])];
+  const applicable = rules.filter(hasDisplayConfig);
+  if (applicable.length === 0) return html;
 
   try {
     const { document } = parseHTML(html) as unknown as { document: Document };
     if (!document.documentElement) return html;
 
-    markRemoveSelectors(document, rule.removeSelectors);
-    appendDisplayCss(document, rule.displayCss);
-    appendDisplayJs(document, rule.displayJs);
+    for (const rule of applicable) {
+      markRemoveSelectors(document, rule.removeSelectors);
+      appendDisplayCss(document, rule.displayCss);
+      appendDisplayJs(document, rule.displayJs);
+    }
 
     return '<!doctype html>\n' + document.documentElement.outerHTML;
   } catch {
