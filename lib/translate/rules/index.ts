@@ -9,6 +9,10 @@ import { xRule } from './x-rules';
 import { gartnerRule } from './gartner-rules';
 import { oreillyRule } from './oreilly-rules';
 import { towardsdatascienceRule } from './towardsdatascience-rules';
+import { technologyreviewRule } from './technologyreview-rules';
+import { cnnRule } from './cnn-rules';
+import { stackoverflowblogRule } from './stackoverflowblog-rules';
+import { inforqRule } from './infoq-rules';
 
 const RULES: SiteRule[] = [
   githubRule,
@@ -20,6 +24,10 @@ const RULES: SiteRule[] = [
   gartnerRule,
   oreillyRule,
   towardsdatascienceRule,
+  technologyreviewRule,
+  cnnRule,
+  stackoverflowblogRule,
+  inforqRule,
 ];
 
 export function matchSiteRule(url: string): MatchedRule | null {

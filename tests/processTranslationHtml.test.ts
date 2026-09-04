@@ -5,6 +5,10 @@
  *   - Oreilly 侧栏被 data-fanyi-remove 隐藏（article/588）
  *   - X.com 正文列加宽（article/585）
  *   - Towards Data Science 图片不再超大（article/579）
+ *   - MIT Tech Review 弹出框清理（article/560）
+ *   - CNN 重复导航 / 下载弹窗清理（article/556）
+ *   - Stack Overflow Blog OneTrust Cookie 横幅清理（article/544）
+ *   - InfoQ 登录弹窗 / 底部 Newsletter 清理（article/535）
  *
  * 这里复刻 lib/app.ts 中 processTranslationHtml 的调用顺序（不导出该函数，
  * 故直接复刻），确保各子步骤级联正确。
@@ -42,13 +46,17 @@ function ensureFixture(id: number, url: string) {
   return path;
 }
 
-describe('processTranslationHtml 集成（article/588/579/585/601）', () => {
+describe('processTranslationHtml 集成（article/588/579/585/601 + 560/556/544/535）', () => {
   // 这些 fixture 由外部 curl 抓取后放入 tests/fixtures/，CI 跳过
   const cases: Array<{ id: number; url: string; host: string }> = [
     { id: 588, url: 'https://www.oreilly.com/radar/architectural-guardrails.html', host: 'https://www.oreilly.com/radar/x' },
     { id: 579, url: 'https://towardsdatascience.com/x', host: 'https://towardsdatascience.com/x' },
     { id: 585, url: 'https://x.com/UberEng/status/1', host: 'https://x.com/UberEng/status/1' },
     { id: 601, url: 'https://github.com/anthropics/commerce-agents', host: 'https://github.com/anthropics/commerce-agents' },
+    { id: 560, url: 'https://www.technologyreview.com/2026/foo/', host: 'https://www.technologyreview.com/2026/foo/' },
+    { id: 556, url: 'https://edition.cnn.com/2026/foo', host: 'https://edition.cnn.com/2026/foo' },
+    { id: 544, url: 'https://stackoverflow.blog/2026/08/foo/', host: 'https://stackoverflow.blog/2026/08/foo/' },
+    { id: 535, url: 'https://www.infoq.com/minibooks/foo/', host: 'https://www.infoq.com/minibooks/foo/' },
   ];
 
   for (const c of cases) {
@@ -85,6 +93,35 @@ describe('processTranslationHtml 集成（article/588/579/585/601）', () => {
         // 注意：<link rel="modulepreload" href="...githubassets...js"> 只是预加载提示、
         // 不会执行，不在检查范围；真正触发 hydration 的是 <script type=module src>。
         expect(out).not.toMatch(/<script\b[^>]*githubassets\.com\/assets\/[^"]*\.js[^>]*>/i);
+      }
+      if (c.id === 560) {
+        // MIT Tech Review：站点 header / sticky 侧边栏 / 订阅表单都要打标隐藏
+        expect(document.querySelector('header[class*="headerTemplate__container" i]')?.getAttribute('data-fanyi-remove')).toBe('true');
+        expect(document.querySelector('aside[class*="sidebar__wrapper" i]')?.getAttribute('data-fanyi-remove')).toBe('true');
+        expect(document.querySelector('form[class*="stayConnected__form" i]')?.getAttribute('data-fanyi-remove')).toBe('true');
+      }
+      if (c.id === 556) {
+        // CNN：下载 App 弹窗 / 重复导航 / 页脚都要打标隐藏
+        expect(document.querySelector('dialog#GooglePlayDialog')?.getAttribute('data-fanyi-remove')).toBe('true');
+        expect(document.querySelector('dialog#AppStoreDialog')?.getAttribute('data-fanyi-remove')).toBe('true');
+        // 保留 nav#pageHeader，删掉重复的 nav.header__nav
+        expect(document.querySelector('nav#pageHeader')?.getAttribute('data-fanyi-remove')).toBeNull();
+        expect(document.querySelector('nav.header__nav')?.getAttribute('data-fanyi-remove')).toBe('true');
+        expect(document.querySelector('footer#pageFooter')?.getAttribute('data-fanyi-remove')).toBe('true');
+        // displayCss 隐藏 ad-slot-rail
+        const siteCss = document.querySelector('style[data-fanyi-site-css]')?.textContent || '';
+        expect(siteCss).toContain('.ad-slot-rail_right');
+      }
+      if (c.id === 544) {
+        // Stack Overflow Blog：OneTrust Cookie 横幅 / Podcast 订阅
+        expect(document.querySelector('#onetrust-consent-sdk')?.getAttribute('data-fanyi-remove')).toBe('true');
+        expect(document.querySelector('#onetrust-pc-sdk')?.getAttribute('data-fanyi-remove')).toBe('true');
+      }
+      if (c.id === 535) {
+        // InfoQ：登录弹窗 / 浮动订阅 / 底部 Newsletter
+        expect(document.querySelector('.modal_auth_required')?.getAttribute('data-fanyi-remove')).toBe('true');
+        expect(document.querySelector('#floatingNewsletterForm')?.getAttribute('data-fanyi-remove')).toBe('true');
+        expect(document.querySelector('div.newsletter.widget')?.getAttribute('data-fanyi-remove')).toBe('true');
       }
     });
   }

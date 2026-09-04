@@ -112,4 +112,105 @@ describe('applySiteDisplayRules', () => {
     const frag = '<div id="right-rail">ad</div>';
     expect(() => applySiteDisplayRules(frag, 'https://www.oreilly.com/x')).not.toThrow();
   });
+
+  it('MIT Technology Review：隐藏站点 header / sticky 侧边栏 / 相关推荐 / 订阅表单 / 广告位', () => {
+    const html = `<html><head></head><body>
+      <article>正文</article>
+      <header class="headerTemplate__container--abcdef">site nav</header>
+      <aside class="sidebar__wrapper--xyz"><div>Popular</div></aside>
+      <aside class="related__wrap">Related</aside>
+      <form class="stayConnected__form--aaa">subscribe</form>
+      <div class="site-article-right-rail adunitContainer">ad</div>
+      <div class="adUnit adUnit__wrapper--bbb">ad</div>
+    </body></html>`;
+    const out = applySiteDisplayRules(html, 'https://www.technologyreview.com/2026/foo/');
+    const d = doc(out);
+    expect(d.querySelector('header[class*="headerTemplate__container" i]')?.getAttribute('data-fanyi-remove')).toBe('true');
+    expect(d.querySelector('aside[class*="sidebar__wrapper" i]')?.getAttribute('data-fanyi-remove')).toBe('true');
+    expect(d.querySelector('aside[class*="related__wrap" i]')?.getAttribute('data-fanyi-remove')).toBe('true');
+    expect(d.querySelector('form[class*="stayConnected__form" i]')?.getAttribute('data-fanyi-remove')).toBe('true');
+    expect(d.querySelector('div[class*="adunitContainer" i]')?.getAttribute('data-fanyi-remove')).toBe('true');
+    expect(d.querySelector('div[class*="adUnit" i]')?.getAttribute('data-fanyi-remove')).toBe('true');
+    // 正文不能被误伤
+    expect(d.querySelector('article')?.getAttribute('data-fanyi-remove')).toBeNull();
+  });
+
+  it('MIT Technology Review 子域名（wp.technologyreview.com）同样命中', () => {
+    const html = '<html><body><aside class="sidebar__wrapper--xyz">x</aside></body></html>';
+    const out = applySiteDisplayRules(html, 'https://wp.technologyreview.com/foo');
+    expect(out).toContain('data-fanyi-remove');
+  });
+
+  it('CNN：删除下载 App 弹窗与重复导航', () => {
+    const html = `<html><head></head><body>
+      <article>正文</article>
+      <dialog id="GooglePlayDialog"><div class="download-dialog__close-button">close</div></dialog>
+      <dialog id="AppStoreDialog">app store</dialog>
+      <div id="ad-feedback__modal-overlay" class="ad-feedback__modal">feedback</div>
+      <nav id="pageHeader">main nav</nav>
+      <nav class="header__nav">duplicated nav</nav>
+      <nav class="user-account-nav">account</nav>
+      <nav class="header__editionizer">edition</nav>
+      <div class="follow-topics-bar_overlay">follow</div>
+      <button id="headerSubscribeButton">Subscribe</button>
+      <footer id="pageFooter">footer nav duplicated</footer>
+    </body></html>`;
+    const out = applySiteDisplayRules(html, 'https://edition.cnn.com/2026/08/foo');
+    const d = doc(out);
+    expect(d.querySelector('dialog#GooglePlayDialog')?.getAttribute('data-fanyi-remove')).toBe('true');
+    expect(d.querySelector('dialog#AppStoreDialog')?.getAttribute('data-fanyi-remove')).toBe('true');
+    expect(d.querySelector('#ad-feedback__modal-overlay')?.getAttribute('data-fanyi-remove')).toBe('true');
+    // 保留 nav#pageHeader，删掉重复的 nav.header__nav
+    expect(d.querySelector('nav#pageHeader')?.getAttribute('data-fanyi-remove')).toBeNull();
+    expect(d.querySelector('nav.header__nav')?.getAttribute('data-fanyi-remove')).toBe('true');
+    expect(d.querySelector('nav.user-account-nav')?.getAttribute('data-fanyi-remove')).toBe('true');
+    expect(d.querySelector('nav.header__editionizer')?.getAttribute('data-fanyi-remove')).toBe('true');
+    expect(d.querySelector('.follow-topics-bar_overlay')?.getAttribute('data-fanyi-remove')).toBe('true');
+    expect(d.querySelector('#headerSubscribeButton')?.getAttribute('data-fanyi-remove')).toBe('true');
+    expect(d.querySelector('footer#pageFooter')?.getAttribute('data-fanyi-remove')).toBe('true');
+    // displayCss 隐藏 ad-slot-rail 侧栏
+    const siteCss = d.querySelector('style[data-fanyi-site-css]')?.textContent || '';
+    expect(siteCss).toContain('.ad-slot-rail_right');
+    expect(siteCss).toContain('display: none !important');
+  });
+
+  it('Stack Overflow Blog：隐藏 OneTrust Cookie 横幅与偏好 modal', () => {
+    const html = `<html><head></head><body>
+      <article>正文</article>
+      <div id="onetrust-consent-sdk">cookie banner</div>
+      <div id="onetrust-pc-sdk">preference center</div>
+      <section id="ot-fltr-modal">filter modal</section>
+      <aside class="flex--item3 pt12">podcast</aside>
+    </body></html>`;
+    const out = applySiteDisplayRules(html, 'https://stackoverflow.blog/2026/08/foo/');
+    const d = doc(out);
+    expect(d.querySelector('#onetrust-consent-sdk')?.getAttribute('data-fanyi-remove')).toBe('true');
+    expect(d.querySelector('#onetrust-pc-sdk')?.getAttribute('data-fanyi-remove')).toBe('true');
+    expect(d.querySelector('#ot-fltr-modal')?.getAttribute('data-fanyi-remove')).toBe('true');
+    expect(d.querySelector('aside.flex--item3')?.getAttribute('data-fanyi-remove')).toBe('true');
+    // 正文不能被误伤
+    expect(d.querySelector('article')?.getAttribute('data-fanyi-remove')).toBeNull();
+  });
+
+  it('InfoQ：隐藏登录弹窗 / 浮动订阅表单 / 底部 Newsletter 广告', () => {
+    const html = `<html><head></head><body>
+      <article>正文</article>
+      <div class="modal_auth_required">login modal</div>
+      <div class="modal__backdrop">backdrop</div>
+      <form id="floatingNewsletterForm">floating subscribe</form>
+      <form id="dataCollectCampaignNewsletterForm">campaign subscribe</form>
+      <div class="newsletter widget">The InfoQ Newsletter</div>
+      <div class="newsletter__subscribe">another subscribe</div>
+    </body></html>`;
+    const out = applySiteDisplayRules(html, 'https://www.infoq.com/minibooks/foo/');
+    const d = doc(out);
+    expect(d.querySelector('.modal_auth_required')?.getAttribute('data-fanyi-remove')).toBe('true');
+    expect(d.querySelector('.modal__backdrop')?.getAttribute('data-fanyi-remove')).toBe('true');
+    expect(d.querySelector('#floatingNewsletterForm')?.getAttribute('data-fanyi-remove')).toBe('true');
+    expect(d.querySelector('#dataCollectCampaignNewsletterForm')?.getAttribute('data-fanyi-remove')).toBe('true');
+    expect(d.querySelector('div.newsletter.widget')?.getAttribute('data-fanyi-remove')).toBe('true');
+    expect(d.querySelector('.newsletter__subscribe')?.getAttribute('data-fanyi-remove')).toBe('true');
+    // 正文不能被误伤
+    expect(d.querySelector('article')?.getAttribute('data-fanyi-remove')).toBeNull();
+  });
 });
