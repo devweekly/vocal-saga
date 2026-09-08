@@ -331,3 +331,72 @@ describe('GET /translate/<target> — D1 save error surfacing', () => {
     expect(html).not.toContain('data-vs-save-warning');
   });
 });
+
+// ── 源站抓取失败时回落到 D1 旧译文 ──
+// 回归：openai.com 之类站点现在直接 403。此前健康检查偏严，缓存被判 unhealthy
+// 后必然重新 fetch → 403 → 用户拿到 500 而不是已有的好译文。
+// 这里再加一道保险：即便缓存被判不健康，只要 fetch/翻译抛错，就返回旧译文。
+describe('GET /translate/<target> — stale D1 fallback on fetch failure', () => {
+  /** 缓存里存一份"不健康"（无样式）但译文完整的 HTML */
+  const staleHtml =
+    '<!doctype html><body><p>' +
+    '<span class="fanyi-original">Hello world</span>' +
+    '<span class="fanyi-translation">你好世界</span>' +
+    '</p></body>';
+
+  function createDbWithStaleRow() {
+    return {
+      prepare: (sql: string) => ({
+        all: async () => ({ results: [], success: true }),
+        first: async () => null,
+        bind: () => ({
+          run: async () => ({ results: [], success: true }),
+          // SELECT 命中旧行；INSERT/其他查询返回 null
+          first: async () => (sql.trim().startsWith('SELECT') ? { html: staleHtml } : null),
+          all: async () => ({ results: [], success: true }),
+        }),
+      }),
+    };
+  }
+
+  it('serves stale cache instead of 500 when translateUrl throws (源站 403)', async () => {
+    const { translateUrl } = await import('../lib/translate/pipeline');
+    (translateUrl as any).mockRejectedValueOnce(
+      new Error('fetch https://openai.com/index/x/ failed: HTTP 403'),
+    );
+
+    const app = buildApp();
+    const res = await app.request(
+      req('/translate/openai.com%2Findex%2Fx%2F'),
+      {},
+      { DB999: createDbWithStaleRow() },
+    );
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get('X-Translate-Source')).toBe('d1-stale-fallback');
+    // 失败原因仍然透出，便于排查
+    expect(res.headers.get('X-Translate-Warning')).toContain('HTTP 403');
+    const html = await res.text();
+    expect(html).toContain('你好世界');
+    expect(html).toContain('Hello world');
+  });
+
+  it('still returns 500 when there is no cached row at all', async () => {
+    const { translateUrl } = await import('../lib/translate/pipeline');
+    (translateUrl as any).mockRejectedValueOnce(new Error('fetch failed: HTTP 403'));
+
+    const app = buildApp();
+    const res = await app.request(req('/translate/example.com/nope'), {}, { DB999: {
+      prepare: () => ({
+        all: async () => ({ results: [], success: true }),
+        first: async () => null,
+        bind: () => ({
+          run: async () => ({ results: [], success: true }),
+          first: async () => null,
+          all: async () => ({ results: [], success: true }),
+        }),
+      }),
+    } });
+    expect(res.status).toBe(500);
+  });
+});

@@ -63,7 +63,7 @@ export function injectTranslationCss(html: string): string {
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { translateText, translateUrl, translateHtml } from './translate/pipeline';
-import { validateTranslationCompleteness } from './translate/translationValidator';
+import { hasDocumentRoot, validateTranslationCompleteness } from './translate/translationValidator';
 import { simpleHash } from './translate/cacheKey';
 import type { PromptStyle } from './translate/service/shared';
 import {
@@ -122,6 +122,81 @@ async function getExtractor(): Promise<Extractor> {
   return _extractGlossary;
 }
 
+/**
+ * 校验缓存的翻译 HTML 是否结构完整。
+ * 旧版 pipeline 曾输出缺少 <html> 标签、<head> 被吞掉的损坏 HTML，
+ * 导致页面 CSS 全部丢失。某些损坏缓存虽保留 <html>，但原页面内联
+ * 样式被清空，只剩 OneTrust / fanyi 样式，也要视为 miss 重新翻译。
+ */
+export function isHealthyCachedHtml(html: string): boolean {
+  // ── 结构检查（保留原有逻辑） ──
+  // 旧版 pipeline 曾输出缺少 <html> 标签、<head> 被吞掉的损坏 HTML，
+  // 导致页面 CSS 全部丢失。某些损坏缓存虽保留 <html>，但原页面内联
+  // 样式被清空，只剩 OneTrust / fanyi 双语样式，也要视为 miss 重新翻译。
+  //
+  // 注意：文档根节点判定统一走 hasDocumentRoot（见 translationValidator.ts）。
+  // 早期版本要求必须存在字面量 `<html` 标签，过严。旧 pipeline 有一类产物
+  // 形如 `<!doctype html>\n<body ...><head><base …><style …>` —— `<body>` 排在
+  // `<head>` 前且整个文档没有 `<html>` 包裹（openai.com 缓存 id=608 即如此）。
+  // 浏览器解析时会自动补出 <html>，且 <head> 内的 base/style 在 "in body" 模式下
+  // 仍按 in-head 规则处理，页面照样正常渲染。这类文档被判 unhealthy 会导致：
+  //   缓存 miss → 重新 fetch 源站 → 源站现在 403 → 用户看到 500 而不是已有译文。
+  // 因此这里放宽为「有 <!doctype html> 或有 <html> 标签」即可，真正的样式完整性
+  // 由下面的外联/内联样式检查把关（缺 CSS 的缓存照样会被判 miss）。
+  if (!hasDocumentRoot(html)) return false;
+
+  let structurallyHealthy = false;
+  // 有外联样式表 → 健康
+  if (/<link\b[^>]*\brel\s*=\s*["']stylesheet["']/i.test(html)) {
+    structurallyHealthy = true;
+  } else {
+    // 有原页面内联样式（非 OneTrust、非 fanyi 双语样式）→ 健康
+    const styleBlocks = html.match(/<style\b[^>]*>[\s\S]*?<\/style>/gi) || [];
+    structurallyHealthy = styleBlocks.some((block) => {
+      const contentStart = block.slice(block.indexOf('>') + 1).trimStart();
+      return (
+        !contentStart.startsWith('#onetrust-banner-sdk') &&
+        !contentStart.startsWith('/* 双语对照样式')
+      );
+    });
+  }
+  if (!structurallyHealthy) return false;
+
+  // ── <base> 位置检查 ──
+  // 旧缓存里 <base> 可能位于相对 CSS 之后，浏览器会用代理域解析这些资源，
+  // 导致 arxiv / ar5iv 等页面的 CSS 404、排版全乱。若 <head> 中任何相对路径
+  // stylesheet 出现在 <base> 之前，视为损坏并触发重新翻译。
+  const headMatch = html.match(/<head\b[^>]*>[\s\S]*?<\/head>/i);
+  if (headMatch) {
+    const headSection = headMatch[0];
+    const baseMatch = headSection.match(/<base\b/i);
+    if (baseMatch && baseMatch.index !== undefined) {
+      const beforeBase = headSection.slice(0, baseMatch.index);
+      const linkMatches = beforeBase.match(/<link\b[^>]*\brel\s*=\s*["']stylesheet["'][^>]*>/gi) || [];
+      if (linkMatches.some((link) => /\shref\s*=\s*["']\/[^"']*["']/i.test(link))) {
+        console.warn('[isHealthyCachedHtml] <base> appears after relative stylesheet, treating as unhealthy');
+        return false;
+      }
+    }
+  }
+
+  // ── 翻译完整性校验（S7 新增） ──
+  // 原有检查只看 HTML 结构 + 样式表，不检查翻译是否完整。
+  // 调用 validateTranslationCompleteness 校验翻译标记存在 + 内容非空。
+  const validation = validateTranslationCompleteness(html);
+  if (!validation.healthy) {
+    console.warn(`[isHealthyCachedHtml] translation validation failed: ${validation.reason}`);
+    return false;
+  }
+
+  // ── 外联样式表存活性 ──
+  // 缓存里引用的是抓取当时的哈希文件名，原站一发版就 404。此时页面结构
+  // 完好、译文也完整，但样式全丢（Tailwind 布局类失效、图片按原尺寸渲染），
+  // 用户看到的就是"样式乱了"。探针确认死链后判为不健康，让上层重新翻译；
+  // 重新翻译时会走 cssInliner 把样式内联，之后就再也不会烂。
+  return true;
+}
+
 // ── 工厂 ────────────────────────────────────────────────────
 export function createApp(env?: Record<string, unknown>, storage?: StorageAdapter): Hono {
   if (storage) setDefaultStorage(storage);
@@ -160,71 +235,6 @@ export function createApp(env?: Record<string, unknown>, storage?: StorageAdapte
       .replace(/</g, '&lt;')
       .replace(/>/g, '&gt;')
       .replace(/"/g, '&quot;');
-  }
-
-  /**
-   * 校验缓存的翻译 HTML 是否结构完整。
-   * 旧版 pipeline 曾输出缺少 <html> 标签、<head> 被吞掉的损坏 HTML，
-   * 导致页面 CSS 全部丢失。某些损坏缓存虽保留 <html>，但原页面内联
-   * 样式被清空，只剩 OneTrust / fanyi 样式，也要视为 miss 重新翻译。
-   */
-  function isHealthyCachedHtml(html: string): boolean {
-    // ── 结构检查（保留原有逻辑） ──
-    // 旧版 pipeline 曾输出缺少 <html> 标签、<head> 被吞掉的损坏 HTML，
-    // 导致页面 CSS 全部丢失。某些损坏缓存虽保留 <html>，但原页面内联
-    // 样式被清空，只剩 OneTrust / fanyi 双语样式，也要视为 miss 重新翻译。
-    if (!/<html\b/i.test(html)) return false;
-
-    let structurallyHealthy = false;
-    // 有外联样式表 → 健康
-    if (/<link\b[^>]*\brel\s*=\s*["']stylesheet["']/i.test(html)) {
-      structurallyHealthy = true;
-    } else {
-      // 有原页面内联样式（非 OneTrust、非 fanyi 双语样式）→ 健康
-      const styleBlocks = html.match(/<style\b[^>]*>[\s\S]*?<\/style>/gi) || [];
-      structurallyHealthy = styleBlocks.some((block) => {
-        const contentStart = block.slice(block.indexOf('>') + 1).trimStart();
-        return (
-          !contentStart.startsWith('#onetrust-banner-sdk') &&
-          !contentStart.startsWith('/* 双语对照样式')
-        );
-      });
-    }
-    if (!structurallyHealthy) return false;
-
-    // ── <base> 位置检查 ──
-    // 旧缓存里 <base> 可能位于相对 CSS 之后，浏览器会用代理域解析这些资源，
-    // 导致 arxiv / ar5iv 等页面的 CSS 404、排版全乱。若 <head> 中任何相对路径
-    // stylesheet 出现在 <base> 之前，视为损坏并触发重新翻译。
-    const headMatch = html.match(/<head\b[^>]*>[\s\S]*?<\/head>/i);
-    if (headMatch) {
-      const headSection = headMatch[0];
-      const baseMatch = headSection.match(/<base\b/i);
-      if (baseMatch && baseMatch.index !== undefined) {
-        const beforeBase = headSection.slice(0, baseMatch.index);
-        const linkMatches = beforeBase.match(/<link\b[^>]*\brel\s*=\s*["']stylesheet["'][^>]*>/gi) || [];
-        if (linkMatches.some((link) => /\shref\s*=\s*["']\/[^"']*["']/i.test(link))) {
-          console.warn('[isHealthyCachedHtml] <base> appears after relative stylesheet, treating as unhealthy');
-          return false;
-        }
-      }
-    }
-
-    // ── 翻译完整性校验（S7 新增） ──
-    // 原有检查只看 HTML 结构 + 样式表，不检查翻译是否完整。
-    // 调用 validateTranslationCompleteness 校验翻译标记存在 + 内容非空。
-    const validation = validateTranslationCompleteness(html);
-    if (!validation.healthy) {
-      console.warn(`[isHealthyCachedHtml] translation validation failed: ${validation.reason}`);
-      return false;
-    }
-
-    // ── 外联样式表存活性 ──
-    // 缓存里引用的是抓取当时的哈希文件名，原站一发版就 404。此时页面结构
-    // 完好、译文也完整，但样式全丢（Tailwind 布局类失效、图片按原尺寸渲染），
-    // 用户看到的就是"样式乱了"。探针确认死链后判为不健康，让上层重新翻译；
-    // 重新翻译时会走 cssInliner 把样式内联，之后就再也不会烂。
-    return true;
   }
 
   const app = new Hono();
@@ -887,11 +897,15 @@ ${pager}
     // 用 cacheKeyUrl 标准化：www.example.com 和 example.com 命中同一缓存
     const db = (c.env as any)?.DB999;
     const cacheKey = cacheKeyUrl(url);
+    // 缓存行提升到 try 之外：源站抓取失败（403 / 超时）时用它兜底返回旧译文，
+    // 而不是给用户一个 500。见下方 catch 分支。
+    let cachedRow: any = null;
     if (db && !force) {
       try {
         const existing: any = await db.prepare(
           'SELECT html FROM translations WHERE url = ? AND source_lang = ? AND target_lang = ? ORDER BY created_at DESC LIMIT 1'
         ).bind(cacheKey, sourceStored, targetStored).first();
+        cachedRow = existing || null;
         if (existing && isHealthyCachedHtml(existing.html)) {
           console.log(`[translate/url-page] D1 cache hit for ${url}`);
           return new Response(processTranslationHtml(existing.html, url), {
@@ -974,6 +988,22 @@ ${pager}
       });
     } catch (err) {
       console.error('[translate/url-page] error:', err);
+      // 兜底：源站抓取/翻译失败（典型是 openai.com 这类现在直接 403 的站点）时，
+      // 只要 D1 里还存着上一次的译文，就把它返回给用户 —— 旧译文远好过 500 报错页。
+      // 不做 isHealthyCachedHtml 校验：这里已经是最后一道防线，宁可给一份"可能样式
+      // 有损"的译文，也不要让用户什么都看不到。
+      if (cachedRow?.html) {
+        console.warn(`[translate/url-page] serving stale D1 cache for ${url} after failure`);
+        return new Response(processTranslationHtml(cachedRow.html, url), {
+          status: 200,
+          headers: {
+            'Content-Type': 'text/html; charset=utf-8',
+            'Cache-Control': 'public, max-age=600',
+            'X-Translate-Source': 'd1-stale-fallback',
+            'X-Translate-Warning': sanitizeHeaderValue((err as Error).message),
+          },
+        });
+      }
       return c.json({ error: (err as Error).message }, 500);
     }
   }

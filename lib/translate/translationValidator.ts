@@ -19,6 +19,21 @@ export interface ValidationResult {
 }
 
 /**
+ * 文档根节点检查：有 <!doctype html> 或有 <html> 标签即视为完整文档。
+ *
+ * 早期只认字面量 `<html`，过严。旧 pipeline 有一类产物形如：
+ *   <!doctype html>\n<body ...><head><base …><style …>…</style></head>…
+ * —— `<body>` 排在 `<head>` 前，且整个文档没有 `<html>` 包裹（openai.com 缓存
+ * id=608 即如此，2.3MB 译文完整、59 处 fanyi-translation 全部非空）。
+ * 浏览器解析时会自动补 <html>，<head> 内的 base/style 在 "in body" 模式下仍按
+ * in-head 规则处理，页面正常渲染。原先这类文档被判 unhealthy → 缓存 miss →
+ * 重新 fetch 源站 → 源站现在 403 → 用户看到 500 而不是已有的好译文。
+ */
+export function hasDocumentRoot(html: string): boolean {
+  return /<!doctype\s+html/i.test(html) || /<html\b/i.test(html);
+}
+
+/**
  * 校验缓存的 HTML 是否包含完整的翻译。
  *
  * @param html 缓存的 HTML
@@ -33,8 +48,8 @@ export function validateTranslationCompleteness(
     return { healthy: false, reason: 'HTML 过短或为空', blockCount: 0, translatedCount: 0 };
   }
 
-  if (!html.includes('<html')) {
-    return { healthy: false, reason: '缺少 <html> 标签', blockCount: 0, translatedCount: 0 };
+  if (!hasDocumentRoot(html)) {
+    return { healthy: false, reason: '缺少 <!doctype html> 与 <html> 标签', blockCount: 0, translatedCount: 0 };
   }
 
   // 2. 翻译标记检查
