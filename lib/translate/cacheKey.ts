@@ -1,3 +1,5 @@
+import type { Glossary } from './service/_service';
+
 export function simpleHash(str: string): number {
   let hash = 0;
   for (let i = 0; i < str.length; i++) {
@@ -14,10 +16,21 @@ export function generateTranslationCacheKey(
   targetLang: string,
   provider?: string,
   promptStyle?: string,
+  glossary?: Glossary,
+  sitePrompt?: string,
 ): string {
-  // 把 provider 和 promptStyle 纳入 hash 计算，避免切换 LLM/文风后读到旧 provider 的脏缓存。
-  // 仅在显式传入时才参与计算，保证旧调用方（不传 provider/promptStyle）的 key 不变，向后兼容。
-  const extra = provider || promptStyle ? `${provider ?? ''}:${promptStyle ?? ''}` : '';
+  // 把 provider / promptStyle / glossary / sitePrompt 都纳入 hash，
+  // 避免切换 LLM、文风、改术语表、改站点规则后读到旧脏缓存（分析报告 P0）。
+  // 关键：这些维度只在“显式传入且非空”时才追加到 extra，因此：
+  //   - 旧调用方没传 glossary/sitePrompt 时 extra 与改动前完全一致 → key 不变，向后兼容
+  //   - 用户没术语表（glossary 为空/undefined）时 key 也不变，不无谓地 bust 缓存
+  const base = provider || promptStyle ? `${provider ?? ''}:${promptStyle ?? ''}` : '';
+  const extra =
+    base +
+    (glossary?.document_terms?.length
+      ? `|g${simpleHash(JSON.stringify(glossary.document_terms))}`
+      : '') +
+    (sitePrompt?.trim() ? `|r${simpleHash(sitePrompt)}` : '');
   const contentHash = simpleHash(jsonContent + extra);
   const contentPrefix = jsonContent.substring(0, 200);
   const prefixHash = simpleHash(contentPrefix + extra);

@@ -63,6 +63,8 @@ export function injectTranslationCss(html: string): string {
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { translateText, translateUrl, translateHtml } from './translate/pipeline';
+import { parseDocument, SERVER_SUPPORTED_FORMATS } from './translate/document';
+import { translateDocument } from './translate/documentPipeline';
 import { hasDocumentRoot, validateTranslationCompleteness } from './translate/translationValidator';
 import { simpleHash } from './translate/cacheKey';
 import type { PromptStyle } from './translate/service/shared';
@@ -842,6 +844,116 @@ ${pager}
     } catch (err) {
       console.error('[translate/text] error:', err);
       return c.json({ error: (err as Error).message }, 500);
+    }
+  });
+
+  /**
+   * POST /api/translate/document/parse —— 只解析，不翻译。
+   *
+   * 拆出这一步是为了让调用方先看到"会翻多少段 / 多少字"再决定要不要花钱，
+   * 也便于前端做"预检 + 二次确认"。不消耗任何 token。
+   */
+  app.post('/api/translate/document/parse', async (c) => {
+    const body = await c.req.json().catch(() => ({} as any));
+    const { fileName, content, contentBase64, maxSegmentChars } = body || {};
+    if (!fileName || typeof fileName !== 'string') {
+      return c.json({ error: 'fileName is required' }, 400);
+    }
+    try {
+      const text = typeof content === 'string'
+        ? content
+        : typeof contentBase64 === 'string'
+          ? Buffer.from(contentBase64, 'base64').toString('utf-8')
+          : undefined;
+      if (text === undefined) {
+        return c.json({ error: 'content or contentBase64 is required' }, 400);
+      }
+      const doc = await parseDocument({ fileName, text }, { maxSegmentChars });
+      return c.json({
+        title: doc.title,
+        format: doc.format,
+        segments: doc.segments,
+        charCount: doc.meta.charCount,
+        segmentCount: doc.meta.segmentCount,
+        warnings: doc.meta.warnings,
+      });
+    } catch (err) {
+      const message = (err as Error).message;
+      // 不支持的格式是用户输入问题，不是服务故障 → 415 而不是 500
+      const status = message.includes('不支持') || message.includes('上限') ? 415 : 400;
+      return c.json({ error: message, supported: SERVER_SUPPORTED_FORMATS }, status);
+    }
+  });
+
+  /**
+   * POST /api/translate/document —— 解析 + 全文翻译（一步到位）。
+   *
+   * 只有 `translate: false` 时退化为预检（等价于 parse 接口）。
+   * 返回逐段译文 + 失败批次，调用方可以只重跑 failedBatches 对应的段。
+   */
+  app.post('/api/translate/document', async (c) => {
+    const body = await c.req.json().catch(() => ({} as any));
+    const {
+      fileName, content, contentBase64, source, target, glossary,
+      promptStyle, exportAs, exportMode, maxSegmentChars, translate,
+    } = body || {};
+    if (!fileName || typeof fileName !== 'string') {
+      return c.json({ error: 'fileName is required' }, 400);
+    }
+
+    const start = Date.now();
+    try {
+      const text = typeof content === 'string'
+        ? content
+        : typeof contentBase64 === 'string'
+          ? Buffer.from(contentBase64, 'base64').toString('utf-8')
+          : undefined;
+      if (text === undefined) {
+        return c.json({ error: 'content or contentBase64 is required' }, 400);
+      }
+
+      const doc = await parseDocument({ fileName, text }, { maxSegmentChars });
+
+      // translate=false → 只解析，省 token
+      if (translate === false) {
+        return c.json({
+          title: doc.title,
+          format: doc.format,
+          segments: doc.segments,
+          charCount: doc.meta.charCount,
+          segmentCount: doc.meta.segmentCount,
+          warnings: doc.meta.warnings,
+        });
+      }
+
+      if (!doc.segments.length) {
+        return c.json({ error: '文档中没有可翻译内容', warnings: doc.meta.warnings }, 400);
+      }
+
+      console.log(
+        `[translate/document] file=${fileName} segs=${doc.segments.length} chars=${doc.meta.charCount} src=${source || 'auto'} tgt=${target || 'zh'}`,
+      );
+
+      const result = await translateDocument({
+        doc,
+        source,
+        target,
+        glossary,
+        promptStyle: promptStyle as PromptStyle | undefined,
+        exportAs,
+        exportMode,
+      });
+
+      console.log(
+        `[translate/document] batches=${result.batchCount} failed=${result.failedBatches.length} duration=${result.duration_ms}ms`,
+      );
+
+      return c.json({ ...result, total_ms: Date.now() - start });
+    } catch (err) {
+      console.error('[translate/document] error:', err);
+      const message = (err as Error).message;
+      const status = message.includes('不支持') || message.includes('上限') ? 415 : 500;
+      return c.json({ error: message, supported: SERVER_SUPPORTED_FORMATS }, status);
     }
   });
 

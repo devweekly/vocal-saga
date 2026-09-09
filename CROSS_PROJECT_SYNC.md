@@ -4,7 +4,7 @@
 >
 > **范围**：仅覆盖翻译核心逻辑（DOM 提取、分块、缓存、翻译服务、站点规则、内容检测）。不覆盖项目特有的入口（background/content/popup、worker/routes）。
 >
-> **更新日期**：2026-06-25
+> **更新日期**：2026-09-09（§一各模块同步状态按 2026-09-09 `scripts/check-sync.ts` 实测结果修订）
 
 ## 项目定位
 
@@ -33,53 +33,70 @@
 | service/deepseek | `src/entrypoints/service/deepseek.ts` | `lib/translate/service/deepseek.ts` |
 | service/streamParser | `src/entrypoints/service/streamParser.ts` | `lib/translate/service/streamParser.ts` |
 | rules/ | `src/rules/` | `lib/translate/rules/` |
+| **文档解析** | `src/entrypoints/utils/document/` | `lib/translate/document/` |
+| 文档翻译编排 | `src/entrypoints/document/useDocumentTranslation.ts` | `lib/translate/documentPipeline.ts` |
 | 测试 | `src/__tests__/*.test.ts` | `tests/*.test.ts` |
+
+> **文档解析模块（2026-09-09 新增）**
+> `types.ts` / `detect.ts` / `batcher.ts` / `export.ts` / `parsers/{text,subtitle,html,json}.ts`
+> **完全一致，必须同步**（纯函数，不碰 DOM，两端都能跑）。
+> 差异仅两处：
+> - `document/index.ts`：扩展版支持 PDF/DOCX/EPUB（`parsers/pdf.ts` 走 pdfjs-dist、
+>   `parsers/office.ts` 走 jszip，均动态 import）；服务端版**不支持**这三种，直接抛
+>   `UnsupportedDocumentError`，因为二进制解析依赖 Worker/canvas，在 Netlify/Workers 上不可行。
+> - 编排层：扩展版是 Vue composable（逐批提交到 UI），服务端版是纯函数
+>   `translateDocument()`（调用 `translateBlocks`）。分批策略一致，都按
+>   `buildSegmentBatches` 的预算切。
 
 ---
 
-## 一、完全一致（必须同步）
+## 一、必须同步（核心逻辑）
 
-修改这些文件时，**必须**同步到另一个项目，保持逻辑完全一致。
+修改这些文件时，**核心逻辑**必须同步到另一个项目，但**实现细节**可根据两端差异保留。
+
+> **同步校验**：运行 `npx tsx scripts/check-sync.ts`（或 `pnpm exec tsx scripts/check-sync.ts`）会按本节列表对两端文件做归一化 diff（`../`→`./` + 去空白），有差异则 exit 1。
+>
+> **2026-09-09 实测**：`check-sync` 11 个对照项中只有 `cacheKey` 与 `tech-products.json` 完全一致（byte-equal 归一后）；其余 9 项有实际漂移，详见各项说明。这些漂移多为有意的功能差异（扩展端先行 / 服务端未跟上，或反之），不属于"漏同步"，但若要保证字节一致需选一边为 canonical 重写另一边。
 
 ### 1. `cacheKey.ts`
 - `simpleHash(str)` — 字符串哈希函数
-- `generateTranslationCacheKey(jsonContent, sourceLang, targetLang, provider?, promptStyle?)` — 缓存 key 生成,支持 provider/promptStyle 维度(2026-07-16 新增,向后兼容)
-- **完全一致**
-- **注意**:fanyi-extension 需同步添加 provider/promptStyle 参数(S2)
+- `generateTranslationCacheKey(jsonContent, sourceLang, targetLang, provider?, promptStyle?, glossary?, sitePrompt?)` — 缓存 key 生成,支持 provider/promptStyle/glossary/sitePrompt 维度(2026-07-16 新增 provider/promptStyle;2026-09-09 新增 glossary/sitePrompt,分析报告 P0:改术语表/站点规则后命中脏缓存)
+- **check-sync: ✅ 完全一致**（2026-09-09 验证）
+- **注意**:glossary/sitePrompt 仅在显式传入且非空时才追加到 extra,旧 key 不变(向后兼容);fanyi-extension 与 vocal-saga 已对齐
 
 ### 2. `chunkRetry.ts`
 - `shouldRetryChunk(chunk, missingCount, isRetry)` — chunk 翻译重试策略
-- **完全一致**，无差异
+- **check-sync: ✗ 有漂移** — 核心重试逻辑一致,但 server 多了 `performance.now()` 计时行（vocal-saga 的 `chunkRetry.ts` 在 `retryBlocks` 构造后插入 `const t0 = performance.now();` 与若干 `logCost` 计时）。扩展端如需性能埋点可手动同步该行。
 
 ### 3. `translationQueue.ts`
 - `TranslationQueue` 类 — 并发控制 + 重试队列(含 `addAllWithWarmup` 方法)
-- **完全一致**(2026-07-16 已同步 `addAllWithWarmup` 方法)
+- **check-sync: ✗ 有漂移** — `addAllWithWarmup` 方法两端均存在,但 vocal-saga 多了详细 JSDoc 注释 + `tasks: Task<T>[]` 参数签名,扩展端签名更简。行为一致。
 - `globalQueue` 单例:vocal-saga 中未使用(pipeline.ts 用 Promise.all 直接并行),fanyi-extension 中用于串行执行;保留导出用于代码同步
 
 ### 4. `service/_service.ts`
 - `Glossary`、`GlossaryEntry`、`TranslationService` 接口
-- **完全一致**，无差异
+- **check-sync: ✗ 有漂移** — 两端 `Glossary` 接口均含 `document_terms`,但**扩展端额外有 `hard_terms?: { source: string; target: string }[]` 与 `soft_terms?: { source: string; target: string }[]` 两个字段**,vocal-saga 暂未实现硬/软术语区分。若扩展端开始使用这两个字段,server 端需同步加上,否则类型不一致会导致 `useDocumentTranslation` / popup 传 `glossary` 时编译失败。
 
 ### 5. `service/streamParser.ts`
 - `parseSSELine`、`extractDeltaContent`、`parseSSEStream` — SSE 流解析
-- **完全一致**，无差异
+- **check-sync: ✗ 有漂移** — 核心 SSE 解析逻辑一致,但**扩展端额外有 `SSEUsage` 接口与 `parseSSEStreamWithUsage` 函数**(用于解析 DeepSeek 流式尾帧 `stream_options.include_usage=true` 返回的 `usage.prompt_cache_hit/miss_tokens` 字段,KV 缓存命中遥测)。vocal-saga 的 chat 路径不需要(无流式 + 无 KV 命中展示),但若未来要观测服务端 KV 缓存命中需同步。
 
 ### 6. `glossaryExtractor.ts`
 - `extractGlossaryLocal(blocks)` — 术语表提取
-- 依赖 `tech-products.json`（也完全一致）
-- **完全一致**，无差异
+- 依赖 `tech-products.json`
+- **check-sync: ✗ 有漂移** — 提取逻辑一致,仅类型严格度不同:扩展端用 `ReturnType<typeof nlp>` / 不强转,vocal-saga 用 `any` / `as any` 兜底(服务端 npm 包类型不如扩展端精确)。无功能影响,属于类型严格度分叉。
 
 ### 7. `tech-products.json`
 - 已知技术产品 / 出版物列表
-- **完全一致**，无差异
+- **check-sync: ✅ 完全一致**（2026-09-09 验证）
 
 ### 8. 站点规则（共用部分）
-以下规则文件**完全一致**，修改时必须同步：
-- `rules/github-rules.ts`
-- `rules/fortune-rules.ts`
-- `rules/hackernews-rules.ts`
-- `rules/reddit-rules.ts`
-- `rules/gartner-rules.ts`（2026-09-01 新增：`*.gartner.com` + `articleRootSelector:'[class*="aem-Grid"]'`，应对 AEM 9 兄弟碎片结构；选择器在 linkedom 与 jsdom 下均验证可用）
+以下规则文件两端**核心结构一致**（`name` / `hostPatterns` / `documentTerms` / `articleRootSelector` 等基础字段）,但**扩展端额外有 `promptInstructions` 字段**(给本扩展 chat 模式用,server 端不需要)。修改基础字段时仍需同步;新增 `promptInstructions` 不需要同步。
+- `rules/github-rules.ts` — check-sync: ✗ promptInstructions 差异
+- `rules/fortune-rules.ts` — check-sync: ✗ promptInstructions 差异
+- `rules/hackernews-rules.ts` — check-sync: ✗ promptInstructions 差异
+- `rules/reddit-rules.ts` — check-sync: ✗ promptInstructions 差异
+- `rules/gartner-rules.ts`（2026-09-01 新增：`*.gartner.com` + `articleRootSelector:'[class*="aem-Grid"]'`，应对 AEM 9 兄弟碎片结构；选择器在 linkedom 与 jsdom 下均验证可用）— 未列入 check-sync
 
 ### 9. `blockExtractor/constants.ts`（静态数据部分）
 以下常量**完全一致**：
@@ -322,7 +339,7 @@
 
 ### B. 短期:高价值低风险
 
-- [x] **A2**:写 `scripts/check-sync.ts` 同步校验脚本 — 读取本文档"完全一致"模块列表,自动 diff 两端文件,CI 中运行 ✅ 已完成:scripts/check-sync.ts 已创建,检测到 3 个模块有差异(chunkRetry/translationQueue/glossaryExtractor)
+- [x] **A2**:写 `scripts/check-sync.ts` 同步校验脚本 — 读取本文档"完全一致"模块列表,自动 diff 两端文件,CI 中运行 ✅ 已完成:scripts/check-sync.ts 已创建,2026-09-09 实测 11 项中 2 项完全一致(cacheKey/tech-products.json),9 项有漂移(详见 §一各项说明)
 - [x] **A3**:提取共享测试用例(JSON golden files)— 两端跑同一套输入输出,保证行为一致 ✅ 已完成:shared-test-cases/ 目录已创建,含 cacheKey.json 和 chunkRetry.json golden files
 - [x] **S2**:`cacheKey.ts` 加入 `provider` + `promptStyle` 维度 — 当前 key 不含 provider,切换 LLM 后读到旧 provider 的脏缓存 ✅ 已完成:generateTranslationCacheKey 新增 provider + promptStyle 可选参数,向后兼容,pipeline.ts 全链路透传
 - [x] **S6**:`/force/*` 路由跳过 chunk 缓存 — 当前只跳过 D1,`translateChunk` 内部仍查 chunk 缓存,导致"强制刷新"不彻底;两端同步增加 `skipCache` 参数 ✅ 已完成:translateChunk 新增 skipCache 参数,/force/* 路由透传 skipCache=true,跳过 chunk 缓存读取但保留写入

@@ -107,7 +107,7 @@ async function translateChunk(
 ): Promise<Map<string, string>> {
   const tChunk = performance.now();
   const chunkLabel = `[Chunk ${chunk.id}]`;
-  const cacheKey = generateTranslationCacheKey(chunk.jsonContent, sourceLang, targetLang, provider, promptStyle);
+  const cacheKey = generateTranslationCacheKey(chunk.jsonContent, sourceLang, targetLang, provider, promptStyle, glossary);
 
   // 1) 缓存
   const us = (ms: number) => `${Math.round(ms * 1000)}µs`;
@@ -293,6 +293,49 @@ export async function translateText(input: TranslateTextInput): Promise<Translat
     chunks: chunks.length,
     duration_ms: Date.now() - start,
   };
+}
+
+// =============================================================================
+// 对外：translateBlocks → 文档翻译的原子能力
+// =============================================================================
+
+export interface TranslateBlocksInput {
+  /** 一批待翻译片段，id 由调用方保证稳定（文档里就是 segment.id）。 */
+  blocks: Array<{ id: string; text: string }>;
+  source?: string;
+  target?: string;
+  glossary?: Glossary;
+  promptStyle?: PromptStyle;
+  concurrency?: number;
+}
+
+/**
+ * 翻译一批 blocks，复用 chunk 级缓存与 missing 重试。
+ *
+ * 与 translateText 的区别：translateText 把整段文本当成一个 block（id=b1），
+ * 适合"翻译一段话"；文档翻译需要保留每个 segment 的 id 以便回填，
+ * 所以这里按调用方给出的 id 走，不做合并。
+ */
+export async function translateBlocks(
+  input: TranslateBlocksInput,
+): Promise<Map<string, string>> {
+  const blocks = input.blocks
+    .filter((b) => b?.text?.trim())
+    .map((b) => ({ id: b.id, xpath: '', tag: 'p', text: b.text }));
+  if (!blocks.length) return new Map();
+
+  const chunks = buildChunks(blocks as unknown as TextBlock[]);
+  const service = new DeepSeekTranslationService(undefined, input.promptStyle);
+  return translateChunksWithRetry(
+    service,
+    chunks,
+    input.source || 'auto',
+    input.target || 'zh',
+    input.glossary,
+    input.concurrency ?? 4,
+    /* provider */ 'deepseek',
+    input.promptStyle,
+  );
 }
 
 // =============================================================================
