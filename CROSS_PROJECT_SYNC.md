@@ -97,6 +97,7 @@
 - `rules/hackernews-rules.ts` — check-sync: ✗ promptInstructions 差异
 - `rules/reddit-rules.ts` — check-sync: ✗ promptInstructions 差异
 - `rules/gartner-rules.ts`（2026-09-01 新增：`*.gartner.com` + `articleRootSelector:'[class*="aem-Grid"]'`，应对 AEM 9 兄弟碎片结构；选择器在 linkedom 与 jsdom 下均验证可用）— 未列入 check-sync
+- `rules/archive-rules.ts`（2026-09-09 新增：`*.archive.md` + `removeSelectors:['#HEADER']`，隐藏 archive.today 顶部存档导航栏）— **仅 vocal-saga 端**（fanyi-extension 无展示期规则机制，archive.md 的 HEADER 噪声在扩展侧由浏览器原生渲染/用户滚动自然避开，不需要对称规则）
 
 ### 9. `blockExtractor/constants.ts`（静态数据部分）
 以下常量**完全一致**：

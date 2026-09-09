@@ -13,6 +13,7 @@ import { technologyreviewRule } from './technologyreview-rules';
 import { cnnRule } from './cnn-rules';
 import { stackoverflowblogRule } from './stackoverflowblog-rules';
 import { inforqRule } from './infoq-rules';
+import { archiveRule } from './archive-rules';
 
 const RULES: SiteRule[] = [
   githubRule,
@@ -28,6 +29,7 @@ const RULES: SiteRule[] = [
   cnnRule,
   stackoverflowblogRule,
   inforqRule,
+  archiveRule,
 ];
 
 export function matchSiteRule(url: string): MatchedRule | null {

@@ -272,4 +272,26 @@ describe('applySiteDisplayRules', () => {
     // footer 也不在全局规则里（只清理 cookie/modal/paywall 类噪声）
     expect(d.querySelector('footer')?.getAttribute('data-fanyi-remove')).toBeNull();
   });
+
+  it('archive.md：隐藏顶部 #HEADER 存档导航栏', () => {
+    const html = `<html><head></head><body>
+      <div id="HEADER" style="background:#FFFAE1">
+        <table><tr><td>archive.today</td><td>存档自</td></tr></table>
+      </div>
+      <article>The Paperboy's Secret</article>
+    </body></html>`;
+    const out = applySiteDisplayRules(html, 'https://archive.md/PfnMf');
+    const d = doc(out);
+    // #HEADER 应被打标隐藏
+    const header = d.querySelector('#HEADER');
+    expect(header?.getAttribute('data-fanyi-remove')).toBe('true');
+    // 正文不能被误伤
+    expect(d.querySelector('article')?.getAttribute('data-fanyi-remove')).toBeNull();
+  });
+
+  it('archive.md 子域名（d39vprpbr4yx7y.archive.md）同样命中', () => {
+    const html = '<html><body><div id="HEADER">banner</div></body></html>';
+    const out = applySiteDisplayRules(html, 'https://d39vprpbr4yx7y.archive.md/PfnMf');
+    expect(out).toContain('data-fanyi-remove');
+  });
 });
