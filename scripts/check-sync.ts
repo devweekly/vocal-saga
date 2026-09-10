@@ -18,6 +18,7 @@ const SYNC_PAIRS: Array<{ name: string; server: string; extension: string }> = [
   { name: 'translationQueue', server: 'lib/translate/translationQueue.ts', extension: 'src/entrypoints/utils/translationQueue.ts' },
   { name: 'service/_service', server: 'lib/translate/service/_service.ts', extension: 'src/entrypoints/service/_service.ts' },
   { name: 'service/streamParser', server: 'lib/translate/service/streamParser.ts', extension: 'src/entrypoints/service/streamParser.ts' },
+  { name: 'service/glossaryTerms', server: 'lib/translate/service/glossaryTerms.ts', extension: 'src/entrypoints/service/glossaryTerms.ts' },
   { name: 'glossaryExtractor', server: 'lib/translate/glossaryExtractor.ts', extension: 'src/entrypoints/utils/glossaryExtractor.ts' },
   { name: 'tech-products.json', server: 'lib/translate/tech-products.json', extension: 'src/entrypoints/utils/tech-products.json' },
   { name: 'rules/github', server: 'lib/translate/rules/github-rules.ts', extension: 'src/rules/github-rules.ts' },

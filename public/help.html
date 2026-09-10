@@ -114,6 +114,10 @@ curl -X POST "/api/v1/chat/completions" \
     <tr><td><code>POST</code></td><td><code>/api/glossary/extract</code></td><td>从文本抽取 document_terms（?merge=true 合并到 user）</td></tr>
     <tr><td><code>PUT</code></td><td><code>/api/glossary/document</code></td><td>显式设置 document_terms</td></tr>
     <tr><td><code>DELETE</code></td><td><code>/api/glossary/document</code></td><td>清空 document_terms（需 Auth）</td></tr>
+    <tr><td><code>PUT</code></td><td><code>/api/glossary/hard-terms</code></td><td>显式设置 hard_terms（强制术语对 <code>{source,target}[]</code>）</td></tr>
+    <tr><td><code>DELETE</code></td><td><code>/api/glossary/hard-terms</code></td><td>清空 hard_terms（需 Auth）</td></tr>
+    <tr><td><code>PUT</code></td><td><code>/api/glossary/soft-terms</code></td><td>显式设置 soft_terms（建议术语对 <code>{source,target}[]</code>）</td></tr>
+    <tr><td><code>DELETE</code></td><td><code>/api/glossary/soft-terms</code></td><td>清空 soft_terms（需 Auth）</td></tr>
   </table>
 
   <h2>环境变量</h2>

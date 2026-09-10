@@ -2,8 +2,6 @@ import type { SiteRule } from './types';
 
 export const redditRule: SiteRule = {
   hostPattern: 'reddit.com',
-  // Reddit 社区/UI 术语应保持原样。经 withSiteDocumentTerms 合并进 glossary，
-  // 以"保留原文"的形式进入 system prompt。
   documentTerms: [
     'Home',
     'Hot',
@@ -37,5 +35,7 @@ export const redditRule: SiteRule = {
   // it out so we don't ship it to the translation model.
   skipTextPatterns: [
     '^SML\\.load\\s*\\(\\s*\\[',
-  ]
+  ],
+  promptInstructions:
+    'This is a Reddit page. Keep community-specific terms, subreddit names, UI labels like "upvote/downvote/karma", and usernames untranslated.',
 };

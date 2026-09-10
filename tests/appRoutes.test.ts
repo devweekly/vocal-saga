@@ -18,6 +18,10 @@ vi.mock('../lib/translate/glossaryStore', () => ({
   clearUserTerms: vi.fn(),
   setDocumentTerms: vi.fn(),
   clearDocumentTerms: vi.fn(),
+  setHardTerms: vi.fn(),
+  clearHardTerms: vi.fn(),
+  setSoftTerms: vi.fn(),
+  clearSoftTerms: vi.fn(),
 }));
 
 import { createApp } from '../lib/app';
@@ -457,6 +461,68 @@ describe('Glossary API', () => {
   it('DELETE /api/glossary/document requires auth', async () => {
     const app = buildApp();
     const res = await app.request(req('/api/glossary/document', { method: 'DELETE' }));
+    expect(res.status).toBe(401);
+  });
+
+  // ── hard_terms / soft_terms（{source,target} 术语对）──────────
+  it('PUT /api/glossary/hard-terms sets term pairs', async () => {
+    const gs = await import('../lib/translate/glossaryStore');
+    (gs.setHardTerms as any).mockResolvedValue({ hard_terms: [{ source: 'API', target: '接口' }] });
+
+    const app = buildApp();
+    const res = await app.request(req('/api/glossary/hard-terms', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ terms: [{ source: 'API', target: '接口' }] }),
+    }));
+    expect(res.status).toBe(200);
+    expect(gs.setHardTerms).toHaveBeenCalledWith([{ source: 'API', target: '接口' }]);
+  });
+
+  it('PUT /api/glossary/hard-terms 400 when terms is not {source,target}[]', async () => {
+    const app = buildApp();
+    // 纯字符串数组（document_terms 的形态）必须被拒绝
+    const res = await app.request(req('/api/glossary/hard-terms', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ terms: ['API'] }),
+    }));
+    expect(res.status).toBe(400);
+  });
+
+  it('PUT /api/glossary/hard-terms 400 when a pair is missing target', async () => {
+    const app = buildApp();
+    const res = await app.request(req('/api/glossary/hard-terms', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ terms: [{ source: 'API' }] }),
+    }));
+    expect(res.status).toBe(400);
+  });
+
+  it('DELETE /api/glossary/hard-terms requires auth', async () => {
+    const app = buildApp();
+    const res = await app.request(req('/api/glossary/hard-terms', { method: 'DELETE' }));
+    expect(res.status).toBe(401);
+  });
+
+  it('PUT /api/glossary/soft-terms sets term pairs', async () => {
+    const gs = await import('../lib/translate/glossaryStore');
+    (gs.setSoftTerms as any).mockResolvedValue({ soft_terms: [{ source: 'Repo', target: '仓库' }] });
+
+    const app = buildApp();
+    const res = await app.request(req('/api/glossary/soft-terms', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ terms: [{ source: 'Repo', target: '仓库' }] }),
+    }));
+    expect(res.status).toBe(200);
+    expect(gs.setSoftTerms).toHaveBeenCalledWith([{ source: 'Repo', target: '仓库' }]);
+  });
+
+  it('DELETE /api/glossary/soft-terms requires auth', async () => {
+    const app = buildApp();
+    const res = await app.request(req('/api/glossary/soft-terms', { method: 'DELETE' }));
     expect(res.status).toBe(401);
   });
 

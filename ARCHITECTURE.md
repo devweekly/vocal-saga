@@ -449,7 +449,6 @@ interface TranslationService {
 ```typescript
 interface SiteRule {
   hostPattern: string;
-  skipTerms?: string[];
   skipSelectors?: string[];
   skipTextPatterns?: string[];
   promptInstructions?: string;

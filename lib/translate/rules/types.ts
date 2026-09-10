@@ -26,6 +26,11 @@ export interface SiteRule {
   documentTerms?: string[];
 
   /**
+   * Additional prompt instructions for this site
+   */
+  promptInstructions?: string;
+
+  /**
    * 站点特定的文章根节点 CSS 选择器。
    *
    * 当通用 ARTICLE_SELECTORS 无法正确定位正文根时使用。典型场景：

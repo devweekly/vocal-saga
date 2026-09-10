@@ -1,5 +1,5 @@
 import type { Glossary } from './_service';
-import { sanitizeDocumentTerms } from './glossaryTerms';
+import { sanitizeDocumentTerms, renderTermTranslations } from './glossaryTerms';
 
 const WANGXIAOBO_BASE_PROMPT = `
 
@@ -203,6 +203,8 @@ ${sorted.join('\n')}
 </glossary>`;
     }
   }
+
+  systemContent += renderTermTranslations(glossary);
 
   systemContent += `
 

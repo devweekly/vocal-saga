@@ -534,7 +534,6 @@ vocal-saga 是一个运行在 Cloudflare Workers 上的翻译代理服务。它�
 每个规则可指定：
 - `articleRootSelector`
 - `skipSelectors`
-- `skipTerms`
 - `skipTextPatterns`
 - `promptInstructions`
 
