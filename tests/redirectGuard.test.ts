@@ -9,7 +9,7 @@
  *
  * vitest 已配置 environment: 'jsdom'，<script> 会被执行。
  */
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { injectRedirectGuard, REDIRECT_GUARD_SCRIPT } from '../lib/redirectGuard';
 
 const GUARD_MARKER = '__vsRedirectGuard';
@@ -103,12 +103,45 @@ describe('守卫脚本运行时行为', () => {
     expect(await resp.text()).toBe('{}');
   });
 
-  it('正常 fetch 请求不受影响', async () => {
-    runGuard();
+  // 正常请求应透传给原生 fetch（不拦截、不改写）。
+  // 用 mock 断言透传，而不依赖真实网络：旧写法断言 fetch 抛 TypeError，
+  // 在 happy-dom 下相对路径会被补全为 http://localhost:3000 再走网络，
+  // 抛的是 NetworkError 而非 TypeError，且无断言的成功路径会让测试空跑通过。
+  it('正常 fetch 请求不受影响（透传给原生 fetch）', async () => {
+    // 保存现场：守卫会改写 window/globalThis.fetch 并缓存 __vsOrigFetch，
+    // 测试结束后必须恢复，避免污染后续用例。
+    const savedVsOrig = (window as any).__vsOrigFetch;
+    const savedWindowFetch = window.fetch;
+    const savedGlobalFetch = globalThis.fetch;
+    // mock 原生 fetch：返回固定 Response，断言守卫是否透传调用。
+    const mockResponse = new Response('{"ok":true}', { status: 200 });
+    const mockFetch = vi.fn(async () => mockResponse);
+    // 预置为 __vsOrigFetch，让守卫捕获 mock 作为“原生 fetch”。
+    (window as any).__vsOrigFetch = mockFetch;
+    delete (window as any)[GUARD_MARKER];
     try {
-      await fetch('/api/data');
-    } catch (e) {
-      expect(e).toBeInstanceOf(TypeError);
+      runGuard();
+      // 裸 fetch（走 globalThis.fetch）应透传
+      const resp = await fetch('/api/data');
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+      expect(resp).toBe(mockResponse);
+      // window.fetch 同样透传
+      const resp2 = await window.fetch('/api/data');
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+      expect(resp2).toBe(mockResponse);
+      // 被拦截的 URL 不应透传给原生 fetch
+      await fetch('/cdn-cgi/challenge-platform/test');
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+    } finally {
+      // 恢复现场
+      delete (window as any)[GUARD_MARKER];
+      if (savedVsOrig !== undefined) {
+        (window as any).__vsOrigFetch = savedVsOrig;
+      } else {
+        delete (window as any).__vsOrigFetch;
+      }
+      window.fetch = savedWindowFetch;
+      globalThis.fetch = savedGlobalFetch;
     }
   });
 

@@ -149,28 +149,58 @@ export const REDIRECT_GUARD_SCRIPT = `
   // ── 2. fetch guard ──
   // 拦截 CORS 会失败的请求，返回匹配 SPA 预期的 fake 200 响应，
   // 避免 SPA 因 fetch error 进入错误状态并触发 reload。
+  // 注意：jsdom/Node 下裸 fetch 走的是 globalThis.fetch，
+  // 与 window.fetch 不是同一引用，必须同时 patch，否则测试与部分
+  // 容器环境拦截不到（相对路径会直接抛 ERR_INVALID_URL，绝对路径
+  // 会走真实网络导致超时）。
   try {
-    var origFetch = window.fetch;
-    window.fetch = function (input, init) {
+    // 复用首次保存的原生 fetch，避免重复注入时多层包裹
+    // 优先取 globalThis.fetch，保证裸 fetch 语义一致（jsdom 下相对路径抛 TypeError）
+    var origFetch = window.__vsOrigFetch ||
+      ((typeof globalThis !== 'undefined' && globalThis.fetch) ? globalThis.fetch : null) ||
+      window.fetch ||
+      ((typeof self !== 'undefined' && self.fetch) ? self.fetch : null);
+    if (window.__vsOrigFetch !== origFetch) {
+      try { window.__vsOrigFetch = origFetch; } catch (e) {}
+    }
+    var fetchWrapper = function (input, init) {
       var url = typeof input === 'string' ? input :
                 (input && typeof input === 'object' && input.url) ? input.url :
                 String(input || '');
       if (shouldBlock(url)) {
         var fakeBody = buildFakeResponse(url);
         console.log('[vocal-saga] 拦截 fetch:', url);
-        return Promise.resolve(new Response(fakeBody, {
+        var RespCtor = (typeof Response !== 'undefined') ? Response : window.Response;
+        return Promise.resolve(new RespCtor(fakeBody, {
           status: 200,
           headers: { 'Content-Type': 'application/json' }
         }));
       }
       try {
-        return origFetch.apply(window, arguments);
+        return origFetch.apply(this, arguments);
       } catch (e) {
         // 原生 fetch 同步抛错（如 URL 非法），返回 rejected Promise 不让 SPA 崩溃
         console.log('[vocal-saga] 吞掉 fetch 错误:', e.message, url);
         return Promise.reject(e);
       }
     };
+    window.fetch = fetchWrapper;
+    // 同步到其它全局作用域（浏览器里它们通常是同一对象，重复赋值无害）
+    try {
+      if (typeof globalThis !== 'undefined' && globalThis.fetch !== window.fetch) {
+        globalThis.fetch = window.fetch;
+      }
+    } catch (e) {}
+    try {
+      if (typeof self !== 'undefined' && self !== window && self.fetch !== window.fetch) {
+        self.fetch = window.fetch;
+      }
+    } catch (e) {}
+    try {
+      if (typeof global !== 'undefined' && global.fetch !== window.fetch) {
+        global.fetch = window.fetch;
+      }
+    } catch (e) {}
     results.fetch = true;
   } catch (e) {
     results.fetch = false;
