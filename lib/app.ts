@@ -68,19 +68,6 @@ import { translateDocument } from './translate/documentPipeline';
 import { hasDocumentRoot, validateTranslationCompleteness } from './translate/translationValidator';
 import { simpleHash } from './translate/cacheKey';
 import type { PromptStyle } from './translate/service/shared';
-import {
-  getGlossary,
-  addUserTerms,
-  removeUserTerm,
-  clearUserTerms,
-  setDocumentTerms,
-  clearDocumentTerms,
-  setHardTerms,
-  clearHardTerms,
-  setSoftTerms,
-  clearSoftTerms,
-  type TermPair,
-} from './translate/glossaryStore';
 import { setDefaultStorage, type StorageAdapter } from './storage';
 import { requireAuth } from './auth';
 import { extractClientInfo, formatClientLabel } from './clientInfo';
@@ -117,26 +104,6 @@ import {
   getCfAccountId,
   getCfApiToken,
 } from './config';
-
-// ── 术语对校验（hard_terms / soft_terms）─────────────────────
-function isTermPair(p: unknown): p is TermPair {
-  return (
-    !!p &&
-    typeof p === 'object' &&
-    typeof (p as TermPair).source === 'string' &&
-    typeof (p as TermPair).target === 'string'
-  );
-}
-
-// ── extractor 懒加载 ────────────────────────────────────────
-type Extractor = (text: string) => { document_terms: string[] };
-let _extractGlossary: Extractor | null = null;async function getExtractor(): Promise<Extractor> {
-  if (!_extractGlossary) {
-    const mod = await import('./translate/glossaryExtractor');
-    _extractGlossary = (mod as any).extractGlossaryLocal as Extractor;
-  }
-  return _extractGlossary;
-}
 
 /**
  * 校验缓存的翻译 HTML 是否结构完整。
@@ -1331,146 +1298,6 @@ ${pager}
   app.get('/o/*', (c) => {
     const raw = decodeURIComponent(c.req.path.slice('/o/'.length));
     return handleOriginalRequest(c, raw);
-  });
-
-  // ── 术语表管理（持久层由 setDefaultStorage 注入） ─────
-  app.get('/api/glossary', async (c) => {
-    try {
-      return c.json(await getGlossary());
-    } catch (err) {
-      console.error('[glossary] get error:', err);
-      return c.json({ error: (err as Error).message }, 500);
-    }
-  });
-
-  app.post('/api/glossary', async (c) => {
-    const body = await c.req.json().catch(() => ({} as any));
-    const terms = body?.terms;
-    if (!Array.isArray(terms) || terms.some((t: unknown) => typeof t !== 'string')) {
-      return c.json({ error: 'terms: string[] required' }, 400);
-    }
-    try {
-      return c.json(await addUserTerms(terms));
-    } catch (err) {
-      console.error('[glossary] add error:', err);
-      return c.json({ error: (err as Error).message }, 500);
-    }
-  });
-
-  app.delete('/api/glossary', async (c) => {
-    try {
-      return c.json(await clearUserTerms());
-    } catch (err) {
-      console.error('[glossary] clear error:', err);
-      return c.json({ error: (err as Error).message }, 500);
-    }
-  });
-
-  app.delete('/api/glossary/:term', requireAuth, async (c) => {
-    const term = decodeURIComponent(c.req.param('term'));
-    try {
-      return c.json(await removeUserTerm(term));
-    } catch (err) {
-      console.error('[glossary] remove error:', err);
-      return c.json({ error: (err as Error).message }, 500);
-    }
-  });
-
-  app.post('/api/glossary/extract', async (c) => {
-    const { text } = await c.req.json().catch(() => ({} as any));
-    if (!text || typeof text !== 'string') {
-      return c.json({ error: 'text is required' }, 400);
-    }
-    try {
-      const extract = await getExtractor();
-      const result = extract(text);
-      const merge = c.req.query('merge') === 'true';
-      if (merge) {
-        const g = await addUserTerms(result.document_terms);
-        console.log(`[glossary/extract] text=${text.length}ch → ${result.document_terms.length} terms (merged)`);
-        return c.json(g);
-      } else {
-        const g = await setDocumentTerms(result.document_terms);
-        console.log(`[glossary/extract] text=${text.length}ch → ${result.document_terms.length} terms`);
-        return c.json(g);
-      }
-    } catch (err) {
-      console.error('[glossary/extract] error:', err);
-      return c.json({ error: (err as Error).message }, 500);
-    }
-  });
-
-  app.put('/api/glossary/document', async (c) => {
-    const body = await c.req.json().catch(() => ({} as any));
-    const terms = body?.terms;
-    if (!Array.isArray(terms) || terms.some((t: unknown) => typeof t !== 'string')) {
-      return c.json({ error: 'terms: string[] required' }, 400);
-    }
-    try {
-      return c.json(await setDocumentTerms(terms));
-    } catch (err) {
-      console.error('[glossary/document] put error:', err);
-      return c.json({ error: (err as Error).message }, 500);
-    }
-  });
-
-  app.delete('/api/glossary/document', requireAuth, async (c) => {
-    try {
-      return c.json(await clearDocumentTerms());
-    } catch (err) {
-      console.error('[glossary/document] clear error:', err);
-      return c.json({ error: (err as Error).message }, 500);
-    }
-  });
-
-  // ── hard_terms / soft_terms：{source,target} 术语对 ──────────
-  // 由 service/glossaryTerms.ts 的 renderTermTranslations 渲染进 system prompt：
-  //   hard_terms → 「必须按 target 翻译」；soft_terms → 「语境合适时优先用 target」。
-  // 注意：翻译 pipeline 的 glossary 来自调用方 request body，调用方需把这里存的值带上。
-  app.put('/api/glossary/hard-terms', async (c) => {
-    const body = await c.req.json().catch(() => ({} as any));
-    const pairs = body?.terms;
-    if (!Array.isArray(pairs) || pairs.some((p: unknown) => !isTermPair(p))) {
-      return c.json({ error: 'terms: {source,target}[] required' }, 400);
-    }
-    try {
-      return c.json(await setHardTerms(pairs as TermPair[]));
-    } catch (err) {
-      console.error('[glossary/hard-terms] put error:', err);
-      return c.json({ error: (err as Error).message }, 500);
-    }
-  });
-
-  app.delete('/api/glossary/hard-terms', requireAuth, async (c) => {
-    try {
-      return c.json(await clearHardTerms());
-    } catch (err) {
-      console.error('[glossary/hard-terms] clear error:', err);
-      return c.json({ error: (err as Error).message }, 500);
-    }
-  });
-
-  app.put('/api/glossary/soft-terms', async (c) => {
-    const body = await c.req.json().catch(() => ({} as any));
-    const pairs = body?.terms;
-    if (!Array.isArray(pairs) || pairs.some((p: unknown) => !isTermPair(p))) {
-      return c.json({ error: 'terms: {source,target}[] required' }, 400);
-    }
-    try {
-      return c.json(await setSoftTerms(pairs as TermPair[]));
-    } catch (err) {
-      console.error('[glossary/soft-terms] put error:', err);
-      return c.json({ error: (err as Error).message }, 500);
-    }
-  });
-
-  app.delete('/api/glossary/soft-terms', requireAuth, async (c) => {
-    try {
-      return c.json(await clearSoftTerms());
-    } catch (err) {
-      console.error('[glossary/soft-terms] clear error:', err);
-      return c.json({ error: (err as Error).message }, 500);
-    }
   });
 
   app.notFound((c) => c.json({ error: 'Not found' }, 404));

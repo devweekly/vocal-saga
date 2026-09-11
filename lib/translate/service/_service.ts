@@ -1,6 +1,5 @@
 export interface Glossary {
-  hard_terms?: { source: string; target: string }[];
-  soft_terms?: { source: string; target: string }[];
+  /** 需保留原文的专有名词，由 glossaryExtractor 从页面正文自动抽取（用户无感）。 */
   document_terms?: string[];
 }
 

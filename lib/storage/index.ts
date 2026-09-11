@@ -2,7 +2,7 @@
  * 默认存储的注册与读取。
  *
  * 入口在启动时（每个冷启动一次）调用 `setDefaultStorage(adapter)` 注入具体实现。
- * 上层（glossaryStore / cacheManager）只通过 `getDefaultStorage()` 拿到 adapter。
+ * 上层（cacheManager 等）只通过 `getDefaultStorage()` 拿到 adapter。
  *
  * 用 globalThis 存储指针，避免 ESM 模块在测试 / HMR 中被多次 evaluate 时
  * 后一次的 import 拿到的是新的空指针。

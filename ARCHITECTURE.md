@@ -80,8 +80,8 @@ vocal-saga 是一个运行在 Cloudflare Workers 上的翻译代理服务，提�
 │       ├── cacheKey.ts             # 翻译缓存 key 生成
 │       ├── translateApi.ts         # 翻译结果解析 + unchanged 检测
 │       ├── translationDisplay.ts   # 双语对照 DOM 回填
-│       ├── glossaryStore.ts        # 术语表存储
 │       ├── glossaryExtractor.ts    # 术语提取
+│       ├── languageDetector.ts     # 页面语言检测（ja → ja-source-natural 升级）
 │       ├── blockExtractor/         # DOM 文本提取
 │       │   ├── walker.ts           #   手写递归 walker
 │       │   ├── rules.ts            #   acceptNode 规则
@@ -98,7 +98,7 @@ vocal-saga 是一个运行在 Cloudflare Workers 上的翻译代理服务，提�
 │       │       └── siteRule.ts     #     站点规则策略
 │       ├── service/                # LLM API 调用
 │       │   ├── _service.ts         #   TranslationService 接口
-│       │   ├── shared.ts           #   共享工具（prompt / JSON 修复）
+│       │   ├── shared.ts           #   共享工具（JSON 修复 / prompt 入口薄封装）
 │       │   ├── deepseek.ts         #   DeepSeek
 │       │   ├── openrouter.ts       #   OpenRouter
 │       │   ├── nvidia.ts           #   NVIDIA (kimi-k2.6 / deepseek-v4-flash / qwen3)
@@ -106,9 +106,15 @@ vocal-saga 是一个运行在 Cloudflare Workers 上的翻译代理服务，提�
 │       │   ├── gemini.ts           #   Google Gemini 原生 API
 │       │   ├── opencode.ts         #   OpenCode.ai
 │       │   ├── mimo.ts             #   MiMo Auto
+│       │   ├── prompt-contract.ts  #   prompt 共用骨架（契约 / 安全策略 / 输出格式）
+│       │   ├── prompt-style.ts     #   文风调度（PromptStyle + buildStyledSystemContent）
+│       │   ├── default-prompt.ts   #   通用自然翻译 prompt
 │       │   ├── jinyong-prompt.ts   #   金庸武侠文风 prompt
 │       │   ├── acheng-prompt.ts    #   阿城白描文风 prompt
-│       │   └── wangxiaobo-prompt.ts #  王小波大白话文风 prompt
+│       │   ├── wangxiaobo-prompt.ts #  王小波大白话文风 prompt
+│       │   ├── japanese-natural-zh-prompt.ts # 日语原文→自然中文 prompt
+│       │   ├── glossaryTerms.ts    #   术语表注入防护（sanitizeDocumentTerms）
+│       │   └── streamParser.ts     #   SSE 流解析
 │       └── rules/                   # 站点规则
 │           ├── types.ts             #   SiteRule 接口
 │           ├── index.ts             #   规则入口
@@ -252,9 +258,6 @@ D1 写入 + 响应
 | `GET /cf/*` | ✗ | Cloudflare AI 翻译 |
 | `GET /original/*` | ✗ | 原始页面（注入 `<base>` + 导航清理） |
 | `GET /o/*` | ✗ | `/original` 别名 |
-| `GET/POST/DELETE /api/glossary` | 部分 | 术语表管理 |
-| `POST /api/glossary/extract` | ✗ | 术语提取 |
-| `PUT/DELETE /api/glossary/document` | 部分 | 文档术语管理 |
 
 **HTML 后处理 pipeline**：
 
@@ -427,10 +430,22 @@ interface TranslationService {
 - `stripThinkingTags`：去除 `<think>...</think>` 标签
 - `stripMarkdownCodeBlock`：去除 markdown 代码块包裹
 - `cleanJsonString`：移除尾随逗号 + 修复 LLM 偶发"重复引号"模式（jsonrepair 修不对这个）
-- `buildSystemContent`：根据 PromptStyle 选择 system prompt
+- `buildSystemContent`：根据 PromptStyle 选择 system prompt（薄封装，调度在 `service/prompt-style.ts`）
 - `buildTranslationBody`：构造请求体
 
-**PromptStyle**：`'default' | 'jinyong' | 'acheng' | 'wangxiaobo'`
+**PromptStyle**：`'default' | 'jinyong' | 'acheng' | 'wangxiaobo' | 'ja-source-natural'`
+
+**Prompt 架构（2026-09-11 起）**：所有 prompt 全量中文，拆成「共用骨架 + 各自文风段落」两层：
+
+| 文件 | 职责 |
+|------|------|
+| `service/prompt-contract.ts` | 共用骨架：`<翻译契约>`、`<原文安全策略>`、术语表与输出格式渲染、语言名映射、`composeSystemContent()` |
+| `service/prompt-style.ts` | 唯一调度出口：`PromptStyle` 类型 + `buildStyledSystemContent()` |
+| `service/default-prompt.ts` 等 5 个文风文件 | 各自只提供 persona（角色 + `<文风>` / `<翻译原则>` / `<日语原文特点>`） |
+
+拼装顺序固定为：persona → `<翻译契约>` → `<原文安全策略>` → `<术语表>`（可选）→ `<输出格式>`。
+`prompt-contract.ts` 不 import 任何文风模块，避免与 `prompt-style.ts` 形成循环依赖。
+以上 7 个文件全部是 fanyi-extension / vocal-saga 的**逐字同步对**。
 
 **Gemini 特殊处理**：
 - 使用 `contents/parts` 结构 + `systemInstruction`
@@ -551,7 +566,7 @@ export const requireAuth = factory.createMiddleware(async (c, next) => {
 
 - 使用 `hono/factory` 创建 middleware（类型安全）
 - `AUTH_KEY` 必须至少 6 字符
-- 仅 `/api/v1/chat/completions` 和 `DELETE /api/glossary/:term` / `DELETE /api/glossary/document` 要求鉴权
+- 仅 `/api/v1/chat/completions` 要求鉴权
 - 翻译路由故意不校验（浏览器直访场景，地址栏无法带 header）
 
 ### URL 标准化

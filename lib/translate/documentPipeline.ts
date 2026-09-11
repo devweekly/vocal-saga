@@ -12,6 +12,7 @@ import { runWithConcurrency } from './concurrency';
 import { translateBlocks } from './pipeline';
 import type { Glossary } from './service/_service';
 import type { PromptStyle } from './service/shared';
+import { detectLanguage, shouldUseJapaneseSource } from './languageDetector';
 import {
   buildSegmentBatches,
   exportDocument,
@@ -60,6 +61,29 @@ export async function translateDocument(
   const errors: string[] = [];
   const concurrency = Math.max(1, input.concurrency ?? 4);
 
+  // ── 文档级语言检测（整篇只做一次）──
+  // 与页级 pipeline（lib/translate/pipeline.ts runTranslationPipeline）同一策略：
+  // 日语原文 → 非日语目标语言时把 default 自动升级为 ja-source-natural。
+  // 检测基于全部 segment 的拼接文本，而不是单批 —— 批内文本可能过短，
+  // 会触发 languageDetector 的短文本保护而判不出语言，导致同一文档内
+  // 各批文风不一致。
+  // 注：ParsedDocument 没有 lang 字段，故不传 htmlLang 辅助信号（假名证据已足够）。
+  const detected = detectLanguage(doc.segments.map((s) => s.text).join('\n'));
+  const effectiveStyle: PromptStyle | undefined = shouldUseJapaneseSource(
+    input.promptStyle,
+    detected.language,
+    input.target || 'zh',
+  )
+    ? 'ja-source-natural'
+    : input.promptStyle;
+  if (effectiveStyle !== input.promptStyle) {
+    console.log(
+      `[DocumentPipeline] Source detected as ${detected.language} ` +
+        `(kanaRatio=${detected.kanaRatio.toFixed(3)}, confidence=${detected.confidence.toFixed(2)}) ` +
+        `→ promptStyle ${input.promptStyle ?? 'default'} auto-upgraded to ${effectiveStyle}`,
+    );
+  }
+
   await runWithConcurrency(batches, concurrency, async (batch, index) => {
     try {
       const result = await translateBlocks({
@@ -67,7 +91,7 @@ export async function translateDocument(
         source: input.source,
         target: input.target,
         glossary: input.glossary,
-        promptStyle: input.promptStyle,
+        promptStyle: effectiveStyle,
         concurrency: 1,
       });
       // 逐批提交：成功的批立刻可见，失败的批不影响已完成部分

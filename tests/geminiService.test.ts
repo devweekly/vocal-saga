@@ -78,7 +78,9 @@ describe('GeminiTranslationService', () => {
     await service.translate('[{"id":"1","text":"hello"}]', 'en', 'zh');
 
     const config = mockGenerateContent.mock.calls[0][0].config;
-    expect(config.systemInstruction).toContain('Translate');
+    // prompt 已全量中文化（2026-09-11）：断言共用骨架里的契约标记
+    expect(config.systemInstruction).toContain('<翻译契约>');
+    expect(config.systemInstruction).toContain('translated_text');
     expect(config.temperature).toBe(0.5);
     expect(config.maxOutputTokens).toBeGreaterThan(0);
     expect(config.abortSignal).toBeInstanceOf(AbortSignal);

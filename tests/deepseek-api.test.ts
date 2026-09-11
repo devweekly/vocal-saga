@@ -89,7 +89,7 @@ describe('DeepSeekTranslationService API methods', () => {
 
       const fetchCall = globalFetch.mock.calls[0];
       const body = JSON.parse(fetchCall[1].body);
-      expect(body.messages[0].content).not.toContain('Preserve only proper nouns and named entities.');
+      expect(body.messages[0].content).not.toContain('<术语表>');
     });
 
     it('should handle HTTP 401 error', async () => {

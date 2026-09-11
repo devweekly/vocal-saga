@@ -14,15 +14,6 @@ vi.mock('../lib/translate/pipeline', () => ({
   translateBlocks: vi.fn(),
 }));
 
-vi.mock('../lib/translate/glossaryStore', () => ({
-  getGlossary: vi.fn(),
-  addUserTerms: vi.fn(),
-  removeUserTerm: vi.fn(),
-  clearUserTerms: vi.fn(),
-  setDocumentTerms: vi.fn(),
-  clearDocumentTerms: vi.fn(),
-}));
-
 import { createApp } from '../lib/app';
 import { MapStorage, setDefaultStorage } from '../lib/storage';
 

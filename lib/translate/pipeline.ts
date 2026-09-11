@@ -30,6 +30,7 @@ import { translateSingleflight } from './singleflight.js';
 import { DeepSeekTranslationService } from './service/deepseek';
 import type { Glossary } from './service/_service';
 import type { PromptStyle } from './service/shared';
+import { detectLanguage, shouldUseJapaneseSource } from './languageDetector';
 import { fetchPage } from './urlFetcher';
 import { runWithConcurrency } from './concurrency';
 import { matchSiteRule } from './rules';
@@ -433,28 +434,52 @@ async function runTranslationPipeline(
     console.log(`[Pipeline] Extracted ${blocks.length} blocks → ${chunks.length} chunks`);
   }
 
-  // 根据 provider 选择翻译服务实例，传入 style 切换文风
+  // ── 页级语言检测（整页只做一次）──
+  // 目的：日语原文 → 非日语目标语言时，把 default 文风自动升级为 ja-source-natural
+  // （保留原文的克制、论述顺序与限定语气，见 service/japanese-natural-zh-prompt）。
+  // 只检测一次而不是每 chunk 一次：既避免重复统计，也让 DeepSeek prompt 的
+  // 公共前缀保持稳定（利于 KV cache 命中）。
+  // 用户手工选择的文风永远优先 —— 策略集中在 shouldUseJapaneseSource。
+  const detected = detectLanguage(blocks.map((b) => b.text).join('\n'), {
+    htmlLang: doc.documentElement?.getAttribute('lang') || undefined,
+  });
+  const effectiveStyle: PromptStyle | undefined = shouldUseJapaneseSource(
+    style,
+    detected.language,
+    targetLang,
+  )
+    ? 'ja-source-natural'
+    : style;
+  if (effectiveStyle !== style) {
+    console.log(
+      `[Pipeline] Source detected as ${detected.language} ` +
+        `(kanaRatio=${detected.kanaRatio.toFixed(3)}, confidence=${detected.confidence.toFixed(2)}) ` +
+        `→ promptStyle ${style ?? 'default'} auto-upgraded to ${effectiveStyle}`,
+    );
+  }
+
+  // 根据 provider 选择翻译服务实例，传入 effectiveStyle 切换文风
   let service: DeepSeekTranslationService;
   if (provider === 'openrouter') {
     const { OpenRouterTranslationService } = await import('./service/openrouter');
-    service = new OpenRouterTranslationService(style) as any;
+    service = new OpenRouterTranslationService(effectiveStyle) as any;
   } else if (provider === 'nvidia') {
     const { NvidiaTranslationService } = await import('./service/nvidia');
-    service = new NvidiaTranslationService(model, style) as any;
+    service = new NvidiaTranslationService(model, effectiveStyle) as any;
   } else if (provider === 'cloudflare') {
     const { CloudflareAITranslationService } = await import('./service/cloudflare');
-    service = new CloudflareAITranslationService(style) as any;
+    service = new CloudflareAITranslationService(effectiveStyle) as any;
   } else if (provider === 'mimo') {
     const { MimoTranslationService } = await import('./service/mimo');
-    service = new MimoTranslationService(style) as any;
+    service = new MimoTranslationService(effectiveStyle) as any;
   } else if (provider === 'gemini') {
     const { GeminiTranslationService } = await import('./service/gemini');
-    service = new GeminiTranslationService(model, style) as any;
+    service = new GeminiTranslationService(model, effectiveStyle) as any;
   } else if (provider === 'opencode') {
     const { OpencodeTranslationService } = await import('./service/opencode');
-    service = new OpencodeTranslationService(style) as any;
+    service = new OpencodeTranslationService(effectiveStyle) as any;
   } else {
-    service = new DeepSeekTranslationService(apiKey, style);
+    service = new DeepSeekTranslationService(apiKey, effectiveStyle);
   }
   const tTrans = performance.now();
   // 并发度：opencode 限流严格（CF Worker 共享 IP 易触发 429）与 openrouter 的
@@ -474,7 +499,7 @@ async function runTranslationPipeline(
     withSiteDocumentTerms(glossary, finalUrl),
     concurrency,
     provider,
-    style,
+    effectiveStyle,
     skipCache,
   );
 

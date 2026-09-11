@@ -1,7 +1,5 @@
 /**
- * 剩余 Hono 路由单测：hello、models、text 翻译、术语表 CRUD。
- *
- * glossaryStore 在模块顶层 mock，不影响其他 test file（vitest 文件级隔离）。
+ * 剩余 Hono 路由单测：hello、models、text 翻译。
  */
 import { describe, it, expect, beforeAll, beforeEach, afterEach, vi } from 'vitest';
 
@@ -9,19 +7,6 @@ vi.mock('../lib/translate/pipeline', () => ({
   translateUrl: vi.fn(),
   translateText: vi.fn(),
   translateHtml: vi.fn(),
-}));
-
-vi.mock('../lib/translate/glossaryStore', () => ({
-  getGlossary: vi.fn(),
-  addUserTerms: vi.fn(),
-  removeUserTerm: vi.fn(),
-  clearUserTerms: vi.fn(),
-  setDocumentTerms: vi.fn(),
-  clearDocumentTerms: vi.fn(),
-  setHardTerms: vi.fn(),
-  clearHardTerms: vi.fn(),
-  setSoftTerms: vi.fn(),
-  clearSoftTerms: vi.fn(),
 }));
 
 import { createApp } from '../lib/app';
@@ -52,9 +37,6 @@ beforeEach(async () => {
     title: 'Translated',
     blocks: 2, chunks: 1, duration_ms: 20,
   });
-
-  const gs = await import('../lib/translate/glossaryStore');
-  mockClearAll(gs.getGlossary, gs.addUserTerms, gs.removeUserTerm, gs.clearUserTerms, gs.setDocumentTerms, gs.clearDocumentTerms);
 });
 
 function buildApp() {
@@ -364,175 +346,6 @@ describe('POST /api/translate/text', () => {
 });
 
 // ─── Glossary API ────────────────────────────────────────────
-describe('Glossary API', () => {
-  it('GET /api/glossary returns terms', async () => {
-    const gs = await import('../lib/translate/glossaryStore');
-    (gs.getGlossary as any).mockResolvedValue({ user_terms: ['React'], document_terms: ['LLM'] });
-
-    const app = buildApp();
-    const res = await app.request(req('/api/glossary'));
-    expect(res.status).toBe(200);
-    const body: any = await res.json();
-    expect(body.user_terms).toEqual(['React']);
-  });
-
-  it('GET /api/glossary 500 on store error', async () => {
-    const gs = await import('../lib/translate/glossaryStore');
-    (gs.getGlossary as any).mockRejectedValueOnce(new Error('store error'));
-
-    const app = buildApp();
-    const res = await app.request(req('/api/glossary'));
-    expect(res.status).toBe(500);
-  });
-
-  it('POST /api/glossary adds terms', async () => {
-    const gs = await import('../lib/translate/glossaryStore');
-    (gs.addUserTerms as any).mockResolvedValue({ user_terms: ['React'] });
-
-    const app = buildApp();
-    const res = await app.request(req('/api/glossary', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ terms: ['React'] }),
-    }));
-    expect(res.status).toBe(200);
-  });
-
-  it('POST /api/glossary 400 when terms is not string[]', async () => {
-    const app = buildApp();
-    const res = await app.request(req('/api/glossary', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ terms: 'not-an-array' }),
-    }));
-    expect(res.status).toBe(400);
-  });
-
-  it('POST /api/glossary 400 when terms contains non-string', async () => {
-    const app = buildApp();
-    const res = await app.request(req('/api/glossary', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ terms: ['valid', 123] }),
-    }));
-    expect(res.status).toBe(400);
-  });
-
-  it('DELETE /api/glossary clears terms', async () => {
-    const gs = await import('../lib/translate/glossaryStore');
-    (gs.clearUserTerms as any).mockResolvedValue({ user_terms: [] });
-
-    const app = buildApp();
-    const res = await app.request(req('/api/glossary', { method: 'DELETE' }));
-    expect(res.status).toBe(200);
-  });
-
-  it('DELETE /api/glossary/:term requires auth', async () => {
-    const app = buildApp();
-    const res = await app.request(req('/api/glossary/React', { method: 'DELETE' }));
-    expect(res.status).toBe(401);
-  });
-
-  it('DELETE /api/glossary/:term removes term with valid auth', async () => {
-    const gs = await import('../lib/translate/glossaryStore');
-    (gs.removeUserTerm as any).mockResolvedValue({ user_terms: [] });
-
-    const app = buildApp();
-    const res = await app.request(req('/api/glossary/React', {
-      method: 'DELETE',
-      headers: { Authorization: 'Bearer test-auth-key-123456' },
-    }));
-    expect(res.status).toBe(200);
-  });
-
-  it('PUT /api/glossary/document sets document terms', async () => {
-    const gs = await import('../lib/translate/glossaryStore');
-    (gs.setDocumentTerms as any).mockResolvedValue({ document_terms: ['LLM'] });
-
-    const app = buildApp();
-    const res = await app.request(req('/api/glossary/document', {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ terms: ['LLM'] }),
-    }));
-    expect(res.status).toBe(200);
-  });
-
-  it('DELETE /api/glossary/document requires auth', async () => {
-    const app = buildApp();
-    const res = await app.request(req('/api/glossary/document', { method: 'DELETE' }));
-    expect(res.status).toBe(401);
-  });
-
-  // ── hard_terms / soft_terms（{source,target} 术语对）──────────
-  it('PUT /api/glossary/hard-terms sets term pairs', async () => {
-    const gs = await import('../lib/translate/glossaryStore');
-    (gs.setHardTerms as any).mockResolvedValue({ hard_terms: [{ source: 'API', target: '接口' }] });
-
-    const app = buildApp();
-    const res = await app.request(req('/api/glossary/hard-terms', {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ terms: [{ source: 'API', target: '接口' }] }),
-    }));
-    expect(res.status).toBe(200);
-    expect(gs.setHardTerms).toHaveBeenCalledWith([{ source: 'API', target: '接口' }]);
-  });
-
-  it('PUT /api/glossary/hard-terms 400 when terms is not {source,target}[]', async () => {
-    const app = buildApp();
-    // 纯字符串数组（document_terms 的形态）必须被拒绝
-    const res = await app.request(req('/api/glossary/hard-terms', {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ terms: ['API'] }),
-    }));
-    expect(res.status).toBe(400);
-  });
-
-  it('PUT /api/glossary/hard-terms 400 when a pair is missing target', async () => {
-    const app = buildApp();
-    const res = await app.request(req('/api/glossary/hard-terms', {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ terms: [{ source: 'API' }] }),
-    }));
-    expect(res.status).toBe(400);
-  });
-
-  it('DELETE /api/glossary/hard-terms requires auth', async () => {
-    const app = buildApp();
-    const res = await app.request(req('/api/glossary/hard-terms', { method: 'DELETE' }));
-    expect(res.status).toBe(401);
-  });
-
-  it('PUT /api/glossary/soft-terms sets term pairs', async () => {
-    const gs = await import('../lib/translate/glossaryStore');
-    (gs.setSoftTerms as any).mockResolvedValue({ soft_terms: [{ source: 'Repo', target: '仓库' }] });
-
-    const app = buildApp();
-    const res = await app.request(req('/api/glossary/soft-terms', {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ terms: [{ source: 'Repo', target: '仓库' }] }),
-    }));
-    expect(res.status).toBe(200);
-    expect(gs.setSoftTerms).toHaveBeenCalledWith([{ source: 'Repo', target: '仓库' }]);
-  });
-
-  it('DELETE /api/glossary/soft-terms requires auth', async () => {
-    const app = buildApp();
-    const res = await app.request(req('/api/glossary/soft-terms', { method: 'DELETE' }));
-    expect(res.status).toBe(401);
-  });
-
-  it('app.notFound returns 404 for unknown routes', async () => {
-    const app = buildApp();
-    const res = await app.request(req('/api/nonexistent'));
-    expect(res.status).toBe(404);
-  });
-});
-
 // ─── GET /fanyi/page/check ─────────────────────────────────
 describe('GET /fanyi/page/check', () => {
   it('returns cached HTML when cache exists', async () => {

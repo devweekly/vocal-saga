@@ -42,8 +42,8 @@ vocal-saga 是一个运行在 Cloudflare Workers 上的翻译代理服务。它�
 │       ├── cacheManager.ts         # 翻译缓存管理
 │       ├── translateApi.ts         # 翻译结果解析与修复
 │       ├── translationDisplay.ts   # 双语回填与显示策略
-│       ├── glossaryStore.ts        # 术语表存储
 │       ├── glossaryExtractor.ts    # 术语提取
+│       ├── languageDetector.ts     # 页面语言检测（ja → ja-source-natural 升级）
 │       ├── blockExtractor/         # DOM 文本块提取
 │       ├── extraction/             # 多策略文章抽取与评分
 │       └── service/                # LLM 服务调用适配
@@ -69,7 +69,7 @@ vocal-saga 是一个运行在 Cloudflare Workers 上的翻译代理服务。它�
 - 长请求依赖边缘网络与上游 LLM，需控制超时和并发，避免 Worker request timeout
 
 ### 存储与绑定
-- `VOCAL_SAGA_KV`：Cloudflare KV，用于翻译块级缓存、术语缓存、翻译状态缓存等
+- `VOCAL_SAGA_KV`：Cloudflare KV，用于翻译块级缓存、翻译状态缓存等
 - `DB999`：Cloudflare D1，用于翻译结果持久化、历史记录、缓存查询
 - `ASSETS`：静态资源绑定，用于部署静态页面与前端资源
 - 运行时配置通过环境变量注入，`createApp` 从 `env` 读取并回退到 `process.env`，支持本地测试与 CI
@@ -78,8 +78,6 @@ vocal-saga 是一个运行在 Cloudflare Workers 上的翻译代理服务。它�
 - 公开翻译页面接口和浏览器扩展 API 不启用鉴权，保持用户访问便利
 - 仅对敏感后端管理 API 启用 Bearer `AUTH_KEY`，例如：
   - `POST /api/v1/chat/completions`
-  - `DELETE /api/glossary/:term`
-  - `DELETE /api/glossary/document`
 - `auth.ts` 负责统一校验 `Authorization` header，与 env 中的 `AUTH_KEY` 对比
 - `assertPublicUrl` 与 `normalizeUrl` 保护 URL 输入，避免私网、localhost、非法 scheme 或内网地址注入
 
@@ -88,7 +86,6 @@ vocal-saga 是一个运行在 Cloudflare Workers 上的翻译代理服务。它�
 - 翻译入口路由：`/translate/*`, `/force/*`, `/openrt/*`, `/nvd/*`, `/mimo/*`, `/gemini/*`, `/oc/*`, `/cf/*`
 - 扩展协作路由：`/fanyi/page`, `/fanyi/page/check`
 - LLM 代理路由：`/api/v1/chat/completions`
-- 术语管理路由：`/api/glossary`, `/api/glossary/extract`, `/api/glossary/document`
 - 模型列表与健康检查：`/api/v1/models`, `/api/hello`
 
 ## 五、请求处理流程
