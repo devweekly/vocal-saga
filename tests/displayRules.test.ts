@@ -294,4 +294,36 @@ describe('applySiteDisplayRules', () => {
     const out = applySiteDisplayRules(html, 'https://d39vprpbr4yx7y.archive.md/PfnMf');
     expect(out).toContain('data-fanyi-remove');
   });
+
+  it('AWS Blogs：隐藏固定浮动的 #m-subnav 子导航与反馈按钮', () => {
+    const html = `<html><head></head><body>
+      <div id="m-subnav" data-testid="subnav-desktop">
+        <p>AWS Blogs</p>
+        <ul><li>Home</li><li>Blogs</li><li>Editions</li></ul>
+      </div>
+      <div class="rggn_65f0a205">
+        <button id="feedback-button" data-testid="feedback-button">Open feedback</button>
+      </div>
+      <article><h1>How Ninth Wave built AI-powered open finance onboarding</h1></article>
+    </body></html>`;
+    const out = applySiteDisplayRules(
+      html,
+      'https://aws.amazon.com/blogs/machine-learning/how-ninth-wave-built-ai-powered-open-finance-onboarding-on-amazon-bedrock/',
+    );
+    const d = doc(out);
+    // 浮动层被打标隐藏
+    expect(d.querySelector('#m-subnav')?.getAttribute('data-fanyi-remove')).toBe('true');
+    expect(d.querySelector('#feedback-button')?.getAttribute('data-fanyi-remove')).toBe('true');
+    // 兜底 CSS 也注入
+    expect(out).toContain('#m-subnav');
+    expect(out).toContain('data-fanyi-site-css');
+    // 正文不能被误伤
+    expect(d.querySelector('article')?.getAttribute('data-fanyi-remove')).toBeNull();
+  });
+
+  it('AWS Blogs 规则只对 aws.amazon.com 生效', () => {
+    const html = '<html><body><div id="m-subnav">AWS Blogs</div></body></html>';
+    const out = applySiteDisplayRules(html, 'https://example.com/blogs/x');
+    expect(doc(out).querySelector('#m-subnav')?.getAttribute('data-fanyi-remove')).toBeNull();
+  });
 });
