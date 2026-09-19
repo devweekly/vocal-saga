@@ -40,9 +40,6 @@ function getSiteRule(pageUrl: string): SiteRule | null {
   const matched = matchSiteRule(pageUrl);
   cachedUrl = pageUrl;
   cachedRule = matched?.siteRule || null;
-  if (cachedRule) {
-    console.log(`[getSiteRule] matched rule for ${pageUrl.slice(0, 120)} with ${cachedRule.skipSelectors?.length ?? 0} skipSelectors`);
-  }
   return cachedRule;
 }
 
@@ -545,8 +542,29 @@ const PARAGRAPH_LIKE_CLASS_PATTERNS: readonly string[] = [
   'public-draftstyledefault-block',
 ];
 
-/** 元素是否拥有站点/框架特定的段落类 class，应被视为段落级块。 */
+/**
+ * 显式声明「我是一个段落」的属性标记 (属性名 → 属性值)。
+ *
+ * Mintlify 系文档站 (docs.langchain.com 等) 把 Markdown 段落渲染成
+ * `<span data-as="p">` 而不是 `<p>`，外层套 `<div class="mdx-content">`。
+ * 这些 span 落在 INLINE_SET 里，只有在「article 内且无块级父」时才可能被单独抓；
+ * 而文档站正文根通常是 `<main>`，没有 <article> 语义，isInsideArticle 返回 false
+ * → 整页正文段落被丢弃，只剩标题被翻译。
+ * （典型症状：标题变中文、正文仍是英文。）
+ *
+ * `data-as="p"` 是框架给出的显式段落声明，按它识别既精确又不必写域名级站点规则；
+ * 同时它会成为 hasBlockLevelParent 的边界，避免段落内部的 <a>/<code>/<strong>
+ * 被拆成碎片块。
+ */
+const PARAGRAPH_LIKE_ATTRS: readonly (readonly [string, string])[] = [
+  ['data-as', 'p'],
+];
+
+/** 元素是否被声明为段落级块 (框架属性标记 或 站点/框架特定的段落类 class)。 */
 export function isParagraphLikeElement(el: Element): boolean {
+  for (const [name, value] of PARAGRAPH_LIKE_ATTRS) {
+    if (el.getAttribute(name) === value) return true;
+  }
   const cls = (el.getAttribute('class') || '').toLowerCase();
   for (const pattern of PARAGRAPH_LIKE_CLASS_PATTERNS) {
     if (cls.includes(pattern)) return true;

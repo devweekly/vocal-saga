@@ -229,11 +229,30 @@
 - **同步建议**：谓词逻辑（shouldSkip*、is*）改动必须同步；遍历框架不需要同步
 
 ### 2. `blockExtractor/rules.ts`
-- **一致**：`shouldSkipByClass`、`isMetadataClass`、`isElementHidden`、`isNonHTMLNamespace`、`isValidText`、`isInsideArticle`、`hasBlockLevelParent`、`classifyChildren`、`isContentEditable`、`hasTranslateBlockClass`
+- **一致**：`shouldSkipByClass`、`isMetadataClass`、`isElementHidden`、`isNonHTMLNamespace`、`isValidText`、`isInsideArticle`、`hasBlockLevelParent`、`classifyChildren`、`isContentEditable`、`hasTranslateBlockClass`、`isParagraphLikeElement`
 - **差异**：
   - fanyi-extension 多了 `isAdBySize`、`isAdIframe`、`isCookieBannerByText`、`isLowPriorityElement`（依赖 `getComputedStyle` / `getBoundingClientRect`，服务端不可用）
   - `isOverlayElement` 实现不同（见下）
+  - vocal-saga 多了 `isInlineCandidate`（`INLINE_MAX_CHARS` / `INLINE_MAX_WORDS`）与 `clearSiteRuleCache()`；扩展端从 `window.location.href` 取 URL，服务端由 `extractBlocks(doc, pageUrl)` 显式传入
 - **同步建议**：纯 DOM 属性判定的谓词必须同步；依赖 layout 的谓词不需要同步
+
+#### 2.1 `isParagraphLikeElement` — 非 `<p>` 段落容器
+两端**逻辑必须一致**。它是「把不是 `<p>` 的容器当段落级块」的唯一扩展点，被 walker 的
+**两处**引用：`DIRECT_SET.has(tag) || isParagraphLikeElement(el)` 的 accept 分支，以及
+`hasBlockLevelParent()`。因此在这里加一个标记，既能让该容器被抓成块，又能阻止它内部的
+`<a>` / `<code>` / `<strong>` 泄漏成碎片块。
+
+当前识别：
+- `public-DraftStyleDefault-block`（X / Twitter 长文的 Draft.js 段落）
+- `data-as="p"`（Mintlify 系文档站；2026-09-11 新增）
+
+> **回归背景（2026-09-11）**：docs.langchain.com 把 Markdown 段落渲染为
+> `<span data-as="p">`（全页 8 个 `<p>` vs 36 个 `data-as="p"`），外层是
+> `<div class="mdx-content">`，正文根是 `<main>`。`<span>` 属 `INLINE_SET`，
+> 只有 `isInsideArticle()` 为真且无块级父时才会被抓；而 `isInsideArticle()`
+> 只认 `role="main"`，**不认 `<main>` 标签** → 整页正文段落被丢弃，
+> 症状是「标题翻译了、正文还是英文」。修法是把 `data-as="p"` 当作段落声明，
+> 而不是给 `<main>` 开洞（后者会让 `<main>` 内所有 inline `<span>` 都可能碎片化）。
 
 ### 3. `isOverlayElement`（在 `blockExtractor/rules.ts`）
 - **一致**：识别 cookie / consent / modal / popup / overlay / dialog / backdrop / lightbox / paywall

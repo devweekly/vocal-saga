@@ -1,7 +1,8 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { parseHTML } from 'linkedom';
 import { extractBlocks, findBlockNode, buildNodeMap, extractBlocksFromMarkedHtml, collapseSpacedText } from '../lib/translate/blockExtractor';
-import { shouldSkipByClass, isLowPriorityElement, isOverlayElement } from '../lib/translate/blockExtractor/rules';
+import { shouldSkipByClass, isLowPriorityElement, isOverlayElement, isParagraphLikeElement } from '../lib/translate/blockExtractor/rules';
+import { applyBlockTranslation } from '../lib/translate/translationDisplay';
 import { detectArticleRoot } from '../lib/translate/contentDetector';
 
 // Mock matchSiteRule for shouldSkipBySiteRules tests
@@ -6471,6 +6472,107 @@ describe('blockExtractor - short pattern word boundary (\\b)', () => {
     const root = detectArticleRoot(document);
     expect(root).toBeTruthy();
     expect(root!.textContent).toContain('Test Article');
+  });
+});
+
+describe('extractBlocks - paragraphs declared via data-as="p" (Mintlify docs)', () => {
+  beforeEach(() => {
+    document.body.innerHTML = '';
+  });
+
+  // 回归: docs.langchain.com (Mintlify) 把 Markdown 段落渲染成
+  //   <span data-as="p">…</span>
+  // 而不是 <p>，外层套 <div class="mdx-content">，正文根是 <main>（没有 <article>）。
+  // 症状: 标题 (h1/h2 在 DIRECT_SET) 被翻译，正文段落全部漏掉。
+  const MINTLIFY_PAGE = `
+    <main class="px-5">
+      <div class="grow w-full">
+        <div class="mdx-content">
+          <h2 id="interrupt-decision-types"><span>Interrupt decision types</span></h2>
+          <span data-as="p">The middleware defines four built-in ways a human can respond to an interrupt:</span>
+          <span data-as="p">Use <code>reject</code> when the human is denying the requested action.</span>
+        </div>
+      </div>
+    </main>
+  `;
+  const PAGE_URL = 'https://docs.langchain.com/oss/python/langchain/human-in-the-loop';
+
+  it('extracts paragraphs under a plain <main> with no <article> ancestor', () => {
+    setupHTML(MINTLIFY_PAGE);
+    const texts = extractBlocks(document, PAGE_URL).map((b) => b.text);
+
+    expect(texts).toContain(
+      'The middleware defines four built-in ways a human can respond to an interrupt:',
+    );
+    expect(texts).toContain('Use reject when the human is denying the requested action.');
+    // 标题本来就抓得到, 回归点是它不再是"唯一"被翻译的内容。
+    expect(texts).toContain('Interrupt decision types');
+  });
+
+  it('does not fragment inline children of a data-as="p" paragraph', () => {
+    setupHTML(MINTLIFY_PAGE);
+    const blocks = extractBlocks(document, PAGE_URL);
+
+    // 段落内的 <code> 不应独立成块 (SKIP_SET 拒绝), 段落应整段抓取。
+    expect(blocks.some((b) => b.tag === 'code')).toBe(false);
+    expect(blocks.filter((b) => b.tag === 'span')).toHaveLength(2);
+  });
+
+  it('treats a nested inline span as part of the paragraph, not a separate block', () => {
+    setupHTML(`
+      <main>
+        <span data-as="p">Outer paragraph text that is long enough to translate.
+          <span class="highlight">inner emphasis span</span>
+        </span>
+      </main>
+    `);
+
+    const blocks = extractBlocks(document, PAGE_URL);
+    // 只有段落本身; 嵌套 <span> 不能变成第二个块 (否则句子会碎片化)。
+    expect(blocks).toHaveLength(1);
+    expect(blocks[0].tag).toBe('span');
+  });
+
+  it('only treats data-as="p" as a paragraph declaration, not other data-as values', () => {
+    const asP = document.createElement('span');
+    asP.setAttribute('data-as', 'p');
+    const asCode = document.createElement('span');
+    asCode.setAttribute('data-as', 'code');
+    const bare = document.createElement('span');
+
+    expect(isParagraphLikeElement(asP)).toBe(true);
+    expect(isParagraphLikeElement(asCode)).toBe(false);
+    expect(isParagraphLikeElement(bare)).toBe(false);
+  });
+
+  it('round-trips extraction → apply without destroying the paragraph inline link', () => {
+    setupHTML(`
+      <main>
+        <div class="mdx-content">
+          <span data-as="p">The <a href="/oss/python/langchain/middleware">middleware</a> defines
+            four built-in ways a human can respond to an interrupt.</span>
+        </div>
+      </main>
+    `);
+
+    const blocks = extractBlocks(document, PAGE_URL);
+    expect(blocks).toHaveLength(1);
+
+    const para = document.querySelector('span[data-as="p"]') as HTMLElement;
+    // 提取阶段必须给段落打上 block id —— 服务端就是靠它回填译文的。
+    expect(para.dataset.fanyiBlockId).toBe(blocks[0].id);
+
+    const link = para.querySelector('a');
+    expect(link).not.toBeNull();
+
+    applyBlockTranslation(para, '中间件定义了四种内置的人类响应方式。');
+
+    // 内链必须存活在 .fanyi-original 里，而不是被 textContent 覆盖掉。
+    expect(para.querySelector('.fanyi-original a')).toBe(link);
+    expect(para.querySelector('.fanyi-translation')?.textContent).toBe(
+      '中间件定义了四种内置的人类响应方式。',
+    );
+    expect(para.classList.contains('fanyi-translated')).toBe(true);
   });
 });
 
