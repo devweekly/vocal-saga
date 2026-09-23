@@ -242,9 +242,15 @@
 `hasBlockLevelParent()`。因此在这里加一个标记，既能让该容器被抓成块，又能阻止它内部的
 `<a>` / `<code>` / `<strong>` 泄漏成碎片块。
 
-当前识别：
-- `public-DraftStyleDefault-block`（X / Twitter 长文的 Draft.js 段落）
-- `data-as="p"`（Mintlify 系文档站；2026-09-11 新增）
+当前识别（按优先级）：
+1. **站点规则 `blockSelectors`**（2026-09-23 新增；站点自己声明的整块容器）
+2. `data-as="p"`（Mintlify 系文档站；2026-09-11 新增）
+3. `public-DraftStyleDefault-block`（X / Twitter 长文的 Draft.js 段落）
+
+**签名差异（必须注意）**：扩展端 `isParagraphLikeElement(el)` 从 `window.location.href`
+取 URL；服务端 `isParagraphLikeElement(el, pageUrl)` **必须显式传 pageUrl**，同理
+`hasBlockLevelParent(el, pageUrl)`。`tests/` 与 `temp/` 不在 tsconfig include 内，
+漏传不会报错，只会静默丢掉 `blockSelectors` 能力。
 
 > **回归背景（2026-09-11）**：docs.langchain.com 把 Markdown 段落渲染为
 > `<span data-as="p">`（全页 8 个 `<p>` vs 36 个 `data-as="p"`），外层是
@@ -253,6 +259,74 @@
 > 只认 `role="main"`，**不认 `<main>` 标签** → 整页正文段落被丢弃，
 > 症状是「标题翻译了、正文还是英文」。修法是把 `data-as="p"` 当作段落声明，
 > 而不是给 `<main>` 开洞（后者会让 `<main>` 内所有 inline `<span>` 都可能碎片化）。
+
+#### 2.2 站点规则的 walker 开关（2026-09-23 新增）
+`SiteRule` 新增三个**只影响抽取**的字段，两端必须同步实现：
+
+| 字段 | 作用 | 为什么不能复用别的字段 |
+| --- | --- | --- |
+| `excludeFromTextSelectors` | 抽取块文本时把这些选择器命中的子树从文本里**剔除** | 不能复用 `skipSelectors`：它的语义是「不单独翻译」≠「文字不该出现」。GitHub 把 `code`/`pre` 放进 skipSelectors，一旦连带剔除文本，行内 `<code>` 会让译文变成 "Use to install" |
+| `translateTables` | 放行 SKIP_SET 里的 `table/thead/tbody/tfoot/tr/td/th/caption/col/colgroup` | SKIP_SET 的表格剪枝是为**数据表**设计的；HN 用嵌套 table 做整页布局，剪枝后整页 0 块 |
+| `blockSelectors` | 站点声明「整块翻译」的容器（等价于 `data-as="p"`） | 通用容器分支会下钻，导致「裸文本 + 嵌套 `<p>`」的首段丢失 |
+
+实现要点（两端一一对应）：
+- `getSiteWalkOptions(pageUrl?)` 一次取回 `{ excludeFromText, translateTables }`。
+  扩展端签名无参（读 `window.location.href`），服务端必须传 `pageUrl`。
+- `getBlockText(el, selectors, pageUrl?)`：`selectors` 为 undefined 时等价于
+  `el.textContent.trim()`（快路径，零行为变化）。
+- **文本有效性判定必须用 `getBlockText`，不能再用 `el.textContent`**，否则
+  「只剩被剔除装饰」的包裹容器（HN 的 comhead 包裹 div / 顶栏 `<td>`）会被
+  当成有效块抓出来翻译。服务端把结果缓存在 `WalkCache.validText`。
+- 剔除路径下，块级子元素之间补 `\n\n`：`textContent` 会把 `<p>a</p><p>b</p>`
+  拼成 `"ab"`，整块抓取的多段容器（HN `div.commtext`）必须保留段落边界。
+- **段落类容器整体成块后要把自己加进 `rejectedCache`**：TreeWalker 的
+  `FILTER_ACCEPT` 只表示「该节点被接受」，**不阻止**继续下钻（服务端手写递归同理），
+  否则 `div.commtext` 内部的 `<p>` 会被再抓一遍，产生重复译文。
+- `TABLE_TAGS` 常量（`blockExtractor/constants.ts`）只含表格标签，**不含 `dt`**
+  （`dt` 虽与表格标签写在一起，但语义是定义列表 term）。
+
+> **回归背景（2026-09-23）**：news.ycombinator.com/item 页。HN 整页由嵌套 `<table>`
+> 搭建，`td` 命中 SKIP_SET → 整页 0 块。评论正文 `div.commtext` 是「裸文本 + 多个
+> `<p>`」混排（首段是裸文本），且 `div.reply` 是 `div.commtext` 的**兄弟**（不是子节点）。
+> 详见两端 `tests/hackernews.test.ts` / `src/__tests__/hackernews.test.ts`。
+
+#### 2.3 `normalizeBlockText` — 块文本的唯一出口（2026-09-23 新增）
+两端必须一致。定义在 `blockExtractor/rules.ts`，正则 `PATTERNS.INVISIBLE_EDGE` 在
+`blockExtractor/constants.ts`。
+
+它替掉块文本上的裸 `trim()`：`trim()` 只去 Unicode WhiteSpace，而
+U+200B/200C/200D/2060/FEFF/00AD 属于 **Cf（格式字符）**，**不在** WhiteSpace 里 ——
+`"\u200b标题".trim()` 原样返回。正则把 `\s` 和这些字符放进同一个字符类，
+一次 `replace` 同时完成 trim + 去零宽。
+
+必须覆盖的**全部**出口（漏一个就会有两份不一致的文本）：
+- `getBlockText()`（walker，两条路径：快路径 / 剔除路径）
+- headingPath / headingStack（`context.headingPath` 也是送给模型的上下文）
+- 服务端 `extractBlocksFromMarkedHtml()`（从已标记 HTML 重新取文本）
+
+⚠️ **只去首尾，绝不做全局删除**：ZWNJ/ZWJ 在阿拉伯语 / 印度语系 / emoji 组合序列
+（👨‍👩‍👧）里是有语义的，中间位置必须原样保留。两端各有用例断言这一点。
+
+> **为什么在这里规整是渲染安全的**：块文本只用于「送给模型 / 去重 / token 估算 / 报告」，
+> **从不用于回填渲染** —— 回填走 DOM 节点（`applyBlockTranslation` 搬移原有子节点）。
+>
+> **回归背景（2026-09-23）**：Mintlify 系文档站（docs.langchain.com）每个标题里都有
+> 一个 hover 才显示的锚点 `<a class="...opacity-0...">`，其内部**只有一个 U+200B 占位**
+> 加一个图标 div → 整页每个标题的 textContent 都以 ZWSP 开头，真实页面 14 处，
+> 全部原样进了译文请求。
+
+#### 2.4 服务端 walker 的 counter 记账（2026-09-23 修复）
+服务端 `acceptWalkerNode` 的 `DIRECT_SET || isParagraphLikeElement` 分支原本
+**完全不累加 counters**（其他分支都累加），导致 `accepted` 长期严重偏低 ——
+HN 页面 6 个块只报 `accepted=1`。已补上 `accepted++` / `skipped++`，与扩展端一致。
+
+`counters` 只喂 `ExtractionReport` 的 `noiseRatio` / `extractionQuality`，
+而这两个字段**只进 console.log**（`contentHelper.ts` 的 `ExtractionReport` 日志行），
+没有任何分支依赖它们，所以修复是诊断性的、不影响行为。
+
+> **仍存在的差异（有意不修）**：扩展端该分支还有一个 `hint < 0 → SKIP` 软评分门
+> （`computeSoftHint` 看元素自身 class 里的 sidebar/nav/footer/comment）。
+> 服务端**根本没有软评分机制**，移植它等于移植一整套启发式，不属于「同步」范畴。
 
 ### 3. `isOverlayElement`（在 `blockExtractor/rules.ts`）
 - **一致**：识别 cookie / consent / modal / popup / overlay / dialog / backdrop / lightbox / paywall
