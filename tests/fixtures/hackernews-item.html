@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<!--
+  Trimmed but structurally faithful snapshot of a Hacker News item page
+  (news.ycombinator.com/item?id=49808023), captured 2026-09-23.
+
+  Why this fixture exists: HN builds its ENTIRE page out of nested <table>
+  elements, and `table/tr/td` sit in blockExtractor's SKIP_SET (FILTER_REJECT =
+  prune the whole subtree). Before the site rule was added, extracting this page
+  yielded ZERO blocks.
+
+  Structural invariants this fixture must preserve (do not "tidy" them):
+    - #hnmain > tbody > tr#bigbox > td > table.fatitem   (story header)
+    - table.comment-tree > tbody > tr.athing.comtr       (one per comment)
+      > td > table > tbody > tr > td.ind | td.votelinks | td.default
+    - td.default > div > span.comhead                    (author/age/navs)
+    - td.default > br
+    - td.default > div.comment
+      > div.commtext.<cNN>   <- comment body; bare text + unclosed <p> paragraphs
+      > div.reply            <- SIBLING of commtext, NOT nested inside it
+    - comment bodies may be a single bare text node with no <p> at all
+      (e.g. "Sqlite?"), which is why the body must be grabbed as one block.
+-->
+<html lang="en" op="item">
+<head><title>Microsoft killed FoxPro in 2007. Anyway, here's FoxPro revived | Hacker News</title></head>
+<body>
+<center>
+<table id="hnmain" border="0" cellpadding="0" cellspacing="0" width="85%" bgcolor="#f6f6ef">
+<tbody>
+<tr><td bgcolor="#ff6600"><table border="0" cellpadding="0" cellspacing="0" width="100%" style="padding:2px"><tbody><tr>
+  <td style="width:18px;padding-right:4px"><a href="https://news.ycombinator.com"><img src="y18.svg" width="18" height="18" style="border:1px white solid; display:block"></a></td>
+  <td style="line-height:12pt; height:10px;"><span class="pagetop"><b class="hnname"><a href="news">Hacker News</a></b><a href="newest">new</a> | <a href="front">past</a> | <a href="newcomments">comments</a> | <a href="ask">ask</a> | <a href="show">show</a> | <a href="jobs">jobs</a> | <a href="submit" rel="nofollow">submit</a></span></td>
+  <td style="text-align:right;padding-right:4px;"><span class="pagetop"><a href="login?goto=item%3Fid%3D49808023">login</a></span></td>
+</tr></tbody></table></td></tr>
+<tr style="height:10px"></tr>
+<tr id="bigbox"><td>
+  <table class="fatitem" border="0"><tbody>
+    <tr class="athing submission" id="49808023">
+      <td align="right" valign="top" class="title"><span class="rank"></span></td>
+      <td valign="top" class="votelinks"><center><a id="up_49808023" href="vote?id=49808023&amp;how=up&amp;goto=item%3Fid%3D49808023"><div class="votearrow" title="upvote"></div></a></center></td>
+      <td class="title"><span class="titleline"><a href="https://foxscript.org/">Microsoft killed FoxPro in 2007. Anyway, here's FoxPro revived</a><span class="sitebit comhead"> (<a href="from?site=foxscript.org"><span class="sitestr">foxscript.org</span></a>)</span></span></td>
+    </tr>
+    <tr><td colspan="2"></td><td class="subtext"><span class="subline"><span class="score" id="score_49808023">119 points</span> by <a href="user?id=boredjohnny" class="hnuser">boredjohnny</a> <span class="age" title="2026-09-22T21:00:30"><a href="item?id=49808023">2 hours ago</a></span> <span id="unv_49808023"></span> | <a href="hide?id=49808023&amp;goto=item%3Fid%3D49808023">hide</a> | <a href="https://hn.algolia.com/?query=FoxPro" class="hnpast">past</a> | <a href="fave?id=49808023&amp;auth=ff1a">favorite</a> | <a href="item?id=49808023">83&nbsp;comments</a></span> | <a href="https://foxscript.org/">instapaper</a></td></tr>
+    <tr><td colspan="2"></td><td><div class="toptext"></div></td></tr>
+  </tbody></table>
+  <br>
+  <table border="0" class="comment-tree"><tbody>
+
+    <tr class="athing comtr" id="49809637"><td><table border="0"><tbody><tr>
+      <td class="ind" indent="0"><img src="s.gif" height="1" width="0"></td>
+      <td valign="top" class="votelinks"><center><a id="up_49809637" href="vote?id=49809637&amp;how=up&amp;goto=item%3Fid%3D49808023"><div class="votearrow" title="upvote"></div></a></center></td>
+      <td class="default"><div style="margin-top:2px; margin-bottom:-10px;"><span class="comhead"><a href="user?id=neilv" class="hnuser">neilv</a> <span class="age" title="2026-09-22T23:21:05"><a href="item?id=49809637">0 minutes ago</a></span> <span id="unv_49809637"></span><span class="navs"> | <a href="#49809375" class="clicky" aria-hidden="true">next</a> <a class="togg clicky" id="49809637" n="1" href="javascript:void(0)">[&ndash;]</a><span class="onstory"></span></span></span></div><br>
+      <div class="comment"><div class="commtext c00">Flashback.  When I was an adolescent, the dBase and Fox products were my first paid software development, and they were surprisingly accessible to even kids.<p>I was only supposed to help assemble computer furniture, and maybe install networked Unix and PC software, but the retired Marine my mom worked for thought I had potential.</p><p>(Then I kept working, and there was a period when all employers either wanted me to figure out something, or were favorably surprised when I soon did.)</p></div><div class="reply"><p><font size="1"><u><a href="reply?id=49809637&amp;goto=item%3Fid%3D49808023%2349809637" rel="nofollow">reply</a></u></font></p></div></div></td>
+    </tr></tbody></table></td></tr>
+
+    <tr class="athing comtr" id="49809405"><td><table border="0"><tbody><tr>
+      <td class="ind" indent="1"><img src="s.gif" height="1" width="40"></td>
+      <td valign="top" class="votelinks"><center><a id="up_49809405" href="vote?id=49809405&amp;how=up&amp;goto=item%3Fid%3D49808023"><div class="votearrow" title="upvote"></div></a></center></td>
+      <td class="default"><div style="margin-top:2px; margin-bottom:-10px;"><span class="comhead"><a href="user?id=HoldOnAMinute" class="hnuser">HoldOnAMinute</a> <span class="age" title="2026-09-22T22:52:14"><a href="item?id=49809405">29 minutes ago</a></span> <span id="unv_49809405"></span><span class="navs"> | <a href="#49809375" class="clicky" aria-hidden="true">parent</a> | <a href="#49809540" class="clicky" aria-hidden="true">prev</a> | <a href="#49808920" class="clicky" aria-hidden="true">next</a> <a class="togg clicky" id="49809405" n="2" href="javascript:void(0)">[&ndash;]</a><span class="onstory"></span></span></span></div><br>
+      <div class="comment"><div class="commtext c00">Maybe someone can put the core FoxPro ideas on top of SQLite</div><div class="reply"><p><font size="1"><u><a href="reply?id=49809405&amp;goto=item%3Fid%3D49808023%2349809405" rel="nofollow">reply</a></u></font></p></div></div></td>
+    </tr></tbody></table></td></tr>
+
+    <tr class="athing comtr" id="49809375"><td><table border="0"><tbody><tr>
+      <td class="ind" indent="0"><img src="s.gif" height="1" width="0"></td>
+      <td valign="top" class="votelinks"><center><a id="up_49809375" href="vote?id=49809375&amp;how=up&amp;goto=item%3Fid%3D49808023"><div class="votearrow" title="upvote"></div></a></center></td>
+      <td class="default"><div style="margin-top:2px; margin-bottom:-10px;"><span class="comhead"><a href="user?id=mikestew" class="hnuser">mikestew</a> <span class="age" title="2026-09-22T22:48:57"><a href="item?id=49809375">32 minutes ago</a></span> <span id="unv_49809375"></span><span class="navs"> | <a href="#49809637" class="clicky" aria-hidden="true">prev</a> | <a href="#49808920" class="clicky" aria-hidden="true">next</a> <a class="togg clicky" id="49809375" n="4" href="javascript:void(0)">[&ndash;]</a><span class="onstory"></span></span></span></div><br>
+      <div class="comment"><div class="commtext c00">Here&rsquo;s my problem with reviving FoxPro in any form: there&rsquo;s a huge security hole in the Database Container (DBC) design. For DBCs to be useful, they must be read/write to all users (there is no permissions scheme).<p>My recommendation is to get rid of the DBF/DBC files and move to a SQL DB of some flavor ASAP. If you have the source code, use ODBC or OLE DB to point to a server.</p><p>Source: filed that bug over 20 years ago when I worked on the Fox team. No, it wasn&rsquo;t going to get fixed without rewriting large parts of how the DB engine worked.</p></div><div class="reply"><p><font size="1"><u><a href="reply?id=49809375&amp;goto=item%3Fid%3D49808023%2349809375" rel="nofollow">reply</a></u></font></p></div></div></td>
+    </tr></tbody></table></td></tr>
+
+    <tr class="athing comtr" id="49808843"><td><table border="0"><tbody><tr>
+      <td class="ind" indent="2"><img src="s.gif" height="1" width="80"></td>
+      <td valign="top" class="votelinks"><center><a id="up_49808843" href="vote?id=49808843&amp;how=up&amp;goto=item%3Fid%3D49808023"><div class="votearrow" title="upvote"></div></a></center></td>
+      <td class="default"><div style="margin-top:2px; margin-bottom:-10px;"><span class="comhead"><a href="user?id=Atotalnoob" class="hnuser">Atotalnoob</a> <span class="age" title="2026-09-22T22:05:21"><a href="item?id=49808843">1 hour ago</a></span> <span id="unv_49808843"></span><span class="navs"> | <a href="#49808557" class="clicky" aria-hidden="true">root</a> | <a href="#49808617" class="clicky" aria-hidden="true">parent</a> | <a href="#49808976" class="clicky" aria-hidden="true">prev</a> | <a href="#49808434" class="clicky" aria-hidden="true">next</a> <a class="togg clicky" id="49808843" n="4" href="javascript:void(0)">[&ndash;]</a><span class="onstory"></span></span></span></div><br>
+      <div class="comment"><div class="commtext c5A">Sqlite?</div><div class="reply"><p><font size="1"><u><a href="reply?id=49808843&amp;goto=item%3Fid%3D49808023%2349808843" rel="nofollow">reply</a></u></font></p></div></div></td>
+    </tr></tbody></table></td></tr>
+
+    <tr class="athing comtr" id="49808806"><td><table border="0"><tbody><tr>
+      <td class="ind" indent="1"><img src="s.gif" height="1" width="40"></td>
+      <td valign="top" class="votelinks"><center><a id="up_49808806" href="vote?id=49808806&amp;how=up&amp;goto=item%3Fid%3D49808023"><div class="votearrow" title="upvote"></div></a></center></td>
+      <td class="default"><div style="margin-top:2px; margin-bottom:-10px;"><span class="comhead"><a href="user?id=neverartful" class="hnuser">neverartful</a> <span class="age" title="2026-09-22T22:02:42"><a href="item?id=49808806">1 hour ago</a></span> <span id="unv_49808806"></span><span class="navs"> | <a href="#49808734" class="clicky" aria-hidden="true">parent</a> | <a href="#49809285" class="clicky" aria-hidden="true">prev</a> | <a href="#49808805" class="clicky" aria-hidden="true">next</a> <a class="togg clicky" id="49808806" n="1" href="javascript:void(0)">[&ndash;]</a><span class="onstory"></span></span></span></div><br>
+      <div class="comment"><div class="commtext c00">Original - FoxPro: <a href="https://en.wikipedia.org/wiki/FoxPro" rel="nofollow">https://en.wikipedia.org/wiki/FoxPro</a><p>Successor - Visual FoxPro: <a href="https://en.wikipedia.org/wiki/Visual_FoxPro" rel="nofollow">https://en.wikipedia.org/wiki/Visual_FoxPro</a></p></div><div class="reply"><p><font size="1"><u><a href="reply?id=49808806&amp;goto=item%3Fid%3D49808023%2349808806" rel="nofollow">reply</a></u></font></p></div></div></td>
+    </tr></tbody></table></td></tr>
+
+  </tbody></table>
+</td></tr>
+</tbody></table>
+</center>
+</body>
+</html>

@@ -33,10 +33,12 @@ import {
   INLINE_SET,
   SEMANTIC_SKIP_TAGS,
   SKIP_SET,
+  TABLE_TAGS,
   type WalkerCounters,
 } from './constants';
 import {
   classifyChildren,
+  getSiteWalkOptions,
   hasBlockLevelParent,
   hasContentTokens,
   hasTranslateBlockClass,
@@ -50,9 +52,11 @@ import {
   isOverlayElement,
   isParagraphLikeElement,
   isValidText,
+  normalizeBlockText,
   shouldSkipByClass,
   shouldSkipBySiteRules,
   type ChildClassification,
+  type SiteWalkOptions,
 } from './rules';
 import { PATTERNS } from './constants';
 import type { TextBlock } from './types';
@@ -79,6 +83,8 @@ interface WalkCache {
   noiseMemo: WeakMap<Element, boolean>;
   /** root detection 已识别的噪声元素 (O(1) 跳过, 避免重复 shouldSkipByClass) */
   knownNoise: WeakSet<Element>;
+  /** 站点级 walker 选项 (文本剔除 / 表格放行), 每次遍历取一次 */
+  site: SiteWalkOptions;
 }
 
 /**
@@ -119,16 +125,84 @@ function getClassification(
   return result;
 }
 
-/** 缓存 isValidText 结果 */
-function getTextValid(
-  el: Element,
-  cache: WeakMap<Element, boolean>,
+/** 元素是否命中任一选择器（无效选择器静默忽略，不影响抽取）。 */
+function matchesAnySelector(el: Element, selectors: readonly string[]): boolean {
+  for (const selector of selectors) {
+    try {
+      if (el.matches(selector)) return true;
+    } catch {
+      // 无效选择器：忽略，宁可多翻译也不要让抽取崩掉
+    }
+  }
+  return false;
+}
+
+/**
+ * 递归收集文本，跳过命中 selectors 的子树。
+ *
+ * 拼接语义与 `textContent` 一致（不加分隔符），**唯一例外**：块级子元素之间补
+ * 一个空行。`textContent` 会把 `<p>a</p><p>b</p>` 拼成 "ab"；对「整块抓取的
+ * 多段容器」（站点 blockSelectors，如 HN 的 div.commtext）必须保留段落边界，
+ * 否则译文会糊成一整段。只在剔除路径生效，快路径行为不变。
+ */
+function collectTextExcluding(
+  node: Node,
+  selectors: readonly string[],
+  out: string[],
   pageUrl: string,
-): boolean {
-  const cached = cache.get(el);
+): void {
+  const children = node.childNodes;
+  for (let i = 0; i < children.length; i++) {
+    const child = children[i];
+    if (child.nodeType === TEXT_NODE_TYPE) {
+      out.push(child.textContent ?? '');
+      continue;
+    }
+    if (child.nodeType !== ELEMENT_NODE_TYPE) continue;
+    const childEl = child as Element;
+    if (matchesAnySelector(childEl, selectors)) continue;
+    const childTag = childEl.tagName.toLowerCase();
+    if (
+      out.length > 0 &&
+      (DIRECT_SET.has(childTag) || isParagraphLikeElement(childEl, pageUrl))
+    ) {
+      out.push('\n\n');
+    }
+    collectTextExcluding(childEl, selectors, out, pageUrl);
+  }
+}
+
+/**
+ * 计算元素的可翻译文本。
+ *
+ * `selectors` 为 undefined 时等价于 `el.textContent`（快路径，只多一次规整）。
+ * 站点规则声明 `excludeFromTextSelectors` 时走剔除路径 —— 把命中的子树从文本里
+ * 去掉，因为 `textContent` 会把它们算进来。该文本同时用于**文本有效性判定**
+ * 与最终抽取，保证「判为有效的」= 「真正翻译的」。
+ *
+ * 两条路径最后都过 `normalizeBlockText`：它替掉裸 `trim()`，把首尾的零宽 /
+ * 不可见格式字符（Mintlify 标题锚点的 U+200B 等）一并去掉。
+ */
+function getBlockText(
+  el: Element,
+  selectors: readonly string[] | undefined,
+  pageUrl: string,
+): string {
+  if (!selectors) return normalizeBlockText(el.textContent ?? '');
+  const parts: string[] = [];
+  collectTextExcluding(el, selectors, parts, pageUrl);
+  return normalizeBlockText(parts.join(''));
+}
+
+/** 缓存 isValidText 结果（文本按站点规则剔除装饰后计算） */
+function getTextValid(el: Element, cache: WalkCache, pageUrl: string): boolean {
+  const cached = cache.validText.get(el);
   if (cached !== undefined) return cached;
-  const result = isValidText(el.textContent, pageUrl);
-  cache.set(el, result);
+  const result = isValidText(
+    getBlockText(el, cache.site.excludeFromText, pageUrl),
+    pageUrl,
+  );
+  cache.validText.set(el, result);
   return result;
 }
 
@@ -168,15 +242,15 @@ function grabNode(node: Node, cache: WalkCache, pageUrl: string): Element | fals
 
   // 1) 块级元素 (DIRECT_SET) 或段落类容器 (如 Draft.js 段落): 若子树还有 DIRECT_SET 元素,自身不算
   //    (子块会被独立抓到,避免重复)。段落类 div 自身作为整块返回。
-  if (DIRECT_SET.has(tag) || isParagraphLikeElement(el)) {
+  if (DIRECT_SET.has(tag) || isParagraphLikeElement(el, pageUrl)) {
     if (DIRECT_SET.has(tag) && hasDirectSetDescendant(el, cache.directSetDescendant)) return false;
-    return getTextValid(el, cache.validText, pageUrl) ? el : false;
+    return getTextValid(el, cache, pageUrl) ? el : false;
   }
 
   // 2) 内联元素: 在 article 内且无块级父 → 单独抓; 否则跳过
   if (INLINE_SET.has(tag)) {
-    if (isInsideArticle(el) && !hasBlockLevelParent(el)) {
-      return getTextValid(el, cache.validText, pageUrl) ? el : false;
+    if (isInsideArticle(el) && !hasBlockLevelParent(el, pageUrl)) {
+      return getTextValid(el, cache, pageUrl) ? el : false;
     }
     return false;
   }
@@ -185,7 +259,7 @@ function grabNode(node: Node, cache: WalkCache, pageUrl: string): Element | fals
   const { hasDirectText, hasNonInlineChild } = getClassification(el, cache.classify);
   if (hasNonInlineChild) return false; // 容器,子树会被独立处理
   if (hasDirectText) {
-    return getTextValid(el, cache.validText, pageUrl) ? el : false;
+    return getTextValid(el, cache, pageUrl) ? el : false;
   }
   return false;
 }
@@ -257,7 +331,11 @@ function acceptWalkerNode(
   // 不应因 <html>/<body> 在 SKIP_SET 中而被整棵跳过。
   // 文档级 <html>/<body> 不会被 walker 访问到（遍历起始于
   // <main>/<article> 等下游容器），所以放行嵌套标签是安全的。
-  const skipSetMatch = SKIP_SET.has(tag);
+  //
+  // 站点规则 translateTables：把 table 系标签从 SKIP_SET 剪枝里放行。
+  // HN 等站点用嵌套 table 做整页布局，不放行则整页抽取为 0 块。
+  const skipSetMatch =
+    SKIP_SET.has(tag) && !(cache.site.translateTables && TABLE_TAGS.has(tag));
   // 嵌套 <body>: WordPress CMS 会在正文容器内注入完整 HTML 文档,
   //   <section class="post__content"><html><body><p>正文</p></body></html></section>
   // linkedom 解析后保留这些嵌套标签, 但其父元素不是 document.documentElement。
@@ -338,10 +416,33 @@ function acceptWalkerNode(
   }
 
   // DIRECT_SET 与段落类容器: 只按文本有效性决定 ACCEPT / SKIP
-  if (DIRECT_SET.has(tag) || isParagraphLikeElement(el)) {
-    return getTextValid(el, cache.validText, pageUrl)
-      ? FILTER_ACCEPT
-      : FILTER_SKIP;
+  if (DIRECT_SET.has(tag) || isParagraphLikeElement(el, pageUrl)) {
+    // DIRECT_SET 容器里还嵌着 DIRECT_SET（如 <li> 内嵌 <p>，arxiv 摘要结构）时，
+    // 自身**不成块**：子块会被独立抓到。此时绝不能把容器加进 rejectedCache，
+    // 否则内部子块会被连坐拒绝（整段丢失）。与扩展端 walker 的同名分支保持一致。
+    if (
+      DIRECT_SET.has(tag) &&
+      hasDirectSetDescendant(el, cache.directSetDescendant)
+    ) {
+      counters.skipped++;
+      return FILTER_SKIP;
+    }
+    if (getTextValid(el, cache, pageUrl)) {
+      // 段落类容器整体成块 → 子树不再单独抓。
+      //
+      // ⚠️ 本 walker 是手写递归：ACCEPT 之后**仍然**会递归子节点（与原
+      // TreeWalker 行为一致）。所以 `div.commtext` 被整体抓取后，内部的
+      // `<p>` 还会被再抓一遍，产生重复译文 —— HN 评论正文正是
+      // 「裸文本 + 多个 `<p>`」混排。把容器记入 rejectedCache，后代连坐 REJECT。
+      //
+      // 对纯 DIRECT_SET 元素（如不含子块的 `<p>`）无副作用：它们的内联/文本
+      // 后代本来就抓不成块（grabNode 里 hasBlockLevelParent 遇到 `<p>` 即返回 true）。
+      cache.rejected.add(el);
+      counters.accepted++;
+      return FILTER_ACCEPT;
+    }
+    counters.skipped++;
+    return FILTER_SKIP;
   }
 
   // 5) 其他容器: 看子节点结构决定 (用缓存的 classifyChildren)
@@ -354,7 +455,7 @@ function acceptWalkerNode(
     return FILTER_SKIP;
   }
   if (hasDirectText || hasNonEmptyElement) {
-    if (getTextValid(el, cache.validText, pageUrl)) {
+    if (getTextValid(el, cache, pageUrl)) {
       counters.accepted++;
       return FILTER_ACCEPT;
     }
@@ -401,6 +502,9 @@ export function collectBlocks(
     // 避免 collectBlocks 重复调用 shouldSkipByClass / isConsentSdkContainer。
     // 未传 preNoiseSet 时回退到空 WeakSet, 保持原有行为。
     knownNoise: preNoiseSet ?? new WeakSet(),
+    // 站点级 walker 选项: 每次遍历取一次 (getSiteRule 内部按 pageUrl 缓存)。
+    // 无站点规则时两个开关都关闭 → 与历史行为完全一致。
+    site: getSiteWalkOptions(pageUrl),
   };
   // headingStack / headingLevels: 基于 heading 级别的 outline 栈。
   //
@@ -468,7 +572,8 @@ function walkNode(
         headingStack.pop();
         headingLevels.pop();
       }
-      headingStack.push((node as Element).textContent?.trim() || '');
+      // headingStack 里的标题也是送给模型的上下文 → 同样去掉首尾零宽字符
+      headingStack.push(normalizeBlockText((node as Element).textContent ?? ''));
       headingLevels.push(level);
     }
   }
@@ -476,7 +581,12 @@ function walkNode(
   if (verdict === FILTER_ACCEPT) {
     const translateNode = grabNode(node, cache, pageUrl);
     if (translateNode) {
-      const text = translateNode.textContent?.trim();
+      // 与有效性判定用同一份文本：站点规则可剔除装饰（HN 的 comhead/pagetop/reply）
+      const text = getBlockText(
+        translateNode,
+        cache.site.excludeFromText,
+        pageUrl,
+      );
       if (text) {
         if (seenTexts.has(text)) {
           counters.skipped++;

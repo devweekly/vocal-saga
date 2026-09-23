@@ -32,6 +32,6 @@ for (const b of Array.from(blocks)) {
   console.log('  lowPriority:', isLowPriorityElement(b));
   console.log('  validText:', isValidText(text, url));
   console.log('  insideArticle:', isInsideArticle(b));
-  console.log('  hasBlockLevelParent:', hasBlockLevelParent(b));
+  console.log('  hasBlockLevelParent:', hasBlockLevelParent(b, url));
   console.log('  children:', Array.from(b.children).map((c) => c.tagName.toLowerCase()).join(', '));
 }

@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { parseHTML } from 'linkedom';
 import { extractBlocks, findBlockNode, buildNodeMap, extractBlocksFromMarkedHtml, collapseSpacedText } from '../lib/translate/blockExtractor';
-import { shouldSkipByClass, isLowPriorityElement, isOverlayElement, isParagraphLikeElement } from '../lib/translate/blockExtractor/rules';
+import { shouldSkipByClass, isLowPriorityElement, isOverlayElement, isParagraphLikeElement, normalizeBlockText } from '../lib/translate/blockExtractor/rules';
 import { applyBlockTranslation } from '../lib/translate/translationDisplay';
 import { detectArticleRoot } from '../lib/translate/contentDetector';
 
@@ -6540,9 +6540,9 @@ describe('extractBlocks - paragraphs declared via data-as="p" (Mintlify docs)', 
     asCode.setAttribute('data-as', 'code');
     const bare = document.createElement('span');
 
-    expect(isParagraphLikeElement(asP)).toBe(true);
-    expect(isParagraphLikeElement(asCode)).toBe(false);
-    expect(isParagraphLikeElement(bare)).toBe(false);
+    expect(isParagraphLikeElement(asP, PAGE_URL)).toBe(true);
+    expect(isParagraphLikeElement(asCode, PAGE_URL)).toBe(false);
+    expect(isParagraphLikeElement(bare, PAGE_URL)).toBe(false);
   });
 
   it('round-trips extraction → apply without destroying the paragraph inline link', () => {
@@ -6577,3 +6577,89 @@ describe('extractBlocks - paragraphs declared via data-as="p" (Mintlify docs)', 
 });
 
 
+
+// =============================================================================
+// 首尾零宽 / 不可见字符
+// =============================================================================
+
+describe('normalizeBlockText - invisible edge characters', () => {
+  it('strips leading/trailing ZWSP and whitespace in one pass', () => {
+    expect(normalizeBlockText('\u200bInterrupt decision types')).toBe(
+      'Interrupt decision types',
+    );
+    expect(normalizeBlockText('  \u200b Title \u200b  ')).toBe('Title');
+    expect(normalizeBlockText('\n\t\u200b\u200bFoo\u200d\u200b\n')).toBe('Foo');
+    // 全空白 / 全零宽 → 空串
+    expect(normalizeBlockText('\u200b\u200b')).toBe('');
+    expect(normalizeBlockText('   ')).toBe('');
+  });
+
+  it('is idempotent', () => {
+    const once = normalizeBlockText('  \u200bFoo\u200b  ');
+    expect(normalizeBlockText(once)).toBe(once);
+  });
+
+  it('does NOT strip mid-text ZWNJ / ZWJ (they are semantic)', () => {
+    // 波斯语 ZWNJ：می‌خواهم 是一个词，ZWNJ 不能删
+    const persian = 'می\u200cخواهم';
+    // emoji ZWJ 序列：👨‍👩‍👧 是一个字素簇，ZWJ 不能删
+    const family = '👨\u200d👩\u200d👧';
+    expect(normalizeBlockText(persian)).toBe(persian);
+    expect(normalizeBlockText(family)).toBe(family);
+    expect(normalizeBlockText(` ${persian} and ${family} `)).toBe(
+      `${persian} and ${family}`,
+    );
+  });
+});
+
+describe('extractBlocks - Mintlify heading anchors leak a ZWSP (regression)', () => {
+  const PAGE_URL =
+    'https://docs.langchain.com/oss/python/langchain/human-in-the-loop';
+
+  beforeEach(() => {
+    document.body.innerHTML = '';
+  });
+
+  /**
+   * Mintlify 的每个标题里都塞了一个 hover 才显示的锚点链接
+   * （`<a class="...opacity-0...">`），而它内部**只有一个 U+200B 占位**
+   * 加一个图标 div。于是整个标题的 textContent 以 ZWSP 开头：
+   * `"\u200bInterrupt decision types"`。
+   *
+   * `trim()` 去不掉它（U+200B 是 Cf 格式字符，不是 WhiteSpace），
+   * 之前会原样进译文请求。真实页面 14 处。
+   */
+  const MINTLIFY_HEADING = `
+    <main>
+      <h2 id="interrupt-decision-types" class="flex whitespace-pre-wrap group font-semibold"><div class="absolute" tabindex="-1"><a href="#interrupt-decision-types" class="-ml-10 flex items-center opacity-0 group/link" aria-label="Navigate to header">\u200b<div class="size-6 rounded-md"><svg viewBox="0 0 24 24"><path d="M0 0h24v24H0z"></path></svg></div></a>Interrupt decision types</h2>
+      <span data-as="p">Human-in-the-loop middleware lets you approve or reject tool calls before they run.</span>
+    </main>
+  `;
+
+  it('extracts the heading without the ZWSP', () => {
+    setupHTML(MINTLIFY_HEADING);
+    const blocks = extractBlocks(document, PAGE_URL);
+
+    const heading = blocks.find((b) => b.tag === 'h2');
+    expect(heading).toBeDefined();
+    expect(heading!.text).toBe('Interrupt decision types');
+    // 反向断言：任何块都不该带首尾零宽字符
+    for (const b of blocks) {
+      expect(b.text).toBe(normalizeBlockText(b.text));
+      expect(b.text.startsWith('\u200b')).toBe(false);
+    }
+  });
+
+  it('cleans the heading text carried in context.headingPath', () => {
+    setupHTML(MINTLIFY_HEADING);
+    const blocks = extractBlocks(document, PAGE_URL);
+
+    const para = blocks.find((b) => b.tag === 'span');
+    expect(para).toBeDefined();
+    // headingPath 也是送给模型的上下文，同样不能带 ZWSP
+    expect(para!.context!.headingPath).toContain('Interrupt decision types');
+    for (const h of para!.context!.headingPath) {
+      expect(h.startsWith('\u200b')).toBe(false);
+    }
+  });
+});

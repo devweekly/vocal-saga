@@ -42,12 +42,32 @@ const DIGIT_SPACE_REGEX = /^[0-9\s]+$/;
 /** h1-h6 标签的快速匹配。 */
 const HEADING_REGEX = /^H[1-6]$/;
 
+/**
+ * 块文本首尾的「空白 + 零宽 / 不可见格式字符」。
+ *
+ * 为什么必须单独处理：`String.prototype.trim()` 只去 Unicode WhiteSpace，
+ * 而 U+200B(ZWSP) / U+200C(ZWNJ) / U+200D(ZWJ) / U+2060(WJ) / U+FEFF(BOM) /
+ * U+00AD(软连字符) 都属于 **Cf（格式字符）**，不在 WhiteSpace 里 ——
+ * `"\u200b标题".trim()` 原样返回。它们又是完全不可见的，混进译文请求里是纯噪声。
+ *
+ * ⚠️ 只用于去掉**首尾**：`\s` 与这些字符一起放进字符类，一次 replace 同时完成
+ * trim + 去零宽。**不做全局删除** —— ZWNJ/ZWJ 在阿拉伯语 / 印度语系 / emoji
+ * 组合序列（👨‍👩‍👧）里是有语义的，中间位置必须原样保留。
+ *
+ * 典型来源：Mintlify 系文档站（docs.langchain.com 等）的标题锚点 ——
+ * hover 才显示的 `<a class="...opacity-0...">` 里只放了一个 U+200B 占位，
+ * 导致整页**每个标题**的 textContent 都以 ZWSP 开头。
+ */
+const INVISIBLE_EDGE_REGEX =
+  /^[\s\u200B\u200C\u200D\u2060\uFEFF\u00AD]+|[\s\u200B\u200C\u200D\u2060\uFEFF\u00AD]+$/g;
+
 export const PATTERNS = {
   TUPLE: TUPLE_REGEX,
   BASE64: BASE64_REGEX,
   UI_TEXT: UI_TEXT_REGEX,
   DIGIT_SPACE: DIGIT_SPACE_REGEX,
   HEADING: HEADING_REGEX,
+  INVISIBLE_EDGE: INVISIBLE_EDGE_REGEX,
 } as const;
 
 // =============================================================================
@@ -119,6 +139,21 @@ const SKIP_SET_RAW = [
   // 注意: <hgroup> 故意不在此, 见 walker.ts 的"其他容器"分支: 子 h1-h6 应翻译。
 ];
 export const SKIP_SET: ReadonlySet<string> = new Set(SKIP_SET_RAW);
+
+/**
+ * TABLE_TAGS: SKIP_SET 中属于「表格」的那部分标签。
+ *
+ * 存在的唯一目的：支持站点规则 `translateTables` —— 有些站点（典型 Hacker News）
+ * 用嵌套 table 做**整页布局**，SKIP_SET 的表格剪枝会让整页抽取结果为 0 个块。
+ * 开启该站点选项后，walker 对这批标签不再 REJECT，改走普通容器分支。
+ *
+ * 注意 `dt` 不在其中：它虽然在 SKIP_SET 里与表格标签写在一起，但语义是
+ * 定义列表的 term，与表格布局无关，不应被 `translateTables` 放行。
+ */
+export const TABLE_TAGS: ReadonlySet<string> = new Set([
+  'table', 'thead', 'tbody', 'tfoot', 'tr', 'td', 'th', 'caption',
+  'col', 'colgroup',
+]);
 
 /**
  * SEMANTIC_SKIP_TAGS: 命中后**整棵子树**拒绝 (默认策略,header 单独处理)。

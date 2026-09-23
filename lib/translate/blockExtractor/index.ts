@@ -20,6 +20,7 @@
  */
 
 import { collectBlocks, getXPath } from './walker';
+import { normalizeBlockText } from './rules';
 import type { TextBlock } from './types';
 import type { WalkerCounters } from './constants';
 
@@ -141,7 +142,9 @@ export function extractBlocksFromMarkedHtml(doc: Document): TextBlock[] {
     if (!id || seenIds.has(id)) return;
     seenIds.add(id);
 
-    const text = el.textContent?.trim() || '';
+    // 与客户端 walker 的 getBlockText 保持同一份规整逻辑，
+    // 否则服务端送进模型的文本会带着客户端已去掉的零宽字符。
+    const text = normalizeBlockText(el.textContent ?? '');
     if (!text) return;
 
     blocks.push({

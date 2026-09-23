@@ -207,6 +207,40 @@ export function shouldSkipBySiteRules(el: Element, pageUrl: string): boolean {
   return false;
 }
 
+/**
+ * 站点规则里影响 walker 行为的两个开关，一次取齐（避免每个节点多次读缓存）。
+ *
+ * `excludeFromText` 是**文本剔除**选择器：`shouldSkipBySiteRules` 只阻止 walker
+ * **遍历**（不产生独立块），但 `el.textContent` 仍会把被跳过子树的文字算进来。
+ * 见 `SiteRule.excludeFromTextSelectors` 的注释（GitHub 行内 <code> 反例）。
+ *
+ * `translateTables` 是**表格放行**开关：SKIP_SET 会剪掉整棵 table 子树，
+ * 对用 table 做整页布局的站点（Hacker News）等于整页零块。
+ */
+export interface SiteWalkOptions {
+  /** 抽取块文本时需剔除的选择器；undefined = 走 textContent 快路径（默认）。 */
+  excludeFromText: readonly string[] | undefined;
+  /** 是否放行 SKIP_SET 里的 <table> 系标签。 */
+  translateTables: boolean;
+}
+
+/** 无站点规则时的默认选项（两个开关都关闭 = 历史行为）。 */
+const DEFAULT_SITE_WALK_OPTIONS: SiteWalkOptions = {
+  excludeFromText: undefined,
+  translateTables: false,
+};
+
+export function getSiteWalkOptions(pageUrl: string): SiteWalkOptions {
+  const rule = getSiteRule(pageUrl);
+  if (!rule) return DEFAULT_SITE_WALK_OPTIONS;
+
+  const exclude = rule.excludeFromTextSelectors;
+  return {
+    excludeFromText: exclude && exclude.length > 0 ? exclude : undefined,
+    translateTables: rule.translateTables === true,
+  };
+}
+
 // =============================================================================
 // 元素可见性
 // =============================================================================
@@ -278,12 +312,32 @@ export function isNonHTMLNamespace(el: Element): boolean {
 // =============================================================================
 
 /**
+ * 规整块文本：去掉首尾的空白 + 零宽 / 不可见格式字符。
+ *
+ * 这是块文本的**唯一出口**（`getBlockText`、headingStack、`extractBlocksFromMarkedHtml`
+ * 都走它），因此 `trim()` 的语义在这里被扩展为「连不可见格式字符一起去掉」，
+ * 见 `PATTERNS.INVISIBLE_EDGE` 的注释。
+ *
+ * 为什么在这里做是安全的：块文本只用于「送给模型 / 去重 / token 估算 / 报告」，
+ * **从不用于回填渲染** —— 回填走 DOM 节点（`applyBlockTranslation` 搬移原有子节点），
+ * 所以规整文本不会影响页面渲染。
+ *
+ * 幂等：对已规整的文本再调一次结果不变。
+ */
+export function normalizeBlockText(text: string): string {
+  return text.replace(PATTERNS.INVISIBLE_EDGE, '');
+}
+
+/**
  * 文本是否值得翻译:
  *   - 长度在 [MIN, MAX) 区间
  *   - 不是全大写短 UI 文本 ("EMAIL", "SUBSCRIBE")
  *   - 不是 base64 块
  *   - 不是 Sentry / Webpack 元组列表
  *   - 不匹配站点规则的 skipTextPatterns
+ *
+ * 调用方应传入 `normalizeBlockText()` 规整后的文本（或 `getBlockText()` 的返回值），
+ * 否则首尾的零宽字符会被算进长度。
  */
 export function isValidText(
   text: string | undefined | null,
@@ -440,15 +494,17 @@ export function isInsideArticle(el: Element): boolean {
  * 元素是否有 DIRECT_SET 或段落类容器父 (p/li/dd/blockquote/... / public-DraftStyleDefault-block)。
  * 用在 INLINE_SET 元素上: 如果外层已是块级,内联不单独抓 (会碎片化句子);
  * 如果只在 inline 容器里 (e.g. <span class="highlight">单独成段</span>),可单独抓。
+ *
+ * `pageUrl` 透传给 isParagraphLikeElement 做站点规则匹配。
  */
-export function hasBlockLevelParent(el: Element): boolean {
+export function hasBlockLevelParent(el: Element, pageUrl: string): boolean {
   let current: Element | null = el.parentElement;
   while (current) {
     const tag = current.tagName.toLowerCase();
     if (DIRECT_SET.has(tag)) return true;
-    // 站点特定的段落类 div (如 X 长文的 Draft.js 段落) 也视为块级父,
-    // 避免其内部 <span>/<a> 碎片被单独提取。
-    if (isParagraphLikeElement(current)) return true;
+    // 站点特定的段落类 div (如 X 长文的 Draft.js 段落、HN 的 div.commtext)
+    // 也视为块级父, 避免其内部 <span>/<a> 碎片被单独提取。
+    if (isParagraphLikeElement(current, pageUrl)) return true;
     if (tag === 'body' || tag === 'html') return false;
     current = current.parentElement;
   }
@@ -560,8 +616,31 @@ const PARAGRAPH_LIKE_ATTRS: readonly (readonly [string, string])[] = [
   ['data-as', 'p'],
 ];
 
-/** 元素是否被声明为段落级块 (框架属性标记 或 站点/框架特定的段落类 class)。 */
-export function isParagraphLikeElement(el: Element): boolean {
+/**
+ * 元素是否被声明为段落级块。
+ *
+ * 三个来源，按「越显式越优先」排列：
+ *   1. 站点规则 `blockSelectors`（站点自己声明的整块容器，如 HN `.commtext`）
+ *   2. 框架属性标记 `PARAGRAPH_LIKE_ATTRS`（如 Mintlify 的 `data-as="p"`）
+ *   3. 站点/框架特定的段落类 class（如 X 长文的 Draft.js 段落）
+ *
+ * 判定为真有两个后果（都在 walker 里）：
+ *   - acceptNode / grabNode 把它整体当作一个翻译块（内部不再拆碎片）
+ *   - hasBlockLevelParent 把它视为块级父边界
+ *
+ * `pageUrl` 用于站点规则匹配（服务端没有 window.location，必须显式传）。
+ */
+export function isParagraphLikeElement(el: Element, pageUrl: string): boolean {
+  const rule = getSiteRule(pageUrl);
+  if (rule?.blockSelectors) {
+    for (const selector of rule.blockSelectors) {
+      try {
+        if (el.matches(selector)) return true;
+      } catch {
+        // 无效选择器：忽略，宁可少抓也不要让抽取崩掉
+      }
+    }
+  }
   for (const [name, value] of PARAGRAPH_LIKE_ATTRS) {
     if (el.getAttribute(name) === value) return true;
   }
