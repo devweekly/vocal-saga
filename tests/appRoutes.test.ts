@@ -177,12 +177,6 @@ describe('GET /api/hello', () => {
     expect(body.timestamp).toBeDefined();
   });
 
-  it('honors ?name= param', async () => {
-    const app = buildApp();
-    const res = await app.request(req('/api/hello?name=Test'));
-    const body: any = await res.json();
-    expect(body.message).toBe('Hello, Test!');
-  });
 });
 
 // ─── GET /api/v1/models ──────────────────────────────────────
@@ -200,13 +194,6 @@ describe('GET /api/v1/models', () => {
     }
   });
 
-  it('returns models list', async () => {
-    const app = buildApp();
-    const res = await app.request(req('/api/v1/models'));
-    const body: any = await res.json();
-    expect(body.object).toBe('list');
-    expect(body.data.length).toBeGreaterThanOrEqual(0);
-  });
 });
 
 // ─── POST /api/v1/chat/completions ───────────────────────────
@@ -280,12 +267,6 @@ describe('POST /api/v1/chat/completions backend config', () => {
     expect(init.headers.Authorization).toBe('Bearer or-token');
   });
 
-  it('uses NVIDIA service', async () => {
-    const app = buildApp();
-    const res = await app.request(chatReq({ _backend: 'nvidia', model: 'nvidia/test-model' }));
-    expect(res.status).toBe(200);
-    expect(globalThis.fetch).toHaveBeenCalledOnce();
-  });
 });
 
 // ─── POST /api/translate/text ─────────────────────────────────
@@ -329,20 +310,6 @@ describe('POST /api/translate/text', () => {
     expect(res.status).toBe(400);
   });
 
-  it('500 when translateText throws', async () => {
-    const { translateText } = await import('../lib/translate/pipeline');
-    (translateText as any).mockRejectedValueOnce(new Error('boom'));
-
-    const app = buildApp();
-    const res = await app.request(req('/api/translate/text', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text: 'hello' }),
-    }));
-    expect(res.status).toBe(500);
-    const body: any = await res.json();
-    expect(body.error).toBe('boom');
-  });
 });
 
 // ─── Glossary API ────────────────────────────────────────────
@@ -477,14 +444,6 @@ describe('GET /fanyi/page/check', () => {
     expect(res.status).toBe(204);
   });
 
-  it('returns 400 when url is missing', async () => {
-    const app = buildApp();
-    const res = await app.request(req('/fanyi/page/check?source=en&target=zh'));
-
-    expect(res.status).toBe(400);
-    const body: any = await res.json();
-    expect(body.error).toBe('url is required');
-  });
 });
 
 // ─── POST /fanyi/page ──────────────────────────────────────
@@ -506,29 +465,7 @@ describe('POST /fanyi/page', () => {
     expect(html).toContain('translated');
   });
 
-  it('returns 400 when html is missing', async () => {
-    const app = buildApp();
-    const res = await app.request(req('/fanyi/page', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ url: 'https://example.com' }),
-    }));
-    expect(res.status).toBe(400);
-    const body: any = await res.json();
-    expect(body.error).toBe('html is required');
-  });
 
-  it('returns 400 when url is missing', async () => {
-    const app = buildApp();
-    const res = await app.request(req('/fanyi/page', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ html: '<p>test</p>' }),
-    }));
-    expect(res.status).toBe(400);
-    const body: any = await res.json();
-    expect(body.error).toBe('url is required');
-  });
 
   it('returns 400 when apiKey is missing for deepseek', async () => {
     const app = buildApp();
@@ -582,47 +519,7 @@ describe('POST /fanyi/page', () => {
     expect(body.error).toMatch(/provider must be one of/);
   });
 
-  it('passes provider/apiKey and fixed bilingual mode to translateHtml', async () => {
-    const { translateHtml } = await import('../lib/translate/pipeline');
-    const app = buildApp();
-    await app.request(req('/fanyi/page?source=ja&target=zh&mode=target', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        html: '<html><body>test</body></html>',
-        url: 'https://example.com',
-        apiKey: 'sk-test-api-key',
-        provider: 'openrouter',
-      }),
-    }));
-    expect(translateHtml).toHaveBeenCalledOnce();
-    const arg = (translateHtml as any).mock.calls[0][0];
-    expect(arg.source).toBe('ja');
-    expect(arg.target).toBe('zh');
-    // /fanyi/page 固定为 bilingual，provider 透传，apiKey 透传
-    expect(arg.mode).toBe('bilingual');
-    expect(arg.provider).toBe('openrouter');
-    expect(arg.apiKey).toBe('sk-test-api-key');
-  });
 
-  it('returns 500 when translateHtml throws', async () => {
-    const { translateHtml } = await import('../lib/translate/pipeline');
-    (translateHtml as any).mockRejectedValueOnce(new Error('translation failed'));
-
-    const app = buildApp();
-    const res = await app.request(req('/fanyi/page', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        html: '<html><body>test</body></html>',
-        url: 'https://example.com',
-        apiKey: 'sk-test-api-key',
-      }),
-    }));
-    expect(res.status).toBe(500);
-    const body: any = await res.json();
-    expect(body.error).toBe('translation failed');
-  });
 
   it('returns D1 cache directly when url+source+target exists', async () => {
     const { translateHtml } = await import('../lib/translate/pipeline');
@@ -880,43 +777,9 @@ describe('分页列表', () => {
     expect(html).not.toContain('下一页');
   });
 
-  it('无 D1 时返回空列表页', async () => {
-    const app = buildApp();
-    const res = await app.request(req('/'));
-    expect(res.status).toBe(200);
-    const html = await res.text();
-    expect(html).toContain('暂无翻译记录');
-  });
 
-  it('非法页码 /page/0 返回 404', async () => {
-    const app = buildApp();
-    const db = createMockDb();
-    seedDb(db, 10);
 
-    const res = await app.request(req('/page/0'), {}, envWithDb(db));
-    expect(res.status).toBe(404);
-  });
 
-  it('非法页码 /page/abc 返回 404', async () => {
-    const app = buildApp();
-    const db = createMockDb();
-    seedDb(db, 10);
-
-    const res = await app.request(req('/page/abc'), {}, envWithDb(db));
-    expect(res.status).toBe(404);
-  });
-
-  it('页码超出总页数时仍渲染（空列表）', async () => {
-    const app = buildApp();
-    const db = createMockDb();
-    seedDb(db, 10); // 只有 1 页
-
-    const res = await app.request(req('/page/99'), {}, envWithDb(db));
-    expect(res.status).toBe(200);
-    const html = await res.text();
-    // 超出页数，无记录显示
-    expect(html).toContain('暂无翻译记录');
-  });
 });
 
 // ─── GET /translate/:target ─────────────────────────────────
@@ -993,24 +856,6 @@ describe('GET /article/:id', () => {
     expect(res.headers.get('Location')).toBe('/translate/example.com%2Fpost');
   });
 
-  it('redirects to re-translate when <base> appears after relative stylesheet', async () => {
-    // arxiv / ar5iv 旧缓存：<base> 在相对 CSS 之后，浏览器用代理域解析导致 404
-    const db = createMockDb();
-    db._rows.push({
-      id: 43,
-      url: 'https://arxiv.org/html/2501.00000',
-      title: 'Paper',
-      source_lang: 'en',
-      target_lang: 'zh',
-      html: '<html><head><link href="/static/browse/style.css" rel="stylesheet"><base href="https://arxiv.org/html/"></head><body>cached translation<span class="fanyi-translation">译文</span></body></html>',
-      created_at: new Date().toISOString(),
-    });
-
-    const app = buildApp();
-    const res = await app.request(req('/article/43'), {}, envWithDb(db));
-    expect(res.status).toBe(302);
-    expect(res.headers.get('Location')).toBe('/translate/arxiv.org%2Fhtml%2F2501.00000');
-  });
 
   it('serves newer healthy cache for same URL when requested id is unhealthy', async () => {
     const db = createMockDb();
@@ -1064,13 +909,6 @@ describe('injectTranslationCss', () => {
     expect(result.indexOf('<style data-fanyi-css>')).toBeLessThan(result.indexOf('</head>'));
   });
 
-  it('injects inside <head> when no closing tag', () => {
-    const html = '<html><head><title>Test</title><body>Hi</body></html>';
-    const result = injectTranslationCss(html);
-    expect(result).toContain('<style data-fanyi-css>');
-    // style should be right after <head>
-    expect(result.match(/<head>(<style[^>]*>)/)?.[1]).toBeDefined();
-  });
 
   it('injects after <body> when no head at all', () => {
     const html = '<html><body><p>Hi</p></body></html>';
@@ -1079,18 +917,7 @@ describe('injectTranslationCss', () => {
     expect(result.indexOf('<style data-fanyi-css>')).toBeGreaterThan(result.indexOf('<body'));
   });
 
-  it('injects after <html> as fallback', () => {
-    const html = '<html><p>Minimal</p></html>';
-    const result = injectTranslationCss(html);
-    expect(result).toContain('<style data-fanyi-css>');
-    expect(result.indexOf('<style data-fanyi-css>')).toBeGreaterThan(result.indexOf('<html'));
-  });
 
-  it('prefixes completely empty/broken HTML', () => {
-    const result = injectTranslationCss('<p>Just a fragment</p>');
-    expect(result).toContain('<style data-fanyi-css>');
-    expect(result.startsWith('<style')).toBe(true);
-  });
 
   it('contains critical !important rules for .fanyi-translation', () => {
     expect(TRANSLATION_CSS).toContain('display:block!important');

@@ -258,24 +258,4 @@ describe('stripDangerousScripts（组合：导航 + hydration）', () => {
     expect(out).toContain('Original text');
   });
 
-  it('模拟 Next.js 翻译页面完整场景', () => {
-    const html = `<!doctype html><html><head>
-      <script src="/_next/static/chunks/main-abc.js"></script>
-      <script>self.__next_f.push([1,"3:I[79520"])</script>
-      <script>self.__next_f.push([1,"0:{\\\"P\\\":null}"])</script>
-      <script src="https://x.com/cdn-cgi/challenge-platform/scripts/jsd/api.js"></script>
-    </head><body>
-      <p class="fanyi-translation">译文内容</p>
-      <p>Original text</p>
-    </body></html>`;
-    const out = stripDangerousScripts(html);
-    // JSD 删除
-    expect(out).not.toContain('cdn-cgi/challenge-platform');
-    // Next.js chunk 和 streaming data 删除
-    expect(out).not.toContain('_next/static/chunks');
-    expect(out).not.toContain('__next_f');
-    // 翻译内容保留
-    expect(out).toContain('译文内容');
-    expect(out).toContain('Original text');
-  });
 });

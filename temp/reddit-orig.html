@@ -1,0 +1,499 @@
+<!doctype html>
+<html lang="en">
+    <head><script>
+(function () {
+  if (window.__vsRedirectGuard) return; // 防重复注入
+  window.__vsRedirectGuard = true;
+
+  var currentHref = window.location.href;
+  var currentOrigin = window.location.origin;
+  var currentPathname = window.location.pathname;
+  var currentSearch = window.location.search;
+
+  /**
+   * 判断 url 是否会导致离开当前页面（不同 origin / pathname / search）。
+   * 空值/非法值视为不跳转。
+   */
+  function isCrossPage(url) {
+    if (!url) return false;
+    try {
+      var parsed = new URL(url, currentHref);
+      return parsed.origin !== currentOrigin ||
+             parsed.pathname !== currentPathname ||
+             parsed.search !== currentSearch;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  function isExternal(url) {
+    if (!url) return false;
+    try {
+      return new URL(url, currentHref).origin !== currentOrigin;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  /**
+   * 判断请求 URL 是否应被拦截（CORS 会失败并触发 SPA reload 的域名/路径）。
+   * - /cdn-cgi/ — Cloudflare JSD 挑战，代理域下必定 CORS 失败
+   * - api.x.com / ads-api.x.com — X/Twitter SPA 后端 API，代理域下必定 CORS 失败
+   */
+  function shouldBlock(url) {
+    if (!url) return false;
+    return url.indexOf('/cdn-cgi/') !== -1 ||
+           url.indexOf('api.x.com') !== -1 ||
+           url.indexOf('ads-api.x.com') !== -1;
+  }
+
+  /**
+   * 根据 URL 构造匹配 X/Twitter SPA 预期的 fake 响应体。
+   * 不同端点期望不同的 JSON 结构，返回不匹配的结构会导致
+   * SPA 解析异常 → reload。
+   */
+  function buildFakeResponse(url) {
+    // GraphQL 查询：期望 {data: {...}}
+    if (url.indexOf('/graphql/') !== -1) {
+      return '{"data":{},"extensions":{}}';
+    }
+    // hashflags：期望数组
+    if (url.indexOf('hashflags') !== -1) {
+      return '[]';
+    }
+    // badge_count：期望 {ntab:0, xchat:0}
+    if (url.indexOf('badge_count') !== -1) {
+      return '{"ntab":0,"xchat":0,"total":0}';
+    }
+    // viewer_context：期望 {viewer:{...}}
+    if (url.indexOf('viewer_context') !== -1) {
+      return '{"viewer":{"id":"0","rest_id":"0","is_logged_in":false}}';
+    }
+    // account/settings：期望对象
+    if (url.indexOf('account/settings') !== -1) {
+      return '{}';
+    }
+    // permissionsState：期望对象
+    if (url.indexOf('permissionsState') !== -1) {
+      return '{}';
+    }
+    // ads-api measurement：期望空对象
+    if (url.indexOf('ads-api') !== -1) {
+      return '{}';
+    }
+    // 默认：空 JSON 对象
+    return '{}';
+  }
+
+  var results = {};
+
+  // ── 1. Navigation API（主要防线）──
+  // Chrome 102+ 提供 Navigation API，可以拦截所有类型的导航（reload/replace/push）。
+  // 这是拦截 location.href = url 和 location.reload() 的唯一可靠方式，
+  // 因为这些 Location 属性在 Chrome 中 configurable: false 无法 patch。
+  // 规则：只拦截同页 reload/replace（SPA 错误处理触发的循环跳转），
+  // 跨页导航放行（用户点击外部链接等）。
+  try {
+    if (window.navigation) {
+      navigation.addEventListener('navigate', function (ev) {
+        var dest = ev.destination ? ev.destination.url : '';
+        // 同页 reload 或 replace → 拦截（SPA 循环跳转）
+        if (ev.navigationType === 'reload' || dest === currentHref) {
+          console.log('[vocal-saga] 拦截 navigation:', ev.navigationType, dest.slice(0, 100));
+          ev.preventDefault();
+          return;
+        }
+        // 跨页导航 → 放行
+      });
+      results.navigation = true;
+      console.log('[vocal-saga] Navigation API guard active');
+    } else {
+      results.navigation = false;
+      console.log('[vocal-saga] Navigation API not available');
+    }
+  } catch (e) {
+    results.navigation = false;
+    console.error('[vocal-saga] Navigation API setup failed:', e.message);
+  }
+
+  // ── 2. fetch guard ──
+  // 拦截 CORS 会失败的请求，返回匹配 SPA 预期的 fake 200 响应，
+  // 避免 SPA 因 fetch error 进入错误状态并触发 reload。
+  // 注意：jsdom/Node 下裸 fetch 走的是 globalThis.fetch，
+  // 与 window.fetch 不是同一引用，必须同时 patch，否则测试与部分
+  // 容器环境拦截不到（相对路径会直接抛 ERR_INVALID_URL，绝对路径
+  // 会走真实网络导致超时）。
+  try {
+    // 复用首次保存的原生 fetch，避免重复注入时多层包裹
+    // 优先取 globalThis.fetch，保证裸 fetch 语义一致（jsdom 下相对路径抛 TypeError）
+    var origFetch = window.__vsOrigFetch ||
+      ((typeof globalThis !== 'undefined' && globalThis.fetch) ? globalThis.fetch : null) ||
+      window.fetch ||
+      ((typeof self !== 'undefined' && self.fetch) ? self.fetch : null);
+    if (window.__vsOrigFetch !== origFetch) {
+      try { window.__vsOrigFetch = origFetch; } catch (e) {}
+    }
+    var fetchWrapper = function (input, init) {
+      var url = typeof input === 'string' ? input :
+                (input && typeof input === 'object' && input.url) ? input.url :
+                String(input || '');
+      if (shouldBlock(url)) {
+        var fakeBody = buildFakeResponse(url);
+        console.log('[vocal-saga] 拦截 fetch:', url);
+        var RespCtor = (typeof Response !== 'undefined') ? Response : window.Response;
+        return Promise.resolve(new RespCtor(fakeBody, {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' }
+        }));
+      }
+      try {
+        return origFetch.apply(this, arguments);
+      } catch (e) {
+        // 原生 fetch 同步抛错（如 URL 非法），返回 rejected Promise 不让 SPA 崩溃
+        console.log('[vocal-saga] 吞掉 fetch 错误:', e.message, url);
+        return Promise.reject(e);
+      }
+    };
+    window.fetch = fetchWrapper;
+    // 同步到其它全局作用域（浏览器里它们通常是同一对象，重复赋值无害）
+    try {
+      if (typeof globalThis !== 'undefined' && globalThis.fetch !== window.fetch) {
+        globalThis.fetch = window.fetch;
+      }
+    } catch (e) {}
+    try {
+      if (typeof self !== 'undefined' && self !== window && self.fetch !== window.fetch) {
+        self.fetch = window.fetch;
+      }
+    } catch (e) {}
+    try {
+      if (typeof global !== 'undefined' && global.fetch !== window.fetch) {
+        global.fetch = window.fetch;
+      }
+    } catch (e) {}
+    results.fetch = true;
+  } catch (e) {
+    results.fetch = false;
+    console.error('[vocal-saga] patch fetch failed:', e.message);
+  }
+
+  // ── 3. XMLHttpRequest guard ──
+  // 拦截 CORS 会失败的 XHR 请求，设置 status/responseText/response 等属性，
+  // 并触发 onload/onreadystatechange 回调，让 SPA 认为请求成功。
+  try {
+    var origXhrOpen = XMLHttpRequest.prototype.open;
+    var origXhrSend = XMLHttpRequest.prototype.send;
+    XMLHttpRequest.prototype.open = function (method, url) {
+      this.__vsUrl = String(url || '');
+      return origXhrOpen.apply(this, arguments);
+    };
+    XMLHttpRequest.prototype.send = function () {
+      if (shouldBlock(this.__vsUrl)) {
+        var self = this;
+        var fakeBody = buildFakeResponse(self.__vsUrl);
+        console.log('[vocal-saga] 拦截 XHR:', self.__vsUrl);
+        setTimeout(function () {
+          try {
+            Object.defineProperty(self, 'status', { configurable: true, value: 200 });
+            Object.defineProperty(self, 'statusText', { configurable: true, value: 'OK' });
+            Object.defineProperty(self, 'responseText', { configurable: true, value: fakeBody });
+            Object.defineProperty(self, 'response', { configurable: true, value: fakeBody });
+            Object.defineProperty(self, 'responseURL', { configurable: true, value: self.__vsUrl });
+            Object.defineProperty(self, 'readyState', { configurable: true, value: 4 });
+            if (typeof self.onreadystatechange === 'function') self.onreadystatechange();
+            if (typeof self.onload === 'function') self.onload(new ProgressEvent('load'));
+            self.dispatchEvent(new ProgressEvent('load'));
+            self.dispatchEvent(new ProgressEvent('loadend'));
+          } catch (e) {
+            console.error('[vocal-saga] XHR fake response error:', e.message);
+          }
+        }, 0);
+        return;
+      }
+      try {
+        return origXhrSend.apply(this, arguments);
+      } catch (e) {
+        // 原生 XHR.send 同步抛错（如网络层拒绝），触发 onerror 不让 SPA 崩溃
+        console.log('[vocal-saga] 吞掉 XHR.send 错误:', e.message, this.__vsUrl);
+        var self = this;
+        setTimeout(function () {
+          try {
+            Object.defineProperty(self, 'status', { configurable: true, value: 0 });
+            Object.defineProperty(self, 'readyState', { configurable: true, value: 4 });
+            if (typeof self.onerror === 'function') self.onerror(new ProgressEvent('error'));
+            self.dispatchEvent(new ProgressEvent('error'));
+            self.dispatchEvent(new ProgressEvent('loadend'));
+          } catch (e2) {}
+        }, 0);
+      }
+    };
+    results.xhr = true;
+  } catch (e) {
+    results.xhr = false;
+    console.error('[vocal-saga] patch XHR failed:', e.message);
+  }
+
+  // ── 4. history.pushState / replaceState ──
+  // 拦截跨页 SPA 路由跳转（同页 hash 跳转允许）。
+  // 额外用 try/catch 包裹原生调用：跨域 URL 会触发 SecurityError，
+  // 静默吞掉避免 SPA 崩溃（如 Substack 的 componentDidMount 崩溃）。
+  try {
+    ['pushState', 'replaceState'].forEach(function (m) {
+      var orig = history[m];
+      history[m] = function (state, title, url) {
+        if (url && isCrossPage(url)) {
+          console.log('[vocal-saga] 拦截 history.' + m + ':', url);
+          return;
+        }
+        try {
+          return orig.apply(history, arguments);
+        } catch (e) {
+          // 跨域 URL 触发 SecurityError，静默吞掉
+          console.log('[vocal-saga] 吞掉 history.' + m + ' 错误:', e.message, url);
+        }
+      };
+    });
+    results.pushState = true;
+    results.replaceState = true;
+  } catch (e) {
+    results.pushState = false;
+    results.replaceState = false;
+    console.error('[vocal-saga] patch history.pushState/replaceState failed:', e.message);
+  }
+
+  // ── 5. history.go(0) ──
+  // history.go(0) 等同于 reload，拦截。
+  // 其他值用 try/catch 包裹原生调用，防止抛错崩溃 SPA。
+  try {
+    var origGo = history.go;
+    history.go = function (delta) {
+      if (delta === 0) {
+        console.log('[vocal-saga] 拦截 history.go(0)');
+        return;
+      }
+      try {
+        return origGo.apply(history, arguments);
+      } catch (e) {
+        console.log('[vocal-saga] 吞掉 history.go 错误:', e.message);
+      }
+    };
+    results.go = true;
+  } catch (e) {
+    results.go = false;
+    console.error('[vocal-saga] patch history.go failed:', e.message);
+  }
+
+  // ── 6. window.open ──
+  // 拦截当前窗口（_self）打开内部跨页链接，_blank 和外部链接放行。
+  // 原生调用用 try/catch 包裹，弹窗被拦截或安全策略抛错时不崩溃 SPA。
+  try {
+    var origOpen = window.open;
+    window.open = function (url, target, features) {
+      var args = arguments;
+      function callOrig() {
+        try {
+          return origOpen.apply(window, args);
+        } catch (e) {
+          console.log('[vocal-saga] 吞掉 window.open 错误:', e.message, url);
+          return null;
+        }
+      }
+      if (!url) return callOrig();
+      if (target === '_blank' || isExternal(url)) {
+        return callOrig();
+      }
+      if (isCrossPage(url)) {
+        console.log('[vocal-saga] 拦截 window.open:', url);
+        return null;
+      }
+      return callOrig();
+    };
+    results.open = true;
+  } catch (e) {
+    results.open = false;
+    console.error('[vocal-saga] patch window.open failed:', e.message);
+  }
+
+  // ── 7. <meta http-equiv="refresh"> ──
+  // 移除已有的 meta refresh，并用 MutationObserver 监控后续注入。
+  try {
+    function removeRefreshMeta() {
+      document.querySelectorAll('meta[http-equiv="refresh" i]').forEach(function (m) { m.remove(); });
+    }
+    removeRefreshMeta();
+    var observerTarget = document.head || document.documentElement;
+    new MutationObserver(function (records) {
+      records.forEach(function (r) {
+        r.addedNodes.forEach(function (n) {
+          if (n && n.tagName === 'META' && /^refresh$/i.test(n.getAttribute('http-equiv') || '')) {
+            n.remove();
+          }
+        });
+      });
+    }).observe(observerTarget, { childList: true, subtree: true });
+    results.metaRefresh = true;
+  } catch (e) {
+    results.metaRefresh = false;
+    console.error('[vocal-saga] patch metaRefresh failed:', e.message);
+  }
+
+  // ── 验证日志 ──
+  console.log('[vocal-saga] redirectGuard patches:', JSON.stringify(results));
+})();
+</script><base href="https://www.reddit.com/r/ExperiencedDevs/comments/1wql3g2/interviewed_candidates_for_ai_engineer_roles_this/">
+      <meta charset="UTF-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <link href="https://www.redditstatic.com/shreddit/assets/favicon/64x64.png" rel="icon shortcut" sizes="64x64">
+      <title>Reddit</title>
+      <script nonce="8e283fdc-28cd-4e3a-9183-6df6f64cb234">
+        document.addEventListener("DOMContentLoaded",async function(){var e=document.forms[0],n=(e.onsubmit=function(t){return new URLSearchParams(document.location.search).forEach((e,n)=>t.target.appendChild(Object.assign(document.createElement("input"),{name:n,type:"hidden",value:e}))),!0},await(async e=>e+e)("11b8526fd11b46b6"));e.elements.namedItem("solution").value=n,e.requestSubmit()},{once:!0});
+      </script>
+      <style>
+        main{align-items:center;display:flex;height:100vh;isolation:isolate;justify-content:center;position:relative;width:100vw}main:before{animation:scaleout 1.5s infinite ease-in-out;background-color:#d93900;border-radius:100%;content:'';height:8rem;opacity:.75;position:absolute;width:8rem}.logo{align-items:center;display:flex;fill:currentColor;font-size:4rem;justify-content:center;z-index:1}.logo svg{fill:currentColor;height:8rem;width:auto}@keyframes scaleout{0%{transform:scale(1)}100%{transform:scale(1.5);opacity:0}}.snoo-cls-1{fill:url(#snoo-radial-gragient) white}.snoo-cls-1,.snoo-cls-2,.snoo-cls-3,.snoo-cls-4,.snoo-cls-5,.snoo-cls-6,.snoo-cls-7,.snoo-cls-8,.snoo-cls-9,.snoo-cls-10,.snoo-cls-11{stroke-width:0}.snoo-cls-2{fill:url(#snoo-radial-gragient-2) white}.snoo-cls-3{fill:url(#snoo-radial-gragient-3) white}.snoo-cls-4{fill:url(#snoo-radial-gragient-4) #fc4301}.snoo-cls-5{fill:url(#snoo-radial-gragient-6) black}.snoo-cls-6{fill:url(#snoo-radial-gragient-8) black}.snoo-cls-7{fill:url(#snoo-radial-gragient-5) #fc4301}.snoo-cls-8{fill:url(#snoo-radial-gragient-7) white}.snoo-cls-9{fill:#842123}.snoo-cls-10{fill:#ff4500}.snoo-cls-11{fill:#ffc49c}
+      </style>
+    </head>
+    <body>
+      <main>
+        <div class="logo">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 216 216" xmlns:xlink="http://www.w3.org/1999/xlink" xml:space="preserve">
+            <defs>
+              <lineargradient id="orangeredGradient" gradientTransform="rotate(90)">
+                <stop offset="0%" stop-color="#FE7B0E" />
+                <stop offset="100%" stop-color="#EF0A22" />
+              </lineargradient>
+            </defs>
+            <defs>
+              <radialgradient id="snoo-radial-gragient" cx="169.75" cy="92.19" fx="169.75" fy="92.19" r="50.98" gradientTransform="translate(0 11.64) scale(1 .87)" gradientUnits="userSpaceOnUse">
+                <stop offset="0" stop-color="#feffff" />
+                <stop offset=".4" stop-color="#feffff" />
+                <stop offset=".51" stop-color="#f9fcfc" />
+                <stop offset=".62" stop-color="#edf3f5" />
+                <stop offset=".7" stop-color="#dee9ec" />
+                <stop offset=".72" stop-color="#d8e4e8" />
+                <stop offset=".76" stop-color="#ccd8df" />
+                <stop offset=".8" stop-color="#c8d5dd" />
+                <stop offset=".83" stop-color="#ccd6de" />
+                <stop offset=".85" stop-color="#d8dbe2" />
+                <stop offset=".88" stop-color="#ede3e9" />
+                <stop offset=".9" stop-color="#ffebef" />
+              </radialgradient>
+              <radialgradient id="snoo-radial-gragient-2" cx="47.31" fx="47.31" r="50.98" xlink:href="#snoo-radial-gragient" />
+              <radialgradient id="snoo-radial-gragient-3" cx="109.61" cy="85.59" fx="109.61" fy="85.59" r="153.78" gradientTransform="translate(0 25.56) scale(1 .7)" xlink:href="#snoo-radial-gragient" />
+              <radialgradient id="snoo-radial-gragient-4" cx="-6.01" cy="64.68" fx="-6.01" fy="64.68" r="12.85" gradientTransform="translate(81.08 27.26) scale(1.07 1.55)" gradientUnits="userSpaceOnUse">
+                <stop offset="0" stop-color="#f60" />
+                <stop offset=".5" stop-color="#ff4500" />
+                <stop offset=".7" stop-color="#fc4301" />
+                <stop offset=".82" stop-color="#f43f07" />
+                <stop offset=".92" stop-color="#e53812" />
+                <stop offset="1" stop-color="#d4301f" />
+              </radialgradient>
+              <radialgradient id="snoo-radial-gragient-5" cx="-73.55" cy="64.68" fx="-73.55" fy="64.68" r="12.85" gradientTransform="translate(62.87 27.26) rotate(-180) scale(1.07 -1.55)" xlink:href="#snoo-radial-gragient-4" />
+              <radialgradient id="snoo-radial-gragient-6" cx="107.93" cy="166.96" fx="107.93" fy="166.96" r="45.3" gradientTransform="translate(0 57.4) scale(1 .66)" gradientUnits="userSpaceOnUse">
+                <stop offset="0" stop-color="#172e35" />
+                <stop offset=".29" stop-color="#0e1c21" />
+                <stop offset=".73" stop-color="#030708" />
+                <stop offset="1" stop-color="#000" />
+              </radialgradient>
+              <radialgradient id="snoo-radial-gragient-7" cx="147.88" cy="32.94" fx="147.88" fy="32.94" r="39.77" gradientTransform="translate(0 .54) scale(1 .98)" xlink:href="#snoo-radial-gragient" />
+              <radialgradient id="snoo-radial-gragient-8" cx="131.31" cy="73.08" fx="131.31" fy="73.08" r="32.6" gradientUnits="userSpaceOnUse">
+                <stop offset=".48" stop-color="#7a9299" />
+                <stop offset=".67" stop-color="#172e35" />
+                <stop offset=".75" stop-color="#000" />
+                <stop offset=".82" stop-color="#172e35" />
+              </radialgradient>
+            </defs>
+            <path class="snoo-cls-10" d="m108,0h0C48.35,0,0,48.35,0,108h0c0,29.82,12.09,56.82,31.63,76.37l-20.57,20.57c-4.08,4.08-1.19,11.06,4.58,11.06h92.36s0,0,0,0c59.65,0,108-48.35,108-108h0C216,48.35,167.65,0,108,0Z" />
+            <circle class="snoo-cls-1" cx="169.22" cy="106.98" r="25.22" />
+            <circle class="snoo-cls-2" cx="46.78" cy="106.98" r="25.22" />
+            <ellipse class="snoo-cls-3" cx="108.06" cy="128.64" rx="72" ry="54" />
+            <path class="snoo-cls-4" d="m86.78,123.48c-.42,9.08-6.49,12.38-13.56,12.38s-12.46-4.93-12.04-14.01c.42-9.08,6.49-15.02,13.56-15.02s12.46,7.58,12.04,16.66Z" />
+            <path class="snoo-cls-7" d="m129.35,123.48c.42,9.08,6.49,12.38,13.56,12.38s12.46-4.93,12.04-14.01c-.42-9.08-6.49-15.02-13.56-15.02s-12.46,7.58-12.04,16.66Z" />
+            <ellipse class="snoo-cls-11" cx="79.63" cy="116.37" rx="2.8" ry="3.05" />
+            <ellipse class="snoo-cls-11" cx="146.21" cy="116.37" rx="2.8" ry="3.05" />
+            <path class="snoo-cls-5" d="m108.06,142.92c-8.76,0-17.16.43-24.92,1.22-1.33.13-2.17,1.51-1.65,2.74,4.35,10.39,14.61,17.69,26.57,17.69s22.23-7.3,26.57-17.69c.52-1.23-.33-2.61-1.65-2.74-7.77-.79-16.16-1.22-24.92-1.22Z" />
+            <circle class="snoo-cls-8" cx="147.49" cy="49.43" r="17.87" />
+            <path class="snoo-cls-6" d="m107.8,76.92c-2.14,0-3.87-.89-3.87-2.27,0-16.01,13.03-29.04,29.04-29.04,2.14,0,3.87,1.73,3.87,3.87s-1.73,3.87-3.87,3.87c-11.74,0-21.29,9.55-21.29,21.29,0,1.38-1.73,2.27-3.87,2.27Z" />
+            <path class="snoo-cls-9" d="m62.82,122.65c.39-8.56,6.08-14.16,12.69-14.16,6.26,0,11.1,6.39,11.28,14.33.17-8.88-5.13-15.99-12.05-15.99s-13.14,6.05-13.56,15.2c-.42,9.15,4.97,13.83,12.04,13.83.17,0,.35,0,.52,0-6.44-.16-11.3-4.79-10.91-13.2Z" />
+            <path class="snoo-cls-9" d="m153.3,122.65c-.39-8.56-6.08-14.16-12.69-14.16-6.26,0-11.1,6.39-11.28,14.33-.17-8.88,5.13-15.99,12.05-15.99,7.07,0,13.14,6.05,13.56,15.2.42,9.15-4.97,13.83-12.04,13.83-.17,0-.35,0-.52,0,6.44-.16,11.3-4.79,10.91-13.2Z" />
+          </svg>
+        </div>
+      </main>
+      <form hidden method="GET" action="/r/ExperiencedDevs/comments/1wql3g2/interviewed_candidates_for_ai_engineer_roles_this/">
+        <input type="hidden" name="solution">
+        <input type="hidden" name="js_challenge" value="1">
+        <input type="hidden" name="jsc_token" value="2824be10929bdc604753c70a67a1c3313e2f1fe0f530f851c1261dc07fee0730">
+        <input type="hidden" name="jsc_orig_r" value="">
+      </form>
+    <script>
+(function () {
+  if (window.__vsSvgRescue) return;
+  window.__vsSvgRescue = true;
+
+  var SVG_TAGS = ['svg', 'path', 'g', 'rect', 'circle', 'ellipse', 'line',
+    'polyline', 'polygon', 'title', 'defs', 'use', 'symbol', 'mask',
+    'clippath', 'lineargradient', 'radialgradient', 'stop', 'text', 'tspan'];
+
+  function isInsideSvg(el) {
+    var parent = el.parentElement;
+    while (parent) {
+      if (parent.tagName === 'SVG' || SVG_TAGS.indexOf(parent.tagName.toLowerCase()) >= 0) {
+        return true;
+      }
+      parent = parent.parentElement;
+    }
+    return false;
+  }
+
+  function findSvgAncestor(el) {
+    var parent = el.parentElement;
+    while (parent) {
+      if (parent.tagName === 'SVG') return parent;
+      parent = parent.parentElement;
+    }
+    return null;
+  }
+
+  function rescueTrappedContent() {
+    // 查找可能被困在 SVG 内的内容元素
+    var selectors = '.available-content, .body.markup, .body, [class*="body markup"]';
+    var trapped = document.querySelectorAll(selectors);
+    trapped.forEach(function (el) {
+      if (!isInsideSvg(el)) return;
+      var svg = findSvgAncestor(el);
+      if (!svg) return;
+      // 找到 SVG 的最近非 SVG 祖先（通常是 button 或 div）
+      var safeParent = svg.parentElement;
+      while (safeParent && isInsideSvg(safeParent)) {
+        safeParent = safeParent.parentElement;
+      }
+      if (safeParent) {
+        // 移到 SVG 的父元素中（SVG 之后）
+        safeParent.insertBefore(el, svg.nextSibling);
+        console.log('[vocal-saga] SVG rescue: moved', el.className, 'out of SVG');
+      }
+    });
+  }
+
+  // DOMContentLoaded 时执行一次
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', rescueTrappedContent);
+  } else {
+    rescueTrappedContent();
+  }
+
+  // 用 MutationObserver 监控后续 DOM 变化
+  var rescueTimer = null;
+  var observer = new MutationObserver(function () {
+    if (rescueTimer) return;
+    rescueTimer = setTimeout(function () {
+      rescueTimer = null;
+      rescueTrappedContent();
+    }, 100);
+  });
+  observer.observe(document.documentElement, { childList: true, subtree: true });
+
+  // 5 秒后停止监听（避免长期性能开销）
+  setTimeout(function () { observer.disconnect(); }, 5000);
+})();
+</script></body>
+  </html>

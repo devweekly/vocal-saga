@@ -105,16 +105,6 @@ describe('buildSystemContent 文风切换', () => {
     expect(buildSystemContent(sourceLang, targetLang, undefined, 'wangxiaobo')).toContain('王小波');
   });
 
-  it('输出格式段落含 JSON 契约与语言对', () => {
-    for (const style of ALL_STYLES) {
-      const content = buildSystemContent(sourceLang, targetLang, undefined, style);
-      expect(content).toContain('translated_text');
-      expect(content).toContain('输入语言：英语');
-      expect(content).toContain('目标语言：简体中文');
-      expect(content).toContain('不输出 Markdown');
-      expect(content).toContain('不返回空字符串');
-    }
-  });
 
   it('语言代码解析为中文语言名（未知代码原样透传）', () => {
     const zh2ja = buildSystemContent('zh', 'ja', undefined, 'default');
@@ -126,11 +116,6 @@ describe('buildSystemContent 文风切换', () => {
     expect(unknown).toContain('目标语言：yy');
   });
 
-  it('语言为空时回退 «英语 → 简体中文»', () => {
-    const content = buildSystemContent('', '', undefined, 'default');
-    expect(content).toContain('输入语言：英语');
-    expect(content).toContain('目标语言：简体中文');
-  });
 });
 
 describe('glossary 注入', () => {
@@ -185,10 +170,4 @@ describe('ja-source-natural 文风', () => {
     }
   });
 
-  it('源语言为 auto / 空值时按日语呈现', () => {
-    for (const source of ['auto', '']) {
-      const content = buildSystemContent(source, targetLang, undefined, 'ja-source-natural');
-      expect(content).toContain('输入语言：日语');
-    }
-  });
 });

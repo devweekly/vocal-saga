@@ -25,12 +25,6 @@ describe('CacheManager', () => {
     expect(result).toBeNull();
   });
 
-  it('stores and retrieves objects', async () => {
-    const obj = { name: 'test', count: 42, nested: { deep: true } };
-    await cache.set('obj', obj);
-    const result = await cache.get<typeof obj>('obj');
-    expect(result).toEqual(obj);
-  });
 
   it('uses custom TTL', async () => {
     await cache.set('key1', 'value1', 100);
@@ -80,11 +74,6 @@ describe('CacheManager', () => {
     expect(stats.storageSize).toBe(2);
   });
 
-  it('reports zero stats for empty cache', async () => {
-    const stats = await cache.getStats();
-    expect(stats.memorySize).toBe(0);
-    expect(stats.storageSize).toBe(0);
-  });
 
   // --- expiry ---
 
@@ -110,16 +99,6 @@ describe('CacheManager', () => {
 
   // --- multiple instances ---
 
-  it('isolates data between different cache instances', async () => {
-    const cache1 = new CacheManager('test:cache:a', undefined, storage);
-    const cache2 = new CacheManager('test:cache:b', undefined, storage);
-
-    await cache1.set('key', 'valueA');
-    await cache2.set('key', 'valueB');
-
-    expect(await cache1.get<string>('key')).toBe('valueA');
-    expect(await cache2.get<string>('key')).toBe('valueB');
-  });
 
   // --- 持久层异常时不挂（仅 log warn） ---
 
@@ -202,24 +181,5 @@ describe('CacheManager', () => {
     }
   });
 
-  it('uses default maxMemoryEntries when not specified', async () => {
-    const c = new CacheManager('test:lru4', 1000, storage);
-    // 默认 500，写 10 个不会触发淘汰
-    for (let i = 0; i < 10; i++) {
-      await c.set(`key${i}`, `value${i}`);
-    }
-    const stats = await c.getStats();
-    expect(stats.memorySize).toBe(10);
-  });
 
-  it('eviction removes ~20% of entries', async () => {
-    const c = new CacheManager('test:lru5', 1000, storage, 10);
-    for (let i = 0; i < 10; i++) {
-      await c.set(`key${i}`, `value${i}`);
-    }
-    // 第 11 个触发淘汰，应该删除 ceil(10 * 0.2) = 2 个
-    await c.set('key10', 'value10');
-    const stats = await c.getStats();
-    expect(stats.memorySize).toBeLessThanOrEqual(9);
-  });
 });

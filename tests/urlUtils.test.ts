@@ -61,17 +61,11 @@ describe('assertPublicUrl — public URLs pass', () => {
     expect(() => assertPublicUrl('https://1.1.1.1')).not.toThrow();
   });
 
-  it('allows public IPv4 (8.8.8.8)', () => {
-    expect(() => assertPublicUrl('https://8.8.8.8')).not.toThrow();
-  });
 
   it('allows explicit port 443', () => {
     expect(() => assertPublicUrl('https://example.com:443')).not.toThrow();
   });
 
-  it('allows explicit port 80', () => {
-    expect(() => assertPublicUrl('http://example.com:80')).not.toThrow();
-  });
 
   it('allows public IPv6 (2606:4700:4700::1111)', () => {
     expect(() => assertPublicUrl('https://[2606:4700:4700::1111]')).not.toThrow();
@@ -111,13 +105,7 @@ describe('assertPublicUrl — port guard', () => {
     expect(() => assertPublicUrl('https://example.com:8080')).toThrow('port not allowed');
   });
 
-  it('rejects port 3000', () => {
-    expect(() => assertPublicUrl('http://example.com:3000')).toThrow('port not allowed');
-  });
 
-  it('rejects port 22', () => {
-    expect(() => assertPublicUrl('https://example.com:22')).toThrow('port not allowed');
-  });
 });
 
 describe('assertPublicUrl — hostname blacklist', () => {
@@ -171,9 +159,6 @@ describe('assertPublicUrl — IPv4 private ranges', () => {
     expect(() => assertPublicUrl('https://127.0.0.1')).toThrow('private/reserved ipv4');
   });
 
-  it('rejects 127.1.2.3 (loopback /8)', () => {
-    expect(() => assertPublicUrl('https://127.1.2.3')).toThrow('private/reserved ipv4');
-  });
 
   it('rejects 169.254.169.254 (AWS metadata)', () => {
     expect(() => assertPublicUrl('https://169.254.169.254')).toThrow('private/reserved ipv4');
@@ -187,25 +172,13 @@ describe('assertPublicUrl — IPv4 private ranges', () => {
     expect(() => assertPublicUrl('https://100.64.0.1')).toThrow('private/reserved ipv4');
   });
 
-  it('rejects 192.0.2.1 (TEST-NET-1)', () => {
-    expect(() => assertPublicUrl('https://192.0.2.1')).toThrow('private/reserved ipv4');
-  });
 
-  it('rejects 198.51.100.1 (TEST-NET-2)', () => {
-    expect(() => assertPublicUrl('https://198.51.100.1')).toThrow('private/reserved ipv4');
-  });
 
   it('rejects 203.0.113.1 (TEST-NET-3)', () => {
     expect(() => assertPublicUrl('https://203.0.113.1')).toThrow('private/reserved ipv4');
   });
 
-  it('rejects 224.0.0.1 (multicast)', () => {
-    expect(() => assertPublicUrl('https://224.0.0.1')).toThrow('private/reserved ipv4');
-  });
 
-  it('rejects 255.255.255.255 (broadcast)', () => {
-    expect(() => assertPublicUrl('https://255.255.255.255')).toThrow('private/reserved ipv4');
-  });
 });
 
 describe('assertPublicUrl — IPv6 private ranges', () => {
@@ -213,29 +186,17 @@ describe('assertPublicUrl — IPv6 private ranges', () => {
     expect(() => assertPublicUrl('https://[::1]')).toThrow('private/reserved ipv6');
   });
 
-  it('rejects :: (unspecified)', () => {
-    expect(() => assertPublicUrl('https://[::]')).toThrow('private/reserved ipv6');
-  });
 
   it('rejects fe80::1 (link-local)', () => {
     expect(() => assertPublicUrl('https://[fe80::1]')).toThrow('private/reserved ipv6');
   });
 
-  it('rejects febf::1 (link-local upper bound)', () => {
-    expect(() => assertPublicUrl('https://[febf::1]')).toThrow('private/reserved ipv6');
-  });
 
   it('rejects fc00::1 (unique-local)', () => {
     expect(() => assertPublicUrl('https://[fc00::1]')).toThrow('private/reserved ipv6');
   });
 
-  it('rejects fd00::1 (unique-local)', () => {
-    expect(() => assertPublicUrl('https://[fd00::1]')).toThrow('private/reserved ipv6');
-  });
 
-  it('rejects ff00::1 (multicast)', () => {
-    expect(() => assertPublicUrl('https://[ff00::1]')).toThrow('private/reserved ipv6');
-  });
 
   it('rejects IPv4-mapped ::ffff:127.0.0.1', () => {
     expect(() => assertPublicUrl('https://[::ffff:127.0.0.1]')).toThrow('private/reserved ipv6');

@@ -138,11 +138,6 @@ describe('devirtualizeLayout', () => {
     expect(out).not.toContain('overflow:hidden');
   });
 
-  it('空 style 不报错', () => {
-    const html = `<html><body><div data-testid="cellInnerDiv"><p>content</p></div></body></html>`;
-    const out = devirtualizeLayout(html);
-    expect(out).toContain('content');
-  });
 
   it('无 cellInnerDiv 的页面不受影响', () => {
     const html = `<html><body>

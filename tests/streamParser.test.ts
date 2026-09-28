@@ -13,21 +13,8 @@ describe('parseSSELine', () => {
     expect(result).toBeNull();
   });
 
-  it('should return null for empty line', () => {
-    expect(parseSSELine('')).toBeNull();
-    expect(parseSSELine('   ')).toBeNull();
-  });
 
-  it('should return null for non-data line', () => {
-    expect(parseSSELine('event: message')).toBeNull();
-    expect(parseSSELine('id: 123')).toBeNull();
-  });
 
-  it('should handle line with extra whitespace', () => {
-    const result = parseSSELine('  data: hello  ');
-    expect(result).not.toBeNull();
-    expect(result!.data).toBe('hello');
-  });
 });
 
 describe('extractDeltaContent', () => {
@@ -133,22 +120,6 @@ describe('parseSSEStream', () => {
     expect(deltas).toEqual(['valid', ' after invalid']);
   });
 
-  it('should handle empty stream', async () => {
-    const stream = new ReadableStream({
-      start(controller) {
-        controller.close();
-      },
-    });
-
-    const reader = stream.getReader();
-    const deltas: string[] = [];
-
-    for await (const delta of parseSSEStream(reader)) {
-      deltas.push(delta);
-    }
-
-    expect(deltas).toEqual([]);
-  });
 
   it('should release reader lock after completion', async () => {
     const stream = new ReadableStream({

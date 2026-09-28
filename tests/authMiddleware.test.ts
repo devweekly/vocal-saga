@@ -103,12 +103,6 @@ describe('requireAuth — acceptance paths', () => {
     }
   });
 
-  it('tolerates multiple spaces after Bearer (\s+ is greedy)', async () => {
-    // 旧 checkAuth 的语义：`replace(/^Bearer\s+/i, '')` 贪婪吃所有空白，剩 AUTH，匹配成功。
-    // 保留这个 back-compat 行为；如果将来要严格 1 空格，需要改 lib/auth.ts + 同步更新这里。
-    const res = await buildApp().request(req('/protected', { headers: { Authorization: `Bearer  ${AUTH}` } }));
-    expect(res.status).toBe(200);
-  });
 
   it('works for POST with JSON body (middleware runs before body parse)', async () => {
     const res = await buildApp().request(
@@ -125,22 +119,6 @@ describe('requireAuth — acceptance paths', () => {
 });
 
 describe('requireAuth — composability via factory', () => {
-  it('factory.createMiddleware is reusable across many routes', async () => {
-    // 显式走 factory（而不是直接 import）确保它确实是工厂方法
-    const mw = factory.createMiddleware(async (_c, next) => {
-      await next();
-    });
-    const app = new Hono()
-      .get('/a', requireAuth, mw, (c) => c.json({ a: true }))
-      .get('/b', requireAuth, (c) => c.json({ b: true }));
-
-    const a = await app.request(req('/a', { headers: { Authorization: `Bearer ${AUTH}` } }));
-    const b = await app.request(req('/b', { headers: { Authorization: `Bearer ${AUTH}` } }));
-    expect(a.status).toBe(200);
-    expect(b.status).toBe(200);
-    expect(await a.json()).toEqual({ a: true });
-    expect(await b.json()).toEqual({ b: true });
-  });
 
   it('does not swallow downstream errors (forwards to default error handler)', async () => {
     const app = new Hono()

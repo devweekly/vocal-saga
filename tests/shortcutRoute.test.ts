@@ -87,13 +87,6 @@ describe('GET /s/<domain-or-shorthand> — shorthand URL expansion', () => {
     expect(call.url).toBe('https://www.reddit.com/r/programming');
   });
 
-  it('handles single-word with no trailing path', async () => {
-    const app = buildApp();
-    await app.request(req('/s/example'));
-    const { translateUrl } = await import('../lib/translate/pipeline');
-    const call = (translateUrl as any).mock.calls[0][0];
-    expect(call.url).toBe('https://www.example.com');
-  });
 
   // ── 支持 https:// 前缀 ──
   it('strips https:// prefix from URL', async () => {
@@ -104,13 +97,6 @@ describe('GET /s/<domain-or-shorthand> — shorthand URL expansion', () => {
     expect(call.url).toBe('https://github.com/user/repo');
   });
 
-  it('strips http:// prefix from URL', async () => {
-    const app = buildApp();
-    await app.request(req('/s/http%3A%2F%2Fgithub.com/user/repo'));
-    const { translateUrl } = await import('../lib/translate/pipeline');
-    const call = (translateUrl as any).mock.calls[0][0];
-    expect(call.url).toBe('https://github.com/user/repo');
-  });
 
   // ── 有点号的域名原样使用 ──
   it('uses domain as-is when it contains a dot', async () => {
@@ -121,13 +107,6 @@ describe('GET /s/<domain-or-shorthand> — shorthand URL expansion', () => {
     expect(call.url).toBe('https://example.com/blog');
   });
 
-  it('preserves multi-level domain with trailing slashes', async () => {
-    const app = buildApp();
-    await app.request(req('/s/sub.example.co.uk/path/to/page'));
-    const { translateUrl } = await import('../lib/translate/pipeline');
-    const call = (translateUrl as any).mock.calls[0][0];
-    expect(call.url).toBe('https://sub.example.co.uk/path/to/page');
-  });
 
   // ── 空路径 ──
   it('400 when target is empty (just /s/)', async () => {

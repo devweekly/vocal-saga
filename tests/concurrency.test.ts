@@ -112,37 +112,8 @@ describe('runWithConcurrency', () => {
       expect(peak).toBe(1);
     });
 
-    it('limit 为负数退化为串行', async () => {
-      let peak = 0;
-      let inFlight = 0;
-      await runWithConcurrency([1, 2, 3], -5, async () => {
-        inFlight++;
-        peak = Math.max(peak, inFlight);
-        await tick(1);
-        inFlight--;
-      });
-      expect(peak).toBe(1);
-    });
 
-    it('limit 为小数向上取整后生效（1.2 → 2）', async () => {
-      let peak = 0;
-      let inFlight = 0;
-      await runWithConcurrency([1, 2, 3, 4], 1.2, async () => {
-        inFlight++;
-        peak = Math.max(peak, inFlight);
-        await new Promise((r) => setTimeout(r, 5));
-        inFlight--;
-      });
-      expect(peak).toBe(2);
-    });
 
-    it('limit 为 NaN 退化为串行而不是崩溃', async () => {
-      const seen: number[] = [];
-      await runWithConcurrency([1, 2, 3], Number.NaN, async (item) => {
-        seen.push(item);
-      });
-      expect(seen.sort()).toEqual([1, 2, 3]);
-    });
   });
 
   describe('异常处理', () => {

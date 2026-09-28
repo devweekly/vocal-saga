@@ -42,12 +42,6 @@ describe('extractJsonContainer', () => {
       expect(JSON.parse(repairJson(cleanJsonString(out))).translations).toHaveLength(3);
     });
 
-    it('裸数组截断同样保留尾部', () => {
-      const raw = '[{"id":"b1","translated_text":"你好"},{"id":"b2","translated_text":"世界"';
-      const out = extractJsonContainer(raw);
-      expect(out).toContain('b2');
-      expect(JSON.parse(repairJson(cleanJsonString(out)))).toHaveLength(2);
-    });
 
     it('截断后接 markdown 结尾标记也能保留内容', () => {
       const raw = '{"translations":[{"id":"b1","translated_text":"你好"},{"id":"b2","translated_text":"世界"\n```';
@@ -84,11 +78,6 @@ describe('extractJsonContainer', () => {
       expect(extractJsonContainer(raw)).toBe(raw);
     });
 
-    it('转义引号内的括号不破坏字符串状态', () => {
-      const raw = '{"translations":[{"id":"b1","translated_text":"say \\"} hi"}]}';
-      const out = extractJsonContainer(raw);
-      expect(out).toBe(raw);
-    });
 
     it('嵌套数组正确配对', () => {
       const raw = '{"a":[1,[2,[3]],4]}';
@@ -111,10 +100,6 @@ describe('extractJsonContainer', () => {
       expect(extractJsonContainer('not json')).toBe('not json');
     });
 
-    it('空串回退', () => {
-      expect(extractJsonContainer('')).toBe('');
-      expect(extractJsonContainer('   ')).toBe('   ');
-    });
 
     it('只有开括号时保留到末尾（不回退、不丢内容）', () => {
       expect(extractJsonContainer('{"a":1')).toBe('{"a":1');

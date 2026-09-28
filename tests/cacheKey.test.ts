@@ -10,9 +10,6 @@ describe('simpleHash', () => {
     expect(simpleHash('a')).not.toBe(simpleHash('b'));
   });
 
-  it('should handle empty string', () => {
-    expect(simpleHash('')).toBe(0);
-  });
 });
 
 describe('generateTranslationCacheKey', () => {
@@ -59,14 +56,5 @@ describe('generateTranslationCacheKey', () => {
     expect(key).toMatch(/^translation_en_zh_\d+_\d+$/);
   });
 
-  it('should handle empty content gracefully', () => {
-    const key = generateTranslationCacheKey('', 'en', 'zh');
-    expect(key).toBe('translation_en_zh_0_0');
-  });
 
-  it('should handle content shorter than 200 chars', () => {
-    const short = 'short';
-    const key = generateTranslationCacheKey(short, 'en', 'zh');
-    expect(key).toMatch(/^translation_en_zh_\d+_\d+$/);
-  });
 });

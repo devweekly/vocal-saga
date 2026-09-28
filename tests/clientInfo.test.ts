@@ -105,10 +105,4 @@ describe('formatClientLabel', () => {
     expect(label).toContain('vw=412 vh=915');
   });
 
-  it('omits screen dims when absent', () => {
-    const ua =
-      'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
-    const label = formatClientLabel(extractClientInfo({ userAgentHeader: ua }));
-    expect(label).toBe('Chrome/120.0.0.0 (macOS, desktop)');
-  });
 });

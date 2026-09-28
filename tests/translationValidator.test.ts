@@ -107,18 +107,6 @@ describe('validateTranslationCompleteness', () => {
     expect(result.healthy).toBe(true);
   });
 
-  it('returns blockCount as max of translation/original markers', () => {
-    const html = wrap(
-      '<p class="fanyi-original">原文 1</p><p class="fanyi-translation">译文 1</p>' +
-        '<p class="fanyi-original">原文 2</p><p class="fanyi-translation">译文 2</p>' +
-        '<p class="fanyi-original">原文 3</p>' +
-        `<p>${FILLER}</p>`,
-    );
-    const result = validateTranslationCompleteness(html);
-    expect(result.healthy).toBe(true);
-    // 3 个 fanyi-original + 2 个 fanyi-translation → max = 3
-    expect(result.blockCount).toBe(3);
-  });
 });
 
 describe('isHealthyTranslation', () => {

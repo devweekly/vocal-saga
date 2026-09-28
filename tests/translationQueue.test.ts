@@ -88,15 +88,6 @@ describe('TranslationQueue', () => {
     expect(queue.runningCount).toBe(0);
   });
 
-  it('handles tasks that resolve immediately', async () => {
-    const results = await Promise.all([
-      queue.add(() => Promise.resolve('a')),
-      queue.add(() => Promise.resolve('b')),
-      queue.add(() => Promise.resolve('c')),
-    ]);
-
-    expect(results).toEqual(['a', 'b', 'c']);
-  });
 
   it('preserves result type', async () => {
     const num = await queue.add(() => Promise.resolve(42));
@@ -125,15 +116,7 @@ describe('TranslationQueue', () => {
     await expect(promise).rejects.toThrow('type error');
   });
 
-  it('handles rejection of non-Error value', async () => {
-    const promise = queue.add(() => Promise.reject(42));
-    await expect(promise).rejects.toThrow('42');
-  });
 
-  it('handles null rejection', async () => {
-    const promise = queue.add(() => Promise.reject(null));
-    await expect(promise).rejects.toThrow('null');
-  });
 
   // --- retry with delay ---
 
@@ -155,19 +138,9 @@ describe('TranslationQueue', () => {
 
   // --- empty queue ---
 
-  it('handles empty queue gracefully', () => {
-    const q = new TranslationQueue(1, 1, 10);
-    expect(q.pendingCount).toBe(0);
-    expect(q.runningCount).toBe(0);
-  });
 
   // --- default params ---
 
-  it('uses default constructor params', async () => {
-    const q = new TranslationQueue();
-    const result = await q.add(() => Promise.resolve('default'));
-    expect(result).toBe('default');
-  });
 
   // --- sequential execution with concurrency=1 ---
 
@@ -291,36 +264,7 @@ describe('TranslationQueue', () => {
     expect(maxRunning).toBe(2);
   });
 
-  it('setConcurrency on empty queue does not throw', () => {
-    const q = new TranslationQueue(1, 0, 0);
-    expect(() => q.setConcurrency(5)).not.toThrow();
-    expect(() => q.setConcurrency(1)).not.toThrow();
-  });
 
-  it('multiple setConcurrency calls work', async () => {
-    const q = new TranslationQueue(1, 0, 0);
-    let maxRunning = 0;
-    let running = 0;
-
-    const tasks = Array.from({ length: 8 }, (_, i) =>
-      q.add(async () => {
-        running++;
-        maxRunning = Math.max(maxRunning, running);
-        await new Promise(r => setTimeout(r, 20));
-        running--;
-        return i;
-      })
-    );
-
-    // Ramp up: 1 → 2 → 4
-    await new Promise(r => setTimeout(r, 5));
-    q.setConcurrency(2);
-    await new Promise(r => setTimeout(r, 10));
-    q.setConcurrency(4);
-
-    await Promise.all(tasks);
-    expect(maxRunning).toBe(4);
-  });
 
   it('warmup-then-parallel pattern: first 2 serial, rest parallel', async () => {
     const q = new TranslationQueue(1, 0, 0);

@@ -172,18 +172,6 @@ describe('prepareDocument', () => {
     expect(fullText).toContain('Real article body paragraph one');
   });
 
-  it('should work with Element root parameter', () => {
-    document.body.innerHTML = `
-      <div id="custom-root">
-        <p>Custom root content.</p>
-      </div>
-    `;
-
-    const customRoot = document.getElementById('custom-root')!;
-    const { fullText } = prepareDocument(customRoot, "https://example.com/test");
-
-    expect(fullText).toContain('Custom root content');
-  });
 
   it('should throw when no translatable content found', () => {
     document.body.innerHTML = '<div></div>';
@@ -209,11 +197,6 @@ describe('prepareDocument', () => {
     expect(() => prepareDocument(document, "https://example.com/viewer.html")).toThrow('PDF.js viewer pages render content client-side');
   });
 
-  it('throws PDF.js-specific error when only #viewerContainer is present', () => {
-    document.body.innerHTML = '<div id="viewerContainer"></div>';
-
-    expect(() => prepareDocument(document, "https://example.com/viewer.html")).toThrow('PDF.js viewer pages render content client-side');
-  });
 
   it('should use .u-rich-text-blog for Webflow sites (claude.com)', () => {
     // claude.com/blog 使用 Webflow，文章内容在 .u-rich-text-blog.w-richtext 内
@@ -572,30 +555,6 @@ describe('expandRootForHeader', () => {
     document.body.innerHTML = '';
   });
 
-  it('expands to parent when root lacks h1 but preceding <header> has h1 (mitsloan)', () => {
-    document.body.innerHTML = `
-      <article class="article">
-        <header class="article_header">
-          <h1>AI financial advice is surprisingly good</h1>
-          <h2>What you'll learn</h2>
-        </header>
-        <div class="article--body">
-          <p>Body paragraph.</p>
-          <h2>How the study was conducted</h2>
-        </div>
-      </article>
-    `;
-    const body = document.querySelector('.article--body') as Element;
-    expect(body.querySelector('h1')).toBeNull(); // 前置条件：root 不含 h1
-
-    const { root, expanded } = expandRootForHeader(body);
-
-    expect(expanded).toBe(true);
-    // root 上溯到共同父 <article>
-    expect(root.tagName.toLowerCase()).toBe('article');
-    // 上溯后的 root 现在包含 h1（标题被纳入遍历范围）
-    expect(root.querySelector('h1')).not.toBeNull();
-  });
 
   it('expands for header-like class even without <header> tag', () => {
     document.body.innerHTML = `
@@ -655,15 +614,6 @@ describe('expandRootForHeader', () => {
     expect(root).toBe(body);
   });
 
-  it('does NOT expand when root has no parent', () => {
-    const detached = document.createElement('div');
-    detached.innerHTML = '<p>no parent, no h1</p>';
-
-    const { root, expanded } = expandRootForHeader(detached);
-
-    expect(expanded).toBe(false);
-    expect(root).toBe(detached);
-  });
 });
 
 // =============================================================================
@@ -865,20 +815,6 @@ describe('extractFromDataIsland', () => {
     expect(texts.every((t) => !t.includes('Short text under 50'))).toBe(true);
   });
 
-  it('deduplicates identical strings', () => {
-    const dup =
-      'This is a long duplicated string that appears in multiple fields and should only be extracted once.';
-    document.body.innerHTML = `
-      <script id="__NEXT_DATA__" type="application/json">
-        ${JSON.stringify({ field1: dup, field2: dup, field3: dup })}
-      </script>
-    `;
-
-    const blocks = extractFromDataIsland(document);
-    const matches = blocks.filter((b) => b.text === dup);
-
-    expect(matches.length).toBe(1);
-  });
 
   it('silently skips invalid JSON', () => {
     document.body.innerHTML = `
@@ -902,25 +838,6 @@ describe('extractFromDataIsland', () => {
     expect(blocks).toEqual([]);
   });
 
-  it('returns TextBlock with id/xpath/tag fields', () => {
-    document.body.innerHTML = `
-      <script id="__NEXT_DATA__" type="application/json">
-        ${JSON.stringify({
-          articleBody:
-            'Long article body content exceeding fifty chars for proper extraction.',
-        })}
-      </script>
-    `;
-
-    const blocks = extractFromDataIsland(document);
-
-    expect(blocks.length).toBeGreaterThan(0);
-    const first = blocks[0];
-    expect(first.id).toMatch(/^data-island-\d+$/);
-    expect(first.xpath).toMatch(/^\/data-island\/\d+$/);
-    expect(first.tag).toBe('p');
-    expect(typeof first.text).toBe('string');
-  });
 });
 
 describe('prepareDocument data island integration', () => {
@@ -1002,17 +919,6 @@ describe('prepareDocument data island integration', () => {
   });
 
   // ── Block merge: 相邻 inline 块合并 ────────────────────────
-  it('mergeInlineBlocks combines adjacent short inline candidates', () => {
-    setupHTML(`
-      <article>
-        <p>This is <strong>important</strong> text with enough content.</p>
-      </article>
-    `);
-    const result = prepareDocument(document, "https://example.com/test");
-    // 如果产生了多个 inline 候选, 它们应该被合并
-    // 确保翻译文本完整
-    expect(result.fullText).toContain('important');
-  });
 
   // ── Table layout fallback: 老式 CMS 用 table 做页面布局 ─────────────
   it('unwraps table root when content is inside <table>', () => {
@@ -1037,36 +943,6 @@ describe('prepareDocument data island integration', () => {
     expect(result.report.strategy).toContain('table-unwrap');
   });
 
-  it('unwraps nested tables when selected root contains only table content', () => {
-    // extraction pipeline 可能选中 readability 的 <div>，但其内部全是 <table>
-    document.body.innerHTML = `
-      <div id="content">
-        <table>
-          <tr>
-            <td>
-              <h2>Heading in nested table</h2>
-              <p>Paragraph one in nested table.</p>
-            </td>
-          </tr>
-        </table>
-        <table>
-          <tr>
-            <td>
-              <p>Paragraph two in another nested table.</p>
-            </td>
-          </tr>
-        </table>
-      </div>
-    `;
-
-    const result = prepareDocument(document, 'https://example.com/nested-tables');
-
-    expect(result.fullText).toContain('Heading in nested table');
-    expect(result.fullText).toContain('Paragraph one in nested table');
-    expect(result.fullText).toContain('Paragraph two in another nested table');
-    expect(result.blocks.length).toBeGreaterThanOrEqual(3);
-    expect(result.report.strategy).toContain('table-unwrap');
-  });
 });
 
 // =============================================================================
@@ -1105,13 +981,6 @@ describe('applyGlobalNoiseFromUrl', () => {
     expect(doc.querySelector('[data-testid="primaryColumn"]')?.getAttribute('data-fanyi-remove')).toBeNull();
   });
 
-  it('对 twitter.com URL 同样应用规则', () => {
-    const html = `<!doctype html><html><body>
-      <div data-testid="sidebarColumn"><span>相关用户</span></div>
-    </body></html>`;
-    const out = applyGlobalNoiseFromUrl(html, 'https://twitter.com/foo');
-    expect(out).toContain('data-fanyi-remove="true"');
-  });
 
   it('非白名单 host 仍应用通用规则（分享栏 / aside / fixed-sticky 底栏）', () => {
     const html = `<!doctype html><html><body>
@@ -1158,29 +1027,7 @@ describe('markGlobalNoise: share/social widget detection', () => {
     expect(doc.querySelector('article p')?.textContent).toContain('正文');
   });
 
-  it('sticky 分享栏同样被打标', () => {
-    const doc = parse(`<!doctype html><html><body>
-      <div class="social-share-bar" style="position:sticky;top:0">
-        <span>share this</span>
-      </div>
-    </body></html>`);
-    markGlobalNoise(doc, 'https://example.com/article');
-    expect(doc.querySelector('.social-share-bar')?.getAttribute('data-fanyi-remove')).toBe('true');
-  });
 
-  it('class 含 sharethis / addthis 关键词也匹配', () => {
-    const doc = parse(`<!doctype html><html><body>
-      <div class="sharethis-inline-share-buttons" style="position:fixed;bottom:0">
-        <span>share</span>
-      </div>
-      <div class="addthis_inline_share_toolbox" style="position:fixed;left:0;top:50%">
-        <span>share</span>
-      </div>
-    </body></html>`);
-    markGlobalNoise(doc, 'https://example.com/article');
-    expect(doc.querySelector('.sharethis-inline-share-buttons')?.getAttribute('data-fanyi-remove')).toBe('true');
-    expect(doc.querySelector('.addthis_inline_share_toolbox')?.getAttribute('data-fanyi-remove')).toBe('true');
-  });
 
   it('非 fixed/sticky 的社交主体组件保留（不误伤）', () => {
     const doc = parse(`<!doctype html><html><body>

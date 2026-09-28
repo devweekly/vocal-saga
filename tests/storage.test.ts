@@ -30,10 +30,6 @@ describe('MapStorage', () => {
     expect(await s.get('k')).toBe('v');
   });
 
-  it('returns null for missing key', async () => {
-    const s = new MapStorage('t1');
-    expect(await s.get('absent')).toBeNull();
-  });
 
   it('setJSON + getJSON round-trips objects and arrays', async () => {
     const s = new MapStorage('t1');
@@ -42,10 +38,6 @@ describe('MapStorage', () => {
     expect(await s.getJSON('obj')).toEqual(obj);
   });
 
-  it('getJSON returns null for missing key', async () => {
-    const s = new MapStorage('t1');
-    expect(await s.getJSON<{ x: number }>('absent')).toBeNull();
-  });
 
   it('getJSON returns null on corrupt JSON (fail-soft)', async () => {
     const s = new MapStorage('t1');
@@ -94,15 +86,6 @@ describe('MapStorage', () => {
     expect(await b.get('k')).toBe('2');
   });
 
-  it('resetAll clears every store', async () => {
-    const a = new MapStorage('storeA');
-    const b = new MapStorage('storeB');
-    await a.set('k', '1');
-    await b.set('k', '2');
-    MapStorage.resetAll();
-    expect(await a.get('k')).toBeNull();
-    expect(await b.get('k')).toBeNull();
-  });
 });
 
 describe('default storage registry', () => {

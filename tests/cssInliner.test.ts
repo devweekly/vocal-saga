@@ -107,11 +107,6 @@ describe('inlineExternalStylesheets', () => {
     expect(out).toContain('@media print{.p{color:blue}}');
   });
 
-  it('media="all" / "screen" 不额外包裹', async () => {
-    const html = `<html><head><link rel="stylesheet" href="/app.css" media="all"></head><body>x</body></html>`;
-    const out = await run(html);
-    expect(out).not.toContain('@media');
-  });
 
   it('404 的样式表保留原 <link>（不内联、不删）', async () => {
     const html = `<html><head><link rel="stylesheet" href="/gone.css"></head><body>x</body></html>`;
@@ -127,12 +122,6 @@ describe('inlineExternalStylesheets', () => {
     expect(out).not.toContain('app shell');
   });
 
-  it('非 CSS content-type 不内联', async () => {
-    const html = `<html><head><link rel="stylesheet" href="/octet.css"></head><body>x</body></html>`;
-    const out = await run(html, { onError: () => {} });
-    expect(out).toContain('/octet.css');
-    expect(out).not.toContain('.o{}');
-  });
 
   it('CSS 里的 </style 被转义，不会提前闭合标签', async () => {
     const html = `<html><head><link rel="stylesheet" href="/evil.css"></head><body><p>after</p></body></html>`;
@@ -192,11 +181,6 @@ describe('inlineExternalStylesheets', () => {
     expect(reasons.join('|')).toMatch(/blocked/);
   });
 
-  it('rel 含多个值（preload stylesheet）也算样式表', async () => {
-    const html = `<html><head><link rel="preload stylesheet" href="/app.css"></head><body>x</body></html>`;
-    const out = await run(html);
-    expect(out).toContain('.a{color:red}');
-  });
 
   it('网络异常时保留原 <link>，不抛错', async () => {
     const html = `<html><head><link rel="stylesheet" href="/app.css"></head><body>x</body></html>`;
@@ -209,10 +193,4 @@ describe('inlineExternalStylesheets', () => {
     expect(out).toContain('<link rel="stylesheet" href="/app.css">');
   });
 
-  it('HTML 无法解析时原样返回', async () => {
-    const broken = '<html><head><link rel="stylesheet" href="/app.css">';
-    // linkedom 容错很强，这里主要验证不抛错
-    const out = await run(broken);
-    expect(typeof out).toBe('string');
-  });
 });

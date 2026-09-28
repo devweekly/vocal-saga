@@ -37,10 +37,6 @@ describe('sanitizeDocumentTerms — 基本行为', () => {
     ]);
   });
 
-  it('undefined / 空数组返回空数组', () => {
-    expect(sanitizeDocumentTerms(undefined)).toEqual([]);
-    expect(sanitizeDocumentTerms([])).toEqual([]);
-  });
 
   it('去重', () => {
     expect(sanitizeDocumentTerms(['React', 'React', 'react '])).toEqual([

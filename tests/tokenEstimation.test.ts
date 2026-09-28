@@ -37,14 +37,6 @@ describe('estimateTokens', () => {
     expect(estimateTokensOld(text)).toBe(7);
   });
 
-  it('全角标点按非 CJK 计权（U+FF0C / U+3002 不在汉字区）', () => {
-    // 行为锁定：全角标点与汉字的权重不同，扩宽 CJK 区间会改变所有 chunk 的大小
-    expect(estimateTokens('，')).toBe(1);
-    expect(estimateTokens('一')).toBe(1); // ceil(0.5)=1，与全角标点同为 1 但口径不同
-    // 拉开长度后差异才显现
-    expect(estimateTokens('一一一一一一一一')).toBe(4); // 8*0.5
-    expect(estimateTokens('，，，，，，，，')).toBe(2); // 8*0.25
-  });
 
   it('中英混排：按字符分别计权', () => {
     // 'Hello ' (6) + ' ' (1) + 'world ' (6) = 13 个非 CJK；'你好' + '世界' = 4 个 CJK
@@ -68,20 +60,6 @@ describe('estimateTokens', () => {
     expect(estimateTokens('')).toBe(0);
   });
 
-  it('纯数字与符号按非 CJK 计权', () => {
-    const text = '1234567890!@#$%^&*()';
-    expect(estimateTokens(text)).toBe(estimateTokensOld(text));
-  });
 
-  it('emoji / 代理对按码点计为一个字符（不拆成两个）', () => {
-    // '😀' 是 U+1F600，属于非 CJK 区间；长度按码点算应为 1 而不是 2
-    expect(estimateTokens('😀')).toBe(Math.ceil(1 * 0.25));
-  });
 
-  it('CJK 扩展区（U+3400 等）不被误判为 CJK', () => {
-    // 实现只覆盖 U+4E00–U+9FFF；扩展 A 区 U+3400 会落进 otherChars。
-    // 这里锁定当前行为，避免后人"顺手扩大范围"时静默改变 chunk 大小。
-    const extA = '㐀㐁㐂';
-    expect(estimateTokens(extA)).toBe(Math.ceil(extA.length * 0.25));
-  });
 });

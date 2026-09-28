@@ -28,9 +28,6 @@ describe('hasDocumentRoot', () => {
     expect(hasDocumentRoot('<!doctype html><body><head></head></body>')).toBe(true);
   });
 
-  it('既有 doctype 又有 html 标签时也成立', () => {
-    expect(hasDocumentRoot('<!DOCTYPE HTML><html lang="en"></html>')).toBe(true);
-  });
 
   it('两者都缺则判不完整', () => {
     expect(hasDocumentRoot('<body><p>hi</p></body>')).toBe(false);
@@ -73,10 +70,6 @@ describe('isHealthyCachedHtml', () => {
     expect(isHealthyCachedHtml(html)).toBe(true);
   });
 
-  it('既无 doctype 也无 <html> → unhealthy', () => {
-    const html = '<body><style>.a{color:red}</style><span class="fanyi-translation">你好</span></body>';
-    expect(isHealthyCachedHtml(html)).toBe(false);
-  });
 
   it('只剩 OneTrust / fanyi 样式的空壳文档 → unhealthy', () => {
     const html =

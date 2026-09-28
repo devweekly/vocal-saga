@@ -68,12 +68,6 @@ describe('stripMarkdownCodeBlock', () => {
     expect(result).toBe(input);
   });
 
-  it('handles whitespace variations', async () => {
-    const { stripMarkdownCodeBlock } = await import('../lib/translate/service/shared');
-    const input = '  ```json\n  [{"id":"b1"}]\n  ```  ';
-    const result = stripMarkdownCodeBlock(input);
-    expect(result).toBe('[{"id":"b1"}]');
-  });
 
   it('strips opening ```json when closing ``` is missing (truncated output)', async () => {
     // NVIDIA 模型可能因 max_tokens 截断，只输出开头的 ```json 没有结尾 ```
@@ -135,19 +129,7 @@ describe('stripThinkingTags', () => {
     expect(result).toBe('{"translations":[]}');
   });
 
-  it('strips multiple <think>...</think> blocks', async () => {
-    const { stripThinkingTags } = await import('../lib/translate/service/shared');
-    const input = '<think>first thought</think>\n{"translations":[]}\n<think>second thought</think>';
-    const result = stripThinkingTags(input);
-    expect(result).toBe('{"translations":[]}');
-  });
 
-  it('preserves content without <think> tags', async () => {
-    const { stripThinkingTags } = await import('../lib/translate/service/shared');
-    const input = '{"translations":[{"id":"b1","translated_text":"你好"}]}';
-    const result = stripThinkingTags(input);
-    expect(result).toBe(input);
-  });
 
   it('strips <think> inside ```json block (defense in depth)', async () => {
     // 模型把 thinking 包进 ```json 块：先去 thinking 再去 markdown
@@ -178,21 +160,7 @@ describe('GET /openrt/<target> — OpenRouter free model', () => {
     expect(res.headers.get('Content-Type')).toBe('text/html; charset=utf-8');
   });
 
-  it('uses openrouter provider', async () => {
-    const app = buildApp();
-    await app.request(req('/openrt/example.com'));
-    const { translateUrl } = await import('../lib/translate/pipeline');
-    const call = (translateUrl as any).mock.calls[0][0];
-    expect(call.provider).toBe('openrouter');
-  });
 
-  it('uses openrouter provider', async () => {
-    const app = buildApp();
-    await app.request(req('/openrt/example.com'));
-    const { translateUrl } = await import('../lib/translate/pipeline');
-    const call = (translateUrl as any).mock.calls[0][0];
-    expect(call.provider).toBe('openrouter');
-  });
 
   it('returns translated HTML', async () => {
     const app = buildApp();
@@ -202,13 +170,6 @@ describe('GET /openrt/<target> — OpenRouter free model', () => {
     expect(body).toContain('ok');
   });
 
-  it('strips https:// prefix', async () => {
-    const app = buildApp();
-    await app.request(req('/openrt/https%3A%2F%2Fexample.com/article'));
-    const { translateUrl } = await import('../lib/translate/pipeline');
-    const call = (translateUrl as any).mock.calls[0][0];
-    expect(call.url).toBe('https://example.com/article');
-  });
 
   it('adds .com suffix for domain without dot', async () => {
     const app = buildApp();

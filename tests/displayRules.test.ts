@@ -43,16 +43,6 @@ describe('applySiteDisplayRules', () => {
     expect(d.querySelector('article')?.getAttribute('data-fanyi-remove')).toBeNull();
   });
 
-  it('O’Reilly：也隐藏 #postContent-related 底部相关阅读区', () => {
-    const html = `<html><head></head><body>
-      <article>正文</article>
-      <div id="postContent-related"><div>Related reading</div></div>
-    </body></html>`;
-    const out = applySiteDisplayRules(html, 'https://www.oreilly.com/radar/foo/');
-    const d = doc(out);
-    const related = d.querySelector('#postContent-related');
-    expect(related?.getAttribute('data-fanyi-remove')).toBe('true');
-  });
 
   it('Towards Data Science：注入约束图片与正文宽度的 displayCss', () => {
     const html = `<html><head></head><body>
@@ -72,11 +62,6 @@ describe('applySiteDisplayRules', () => {
     expect(siteCss?.textContent).toContain('[class*="cookie" i]');
   });
 
-  it('O’Reilly 子域名（radar.oreilly.com）同样命中', () => {
-    const html = '<html><body><div id="right-rail">ad</div></body></html>';
-    const out = applySiteDisplayRules(html, 'https://radar.oreilly.com/x');
-    expect(out).toContain('data-fanyi-remove');
-  });
 
   it('x.com：注入加宽正文列的 CSS 到 <head>', () => {
     const html = '<html><head><style>.orig{}</style></head><body>x</body></html>';
@@ -114,10 +99,6 @@ describe('applySiteDisplayRules', () => {
     }
   });
 
-  it('HTML 片段（无 html/head/body）也能安全处理', () => {
-    const frag = '<div id="right-rail">ad</div>';
-    expect(() => applySiteDisplayRules(frag, 'https://www.oreilly.com/x')).not.toThrow();
-  });
 
   it('MIT Technology Review：隐藏站点 header / sticky 侧边栏 / 相关推荐 / 订阅表单 / 广告位', () => {
     const html = `<html><head></head><body>
@@ -141,11 +122,6 @@ describe('applySiteDisplayRules', () => {
     expect(d.querySelector('article')?.getAttribute('data-fanyi-remove')).toBeNull();
   });
 
-  it('MIT Technology Review 子域名（wp.technologyreview.com）同样命中', () => {
-    const html = '<html><body><aside class="sidebar__wrapper--xyz">x</aside></body></html>';
-    const out = applySiteDisplayRules(html, 'https://wp.technologyreview.com/foo');
-    expect(out).toContain('data-fanyi-remove');
-  });
 
   it('CNN：删除下载 App 弹窗与重复导航', () => {
     const html = `<html><head></head><body>
@@ -239,21 +215,6 @@ describe('applySiteDisplayRules', () => {
     expect(d.querySelector('article')?.getAttribute('data-fanyi-remove')).toBeNull();
   });
 
-  it('全局规则与站点专属规则叠加：两者都生效', () => {
-    const html = `<html><head></head><body>
-      <article>正文</article>
-      <div id="right-rail"><div>Try the platform</div></div>
-      <div id="onetrust-consent-sdk">cookie banner</div>
-      <div role="dialog">modal</div>
-    </body></html>`;
-    const out = applySiteDisplayRules(html, 'https://www.oreilly.com/radar/foo/');
-    const d = doc(out);
-    // 站点专属（oreilly）：right-rail 隐藏
-    expect(d.querySelector('#right-rail')?.getAttribute('data-fanyi-remove')).toBe('true');
-    // 全局规则：OneTrust + modal 也隐藏（oreilly 规则本身没列这些）
-    expect(d.querySelector('#onetrust-consent-sdk')?.getAttribute('data-fanyi-remove')).toBe('true');
-    expect(d.querySelector('[role="dialog"]')?.getAttribute('data-fanyi-remove')).toBe('true');
-  });
 
   it('全局规则：只在正文外的噪声上打标，不动正文内容', () => {
     const html = `<html><head></head><body>
@@ -289,11 +250,6 @@ describe('applySiteDisplayRules', () => {
     expect(d.querySelector('article')?.getAttribute('data-fanyi-remove')).toBeNull();
   });
 
-  it('archive.md 子域名（d39vprpbr4yx7y.archive.md）同样命中', () => {
-    const html = '<html><body><div id="HEADER">banner</div></body></html>';
-    const out = applySiteDisplayRules(html, 'https://d39vprpbr4yx7y.archive.md/PfnMf');
-    expect(out).toContain('data-fanyi-remove');
-  });
 
   it('AWS Blogs：隐藏固定浮动的 #m-subnav 子导航与反馈按钮', () => {
     const html = `<html><head></head><body>

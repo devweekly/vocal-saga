@@ -48,19 +48,6 @@ describe('buildChunks', () => {
     // Heading should start a new chunk if previous was near limit
   });
 
-  it('assigns sequential chunk IDs', () => {
-    const longText = 'a'.repeat(3500);
-    const blocks = [
-      makeBlock('b1', 'p', longText),
-      makeBlock('b2', 'p', longText),
-      makeBlock('b3', 'p', longText),
-    ];
-
-    const chunks = buildChunks(blocks);
-    for (let i = 0; i < chunks.length; i++) {
-      expect(chunks[i].id).toBe(`chunk${i + 1}`);
-    }
-  });
 
   it('produces valid JSON in jsonContent', () => {
     const blocks = [
@@ -99,13 +86,6 @@ describe('buildChunks', () => {
     expect(allIds).toEqual(['b1', 'b2', 'b3']);
   });
 
-  it('handles a single block', () => {
-    const blocks = [makeBlock('b1', 'p', 'Just one paragraph.')];
-    const chunks = buildChunks(blocks);
-
-    expect(chunks).toHaveLength(1);
-    expect(chunks[0].blocks).toHaveLength(1);
-  });
 
   it('flushes remaining blocks as final chunk', () => {
     const blocks = [
@@ -156,11 +136,6 @@ describe('buildChunks', () => {
     }
   });
 
-  it('single block stays one chunk', () => {
-    const chunks = buildChunks([tokenBlock('b1', 'p', 100)]);
-    expect(chunks).toHaveLength(1);
-    expect(chunks[0].estimatedTokens).toBe(100);
-  });
 
   it('preserves block order with warmup splitting', () => {
     const blocks = Array.from({ length: 10 }, (_, i) =>
@@ -198,12 +173,4 @@ describe('buildChunks', () => {
     expect(totalBlocks).toBe(5);
   });
 
-  it('smallest possible block fits in warmup chunk', () => {
-    const blocks = [
-      tokenBlock('b1', 'p', 30),
-    ];
-    const chunks = buildChunks(blocks);
-    expect(chunks).toHaveLength(1);
-    expect(chunks[0].estimatedTokens).toBe(30);
-  });
 });

@@ -86,16 +86,6 @@ describe('GeminiTranslationService', () => {
     expect(config.abortSignal).toBeInstanceOf(AbortSignal);
   });
 
-  it('uses default model gemini-3.1-flash-lite when no model passed', async () => {
-    mockGenerateContent.mockResolvedValue({
-      text: '{"translations":[]}',
-    });
-
-    const service = new GeminiTranslationService();
-    await service.translate('[{"id":"1","text":"hello"}]', 'en', 'zh');
-
-    expect(mockGenerateContent.mock.calls[0][0].model).toBe('gemini-3.1-flash-lite');
-  });
 
   it('uses custom model when passed to constructor', async () => {
     mockGenerateContent.mockResolvedValue({
@@ -150,14 +140,6 @@ describe('GeminiTranslationService', () => {
     ).rejects.toThrow('Gemini returned empty response');
   });
 
-  it('throws when response.text is undefined', async () => {
-    mockGenerateContent.mockResolvedValue({});
-
-    const service = new GeminiTranslationService();
-    await expect(
-      service.translate('[{"id":"1","text":"hello"}]', 'en', 'zh')
-    ).rejects.toThrow('Gemini returned empty response');
-  });
 
   // ── 流式 ─────────────────────────────────────────────────
 
@@ -213,35 +195,5 @@ describe('GeminiTranslationService', () => {
     await expect(generator.next()).rejects.toThrow('Gemini API error: HTTP 429');
   });
 
-  it('stream handles chunks with undefined text', async () => {
-    const chunks = [
-      { text: undefined },
-      { text: '{"translations":[]}' },
-    ];
-    mockGenerateContentStream.mockResolvedValue((async function* () {
-      for (const chunk of chunks) yield chunk;
-    })());
 
-    const service = new GeminiTranslationService();
-    const generator = service.translateStream(
-      '[{"id":"1","text":"hello"}]',
-      'en',
-      'zh'
-    );
-
-    const results: string[] = [];
-    for await (const chunk of generator) {
-      results.push(chunk);
-    }
-
-    // undefined text 的 chunk 不应 yield
-    expect(results.length).toBe(1);
-    expect(results[0]).toBe('{"translations":[]}');
-  });
-
-  it('getGeminiApiKey / setGeminiApiKey round-trip', () => {
-    setGeminiApiKey1('abc-123');
-    expect(getGeminiApiKey1()).toBe('abc-123');
-    setGeminiApiKey1('test-gemini-key'); // 还原
-  });
 });

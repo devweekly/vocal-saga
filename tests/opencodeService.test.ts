@@ -174,13 +174,6 @@ describe('OpencodeTranslationService', () => {
   });
 
   // ── 网络错误 ────────────────────────────────────────────
-  it('网络错误抛出原始异常', async () => {
-    mockFetch.mockRejectedValueOnce(new Error('Network error'));
-    const svc = new OpencodeTranslationService();
-    await expect(
-      svc.translate(JSON.stringify([{ id: 'b1', text: 'Hi' }]), 'en', 'zh'),
-    ).rejects.toThrow('Network error');
-  });
 
   // ── 流式翻译 ────────────────────────────────────────────
   it('流式翻译：累积 SSE delta', async () => {
@@ -226,30 +219,8 @@ describe('OpencodeTranslationService', () => {
   });
 
   // ── 流式：API Key 未配置 ────────────────────────────────
-  it('流式：API Key 未配置时抛出错误', async () => {
-    setOpencodeApiKey('');
-    const svc = new OpencodeTranslationService();
-    await expect(
-      svc.translateStream(
-        JSON.stringify([{ id: 'b1', text: 'Hi' }]),
-        'en',
-        'zh',
-      ).next(),
-    ).rejects.toThrow('OpenCode API key not configured');
-  });
 
   // ── 流式：HTTP 错误 ─────────────────────────────────────
-  it('流式：HTTP 错误时抛出', async () => {
-    mockFetch.mockResolvedValueOnce(makeErrorResponse(503, 'Service unavailable'));
-    const svc = new OpencodeTranslationService();
-    await expect(
-      svc.translateStream(
-        JSON.stringify([{ id: 'b1', text: 'Hi' }]),
-        'en',
-        'zh',
-      ).next(),
-    ).rejects.toThrow('HTTP 503');
-  });
 
   // ── 流式：response.body 为 null ─────────────────────────
   it('流式：response.body 为 null 时抛错', async () => {

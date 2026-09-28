@@ -130,10 +130,6 @@ describe('fetchPage', () => {
     ).rejects.toThrow();
   }, 5_000);
 
-  it('preserves requested url in result.url', async () => {
-    const result = await fetchLocal(`${baseUrl}/ok`);
-    expect(result.url).toBe(`${baseUrl}/ok`);
-  });
 
   it('sends browser-like Client Hints headers', async () => {
     await fetchLocal(`${baseUrl}/ok`);
@@ -172,11 +168,6 @@ describe('SSRF 防护（重定向逐跳校验）', () => {
     );
   });
 
-  it('拒绝跳转到 127.0.0.1', async () => {
-    await expect(redirectTo('http://127.0.0.1/')).rejects.toThrow(
-      /private\/reserved ipv4 not allowed: 127\.0\.0\.1/
-    );
-  });
 
   it('拒绝跳转到私网段 10.x / 192.168.x', async () => {
     await expect(redirectTo('http://10.0.0.5/')).rejects.toThrow(

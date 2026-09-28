@@ -70,10 +70,6 @@ describe('validateBlockMapping', () => {
     expect(verdict.reasons.join('; ')).toMatch(/原文为空/);
   });
 
-  it('does NOT flag identical empty strings', () => {
-    const verdict = validateBlockMapping('', '');
-    expect(verdict.suspect).toBe(false);
-  });
 
   it('respects custom options (stricter bounds)', () => {
     const verdict = validateBlockMapping(

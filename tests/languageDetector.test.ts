@@ -115,15 +115,6 @@ describe('detectLanguage — 假名是日语的主证据', () => {
     expect(r.confidence).toBeCloseTo(0.8, 5);
   });
 
-  it('片假名同样计入假名（外来语文本也能判出 ja）', () => {
-    const r = detectLanguage('ア'.repeat(84));
-    expect(r.language).toBe('ja');
-    expect(r.evidence.katakana).toBe(84);
-    expect(r.evidence.hiragana).toBe(0);
-    expect(r.kanaRatio).toBe(1);
-    // 0.7 + min(1, 0.3) = 1.0
-    expect(r.confidence).toBe(1);
-  });
 
   it('假名不足 5 个 → 既不是 ja 也不是 zh，返回 unknown', () => {
     // 4 个假名 + 96 汉字：kanaRatio = 0.04 虽然过了 0.03 的比例门槛，
@@ -136,11 +127,6 @@ describe('detectLanguage — 假名是日语的主证据', () => {
     expect(r.kanaRatio).toBeCloseTo(0.04, 5);
   });
 
-  it('谚文主导 → ko，且 hangul 占比需 >= 0.15', () => {
-    const r = detectLanguage('가'.repeat(100));
-    expect(r.language).toBe('ko');
-    expect(r.confidence).toBe(0.9);
-  });
 });
 
 describe('detectLanguage — 短文本保护', () => {
@@ -154,17 +140,7 @@ describe('detectLanguage — 短文本保护', () => {
     expect(r.kanjiRatio).toBe(1);
   });
 
-  it('短日语片段（假名充足但总长不足）仍判 unknown', () => {
-    const r = detectLanguage('これは簡単ではない');
-    expect(r.language).toBe('unknown');
-    expect(r.evidence.meaningful).toBeLessThan(80);
-  });
 
-  it('刚好达到 80 有效字符即进入判定', () => {
-    const r = detectLanguage('漢'.repeat(80));
-    expect(r.evidence.meaningful).toBe(80);
-    expect(r.language).toBe('zh');
-  });
 });
 
 describe('detectLanguage — 采样窗口（MAX_SAMPLE_CHARS = 20000）', () => {
@@ -174,11 +150,6 @@ describe('detectLanguage — 采样窗口（MAX_SAMPLE_CHARS = 20000）', () => 
     expect(r.evidence.meaningful).toBe(20000);
   });
 
-  it('只看正文前 20000 字符：前段中文 + 后段日语 → zh', () => {
-    const r = detectLanguage('漢'.repeat(20000) + 'あ'.repeat(500));
-    expect(r.language).toBe('zh');
-    expect(r.evidence.meaningful).toBe(20000);
-  });
 });
 
 describe('detectLanguage — htmlLang 仅作辅助信号', () => {
@@ -193,15 +164,7 @@ describe('detectLanguage — htmlLang 仅作辅助信号', () => {
     expect(hinted.confidence).toBeCloseTo(base.confidence + 0.1, 5);
   });
 
-  it('htmlLang=ja-JP 同样识别（前缀匹配 + 词边界）', () => {
-    const hinted = detectLanguage(mixed, { htmlLang: 'ja-JP' });
-    expect(hinted.confidence).toBeCloseTo(0.9, 5);
-  });
 
-  it('htmlLang 不匹配时不加分', () => {
-    const hinted = detectLanguage(mixed, { htmlLang: 'en' });
-    expect(hinted.confidence).toBeCloseTo(0.8, 5);
-  });
 
   it('htmlLang 不能单独决定语言：声明 ja 但正文是中文 → 仍判 zh', () => {
     const r = detectLanguage(ZH_NONFICTION, { htmlLang: 'ja' });

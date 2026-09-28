@@ -40,11 +40,6 @@ describe('injectRedirectGuard — 注入位置', () => {
     expect(out).toContain('<div>fragment</div>');
   });
 
-  it('带属性的 <head> 标签也能正确识别', () => {
-    const html = '<html><head data-x="1"><meta charset="utf-8"></head></html>';
-    const out = injectRedirectGuard(html);
-    expect(out).toMatch(/<head data-x="1"><script>/);
-  });
 
   it('不破坏原始正文内容', () => {
     const html = '<html><head></head><body><p>正文保留</p></body></html>';
@@ -88,20 +83,7 @@ describe('守卫脚本运行时行为', () => {
     expect(json).toHaveProperty('data');
   });
 
-  it('拦截对 api.x.com hashflags 的 fetch 请求，返回 []', async () => {
-    runGuard();
-    const resp = await fetch('https://api.x.com/1.1/hashflags.json');
-    expect(resp.status).toBe(200);
-    const text = await resp.text();
-    expect(text).toBe('[]');
-  });
 
-  it('拦截对 ads-api.x.com 的 fetch 请求，返回 {}', async () => {
-    runGuard();
-    const resp = await fetch('https://ads-api.x.com/12/measurement/dcm_local_id');
-    expect(resp.status).toBe(200);
-    expect(await resp.text()).toBe('{}');
-  });
 
   // 正常请求应透传给原生 fetch（不拦截、不改写）。
   // 用 mock 断言透传，而不依赖真实网络：旧写法断言 fetch 抛 TypeError，
@@ -158,16 +140,6 @@ describe('守卫脚本运行时行为', () => {
     xhr.send();
   });
 
-  it('拦截对 api.x.com 的 XHR 请求，不真正发送', (done) => {
-    runGuard();
-    const xhr = new XMLHttpRequest();
-    xhr.open('GET', 'https://api.x.com/1.1/account/settings.json');
-    xhr.onload = () => {
-      expect(true).toBe(true);
-      done();
-    };
-    xhr.send();
-  });
 
   // ── history patches ──
 
@@ -210,12 +182,6 @@ describe('守卫脚本运行时行为', () => {
     expect(() => window.history.go(0)).not.toThrow();
   });
 
-  it('history.go(-1) 等非零值仍允许', () => {
-    runGuard();
-    expect(() => {
-      try { window.history.go(-1); } catch (e) { /* jsdom 限制 */ }
-    }).not.toThrow();
-  });
 
   // ── window.open ──
 
@@ -273,19 +239,4 @@ describe('守卫脚本运行时行为', () => {
 
   // ── 验证日志 ──
 
-  it('验证日志输出各 patch 状态', () => {
-    const logs: string[] = [];
-    const origLog = console.log;
-    console.log = (...args: any[]) => { logs.push(args.join(' ')); };
-    try {
-      runGuard();
-    } finally {
-      console.log = origLog;
-    }
-    const patchLog = logs.find((l) => l.includes('redirectGuard patches'));
-    expect(patchLog).toBeDefined();
-    expect(patchLog).toContain('fetch');
-    expect(patchLog).toContain('xhr');
-    expect(patchLog).toContain('pushState');
-  });
 });

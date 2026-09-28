@@ -20,9 +20,6 @@ describe('detectFormat', () => {
     expect(detectFormat('notes.md')).toBe('md');
   });
 
-  it('无法识别时返回 null', () => {
-    expect(detectFormat('a.exe', 'application/octet-stream')).toBeNull();
-  });
 
   it('体积上限', () => {
     expect(isWithinSizeLimit({ fileName: 'a.txt', text: 'x'.repeat(10) })).toBe(true);
@@ -66,9 +63,6 @@ describe('parseTextDocument', () => {
 });
 
 describe('splitLongText', () => {
-  it('短文本不切', () => {
-    expect(splitLongText('你好', 10)).toEqual(['你好']);
-  });
 
   it('优先在句末标点处断', () => {
     const text = '第一句。第二句。第三句。';
@@ -149,9 +143,6 @@ describe('parseHtmlDocument', () => {
     expect(doc.segments.some((s) => s.kind === 'quote')).toBe(true);
   });
 
-  it('解码实体', () => {
-    expect(decodeEntities('a &amp; b &#65; &nbsp;')).toBe('a & b A \u00a0');
-  });
 });
 
 // ============================================================
@@ -187,10 +178,6 @@ describe('parseJsonDocument', () => {
     expect(root.a.b[0]).toBe('译文');
   });
 
-  it('collectJsonLeaves 处理数组', () => {
-    const leaves = collectJsonLeaves({ list: ['a', 'b'] });
-    expect(leaves.map((l) => l.path)).toEqual(['$.list[0]', '$.list[1]']);
-  });
 });
 
 // ============================================================

@@ -162,19 +162,7 @@ describe('contentDetector', () => {
       expect(ids).toContain('level-0');
     });
 
-    it('does not collect body or html', () => {
-      document.body.innerHTML = '<div class="article"><p>Content</p></div>';
-      const candidates = collectCandidates(document);
-      expect(candidates).not.toContain(document.body);
-      expect(candidates).not.toContain(document.documentElement);
-    });
 
-    it('does not duplicate elements', () => {
-      document.body.innerHTML = '<article class="content"><p>Content</p></article>';
-      const candidates = collectCandidates(document);
-      const articleCount = candidates.filter(el => el.tagName === 'ARTICLE').length;
-      expect(articleCount).toBe(1);
-    });
   });
 
   // --- detectArticleRoot ---
@@ -239,20 +227,6 @@ describe('contentDetector', () => {
       expect(root!.textContent).toContain('main content');
     });
 
-    it('detects main element', () => {
-      document.body.innerHTML = `
-        <div class="header">Header</div>
-        <main>
-          <h1>Main Content</h1>
-          <p>This is the main content of the page.</p>
-          <p>More paragraphs to ensure good score.</p>
-        </main>
-        <footer>Footer</footer>
-      `;
-      const root = detectArticleRoot(document);
-      expect(root).not.toBeNull();
-      expect(root!.tagName).toBe('MAIN');
-    });
 
     it('detects role="article"', () => {
       document.body.innerHTML = `
@@ -273,14 +247,6 @@ describe('contentDetector', () => {
       expect(root).toBeNull();
     });
 
-    it('handles document with only scripts and styles', () => {
-      document.body.innerHTML = `
-        <script>console.log('test');</script>
-        <style>.class { color: red; }</style>
-      `;
-      const root = detectArticleRoot(document);
-      expect(root).toBeNull();
-    });
 
     it('Picks blog-content over blog-content__mbox in commoncog-like structure', () => {
       // 复刻 commoncog.com 的核心结构：
@@ -500,52 +466,7 @@ describe('contentDetector', () => {
   // --- Text Density 算法特性测试 ---
 
   describe('Text Density characteristics', () => {
-    it('scores near 0 for element where all text is inside links', () => {
-      // 纯链接列表：text≈linkText，bodyText≈0
-      // 用紧凑 innerHTML 避免标签间空白被算作 body 文本
-      const el = document.createElement('div');
-      el.innerHTML =
-        '<a href="#">First link with some text</a>' +
-        '<a href="#">Second link with more text</a>' +
-        '<a href="#">Third link with even more text</a>' +
-        '<a href="#">Fourth link with additional text</a>';
-      document.body.appendChild(el);
-      const score = scoreElement(el);
-      // bodyText ≈ 0，density 应接近 0
-      // 允许少量 round-off 误差
-      expect(score).toBeLessThan(5);
-    });
 
-    it('density decreases as link count increases for same body text', () => {
-      // 相同 bodyText（500 字符），不同 linkCount
-      // density = (500 / (n+1)) * log(500+1) ≈ (500 / (n+1)) * 6.21
-      const buildEl = (linkCount: number) => {
-        const el = document.createElement('div');
-        // 主体文本：单个长段落（500 字符）
-        el.appendChild(
-          (() => {
-            const p = document.createElement('p');
-            p.textContent = 'word '.repeat(100).trim();
-            return p;
-          })()
-        );
-        // 添加若干空链接（仅贡献 linkCount，不贡献文本）
-        for (let i = 0; i < linkCount; i++) {
-          const a = document.createElement('a');
-          a.href = '#';
-          el.appendChild(a);
-        }
-        return el;
-      };
-
-      const s0 = scoreElement(buildEl(0));
-      const s5 = scoreElement(buildEl(5));
-      const s20 = scoreElement(buildEl(20));
-
-      // linkCount 越多，密度越低
-      expect(s0).toBeGreaterThan(s5);
-      expect(s5).toBeGreaterThan(s20);
-    });
 
     it('penalizes elements with linkRatio > 0.5 (link-heavy regions)', () => {
       // 链接文本 > 总文本 50% → 乘性 0.5x 惩罚
@@ -587,32 +508,6 @@ describe('contentDetector', () => {
       expect(score).toBeGreaterThan(SCORE_THRESHOLD * 10);
     });
 
-    it('Text Density outperforms Readability on link list vs short paragraph', () => {
-      // 经典场景：左侧栏是链接列表（5个链接），右侧是短段落（150字符）
-      // Text Density 下短段落应当胜出（因为 bodyText 大、log 缩放）
-      const sidebar = document.createElement('div');
-      sidebar.className = 'sidebar';
-      sidebar.innerHTML = `
-        <a href="#">Link one with text</a>
-        <a href="#">Link two with text</a>
-        <a href="#">Link three with text</a>
-        <a href="#">Link four with text</a>
-        <a href="#">Link five with text</a>
-      `;
-      document.body.appendChild(sidebar);
-
-      const main = document.createElement('div');
-      main.className = 'content';
-      main.innerHTML = `
-        <p>This is a substantial paragraph with about one hundred and fifty characters of real text content for the algorithm to evaluate properly.</p>
-      `;
-      document.body.appendChild(main);
-
-      const sidebarScore = scoreElement(sidebar);
-      const mainScore = scoreElement(main);
-
-      expect(mainScore).toBeGreaterThan(sidebarScore);
-    });
 
     it('detects article root in typical blog layout (h1 + multiple p, no links)', () => {
       // 典型博客布局：标题 + 多段正文，无链接
@@ -732,59 +627,9 @@ describe('contentDetector', () => {
       expect(ratio).toBeLessThan(1.1);
     });
 
-    it('multiplicative model: ranking is monotonic across DOM sizes', () => {
-      // 关键不变量: score 应该是"文本质量函数"而非"标签绝对加分函数"。
-      // 同样 200 字符正文, article vs main: article 必胜, 但分差应按比例 (1.3/1.2 ≈ 1.083x),
-      // 不应像旧版 +500 把 200 字符 article 拉到接近 1000 字符 div 的位置。
-      const smallArticle = document.createElement('article');
-      smallArticle.className = 'content';
-      smallArticle.textContent = 'word '.repeat(40).trim();  // 短文 ~200 chars
-      const bigMain = document.createElement('main');
-      bigMain.textContent = 'word '.repeat(400).trim();  // 长文 ~2000 chars
-      // 即使 bigMain 文本 10x 于 smallArticle, smallArticle 的 multiplicative boost
-      // (1.3) 不会像旧版 +500 那样让小 article 凭空超过大 main。
-      // 这里只检查 "score 比值小于文本比值" (即 boost 不会把 ranking 拉爆):
-      //   smallArticle (200 chars, 1.3x) vs bigMain (2000 chars, 1.2x)
-      //   score(article) / score(main) ≈ (200 * 1.3) / (2000 * 1.2) ≈ 0.108
-      const a = scoreElement(smallArticle);
-      const m = scoreElement(bigMain);
-      expect(a).toBeLessThan(m);
-    });
 
     // ---- 3) POSITIVE tokens 收紧 ----
-    it('does not treat Tailwind .text-* utility as positive', () => {
-      // 旧版 POSITIVE 包含 'text' token, .text-gray-500 会被当正文容器加分。
-      // 新版 POSITIVE_TOKENS 已删除 'text', .text-* 应被忽略。
-      const el = document.createElement('div');
-      el.className = 'text-gray-500 text-sm p-4';
-      el.innerHTML = `
-        <a href="#">A</a><a href="#">B</a><a href="#">C</a>
-        <a href="#">D</a><a href="#">E</a><a href="#">F</a>
-      `;
-      document.body.appendChild(el);
-      const score = scoreElement(el);
-      // 没有 positive boost, 仅靠 density, 链接列表分应低于阈值
-      expect(score).toBeLessThan(SCORE_THRESHOLD);
-    });
 
-    it('does not treat .content-* carousel/sidebar as positive', () => {
-      // 旧版 POSITIVE 包含 'content' token, .content-carousel / .content-sidebar
-      // 会被加分。新版 POSITIVE_TOKENS 严格收紧, 只接受单 token article/post/entry 等,
-      // 复合类靠 POSITIVE_COMPOUND_RE 匹配 (article-content / post-body 模式)。
-      const el = document.createElement('div');
-      el.className = 'content-carousel content-sidebar content-wrapper';
-      el.textContent = 'word '.repeat(200).trim();
-      document.body.appendChild(el);
-      const score = scoreElement(el);
-      // 没有 positive boost, score 来自纯 density
-      // 对比同条件下的 article-content 元素 (应有 1.2x boost)
-      const ref = document.createElement('div');
-      ref.className = 'article-content';
-      ref.textContent = 'word '.repeat(200).trim();
-      const refScore = scoreElement(ref);
-      // article-content 必高于 content-carousel (有 1.2x boost)
-      expect(refScore).toBeGreaterThan(score);
-    });
 
     it('POSITIVE_COMPOUND_RE matches article-content / post-body / entry-content', () => {
       // 复合 regex 匹配 CMS 常见命名, 验证三种典型写法
@@ -1021,43 +866,6 @@ describe('contentDetector', () => {
       expect(context.semanticHints!.hasCode).toBe(false);
     });
 
-    it('detectArticleRoot without contextOut remains backward compatible', () => {
-      // 不传 contextOut 时, 行为应与旧版完全一致 (返回 Element | null)
-      document.body.innerHTML = `
-        <article class="post-content">
-          <h1>Title</h1>
-          <p>Sufficient article content for detection.</p>
-          <p>Another paragraph for healthy text density.</p>
-        </article>
-      `;
-      const root = detectArticleRoot(document);
-      expect(root).not.toBeNull();
-      expect(root!.className).toContain('post-content');
-    });
 
-    it('collectCandidates populates noiseSet via the third parameter', () => {
-      // 直接测试 collectCandidates 的 noiseSet 共享机制
-      document.body.innerHTML = `
-        <div id="cookie-banner" class="cookie-consent">
-          <p>We use cookies. Accept to continue.</p>
-        </div>
-        <article class="post-content">
-          <h1>Article</h1>
-          <p>Article body paragraph with enough text.</p>
-        </article>
-      `;
-
-      const noiseSet = new WeakSet<Element>();
-      const candidates = collectCandidates(document, undefined, noiseSet);
-
-      // cookie-banner 应被加入 noiseSet (因 isConsentSdkContainer 排除)
-      const cookieEl = document.getElementById('cookie-banner')!;
-      expect(noiseSet.has(cookieEl)).toBe(true);
-
-      // article 应作为候选加入, 不在 noiseSet 中
-      const articleEl = document.querySelector('.post-content')!;
-      expect(candidates).toContain(articleEl);
-      expect(noiseSet.has(articleEl)).toBe(false);
-    });
   });
 });

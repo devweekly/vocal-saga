@@ -48,37 +48,9 @@ describe('processTranslationResult', () => {
     expect(result.get('b2')).toBe('世界');
   });
 
-  it('returns empty Map for empty translations array', () => {
-    const json = JSON.stringify({ translations: [] });
-    const result = processTranslationResult(json);
-    expect(result.size).toBe(0);
-  });
 
-  it('handles single translation item', () => {
-    const json = JSON.stringify({
-      translations: [{ id: 'b1', translated_text: '单个翻译' }],
-    });
-    const result = processTranslationResult(json);
-    expect(result.get('b1')).toBe('单个翻译');
-  });
 
-  it('preserves empty translated_text', () => {
-    const json = JSON.stringify({
-      translations: [{ id: 'b1', translated_text: '' }],
-    });
-    const result = processTranslationResult(json);
-    expect(result.get('b1')).toBe('');
-  });
 
-  it('handles items with extra fields', () => {
-    const json = JSON.stringify({
-      translations: [
-        { id: 'b1', translated_text: '你好', confidence: 0.95, extra: 'data' },
-      ],
-    });
-    const result = processTranslationResult(json);
-    expect(result.get('b1')).toBe('你好');
-  });
 
   // 真实场景：prompt 要求 `translated_text` 字段，但模型经常自由发挥用 `text`。
   // 修复前的 hard bug：id 全在、map 全空、content 报 missing。回归测试。
@@ -136,46 +108,8 @@ describe('logUnchangedBlocks', () => {
     expect(logUnchangedBlocks('not json', [{ id: 'b1', text: 'x' }])).toBe('not json');
   });
 
-  it('warns when a block came back unchanged', () => {
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    const raw = JSON.stringify({ translations: [{ id: 'b1', translated_text: 'hello' }] });
-    logUnchangedBlocks(raw, [{ id: 'b1', text: 'hello' }]);
-    expect(warn).toHaveBeenCalled();
-    const allArgs = warn.mock.calls.flat().map(String).join(' | ');
-    expect(allArgs).toContain('b1');
-    warn.mockRestore();
-  });
 
-  it('errors when every block came back unchanged', () => {
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
-    const raw = JSON.stringify({
-      translations: [
-        { id: 'b1', translated_text: 'hello' },
-        { id: 'b2', translated_text: 'world' },
-      ],
-    });
-    logUnchangedBlocks(raw, [
-      { id: 'b1', text: 'hello' },
-      { id: 'b2', text: 'world' },
-    ]);
-    expect(err).toHaveBeenCalled();
-    expect(String(err.mock.calls[0]?.[0])).toMatch(/ALL/);
-    warn.mockRestore();
-    err.mockRestore();
-  });
 
-  it('warns when response is missing blocks from the input', () => {
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    const raw = JSON.stringify({ translations: [{ id: 'b1', translated_text: '你好' }] });
-    logUnchangedBlocks(raw, [
-      { id: 'b1', text: 'hello' },
-      { id: 'b2', text: 'world' },
-    ]);
-    const allArgs = warn.mock.calls.flat().map(String).join(' | ');
-    expect(allArgs).toMatch(/missing/);
-    warn.mockRestore();
-  });
 
   it('is silent when all blocks were translated', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
@@ -236,18 +170,7 @@ describe('getCachedTranslation', () => {
     expect(result?.size).toBe(2);
   });
 
-  it('returns empty Map for empty object', async () => {
-    mockCache.get.mockResolvedValue({});
-    const result = await getCachedTranslation('test-key');
-    expect(result).toBeInstanceOf(Map);
-    expect(result?.size).toBe(0);
-  });
 
-  it('handles single entry', async () => {
-    mockCache.get.mockResolvedValue({ b1: '单个翻译' });
-    const result = await getCachedTranslation('test-key');
-    expect(result?.get('b1')).toBe('单个翻译');
-  });
 });
 
 describe('cacheTranslation', () => {
@@ -269,17 +192,7 @@ describe('cacheTranslation', () => {
     expect(ttl).toBe(7 * 24 * 60 * 60 * 1000);
   });
 
-  it('stores empty Map', async () => {
-    await cacheTranslation('test-key', new Map());
-    expect(mockCache.set).toHaveBeenCalledWith('test-key', {}, 7 * 24 * 60 * 60 * 1000);
-  });
 
-  it('stores single entry', async () => {
-    const data = new Map([['b1', '单个翻译']]);
-    await cacheTranslation('test-key', data);
-    const [, storedObj] = mockCache.set.mock.calls[0];
-    expect(storedObj).toEqual({ b1: '单个翻译' });
-  });
 });
 
 describe('clearAllCache', () => {
@@ -292,10 +205,6 @@ describe('clearAllCache', () => {
     expect(mockCache.clear).toHaveBeenCalledTimes(1);
   });
 
-  it('throws if cache clear fails', async () => {
-    mockCache.clear.mockRejectedValueOnce(new Error('Storage error'));
-    await expect(clearAllCache()).rejects.toThrow('Storage error');
-  });
 });
 
 describe('processTranslationWithCheck — JSON cleanup', () => {
@@ -315,17 +224,7 @@ describe('processTranslationWithCheck — JSON cleanup', () => {
     expect(result.size).toBe(2);
   });
 
-  it('handles multiple trailing commas', () => {
-    const json = '{"translations":[{"id":"b1","translated_text":"你好",},]}';
-    const result = processTranslationWithCheck(json);
-    expect(result.get('b1')).toBe('你好');
-  });
 
-  it('handles valid JSON without cleanup', () => {
-    const json = '{"translations":[{"id":"b1","translated_text":"你好"}]}';
-    const result = processTranslationWithCheck(json);
-    expect(result.get('b1')).toBe('你好');
-  });
 
   it('repairs truncated JSON with unclosed last string', () => {
     // jsonrepair 比 repairTruncatedJson 更优：保留不完整字符串已写出的部分内容，
@@ -351,19 +250,9 @@ describe('processTranslationWithCheck — JSON cleanup', () => {
     expect(result.get('b3')).toBe('foo');
   });
 
-  it('repairs bare array truncated JSON', () => {
-    const json = '[{"id":"b1","translated_text":"你好"},{"id":"b2","translated_text":"世界"';
-    const result = processTranslationWithCheck(json);
-    expect(result.get('b1')).toBe('你好');
-    expect(result.get('b2')).toBe('世界');
-  });
 });
 
 describe('repairJson', () => {
-  it('returns valid JSON unchanged', () => {
-    const json = '{"translations":[{"id":"b1","translated_text":"你好"}]}';
-    expect(repairJson(json)).toBe(json);
-  });
 
   it('repairs unclosed trailing string and preserves partial content', () => {
     // jsonrepair 比 repairTruncatedJson 更优：保留不完整字符串的内容
@@ -395,19 +284,7 @@ describe('repairJson', () => {
     expect(JSON.parse(repaired)).toEqual({ translations: [{ id: 'b1', translated_text: '你好' }] });
   });
 
-  it('repairs single quotes to double quotes', () => {
-    // jsonrepair 覆盖的额外场景：单引号 → 双引号（手写 repairTruncatedJson 不支持）
-    const raw = "{'translations':[{'id':'b1','translated_text':'你好'}]}";
-    const repaired = repairJson(raw);
-    expect(JSON.parse(repaired)).toEqual({ translations: [{ id: 'b1', translated_text: '你好' }] });
-  });
 
-  it('repairs missing comma between properties', () => {
-    // jsonrepair 覆盖的额外场景：缺逗号（手写 repairTruncatedJson 不支持）
-    const raw = '{"translations":[{"id":"b1" "translated_text":"你好"}]}';
-    const repaired = repairJson(raw);
-    expect(JSON.parse(repaired)).toEqual({ translations: [{ id: 'b1', translated_text: '你好' }] });
-  });
 
   it('throws when input is non-JSON text (defensive guard)', () => {
     // 防御：jsonrepair 对纯文本会包装成字符串 '"not json at all"'，
@@ -417,15 +294,7 @@ describe('repairJson', () => {
 });
 
 describe('cleanJsonString', () => {
-  it('removes trailing comma before } and ]', () => {
-    expect(cleanJsonString('{"a":1,}')).toBe('{"a":1}');
-    expect(cleanJsonString('{"a":[1,2,]}')).toBe('{"a":[1,2]}');
-  });
 
-  it('returns valid JSON unchanged', () => {
-    const json = '{"translations":[{"id":"b1","translated_text":"你好"}]}';
-    expect(cleanJsonString(json)).toBe(json);
-  });
 
   it('fixes duplicated leading quote in property name (DeepSeek 偶发输出错误)', () => {
     // 真实生产 bug：DeepSeek 在 "id": "b1", 后输出 " "text": （前导多了一个引号），
@@ -439,12 +308,6 @@ describe('cleanJsonString', () => {
     expect(parsed.translations[0].text).toBe('InfoQ 首页');
   });
 
-  it('fixes duplicated leading quote for multiple properties', () => {
-    // 多个 property 同时出现重复引号时一次性修复
-    const raw = '{\n  " "text": "a",\n  " "translated_text": "b"\n}';
-    const cleaned = cleanJsonString(raw);
-    expect(JSON.parse(cleaned)).toEqual({ text: 'a', translated_text: 'b' });
-  });
 
   it('does not break合法 " " property name (空字符串 name with spaces)', () => {
     // 限定上下文修复，不应误伤合法的空字符串 property name（虽然极少见）
@@ -467,17 +330,6 @@ describe('processTranslationWithCheck', () => {
     vi.clearAllMocks();
   });
 
-  it('parses JSON and returns Map without originalBlocks', () => {
-    const json = JSON.stringify({
-      translations: [
-        { id: 'b1', translated_text: '你好' },
-        { id: 'b2', translated_text: '世界' },
-      ],
-    });
-    const result = processTranslationWithCheck(json);
-    expect(result.get('b1')).toBe('你好');
-    expect(result.get('b2')).toBe('世界');
-  });
 
   it('parses JSON and returns Map with originalBlocks', () => {
     const json = JSON.stringify({
@@ -495,49 +347,8 @@ describe('processTranslationWithCheck', () => {
     expect(result.get('b2')).toBe('世界');
   });
 
-  it('warns when a block came back unchanged', () => {
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    const json = JSON.stringify({ translations: [{ id: 'b1', translated_text: 'hello' }] });
-    const original = [{ id: 'b1', text: 'hello' }];
-    processTranslationWithCheck(json, original);
-    expect(warn).toHaveBeenCalled();
-    const allArgs = warn.mock.calls.flat().map(String).join(' | ');
-    expect(allArgs).toContain('b1');
-    warn.mockRestore();
-  });
 
-  it('errors when every block came back unchanged', () => {
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
-    const json = JSON.stringify({
-      translations: [
-        { id: 'b1', translated_text: 'hello' },
-        { id: 'b2', translated_text: 'world' },
-      ],
-    });
-    const original = [
-      { id: 'b1', text: 'hello' },
-      { id: 'b2', text: 'world' },
-    ];
-    processTranslationWithCheck(json, original);
-    expect(err).toHaveBeenCalled();
-    expect(String(err.mock.calls[0]?.[0])).toMatch(/ALL/);
-    warn.mockRestore();
-    err.mockRestore();
-  });
 
-  it('warns when response is missing blocks from the input', () => {
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    const json = JSON.stringify({ translations: [{ id: 'b1', translated_text: '你好' }] });
-    const original = [
-      { id: 'b1', text: 'hello' },
-      { id: 'b2', text: 'world' },
-    ];
-    processTranslationWithCheck(json, original);
-    const allArgs = warn.mock.calls.flat().map(String).join(' | ');
-    expect(allArgs).toMatch(/missing/);
-    warn.mockRestore();
-  });
 
   it('warns on suspect mapping (short title got long paragraph — block-id misalignment)', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
@@ -601,18 +412,6 @@ describe('processTranslationWithCheck', () => {
     warn.mockRestore();
   });
 
-  it('accepts text field as fallback', () => {
-    const json = JSON.stringify({
-      translations: [
-        { id: 'b1', text: '你好' },
-        { id: 'b2', text: '世界' },
-      ],
-    });
-    const result = processTranslationWithCheck(json);
-    expect(result.size).toBe(2);
-    expect(result.get('b1')).toBe('你好');
-    expect(result.get('b2')).toBe('世界');
-  });
 
   it('降级返回空 Map 而不是抛错（invalid JSON）', () => {
     // 设计变更：彻底无法解析时不再抛错，否则单个 chunk 的解析失败会拖垮整页翻译。

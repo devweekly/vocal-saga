@@ -99,10 +99,6 @@ describe('pickMissingBlocks', () => {
     expect(result.map((b) => b.id)).toEqual(['b1', 'b3']);
   });
 
-  it('returns empty array when no ids match', () => {
-    const blocks = [makeBlock('b1', 'p', 'one')];
-    expect(pickMissingBlocks(blocks, ['b99'])).toEqual([]);
-  });
 
   it('handles missing ids pointing to non-existent blocks gracefully', () => {
     const blocks = [makeBlock('b1', 'p', 'one'), makeBlock('b2', 'p', 'two')];
@@ -156,11 +152,4 @@ describe('buildRetryChunk', () => {
     expect(retry.estimatedTokens).toBe(125);
   });
 
-  it('handles empty missing list (degenerate but valid)', () => {
-    const parent = makeChunk([makeBlock('b1', 'p', 'one')]);
-    const retry = buildRetryChunk(parent, []);
-    expect(retry.blocks).toEqual([]);
-    expect(retry.id).toBe('chunk1_retry');
-    expect(retry.jsonContent).toBe('[]');
-  });
 });

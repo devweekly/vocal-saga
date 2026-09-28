@@ -48,12 +48,12 @@ describe('withSiteDocumentTerms', () => {
     expect(withSiteDocumentTerms(glossary, 'https://arxiv.org/abs/2401.00001')).toBe(glossary);
   });
 
-  it('hostPattern 是精确匹配，www 子域不命中', () => {
-    // reddit.com 的 hostPattern 是 'reddit.com'（非通配），www.reddit.com 不命中
+  it('hostPattern 为通配时 www 子域同样命中', () => {
+    // reddit.com 的 hostPattern 是 '*.reddit.com'，www.reddit.com 命中
     const glossary = { document_terms: ['LLM'] };
-    expect(withSiteDocumentTerms(glossary, 'https://www.reddit.com/r/programming/')).toBe(
-      glossary
-    );
+    const out = withSiteDocumentTerms(glossary, 'https://www.reddit.com/r/programming/');
+    expect(out?.document_terms).toContain('LLM');
+    expect(out?.document_terms).toContain('Upvote');
   });
 
   it('URL 非法时安全降级（matchSiteRule 返回 null，不抛错）', () => {
