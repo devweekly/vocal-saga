@@ -328,6 +328,39 @@ HN 页面 6 个块只报 `accepted=1`。已补上 `accepted++` / `skipped++`，�
 > （`computeSoftHint` 看元素自身 class 里的 sidebar/nav/footer/comment）。
 > 服务端**根本没有软评分机制**，移植它等于移植一整套启发式，不属于「同步」范畴。
 
+#### 2.5 hostPattern 必须用通配符 + skipSelectors 的 REJECT 语义（2026-09-28 修复）
+
+**教训一：hostPattern 全等匹配。** 两端 `hostMatches(host, pattern)` 对非通配
+pattern 做 `host === pattern` 全等比较。Reddit 规则曾写 `'reddit.com'`，用户
+实际访问的 `www.reddit.com` **从未命中** —— 整份 Reddit 规则
+（skipSelectors / promptInstructions）形同虚设。带 www 的站点必须写
+`'*.fortune.com'` 形式（`*.reddit.com` 同时匹配裸域与子域；
+现有正确先例：`*.gartner.com`、`www.youtube.com`）。
+
+**教训二：skipSelectors 是「整棵子树拒绝」，不是「跳过自身、走子树」。**
+`shouldSkipBySiteRules` 用 `el.closest(selector)` 匹配 —— 命中的是**该元素
+及其全部后代**，随后 walker REJECT 剪掉整棵子树。所以：
+
+> 往 skipSelectors 里放「包着正文的大容器」= 放弃该容器内的一切内容。
+
+Reddit 规则曾含 `'shreddit-comment'`（本意大概是"评论容器不单独成块"），
+它从未生效纯属 hostPattern bug 侥幸。修好 hostPattern 时若保留它，评论区
+会从"能翻"直接变成"整树剪枝"。已删除并在两端规则文件内留了防回归注释。
+
+**Reddit post 页的正文根**：Reddit 把每条评论渲染成
+`<details role="article">`，扩展端 Layer 1 的 `'[role="article"]'` 选择器
+优先级高于 `'main'`，会把「textContent 最长的评论子树」当成文章根；
+`chooseBestRoot` 评分又偏爱文本密集、按钮少的评论容器（main 因"按钮过多"
+被扣分）→ 主帖 `shreddit-post` 整体在根外，正文一段不翻（评论区双语正常，
+极具迷惑性；线上 /article/739 实测 281 个标记块全部在评论区、主帖区 0 个）。
+
+修复：Reddit 规则声明 `articleRootSelector: 'main#main-content'`（Layer 0，
+最高优先级）。**服务端 `contentHelper.ts` 目前没有 Layer 0 实现**
+（`findArticleRoot` 直接走 `selectBestRoot` 评分），是已知跨端差异：
+`/fanyi/page` 链路的根选择发生在扩展端，不受影响；服务端直访 Reddit 只能
+拿到反爬空壳页，暂无实际触发路径。若服务端未来要支持登录态抓取，必须先
+把 articleRootSelector 接入 `selectBestRoot`。
+
 ### 3. `isOverlayElement`（在 `blockExtractor/rules.ts`）
 - **一致**：识别 cookie / consent / modal / popup / overlay / dialog / backdrop / lightbox / paywall
 - **差异**：

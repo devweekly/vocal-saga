@@ -13,7 +13,8 @@
     "compile": "tsc --noEmit",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "unlock": "sh scripts/rm-git-lock.sh"
   },
   "dependencies": {
     "@google/genai": "^2.21.0",
