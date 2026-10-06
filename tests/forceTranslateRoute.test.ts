@@ -2,13 +2,16 @@
  * GET /force/<target-without-scheme> 路由单测。
  *
  * 强制翻译：跳过 D1 缓存，强制重新抓取+翻译并覆盖写入。
- * 需要 auth（requireAuth middleware）。
+ * 不校验 auth（与 /translate 一样是公开直访入口）。
  *
  * 覆盖：
- *   - 无 auth → 401
- *   - 有 auth → 强制翻译（不读 D1）
- *   - 路径解析同 /translate
- *   - D1 写入用 DELETE + INSERT（覆盖已有记录）
+ *   - 无 auth 也放行
+ *   - 每 IP 30s 限流 → 429
+ *   - force=true 时始终调用 translateUrl（不读 D1）
+ *   - pipeline 元数据透传为响应头
+ *   - 上游抛错 → 500
+ *
+ * URL 重建 / 400 空 target 等共享行为由 translateUrlRoute.test.ts 覆盖。
  */
 import { describe, it, expect, beforeAll, beforeEach, vi } from 'vitest';
 
@@ -60,11 +63,6 @@ describe('GET /force/<target> — no auth required', () => {
     expect(res.status).toBe(200);
   });
 
-  it('200 with auth key', async () => {
-    const app = buildApp();
-    const res = await app.request(req('/force/example.com'));
-    expect(res.status).toBe(200);
-  });
 });
 
 describe('GET /force/<target> — rate limiting', () => {
@@ -80,14 +78,6 @@ describe('GET /force/<target> — rate limiting', () => {
     expect(body.error).toMatch(/Rate limit/);
   });
 
-  it('429 response includes retry-after info', async () => {
-    const app = buildApp();
-    await app.request(new Request('http://test/force/other.com'));
-    const res = await app.request(new Request('http://test/force/other.com'));
-    expect(res.status).toBe(429);
-    const body = await res.json() as { error: string };
-    expect(body.error).toMatch(/Retry after \d+s/);
-  });
 });
 
 describe('GET /force/<target> — force mode', () => {
@@ -96,14 +86,6 @@ describe('GET /force/<target> — force mode', () => {
     await app.request(req('/force/example.com'));
     const { translateUrl } = await import('../lib/translate/pipeline');
     expect((translateUrl as any).mock.calls.length).toBeGreaterThanOrEqual(1);
-  });
-
-  it('returns translated HTML', async () => {
-    const app = buildApp();
-    const res = await app.request(req('/force/example.com'));
-    const body = await res.text();
-    expect(body).toContain('<html>');
-    expect(body).toContain('ok');
   });
 
   it('forwards pipeline metadata headers', async () => {
@@ -115,39 +97,7 @@ describe('GET /force/<target> — force mode', () => {
   });
 });
 
-describe('GET /force/<target> — path parsing', () => {
-  it('reconstructs https URL from bare host', async () => {
-    const app = buildApp();
-    await app.request(req('/force/example.com'));
-    const { translateUrl } = await import('../lib/translate/pipeline');
-    const call = (translateUrl as any).mock.calls[0][0];
-    expect(call.url).toBe('https://example.com');
-  });
-
-  it('preserves nested path segments', async () => {
-    const app = buildApp();
-    await app.request(req('/force/example.com/blog/post-1'));
-    const { translateUrl } = await import('../lib/translate/pipeline');
-    const call = (translateUrl as any).mock.calls[0][0];
-    expect(call.url).toBe('https://example.com/blog/post-1');
-  });
-
-  it('strips https:// when user includes it', async () => {
-    const app = buildApp();
-    await app.request(req('/force/https%3A%2F%2Fexample.com%2Ffoo'));
-    const { translateUrl } = await import('../lib/translate/pipeline');
-    const call = (translateUrl as any).mock.calls[0][0];
-    expect(call.url).toBe('https://example.com/foo');
-  });
-});
-
 describe('GET /force/<target> — validation', () => {
-  it('400 when target is empty', async () => {
-    const app = buildApp();
-    const res = await app.request(req('/force/'));
-    expect(res.status).toBe(400);
-  });
-
   it('500 when translateUrl throws', async () => {
     const { translateUrl } = await import('../lib/translate/pipeline');
     (translateUrl as any).mockRejectedValueOnce(new Error('upstream boom'));

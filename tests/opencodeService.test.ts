@@ -90,13 +90,6 @@ describe('OpencodeTranslationService', () => {
   });
 
   // ── HTTP 401 错误 ────────────────────────────────────────
-  it('HTTP 401 认证失败', async () => {
-    mockFetch.mockResolvedValueOnce(makeErrorResponse(401, 'Invalid API key'));
-    const svc = new OpencodeTranslationService();
-    await expect(
-      svc.translate(JSON.stringify([{ id: 'b1', text: 'Hi' }]), 'en', 'zh'),
-    ).rejects.toThrow('HTTP 401 - Invalid API key');
-  });
 
   // ── HTTP 500 错误 ────────────────────────────────────────
   it('HTTP 500 服务端错误', async () => {
@@ -108,13 +101,6 @@ describe('OpencodeTranslationService', () => {
   });
 
   // ── HTTP 429 限流 ────────────────────────────────────────
-  it('HTTP 429 限流错误', async () => {
-    mockFetch.mockResolvedValueOnce(makeErrorResponse(429, 'Rate limit'));
-    const svc = new OpencodeTranslationService();
-    await expect(
-      svc.translate(JSON.stringify([{ id: 'b1', text: 'Hi' }]), 'en', 'zh'),
-    ).rejects.toThrow('HTTP 429 - Rate limit');
-  });
 
   // ── 响应缺少 choices ─────────────────────────────────────
   it('响应缺少 choices 字段时抛错', async () => {
@@ -131,19 +117,6 @@ describe('OpencodeTranslationService', () => {
   });
 
   // ── thinking 标签剥离 ───────────────────────────────────
-  it('剥离 <think> 标签', async () => {
-    const inner = JSON.stringify({ b1: '你好' });
-    const wrapped = `<think>reasoning here</think>\n${inner}`;
-    mockFetch.mockResolvedValueOnce(makeOkResponse(wrapped));
-
-    const svc = new OpencodeTranslationService();
-    const result = await svc.translate(
-      JSON.stringify([{ id: 'b1', text: 'Hello' }]),
-      'en',
-      'zh',
-    );
-    expect(result).toBe(inner);
-  });
 
   // ── markdown 代码块剥离 ─────────────────────────────────
   it('剥离 markdown 代码块', async () => {

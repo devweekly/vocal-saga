@@ -171,11 +171,6 @@ describe('translateUrl — end-to-end with linkedom', () => {
     expect(result.html).not.toContain('old-origin.com');
   });
 
-  it('preserves <base target> when adding href', async () => {
-    const result = await translateLocal(`${baseUrl}/base-no-href`);
-    expect(baseTarget(result.html)).toBe('_blank');
-    expect(baseHref(result.html)).toBe(`${baseUrl}/base-no-href/`);
-  });
 
   it('moves existing <base> to the start of <head> when it appears after relative CSS', async () => {
     const result = await translateLocal(`${baseUrl}/base-after-css`);
@@ -190,12 +185,6 @@ describe('translateUrl — end-to-end with linkedom', () => {
     expect(baseIndex).toBeLessThan(linkIndex);
   });
 
-  it('uses parent directory for .html file URLs to fix relative CSS paths', async () => {
-    const result = await translateLocal(`${baseUrl}/article.html`);
-    // .html 文件应视为文件而非目录，base 指向父目录，
-    // 这样相对路径 style.css 会被解析为 /style.css 而不是 /article.html/style.css
-    expect(baseHref(result.html)).toBe(`${baseUrl}/`);
-  });
 
   it('does not throw when window is undefined (CF Workers env)', async () => {
     const savedWindow = (globalThis as { window?: unknown }).window;

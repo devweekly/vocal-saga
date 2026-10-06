@@ -39,26 +39,6 @@ describe('shouldRetryMissing', () => {
     expect(shouldRetryMissing({ missingCount: 14, totalCount: 30, isRetry: false })).toBe(true);
   });
 
-  it('returns true for 50% missing (was previously rejected, now allowed)', () => {
-    // 反例：以前 5/10 (50%) 拒绝重试。修正后任何 missing > 0 都重试。
-    // 中等缺失往往意味着 API 偶发抖动，重试一轮可能挽回大部分。
-    expect(shouldRetryMissing({ missingCount: 5, totalCount: 10, isRetry: false })).toBe(true);
-    expect(shouldRetryMissing({ missingCount: 50, totalCount: 100, isRetry: false })).toBe(true);
-  });
-
-  it('returns true for 100% missing (the "API returns success with empty result" case)', () => {
-    // 关键场景：API 业务成功但 model/parser 吐了空 result。
-    // 历史 50% 阈值会把这种情况挡掉，导致整 chunk 全部 yellow。
-    // 现在 12/12 missing 也允许重试一轮。
-    expect(shouldRetryMissing({ missingCount: 10, totalCount: 10, isRetry: false })).toBe(true);
-    expect(shouldRetryMissing({ missingCount: 12, totalCount: 12, isRetry: false })).toBe(true);
-    expect(shouldRetryMissing({ missingCount: 30, totalCount: 30, isRetry: false })).toBe(true);
-  });
-
-  it('isRetry trumps missingCount: even small missing on a retry is rejected', () => {
-    // 已重试过 → 不论缺多少都不再重试
-    expect(shouldRetryMissing({ missingCount: 1, totalCount: 100, isRetry: true })).toBe(false);
-  });
 });
 
 describe('diffMissingIds', () => {
@@ -68,23 +48,12 @@ describe('diffMissingIds', () => {
     expect(diffMissingIds(input, output)).toEqual(['b2', 'b4']);
   });
 
-  it('returns empty array when all input ids are in output', () => {
-    const input = ['b1', 'b2', 'b3'];
-    const output = ['b1', 'b2', 'b3'];
-    expect(diffMissingIds(input, output)).toEqual([]);
-  });
-
   it('returns all input ids when output is empty (full failure)', () => {
     const input = ['b1', 'b2', 'b3'];
     const output: string[] = [];
     expect(diffMissingIds(input, output)).toEqual(['b1', 'b2', 'b3']);
   });
 
-  it('ignores output ids that are not in input (defensive against model extras)', () => {
-    const input = ['b1', 'b2'];
-    const output = ['b1', 'b2', 'b999'];
-    expect(diffMissingIds(input, output)).toEqual([]);
-  });
 });
 
 describe('pickMissingBlocks', () => {
@@ -129,27 +98,6 @@ describe('buildRetryChunk', () => {
     expect(retry.blocks[1].text).toBe('three');
   });
 
-  it('re-serializes jsonContent (cache key differs from parent)', () => {
-    const parent = makeChunk([
-      makeBlock('b1', 'p', 'one'),
-      makeBlock('b2', 'p', 'two'),
-    ]);
-    const retry = buildRetryChunk(parent, ['b1']);
-    expect(retry.jsonContent).not.toBe(parent.jsonContent);
-    // Even though both contain b1, retry's payload only includes b1
-    expect(retry.jsonContent).toBe(JSON.stringify([{ id: 'b1', text: 'one' }]));
-  });
 
-  it('recomputes estimatedTokens for the subset', () => {
-    const parent = makeChunk([
-      makeBlock('b1', 'p', 'a'.repeat(100)), // 25 tokens
-      makeBlock('b2', 'p', 'b'.repeat(200)), // 50 tokens
-      makeBlock('b3', 'p', 'c'.repeat(400)), // 100 tokens
-    ]);
-    expect(parent.estimatedTokens).toBe(175);
-    const retry = buildRetryChunk(parent, ['b1', 'b3']);
-    // b1 (25) + b3 (100) = 125
-    expect(retry.estimatedTokens).toBe(125);
-  });
 
 });

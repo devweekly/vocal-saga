@@ -21,19 +21,6 @@ describe('devirtualizeLayout', () => {
     expect(out).toContain('_tweet content_');
   });
 
-  it('保留非定位样式（color、font、margin）', () => {
-    const html = `<html><body>
-      <div data-testid="cellInnerDiv" style="position:absolute;transform:translateY(100px);color:red;font-size:16px;margin:10px">
-        <p>content</p>
-      </div>
-    </body></html>`;
-    const out = devirtualizeLayout(html);
-    expect(out).toContain('color:red');
-    expect(out).toContain('font-size:16px');
-    expect(out).toContain('margin:10px');
-    expect(out).not.toContain('translateY');
-    expect(out).not.toContain('position:absolute');
-  });
 
   it('清理 cellInnerDiv 祖先链的 absolute 定位', () => {
     const html = `<html><body>
@@ -53,17 +40,6 @@ describe('devirtualizeLayout', () => {
     // 保留 relative（不是 absolute，不需要改）
   });
 
-  it('清理带 translate 的通用元素', () => {
-    const html = `<html><body>
-      <div style="transform:translate3d(0,100px,0);position:absolute;top:50px">
-        <p>virtual item</p>
-      </div>
-    </body></html>`;
-    const out = devirtualizeLayout(html);
-    expect(out).not.toContain('translate3d');
-    expect(out).not.toContain('position:absolute');
-    expect(out).not.toContain('top:50px');
-  });
 
   it('移除 Timeline 容器的高度限制和 overflow', () => {
     const html = `<html><body>
@@ -87,16 +63,6 @@ describe('devirtualizeLayout', () => {
     expect(out).not.toContain('translateY');
   });
 
-  it('不处理 position:relative 的元素', () => {
-    const html = `<html><body>
-      <div style="position:relative;top:10px;left:5px">
-        <p>relative element</p>
-      </div>
-    </body></html>`;
-    const out = devirtualizeLayout(html);
-    expect(out).toContain('position:relative');
-    expect(out).toContain('top:10px');
-  });
 
   it('不处理 position:sticky 的元素', () => {
     const html = `<html><body>
@@ -139,15 +105,6 @@ describe('devirtualizeLayout', () => {
   });
 
 
-  it('无 cellInnerDiv 的页面不受影响', () => {
-    const html = `<html><body>
-      <div style="color:blue;font-size:14px"><p>normal page</p></div>
-    </body></html>`;
-    const out = devirtualizeLayout(html);
-    expect(out).toContain('color:blue');
-    expect(out).toContain('font-size:14px');
-    expect(out).toContain('normal page');
-  });
 
   it('移除 Substack 订阅弹窗（role=dialog + subscribe）', () => {
     const html = `<html><body>

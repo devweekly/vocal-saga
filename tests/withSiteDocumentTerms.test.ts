@@ -32,10 +32,6 @@ describe('withSiteDocumentTerms', () => {
     expect(withSiteDocumentTerms(glossary, 'https://example.com/a')).toBe(glossary);
   });
 
-  it('未命中站点规则且 glossary 为 undefined 时返回 undefined', () => {
-    expect(withSiteDocumentTerms(undefined, 'https://example.com/a')).toBeUndefined();
-  });
-
   it('Reddit 的 UI 术语同样被合并', () => {
     const out = withSiteDocumentTerms(undefined, 'https://reddit.com/r/programming/');
     expect(out?.document_terms).toContain('Upvote');

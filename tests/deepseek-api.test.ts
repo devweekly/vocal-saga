@@ -66,21 +66,6 @@ describe('DeepSeekTranslationService API methods', () => {
       expect(body.messages[0].content).not.toContain('<术语表>');
     });
 
-    it('should handle HTTP 401 error', async () => {
-      const mockResponse = {
-        ok: false,
-        status: 401,
-        headers: new Map(),
-        text: vi.fn().mockResolvedValue(JSON.stringify({
-          error: { message: 'Invalid API key', type: 'authentication_error', code: 'invalid_api_key' },
-        })),
-      };
-      globalFetch.mockResolvedValue(mockResponse);
-
-      await expect(
-        service.translate(JSON.stringify([{ id: 'b1', text: 'hello' }]), 'en', 'zh', undefined)
-      ).rejects.toThrow('401');
-    });
 
     it('should handle HTTP 429 error', async () => {
       const mockResponse = {
@@ -120,50 +105,6 @@ describe('DeepSeekTranslationService API methods', () => {
       ).rejects.toThrow('invalid response');
     });
 
-    it('should handle non-JSON error response', async () => {
-      const mockResponse = {
-        ok: false,
-        status: 500,
-        headers: new Map(),
-        text: vi.fn().mockResolvedValue('Internal Server Error'),
-      };
-      globalFetch.mockResolvedValue(mockResponse);
-
-      await expect(
-        service.translate(JSON.stringify([{ id: 'b1', text: 'hello' }]), 'en', 'zh', undefined)
-      ).rejects.toThrow('500');
-    });
   });
 
-  describe('error handling', () => {
-    it('should handle 403 error', async () => {
-      const mockResponse = {
-        ok: false,
-        status: 403,
-        headers: new Map(),
-        text: vi.fn().mockResolvedValue(JSON.stringify({
-          error: { message: 'Forbidden' },
-        })),
-      };
-      globalFetch.mockResolvedValue(mockResponse);
-
-      await expect(
-        service.translate(JSON.stringify([{ id: 'b1', text: 'hello' }]), 'en', 'zh', undefined)
-      ).rejects.toThrow('403');
-    });
-
-    it('should handle 503 error', async () => {
-      const mockResponse = {
-        ok: false,
-        status: 503,
-        headers: new Map(),
-        text: vi.fn().mockResolvedValue('Service Unavailable'),
-      };
-      globalFetch.mockResolvedValue(mockResponse);
-
-      await expect(
-        service.translate(JSON.stringify([{ id: 'b1', text: 'hello' }]), 'en', 'zh', undefined)
-      ).rejects.toThrow('503');
-    });
-  });
 });

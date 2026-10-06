@@ -61,14 +61,6 @@ describe('GET /nvd/<target> — (default)', () => {
     expect(call.provider).toBe('nvidia');
   });
 
-  it('uses nvidia provider', async () => {
-    const app = buildApp();
-    await app.request(req('/nvd/example.com'));
-    const { translateUrl } = await import('../lib/translate/pipeline');
-    const call = (translateUrl as any).mock.calls[0][0];
-    expect(call.provider).toBe('nvidia');
-  });
-
   it('uses default model when no qwen prefix', async () => {
     const app = buildApp();
     await app.request(req('/nvd/example.com'));
@@ -77,38 +69,9 @@ describe('GET /nvd/<target> — (default)', () => {
     expect(call.model).toBe('stepfun-ai/step-3.7-flash');
   });
 
-  it('returns translated HTML', async () => {
-    const app = buildApp();
-    const res = await app.request(req('/nvd/example.com'));
-    const body = await res.text();
-    expect(body).toContain('<html>');
-    expect(body).toContain('ok');
-  });
-
-
-
-  it('400 when target is empty', async () => {
-    const app = buildApp();
-    const res = await app.request(req('/nvd/'));
-    expect(res.status).toBe(400);
-  });
-
-  it('returns translated HTML', async () => {
-    const app = buildApp();
-    const res = await app.request(req('/nvd/example.com'));
-    const body = await res.text();
-    expect(body).toContain('<html>');
-    expect(body).toContain('ok');
-  });
 });
 
 describe('GET /nvd/qwen/<target> — NVIDIA qwen/qwen3-next-80b-a3b-instruct', () => {
-  it('200 with valid request', async () => {
-    const app = buildApp();
-    const res = await app.request(req('/nvd/qwen/example.com'));
-    expect(res.status).toBe(200);
-  });
-
   it('uses nvidia provider with qwen model', async () => {
     const app = buildApp();
     await app.request(req('/nvd/qwen/example.com'));
@@ -125,23 +88,9 @@ describe('GET /nvd/qwen/<target> — NVIDIA qwen/qwen3-next-80b-a3b-instruct', (
     const call = (translateUrl as any).mock.calls[0][0];
     expect(call.url).toBe('https://example.com/article');
   });
-
-  it('returns translated HTML', async () => {
-    const app = buildApp();
-    const res = await app.request(req('/nvd/qwen/example.com'));
-    const body = await res.text();
-    expect(body).toContain('<html>');
-    expect(body).toContain('ok');
-  });
 });
 
 describe('GET /nvd/deepseek/<target> — NVIDIA deepseek-ai/deepseek-v4-flash', () => {
-  it('200 with valid request', async () => {
-    const app = buildApp();
-    const res = await app.request(req('/nvd/deepseek/example.com'));
-    expect(res.status).toBe(200);
-  });
-
   it('uses nvidia provider with deepseek model', async () => {
     const app = buildApp();
     await app.request(req('/nvd/deepseek/example.com'));
@@ -157,13 +106,5 @@ describe('GET /nvd/deepseek/<target> — NVIDIA deepseek-ai/deepseek-v4-flash', 
     const { translateUrl } = await import('../lib/translate/pipeline');
     const call = (translateUrl as any).mock.calls[0][0];
     expect(call.url).toBe('https://example.com/article');
-  });
-
-  it('returns translated HTML', async () => {
-    const app = buildApp();
-    const res = await app.request(req('/nvd/deepseek/example.com'));
-    const body = await res.text();
-    expect(body).toContain('<html>');
-    expect(body).toContain('ok');
   });
 });

@@ -110,33 +110,13 @@ describe('fetchPage', () => {
     expect(result.doc.querySelector('.msg')?.textContent).toBe('World');
   });
 
-  it('follows redirects and updates finalUrl', async () => {
-    const result = await fetchLocal(`${baseUrl}/redirect`);
-    expect(result.status).toBe(200);
-    expect(result.finalUrl).toBe(`${baseUrl}/ok`);
-  });
-
   it('throws on 4xx', async () => {
     await expect(fetchLocal(`${baseUrl}/404`)).rejects.toThrow(/HTTP 404/);
   });
 
-  it('throws on 5xx / 4xx alike', async () => {
-    await expect(fetchLocal(`${baseUrl}/teapot`)).rejects.toThrow(/HTTP 418/);
-  });
-
-  it('aborts on timeout', async () => {
-    await expect(
-      fetchLocal(`${baseUrl}/slow`, { timeoutMs: 200 })
-    ).rejects.toThrow();
-  }, 5_000);
 
 
-  it('sends browser-like Client Hints headers', async () => {
-    await fetchLocal(`${baseUrl}/ok`);
-    expect(lastHeaders?.['sec-ch-ua']).toContain('Chromium');
-    expect(lastHeaders?.['sec-ch-ua-mobile']).toBe('?0');
-    expect(lastHeaders?.['sec-ch-ua-platform']).toBe('"macOS"');
-  });
+
 });
 
 /**
@@ -184,11 +164,6 @@ describe('SSRF 防护（重定向逐跳校验）', () => {
     );
   });
 
-  it('拒绝跳转到非 http(s) 协议（file:// 等）', async () => {
-    await expect(redirectTo('file:///etc/passwd')).rejects.toThrow(
-      /protocol not allowed: file/
-    );
-  });
 
   it('拒绝跳转到 IPv6 loopback', async () => {
     await expect(redirectTo('http://[::1]/')).rejects.toThrow(

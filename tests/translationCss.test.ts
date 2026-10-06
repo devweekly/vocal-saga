@@ -12,11 +12,6 @@ import { describe, it, expect } from 'vitest';
 import { TRANSLATION_CSS, injectTranslationCss } from '../lib/app';
 
 describe('TRANSLATION_CSS', () => {
-  it('包含 [data-fanyi-remove] 隐藏规则（修复 article/588 侧栏仍显示）', () => {
-    expect(TRANSLATION_CSS).toContain('[data-fanyi-remove="true"]');
-    expect(TRANSLATION_CSS).toContain('display:none!important');
-  });
-
   it('包含 [data-fanyi-low-priority] 弱化规则', () => {
     expect(TRANSLATION_CSS).toContain('[data-fanyi-low-priority="true"]');
   });

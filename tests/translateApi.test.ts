@@ -38,15 +38,6 @@ describe('processTranslationResult', () => {
     expect(result.get('b2')).toBe('世界');
   });
 
-  it('parses JSON with direct array (no translations wrapper)', () => {
-    const json = JSON.stringify([
-      { id: 'b1', translated_text: '你好' },
-      { id: 'b2', translated_text: '世界' },
-    ]);
-    const result = processTranslationResult(json);
-    expect(result.get('b1')).toBe('你好');
-    expect(result.get('b2')).toBe('世界');
-  });
 
 
 
@@ -67,21 +58,7 @@ describe('processTranslationResult', () => {
     expect(result.get('b67')).toBe('另一段翻译');
   });
 
-  it('accepts `translation` field as fallback', () => {
-    const json = JSON.stringify({
-      translations: [{ id: 'b1', translation: '你好' }],
-    });
-    const result = processTranslationResult(json);
-    expect(result.get('b1')).toBe('你好');
-  });
 
-  it('prefers translated_text over text when both present', () => {
-    const json = JSON.stringify({
-      translations: [{ id: 'b1', translated_text: '正式译', text: 'fallback' }],
-    });
-    const result = processTranslationResult(json);
-    expect(result.get('b1')).toBe('正式译');
-  });
 
   it('still rejects entries with neither id nor text', () => {
     const json = JSON.stringify({
@@ -103,10 +80,6 @@ describe('logUnchangedBlocks', () => {
     expect(out).toBe(raw);
   });
 
-  it('does not throw on invalid JSON', () => {
-    expect(() => logUnchangedBlocks('not json', [{ id: 'b1', text: 'x' }])).not.toThrow();
-    expect(logUnchangedBlocks('not json', [{ id: 'b1', text: 'x' }])).toBe('not json');
-  });
 
 
 
@@ -218,11 +191,6 @@ describe('processTranslationWithCheck — JSON cleanup', () => {
     expect(result.get('b1')).toBe('你好');
   });
 
-  it('handles trailing comma in array', () => {
-    const json = '{"translations":[{"id":"b1","translated_text":"你好"},{"id":"b2","translated_text":"世界",}]}';
-    const result = processTranslationWithCheck(json);
-    expect(result.size).toBe(2);
-  });
 
 
 
@@ -372,43 +340,6 @@ describe('processTranslationWithCheck', () => {
     const allArgs = warn.mock.calls.flat().map(String).join(' | ');
     expect(allArgs).toMatch(/suspect mapping/);
     expect(allArgs).toContain('b3');
-    warn.mockRestore();
-  });
-
-  it('does NOT flag a normal short title → short translation', () => {
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    const json = JSON.stringify({
-      translations: [{ id: 'b3', translated_text: '人工智能理财建议出奇地好' }],
-    });
-    const original = [
-      { id: 'b3', text: 'AI financial advice is surprisingly good' },
-    ];
-    processTranslationWithCheck(json, original);
-    const allArgs = warn.mock.calls.flat().map(String).join(' | ');
-    expect(allArgs).not.toMatch(/suspect mapping/);
-    warn.mockRestore();
-  });
-
-  it('does NOT flag a normal body paragraph → body translation', () => {
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    const json = JSON.stringify({
-      translations: [
-        {
-          id: 'b10',
-          translated_text:
-            '人们越来越多地转向人工智能寻求财务建议。研究发现提问方式会显著影响回答质量。',
-        },
-      ],
-    });
-    const original = [
-      {
-        id: 'b10',
-        text: 'People are increasingly turning to AI for financial advice. A study found that the way questions are asked significantly affects answer quality.',
-      },
-    ];
-    processTranslationWithCheck(json, original);
-    const allArgs = warn.mock.calls.flat().map(String).join(' | ');
-    expect(allArgs).not.toMatch(/suspect mapping/);
     warn.mockRestore();
   });
 

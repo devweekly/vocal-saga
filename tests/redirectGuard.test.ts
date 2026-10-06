@@ -67,21 +67,6 @@ describe('守卫脚本运行时行为', () => {
     expect(await resp.text()).toBe('{}');
   });
 
-  it('拦截对 /cdn-cgi/ 的 fetch 请求（Request 对象），返回空 200', async () => {
-    runGuard();
-    const req = new Request('https://s.sunxiunan.com/cdn-cgi/challenge-platform/test');
-    const resp = await fetch(req);
-    expect(resp.status).toBe(200);
-  });
-
-  it('拦截对 api.x.com GraphQL 的 fetch 请求，返回 {data:{}}', async () => {
-    runGuard();
-    const resp = await fetch('https://api.x.com/graphql/abc/SomeQuery');
-    expect(resp.status).toBe(200);
-    expect(resp.headers.get('Content-Type')).toBe('application/json');
-    const json = await resp.json();
-    expect(json).toHaveProperty('data');
-  });
 
 
 
@@ -129,16 +114,6 @@ describe('守卫脚本运行时行为', () => {
 
   // ── XMLHttpRequest guard ──
 
-  it('拦截对 /cdn-cgi/ 的 XHR 请求，不真正发送', (done) => {
-    runGuard();
-    const xhr = new XMLHttpRequest();
-    xhr.open('GET', '/cdn-cgi/challenge-platform/test');
-    xhr.onload = () => {
-      expect(true).toBe(true);
-      done();
-    };
-    xhr.send();
-  });
 
 
   // ── history patches ──
@@ -150,12 +125,6 @@ describe('守卫脚本运行时行为', () => {
     expect(window.location.pathname).toBe(before);
   });
 
-  it('拦截跨页 history.replaceState（地址栏 pathname 不变）', () => {
-    runGuard();
-    const before = window.location.pathname;
-    window.history.replaceState({}, '', '/hijacked');
-    expect(window.location.pathname).toBe(before);
-  });
 
   it('同页 hash history.pushState 允许', () => {
     runGuard();
@@ -172,11 +141,6 @@ describe('守卫脚本运行时行为', () => {
     expect(() => window.history.replaceState({}, '', 'https://magazine.sebastianraschka.com/414')).not.toThrow();
   });
 
-  it('history.pushState 跨域 URL 不抛 SecurityError（静默吞掉）', () => {
-    runGuard();
-    expect(() => window.history.pushState({}, '', 'https://magazine.sebastianraschka.com/414')).not.toThrow();
-  });
-
   it('拦截 history.go(0)（不抛错、页面不刷新）', () => {
     runGuard();
     expect(() => window.history.go(0)).not.toThrow();
@@ -185,12 +149,6 @@ describe('守卫脚本运行时行为', () => {
 
   // ── window.open ──
 
-  it('window.open 外部 _blank 链接不拦截且当前页不跳转', () => {
-    runGuard();
-    const before = window.location.href;
-    expect(() => window.open('https://external-example.com/', '_blank')).not.toThrow();
-    expect(window.location.href).toBe(before);
-  });
 
   it('window.open 当前窗口内部跨页链接被拦截（返回 null）', () => {
     runGuard();

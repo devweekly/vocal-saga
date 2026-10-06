@@ -683,8 +683,20 @@ ${pager}
     console.log(`[fanyi/page] url=${url} src=${sourceStored} tgt=${targetStored} mode=${mode} provider=${provider} html=${html.length} bytes client=${clientLabel} sid=${sid}`);
 
     // ── D1 缓存：同 URL+source+target 已存在且 content_hash 匹配则直接返回 ──
-    // 计算 contentHash：用于检测页面内容是否已更新（同一 URL 内容变了应重新翻译）
-    const contentHash = String(simpleHash(html));
+    // content_hash 的语义是「这份缓存的 block id 映射是否仍然有效」：
+    // /fanyi/page 收到的 HTML 由扩展端预标记 block id，译文回填完全依赖这套 id，
+    // 只要 id→元素映射不变缓存就仍然可用。因此优先采用客户端传来的**结构指纹**
+    // （block id+tag 序列），它比 simpleHash(html) 更贴合真实失效条件 ——
+    // html 里任何无关变化（点赞数、广告位、CSRF token）都会让 simpleHash 失效，
+    // 而 id 映射没变时缓存其实仍然有效（白白重译一次）。
+    //
+    // 旧版扩展不传 contentHash → 退回 simpleHash(html)，保持向后兼容。
+    // 两者的字符串形态不同（指纹是 "b1:h3|b2:p|..."，simpleHash 是数字），
+    // 所以升级后的第一次访问必然不匹配 → 重新翻译并写入新形态，只付一次代价。
+    const contentHash =
+      typeof body.contentHash === 'string' && body.contentHash.length > 0
+        ? body.contentHash
+        : String(simpleHash(html));
     const db = (c.env as any)?.DB999;
     const cacheKey = cacheKeyUrl(url);
     if (db) {

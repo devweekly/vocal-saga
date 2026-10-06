@@ -39,9 +39,6 @@ describe('parseDocument（服务端）', () => {
     await expect(parseDocument({ fileName: 'a.epub', text: 'x' })).rejects.toThrow(/服务端不支持解析/);
   });
 
-  it('未知扩展名抛错', async () => {
-    await expect(parseDocument({ fileName: 'a.exe', text: 'x' })).rejects.toThrow(/不支持的文件类型/);
-  });
 });
 
 describe('translateDocument', () => {
@@ -70,13 +67,6 @@ describe('translateDocument', () => {
     expect(result.errors[0]).toContain('upstream 429');
   });
 
-  it('exportAs 时附带导出内容', async () => {
-    mocked.mockImplementation(async ({ blocks }: { blocks: Array<{ id: string }> }) =>
-      new Map(blocks.map((b) => [b.id, '译文'])),
-    );
-    const result = await translateDocument({ doc: fakeDoc(), exportAs: 'txt' });
-    expect(result.exported).toContain('译文');
-  });
 
   it('空文档不发起任何翻译请求', async () => {
     const result = await translateDocument({

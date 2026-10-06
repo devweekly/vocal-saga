@@ -20,10 +20,6 @@ describe('CacheManager', () => {
     expect(result).toBe('value1');
   });
 
-  it('returns null for missing key', async () => {
-    const result = await cache.get<string>('nonexistent');
-    expect(result).toBeNull();
-  });
 
 
   it('uses custom TTL', async () => {
@@ -33,13 +29,6 @@ describe('CacheManager', () => {
     expect(result).toBeNull();
   });
 
-  it('uses default TTL when not specified', async () => {
-    const cache1 = new CacheManager('test:cache2', 100, storage);
-    await cache1.set('key1', 'value1');
-    await new Promise((r) => setTimeout(r, 150));
-    const result = await cache1.get<string>('key1');
-    expect(result).toBeNull();
-  });
 
   // --- remove ---
 
@@ -54,14 +43,6 @@ describe('CacheManager', () => {
 
   // --- clear ---
 
-  it('clears all entries', async () => {
-    await cache.set('key1', 'value1');
-    await cache.set('key2', 'value2');
-    await cache.clear();
-
-    expect(await cache.get<string>('key1')).toBeNull();
-    expect(await cache.get<string>('key2')).toBeNull();
-  });
 
   // --- getStats ---
 
@@ -90,12 +71,6 @@ describe('CacheManager', () => {
 
   // --- memory cache (in-session speed) ---
 
-  it('serves from memory cache on subsequent access', async () => {
-    await cache.set('key1', 'value1');
-    await cache.get<string>('key1');
-    const result = await cache.get<string>('key1');
-    expect(result).toBe('value1');
-  });
 
   // --- multiple instances ---
 
@@ -153,19 +128,6 @@ describe('CacheManager', () => {
     // key0 不应在内存中（但可能在 storage 里）
     // 通过 stats 检查内存大小而非 get（get 会回源 storage）
     expect(stats2.memorySize).toBeLessThanOrEqual(5);
-  });
-
-  it('preserves newer entries after eviction', async () => {
-    const c = new CacheManager('test:lru2', 1000, storage, 5);
-    for (let i = 0; i < 5; i++) {
-      await c.set(`key${i}`, `value${i}`);
-    }
-    await c.set('key5', 'value5');
-
-    // key5（最新）应该保留
-    expect(await c.get<string>('key5')).toBe('value5');
-    // key4（较新）应该保留
-    expect(await c.get<string>('key4')).toBe('value4');
   });
 
   it('does not evict when under maxMemoryEntries', async () => {

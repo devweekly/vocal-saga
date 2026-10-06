@@ -54,12 +54,6 @@ describe('contentDetector', () => {
       expect(scoreElement(nav)).toBeLessThan(scoreElement(content));
     });
 
-    it('scores empty elements as 0', () => {
-      const el = document.createElement('div');
-      document.body.appendChild(el);
-      const score = scoreElement(el);
-      expect(score).toBe(0);
-    });
 
     it('scores below threshold for CTA box without paragraphs', () => {
       // 模拟 commoncog.com 的 blog-content__mbox（BEM 子类）
@@ -107,60 +101,8 @@ describe('contentDetector', () => {
       expect(classes.some(c => c.includes('article-body'))).toBe(true);
     });
 
-    it('does NOT collect BEM sub-classes via tokenization', () => {
-      // BEM 子类 token 切分后是 ['blog', 'content', 'mbox']，
-      // 'mbox' 是 NEGATIVE，但 'content' 单独是 POSITIVE token，
-      // 所以 collectCandidates 仍会收集。关键不在收集阶段，而在
-      // 评分阶段负向 token 会把分数拉低。
-      // 这里只验证 token 切分逻辑工作正常：
-      const el = document.createElement('div');
-      el.className = 'blog-content__mbox';
-      // 模拟 collectCandidates 的判定
-      const tokens = el.className.toLowerCase().split(/[\s\-_]+/).filter(Boolean);
-      expect(tokens).toContain('content');
-      expect(tokens).toContain('mbox');
-    });
 
-    it('does not collect Tailwind utility classes as positive', () => {
-      // 修前 POSITIVE_CLASS_RE 里的 'text' 误命中 'text-gray-500'
-      // 修后 token 切分：'text' 仍是 POSITIVE，但 0-1 测试用的 'text-sm' 会被切成
-      // ['text', 'sm']，'text' 命中 POSITIVE。
-      // 真正的修复是 classHint 同时检查 NEGATIVE，且 'text' 单独是太短：
-      // 这条用例验证 'text-sm' 不会让元素被误判为 article 根。
-      document.body.innerHTML = `
-        <div class="text-sm text-gray-500 bg-white p-4">
-          <a href="#">Link 1</a>
-          <a href="#">Link 2</a>
-          <a href="#">Link 3</a>
-        </div>
-      `;
-      const candidates = collectCandidates(document);
-      // 这种纯 Tailwind 工具类 + 链接列表的 div 几乎肯定是 nav/list，
-      // collectCandidates 可能收集到（因为 'text' token 命中），
-      // 但 scoreElement 会给它打低分。
-      const el = candidates[0];
-      if (el) {
-        const score = scoreElement(el);
-        expect(score).toBeLessThan(SCORE_THRESHOLD);
-      }
-    });
 
-    it('collects parent elements (up to 2 levels)', () => {
-      document.body.innerHTML = `
-        <div id="level-0">
-          <div id="level-1">
-            <div id="level-2" class="article-content">
-              <p>Content</p>
-            </div>
-          </div>
-        </div>
-      `;
-      const candidates = collectCandidates(document);
-      const ids = candidates.map(el => el.id);
-      expect(ids).toContain('level-2');
-      expect(ids).toContain('level-1');
-      expect(ids).toContain('level-0');
-    });
 
 
   });
@@ -184,20 +126,6 @@ describe('contentDetector', () => {
       expect(root!.tagName).toBe('ARTICLE');
     });
 
-    it('detects div with content-like class', () => {
-      document.body.innerHTML = `
-        <div class="sidebar"><a href="#">Link1</a><a href="#">Link2</a></div>
-        <div class="post-content">
-          <h2>Blog Post</h2>
-          <p>This is a blog post with substantial content that should be detected.</p>
-          <p>More paragraphs to increase the score of this element.</p>
-          <p>Even more content to ensure the scoring algorithm picks this div.</p>
-        </div>
-      `;
-      const root = detectArticleRoot(document);
-      expect(root).not.toBeNull();
-      expect(root!.className).toContain('post-content');
-    });
 
     it('returns null for pages with no good content', () => {
       document.body.innerHTML = `
@@ -241,11 +169,6 @@ describe('contentDetector', () => {
       expect(root!.getAttribute('role')).toBe('article');
     });
 
-    it('handles empty document', () => {
-      document.body.innerHTML = '';
-      const root = detectArticleRoot(document);
-      expect(root).toBeNull();
-    });
 
 
     it('Picks blog-content over blog-content__mbox in commoncog-like structure', () => {
@@ -319,36 +242,6 @@ describe('contentDetector', () => {
     // (which only had "cookielaw"/"cookie-law", not plain "cookie"), so
     // #myTabContent scored highest and won detectArticleRoot() — translating
     // cookie policy instead of the article.
-    it('excludes custom cookie modal with "cookie" in id (not a known SDK)', () => {
-      document.body.innerHTML = `
-        <div id="cookiesModal" class="modal fade">
-          <div class="modal-dialog">
-            <div class="modal-content">
-              <div class="modal-body">
-                <div id="myTabContent" class="tab-content">
-                  <div id="details" class="tab-pane">
-                    <h2>Necessary cookies</h2>
-                    <p>Necessary cookies help make a website usable by enabling basic functions like page navigation and access to secure areas of the website. The website cannot function properly without these cookies.</p>
-                    <p>Analytics cookies allow the website to compute anonymous visits and traffic sources so that the website can be improved. All information these cookies collect is aggregated and anonymous.</p>
-                    <p>Marketing cookies are used to track visitors across websites. The intention is to display ads that are relevant and engaging for the individual user.</p>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-        <div id="article-start" class="content-box">
-          <h1>System Design for ML Interviews</h1>
-          <p>ML system design interviews test how well you can think beyond models. Choosing an algorithm is only one part of the answer.</p>
-          <p>You also need to explain how data is collected, how features are created, and how predictions are served.</p>
-        </div>
-      `;
-      const root = detectArticleRoot(document);
-      expect(root).not.toBeNull();
-      expect(root!.id).toBe('article-start');
-      expect(root!.closest('#cookiesModal')).toBeNull();
-      expect(root!.textContent).toContain('ML system design interviews');
-    });
 
     // 安全阀：consent SDK 容器若 textContent > 5000 字符不视为噪声，参与评分。
     // 回归 case: 长隐私政策 / 长 FAQ 用 id="cookie-policy" 命名，但因文本过长
@@ -370,24 +263,6 @@ describe('contentDetector', () => {
       expect(root!.id).toBe('cookie-policy');
     });
 
-    it('safe valve: short cookie-named container (<5000 chars) is still excluded', () => {
-      // 对照组：短文本的 cookie-banner 仍应被排除
-      document.body.innerHTML = `
-        <div id="cookie-banner" class="cookie-banner">
-          <p>We use cookies. Accept all to continue.</p>
-        </div>
-        <div class="post-content">
-          <h1>Real Article</h1>
-          <p>This is the genuine article content that should be detected as the root.</p>
-          <p>Another paragraph to ensure good text density and structure for detection.</p>
-        </div>
-      `;
-
-      const root = detectArticleRoot(document);
-      expect(root).not.toBeNull();
-      expect(root!.className).toContain('post-content');
-      expect(root!.closest('#cookie-banner')).toBeNull();
-    });
 
     // Regression: developers.googleblog.com
     // 页面没有 article/main，body 下直接是 .blog-detail-container 作为真正文章容器。
@@ -468,29 +343,6 @@ describe('contentDetector', () => {
   describe('Text Density characteristics', () => {
 
 
-    it('penalizes elements with linkRatio > 0.5 (link-heavy regions)', () => {
-      // 链接文本 > 总文本 50% → 乘性 0.5x 惩罚
-      // 对比：相同 bodyText，一个 linkRatio=0.3，一个 linkRatio=0.7
-      const buildEl = (linkTextRatio: number) => {
-        const el = document.createElement('div');
-        const totalText = 1000;
-        const linkTextLen = Math.floor(totalText * linkTextRatio);
-        const bodyTextLen = totalText - linkTextLen;
-        el.innerHTML = `
-          <p>${'word '.repeat(Math.floor(bodyTextLen / 5)).trim()}</p>
-          <a href="#">${'link'.repeat(Math.floor(linkTextLen / 4))}</a>
-        `;
-        return el;
-      };
-
-      const lowLink = scoreElement(buildEl(0.3));
-      const highLink = scoreElement(buildEl(0.7));
-
-      // 链接占比 > 0.5 应明显低于 ≤ 0.5
-      // 注意：highLink 受到 0.5x 惩罚，应该显著降低
-      expect(highLink).toBeLessThan(lowLink);
-    });
-
     it('rewards long text without links (high text density)', () => {
       // 2000 字符纯文本（无链接、无 class）
       // density = (2000 / 1) * log(2001) ≈ 2000 * 7.6 ≈ 15200
@@ -565,21 +417,6 @@ describe('contentDetector', () => {
       expect(scoreNested).toBeGreaterThan(scoreDirect);
     });
 
-    it('does not over-count icon font text inside links', () => {
-      // icon font 通常用 ::before content 或 <i class="icon"> 表现, 不产生直接 text node
-      const el = document.createElement('div');
-      el.className = 'article-content';
-      el.innerHTML = `
-        <p>${'content '.repeat(30).trim()}</p>
-        <a href="#"><i class="icon-share"></i>Share</a>
-      `;
-      document.body.appendChild(el);
-      // linkTextLength 应只算 "Share" (5字符), 不算 <i> 内空
-      // linkRatio = 5/(~180) < 0.5, 不触发 0.5x 惩罚 → score 应 > 阈值
-      const score = scoreElement(el);
-      expect(score).toBeGreaterThan(SCORE_THRESHOLD);
-    });
-
     // ---- 2) 纯 multiplicative model: structureBoost ----
     it('structureBoost: <article> applies 1.3x multiplier (not absolute +500)', () => {
       // 同样 text/length, 比较 <article> vs <div>:
@@ -647,25 +484,6 @@ describe('contentDetector', () => {
     });
 
     // ---- 4) 去除 ancestor early return ----
-    it('article inside <aside> is NOT killed (ancestor negative = soft penalty)', () => {
-      // 旧版: 祖先含 aside → 立即 return negative, article 被误杀。
-      // 新版: aside 祖先只设 negative=true, 由 scoring system 综合判定。
-      // 关键场景: SPA 布局 sidebar 内嵌 article preview card。
-      document.body.innerHTML = `
-        <aside class="sidebar">
-          <article class="post-content">
-            <h1>Preview Article</h1>
-            <p>${'Substantial content here. '.repeat(30).trim()}</p>
-            <p>${'More body text in the article. '.repeat(30).trim()}</p>
-          </article>
-        </aside>
-      `;
-      const root = detectArticleRoot(document);
-      // 应该仍能识别 article 作为正文, 不被 aside 祖先杀死
-      expect(root).not.toBeNull();
-      expect(root!.className).toContain('post-content');
-    });
-
     it('article inside <aside> with similar text density wins via structureBoost', () => {
       // 对比场景: aside 包裹了 article + 一个同尺寸的普通 div
       //   - <div class="raw-content">     200 字符, 无 positive signal

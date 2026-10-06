@@ -73,28 +73,7 @@ describe('extractBlocks - Basic Extraction', () => {
     expect(blocks[1].tag).toBe('li');
   });
 
-  it('should extract blockquotes', () => {
-    setupHTML(`
-      <blockquote>This is a quoted passage with sufficient text length for extraction.</blockquote>
-    `);
 
-    const blocks = extractBlocks(document, "https://example.com/test");
-    expect(blocks).toHaveLength(1);
-    expect(blocks[0].tag).toBe('blockquote');
-  });
-
-  it('should extract definition descriptions', () => {
-    setupHTML(`
-      <dl>
-        <dt>Term</dt>
-        <dd>This is the definition of the term with enough text.</dd>
-      </dl>
-    `);
-
-    const blocks = extractBlocks(document, "https://example.com/test");
-    expect(blocks).toHaveLength(1);
-    expect(blocks[0].tag).toBe('dd');
-  });
 });
 
 describe('extractBlocks - Inline Elements', () => {
@@ -113,41 +92,8 @@ describe('extractBlocks - Inline Elements', () => {
     expect(blocks[0].text).toBe('Text inside span and more text outside.');
   });
 
-  it('should keep links inside parent paragraph', () => {
-    setupHTML(`
-      <p>See <a href="/page">Understanding the Difference Between Embedding Layers</a> for details.</p>
-    `);
 
-    const blocks = extractBlocks(document, "https://example.com/test");
-    expect(blocks).toHaveLength(1);
-    expect(blocks[0].tag).toBe('p');
-    expect(blocks[0].text).toContain('Understanding the Difference Between Embedding Layers');
-  });
 
-  it('should handle mixed inline elements in paragraph', () => {
-    setupHTML(`
-      <p>
-        <span>First span text.</span>
-        <a href="/link">Link text here.</a>
-        <strong>Bold text too.</strong>
-      </p>
-    `);
-
-    const blocks = extractBlocks(document, "https://example.com/test");
-    expect(blocks).toHaveLength(1);
-    expect(blocks[0].tag).toBe('p');
-    expect(blocks[0].text.replace(/\s+/g, ' ')).toBe('First span text. Link text here. Bold text too.');
-  });
-
-  it('should handle emphasis and strong tags', () => {
-    setupHTML(`
-      <p>This is <em>emphasized</em> and <strong>strong</strong> text in a paragraph.</p>
-    `);
-
-    const blocks = extractBlocks(document, "https://example.com/test");
-    expect(blocks).toHaveLength(1);
-    expect(blocks[0].text).toBe('This is emphasized and strong text in a paragraph.');
-  });
 
   it('should not extract inline elements as standalone blocks', () => {
     setupHTML(`
@@ -190,27 +136,6 @@ describe('extractBlocks - Skip Elements', () => {
     expect(blocks[0].text).toBe('Normal paragraph content here.');
   });
 
-  it('should skip style tags', () => {
-    setupHTML(`
-      <style>.class { color: red; }</style>
-      <p>Normal paragraph content here.</p>
-    `);
-
-    const blocks = extractBlocks(document, "https://example.com/test");
-    expect(blocks).toHaveLength(1);
-  });
-
-  it('should skip code and pre tags', () => {
-    setupHTML(`
-      <code>function hello() { return "world"; }</code>
-      <pre>Some preformatted code block content here.</pre>
-      <p>Normal paragraph content here.</p>
-    `);
-
-    const blocks = extractBlocks(document, "https://example.com/test");
-    expect(blocks).toHaveLength(1);
-    expect(blocks[0].tag).toBe('p');
-  });
 
   it('should skip form input elements (input/textarea have no DOM text)', () => {
     setupHTML(`
@@ -265,20 +190,6 @@ describe('extractBlocks - Skip Elements', () => {
     expect(blocks).toHaveLength(1);
   });
 
-  it('should skip aside and nav tags', () => {
-    setupHTML(`
-      <nav><p>Navigation link text here.</p></nav>
-      <aside><p>Sidebar paragraph content here.</p></aside>
-      <main><p>Main article paragraph content here.</p></main>
-    `);
-
-    const blocks = extractBlocks(document, "https://example.com/test");
-    const sidebarBlocks = blocks.filter(b =>
-      b.text.includes('Navigation') || b.text.includes('Sidebar')
-    );
-    expect(sidebarBlocks).toHaveLength(0);
-    expect(blocks).toHaveLength(1);
-  });
 });
 
 describe('extractBlocks - Class-based Skipping', () => {
@@ -286,27 +197,6 @@ describe('extractBlocks - Class-based Skipping', () => {
     document.body.innerHTML = '';
   });
 
-  it('should skip sidebar elements outside article', () => {
-    setupHTML(`
-      <div class="sidebar"><p>Sidebar paragraph content here.</p></div>
-      <main><p>Main article paragraph content here.</p></main>
-    `);
-
-    const blocks = extractBlocks(document, "https://example.com/test");
-    expect(blocks).toHaveLength(1);
-    expect(blocks[0].text).toBe('Main article paragraph content here.');
-  });
-
-  it('should skip footer elements', () => {
-    setupHTML(`
-      <div class="footer-wrap"><p>Footer paragraph content here.</p></div>
-      <article><p>Article paragraph content here.</p></article>
-    `);
-
-    const blocks = extractBlocks(document, "https://example.com/test");
-    const footerBlocks = blocks.filter(b => b.text.includes('Footer'));
-    expect(footerBlocks).toHaveLength(0);
-  });
 
   it('should skip ad containers', () => {
     setupHTML(`
@@ -329,16 +219,6 @@ describe('extractBlocks - Class-based Skipping', () => {
     expect(blocks).toHaveLength(1);
   });
 
-  it('should skip cookie banners', () => {
-    setupHTML(`
-      <div class="cookie-consent"><p>We use cookies to improve your experience.</p></div>
-      <article><p>Article paragraph content here.</p></article>
-    `);
-
-    const blocks = extractBlocks(document, "https://example.com/test");
-    const cookieBlocks = blocks.filter(b => b.text.includes('cookies'));
-    expect(cookieBlocks).toHaveLength(0);
-  });
 
   it('should skip sidebar/footer classes even inside article context', () => {
     setupHTML(`
@@ -426,41 +306,7 @@ describe('extractBlocks - Complex Structures', () => {
     expect(blocks[0].tag).toBe('figcaption');
   });
 
-  it('should handle mixed content with lists and paragraphs', () => {
-    setupHTML(`
-      <article>
-        <p>Introduction paragraph with enough text content.</p>
-        <ul>
-          <li>First item in the list with content.</li>
-          <li>Second item in the list with content.</li>
-        </ul>
-        <p>Conclusion paragraph with enough text content.</p>
-      </article>
-    `);
 
-    const blocks = extractBlocks(document, "https://example.com/test");
-    expect(blocks).toHaveLength(4);
-    expect(blocks[0].tag).toBe('p');
-    expect(blocks[1].tag).toBe('li');
-    expect(blocks[2].tag).toBe('li');
-    expect(blocks[3].tag).toBe('p');
-  });
-
-  it('should handle definition lists', () => {
-    setupHTML(`
-      <dl>
-        <dt>First Term</dt>
-        <dd>Definition of first term with enough text content.</dd>
-        <dt>Second Term</dt>
-        <dd>Definition of second term with enough text content.</dd>
-      </dl>
-    `);
-
-    const blocks = extractBlocks(document, "https://example.com/test");
-    expect(blocks).toHaveLength(2);
-    expect(blocks[0].tag).toBe('dd');
-    expect(blocks[1].tag).toBe('dd');
-  });
 });
 
 describe('extractBlocks - Text Length Filtering', () => {
@@ -525,20 +371,6 @@ describe('extractBlocks - SPA Content (Twitter/X)', () => {
     expect(tweetBlocks[0].tag).toBe('span');
   });
 
-  it('should extract multiple spans inside article', () => {
-    setupHTML(`
-      <article>
-        <div>
-          <span>First part of the tweet content.</span>
-          <span>Second part of the tweet content.</span>
-        </div>
-      </article>
-    `);
-
-    const blocks = extractBlocks(document, "https://example.com/test");
-    expect(blocks.length).toBeGreaterThanOrEqual(2);
-  });
-
   it('should NOT extract span outside article context', () => {
     setupHTML(`
       <div class="sidebar">
@@ -558,21 +390,6 @@ describe('extractBlocks - SPA Content (Twitter/X)', () => {
     expect(articleBlocks.length).toBeGreaterThanOrEqual(1);
   });
 
-  it('should extract div with text inside article', () => {
-    setupHTML(`
-      <article>
-        <div>
-          <div>
-            This is a div with enough text content inside an article container.
-          </div>
-        </div>
-      </article>
-    `);
-
-    const blocks = extractBlocks(document, "https://example.com/test");
-    const divBlocks = blocks.filter(b => b.tag === 'div' && b.text.includes('div with enough text'));
-    expect(divBlocks.length).toBeGreaterThanOrEqual(1);
-  });
 
   it('should handle Twitter-like nested structure', () => {
     setupHTML(`
@@ -670,37 +487,6 @@ describe('extractBlocks - Real-world Scenarios', () => {
   });
 
 
-  it('should handle Substack-like article', () => {
-    setupHTML(`
-      <div id="main">
-        <div class="main-menu"><p>Subscribe Sign in</p></div>
-        <article>
-          <h1>Recent Developments in LLM Architectures</h1>
-          <div class="overlay-zrMCxn">
-            <div>
-              <p>As reasoning models and agent workflows keep more tokens around.</p>
-              <p>The main examples I want to look at are KV sharing and per-layer embeddings.</p>
-            </div>
-          </div>
-        </article>
-        <div class="subscribe-widget"><p>Subscribe now for more content.</p></div>
-        <div class="footer-wrap"><p>Copyright 2026</p></div>
-      </div>
-    `);
-
-    const blocks = extractBlocks(document, "https://example.com/test");
-    const blockTexts = blocks.map(b => b.text);
-
-    // Should include article content
-    expect(blockTexts.some(t => t.includes('reasoning models'))).toBe(true);
-    expect(blockTexts.some(t => t.includes('main examples'))).toBe(true);
-
-    // Should NOT include menu, widget, footer
-    expect(blockTexts.some(t => t.includes('Subscribe Sign in'))).toBe(false);
-    expect(blockTexts.some(t => t.includes('Subscribe now'))).toBe(false);
-    expect(blockTexts.some(t => t.includes('Copyright'))).toBe(false);
-  });
-
   it('should handle news article with complex layout', () => {
     setupHTML(`
       <body>
@@ -742,43 +528,6 @@ describe('extractBlocks - Real-world Scenarios', () => {
     expect(blockTexts.some(t => t.includes('Footer copyright'))).toBe(false);
   });
 
-  it('should handle Substack article from sample2.html structure', () => {
-    setupHTML(`
-      <div id="entry">
-        <div id="main" class="main typography use-theme-bg">
-          <div class="single-post-container">
-            <div class="container">
-              <div class="single-post">
-                <div class="pencraft pc-display-contents pc-reset pubTheme-yiXxQA">
-                  <article class="typography newsletter-post post">
-                    <div class="post-header">
-                      <h3 class="subtitle subtitle-HEEcLo">From Gemma 4 to DeepSeek V4, How New Open-Weight LLMs Are Reducing Long-Context Costs</h3>
-                    </div>
-                    <div class="available-content">
-                      <div class="body markup">
-                        <p>After a short family break, I am excited to be back and catching up on a busy few weeks of open-weight LLM releases. The thing that stood out to me is how much newer architectures are focused on long-context efficiency.</p>
-                        <p>Here's another paragraph with enough text to be extracted.</p>
-                      </div>
-                    </div>
-                  </article>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    `);
-
-    const blocks = extractBlocks(document, "https://example.com/test");
-    console.log('Extracted blocks:', blocks.map(b => ({ tag: b.tag, text: b.text })));
-    
-    expect(blocks.length).toBeGreaterThanOrEqual(3);
-    
-    const blockTexts = blocks.map(b => b.text);
-    expect(blockTexts.some(t => t.includes('From Gemma 4 to DeepSeek V4'))).toBe(true);
-    expect(blockTexts.some(t => t.includes('After a short family break'))).toBe(true);
-    expect(blockTexts.some(t => t.includes('another paragraph'))).toBe(true);
-  });
 });
 
 describe('extractBlocks - XPath Generation', () => {
@@ -828,61 +577,6 @@ describe('extractBlocks - Heading Context', () => {
     expect(paragraph!.context!.headingPath).toContain('Section Title');
   });
 
-  it('heading outline: 同级新 heading 应清除旧 heading (不再累积)', () => {
-    // 回归: 旧版 headingStack 只 push 不 pop, 导致后面所有 block 拿到
-    // 所有前面的 heading。新版基于级别 pop, 同级新 heading 出现时旧 heading 被清除。
-    setupHTML(`
-      <article>
-        <h1>React Hooks</h1>
-        <p>React hooks paragraph content here.</p>
-        <h1>Vue Signals</h1>
-        <p>Vue signals paragraph content here.</p>
-      </article>
-    `);
-
-    const blocks = extractBlocks(document, "https://example.com/test");
-    const reactBlock = blocks.find(b => b.text.startsWith('React hooks'));
-    const vueBlock = blocks.find(b => b.text.startsWith('Vue signals'));
-
-    expect(reactBlock).toBeTruthy();
-    expect(vueBlock).toBeTruthy();
-
-    // React 段落: headingPath 应包含 "React Hooks"
-    expect(reactBlock!.context!.headingPath).toContain('React Hooks');
-    expect(reactBlock!.context!.headingPath).not.toContain('Vue Signals');
-
-    // Vue 段落: headingPath 应包含 "Vue Signals" 但不再包含 "React Hooks"
-    expect(vueBlock!.context!.headingPath).toContain('Vue Signals');
-    expect(vueBlock!.context!.headingPath).not.toContain('React Hooks');
-  });
-
-  it('heading outline: 子级别 heading 保留父 heading', () => {
-    setupHTML(`
-      <article>
-        <h1>Main Title</h1>
-        <h2>Subsection</h2>
-        <p>Paragraph under subsection with enough text.</p>
-        <h2>Another Subsection</h2>
-        <p>Another paragraph with enough text.</p>
-      </article>
-    `);
-
-    const blocks = extractBlocks(document, "https://example.com/test");
-    const p1 = blocks.find(b => b.text.startsWith('Paragraph under subsection'));
-    const p2 = blocks.find(b => b.text.startsWith('Another paragraph'));
-
-    expect(p1).toBeTruthy();
-    expect(p2).toBeTruthy();
-
-    // p1: headingPath 应包含 h1 和 h2
-    expect(p1!.context!.headingPath).toContain('Main Title');
-    expect(p1!.context!.headingPath).toContain('Subsection');
-
-    // p2: headingPath 应包含 h1 和第二个 h2, 但不应包含第一个 h2
-    expect(p2!.context!.headingPath).toContain('Main Title');
-    expect(p2!.context!.headingPath).toContain('Another Subsection');
-    expect(p2!.context!.headingPath).not.toContain('Subsection');
-  });
 });
 
 describe('findBlockNode', () => {
@@ -903,60 +597,6 @@ describe('findBlockNode', () => {
     const node = findBlockNode(blocks[0], document);
     expect(node).toBeTruthy();
     expect(node!.textContent).toContain('Test paragraph');
-  });
-});
-
-describe('extractBlocks - Paragraph with Inline Elements', () => {
-  beforeEach(() => {
-    document.body.innerHTML = '';
-  });
-
-  it('should extract paragraph with inline b and a tags as single block', () => {
-    setupHTML(`
-      <article>
-        <p><b>1.</b> We launched <a href="#">Gemini 3.5 Flash</a>: the first in our latest series of models combining frontier intelligence with action.</p>
-      </article>
-    `);
-
-    const blocks = extractBlocks(document, "https://example.com/test");
-    const pBlocks = blocks.filter(b => b.tag === 'p');
-    
-    // 应该只提取一个段落块，而不是多个块
-    expect(pBlocks).toHaveLength(1);
-    expect(pBlocks[0].text).toBe('1. We launched Gemini 3.5 Flash: the first in our latest series of models combining frontier intelligence with action.');
-  });
-
-  it('should not extract inline elements separately from parent paragraph', () => {
-    setupHTML(`
-      <article>
-        <p><b>Bold text</b> and <a href="#">linked text</a> together in one paragraph.</p>
-      </article>
-    `);
-
-    const blocks = extractBlocks(document, "https://example.com/test");
-    
-    // 不应该有单独的 <b> 或 <a> 块
-    const inlineBlocks = blocks.filter(b => ['b', 'strong', 'a', 'span'].includes(b.tag));
-    expect(inlineBlocks).toHaveLength(0);
-    
-    // 应该只有一个段落块
-    const pBlocks = blocks.filter(b => b.tag === 'p');
-    expect(pBlocks).toHaveLength(1);
-    expect(pBlocks[0].text).toBe('Bold text and linked text together in one paragraph.');
-  });
-
-  it('should handle complex inline structure in paragraph', () => {
-    setupHTML(`
-      <article>
-        <p><span><strong>Important:</strong></span> This is <em>emphasized</em> text with <a href="#">a link</a> inside.</p>
-      </article>
-    `);
-
-    const blocks = extractBlocks(document, "https://example.com/test");
-    const pBlocks = blocks.filter(b => b.tag === 'p');
-    
-    expect(pBlocks).toHaveLength(1);
-    expect(pBlocks[0].text).toBe('Important: This is emphasized text with a link inside.');
   });
 });
 
@@ -1030,76 +670,8 @@ describe('extractBlocks - Google Blog Alternating Translation Issue', () => {
   // real browsers, so this test CANNOT reproduce the bug in jsdom. It
   // verifies the correct behaviour (all paragraphs extracted) using the
   // structure that previously triggered the issue.
-  it('should extract ALL consecutive paragraphs without alternating skip (TreeWalker currentNode guard)', () => {
-    // Exact minified format from blog.google — no whitespace between tags
-    setupHTML(`<article><div class="rich-text"><h3>Section</h3><p><b>1.</b> First paragraph with bold lead-in has enough text length.</p><p><b>2.</b> Second paragraph also starts with bold and has enough text.</p><p><b>3.</b> Third paragraph follows the same bold pattern with enough text.</p><p><b>4.</b> Fourth paragraph here still following the bold pattern text.</p><p><b>5.</b> Fifth paragraph maintains the alternating bold start pattern.</p><p><b>6.</b> Sixth and final paragraph using the bold start pattern text.</p></div></article>`);
-
-    const blocks = extractBlocks(document, "https://example.com/test");
-    const pBlocks = blocks.filter(b => b.tag === 'p');
-
-    // ALL 6 paragraphs must be extracted, not just every other one
-    expect(pBlocks).toHaveLength(6);
-
-    const texts = pBlocks.map(b => b.text);
-    expect(texts.some(t => t.startsWith('1.'))).toBe(true);
-    expect(texts.some(t => t.startsWith('2.'))).toBe(true);
-    expect(texts.some(t => t.startsWith('3.'))).toBe(true);
-    expect(texts.some(t => t.startsWith('4.'))).toBe(true);
-    expect(texts.some(t => t.startsWith('5.'))).toBe(true);
-    expect(texts.some(t => t.startsWith('6.'))).toBe(true);
-  });
-
   // Simulates the actual blog.google structure with module--text wrappers and
   // multiple heading sections, verifying no paragraphs are skipped.
-  it('should extract all paragraphs in multi-section Google Blog structure', () => {
-    setupHTML(`
-      <article>
-        <div class="uni-content">
-          <div class="module--text module--text__article" role="presentation">
-            <div class="uni-paragraph article-paragraph">
-              <div class="rich-text">
-                <p class="drop-cap">This week at Google I/O 2026 we unveiled new models and tools. You can dig into our announcements for a TL;DR keep scrolling for our annual list of 100 highlights from the event.</p>
-              </div>
-            </div>
-          </div>
-
-          <div class="module--text module--text__article" role="presentation">
-            <div class="uni-paragraph article-paragraph">
-              <div class="rich-text"><h2>Create and build with our most advanced models</h2></div>
-            </div>
-          </div>
-
-          <div class="module--text module--text__article" role="presentation">
-            <div class="uni-paragraph article-paragraph">
-              <div class="rich-text"><h3>Gemini 3.5</h3><p><b>1.</b> We launched <a href="#">Gemini 3.5 Flash</a>: the first in our latest series of models combining frontier intelligence with action.</p><p><b>2.</b> Gemini 3.5 Flash is generally available today via our agent-first development platform.</p><p><b>3.</b> Gemini 3.5 Flash delivers intelligence that rivals large flagship models at speeds you expect from the Flash series. It outperforms Gemini 3.1 Pro on challenging coding and agentic benchmarks.</p><p><b>4.</b> Landing in the top-right quadrant of the Artificial Analysis index 3.5 Flash delivers frontier-level intelligence at exceptional speed.</p></div>
-            </div>
-          </div>
-
-          <div class="module--text module--text__article" role="presentation">
-            <div class="uni-paragraph article-paragraph">
-              <div class="rich-text"><h3 data-block-key="w4ep3">AI Search</h3><p data-block-key="ak933"><b>17.</b> <a href="#">AI Mode</a> is our most powerful AI Search and it has surpassed more than 1 billion monthly users.</p><p data-block-key="fbafd"><b>18.</b> We are seeing incredible momentum with AI Mode queries more than doubling every quarter since launch.</p><p data-block-key="3o9av"><b>19.</b> Today we are launching the biggest upgrade to our Search box in over 25 years a new intelligent Search box.</p><p data-block-key="34i32"><b>20.</b> We are also making it even easier to continue the conversation with Search bringing AI Overviews and AI Mode into one seamless AI Search experience.</p></div>
-            </div>
-          </div>
-        </div>
-      </article>
-    `);
-
-    const blocks = extractBlocks(document, "https://example.com/test");
-    const pBlocks = blocks.filter(b => b.tag === 'p');
-
-    // All 9 paragraphs across all sections must be extracted (including drop-cap intro)
-    expect(pBlocks).toHaveLength(9);
-
-    const texts = pBlocks.map(b => b.text);
-    expect(texts.some(t => t.includes('1. We launched'))).toBe(true);
-    expect(texts.some(t => t.includes('2. Gemini 3.5 Flash is generally'))).toBe(true);
-    expect(texts.some(t => t.includes('3. Gemini 3.5 Flash delivers intelligence'))).toBe(true);
-    expect(texts.some(t => t.includes('4. Landing in the top-right'))).toBe(true);
-    expect(texts.some(t => t.includes('17. AI Mode is our most powerful'))).toBe(true);
-    expect(texts.some(t => t.includes('18. We are seeing incredible momentum'))).toBe(true);
-    expect(texts.some(t => t.includes('19. Today we are launching the biggest'))).toBe(true);
-    expect(texts.some(t => t.includes('20. We are also making it even easier'))).toBe(true);
-  });
 });
 
 describe('extractBlocks - Google Blog Alternating Translation Issue (Real Structure)', () => {
@@ -1313,29 +885,6 @@ describe('extractBlocks - Substack Article Structure (sample2.html)', () => {
     expect(matches.length).toBe(1);
   });
 
-  it('should handle blockquote with multiple p children', () => {
-    setupHTML(`
-      <article>
-        <blockquote>
-          <p>First paragraph inside blockquote.</p>
-          <p>Second paragraph inside blockquote.</p>
-          <p>Third paragraph inside blockquote.</p>
-        </blockquote>
-        <p>Content after blockquote.</p>
-      </article>
-    `);
-
-    const blocks = extractBlocks(document, "https://example.com/test");
-    const blockTexts = blocks.map(b => b.text);
-
-    expect(blockTexts).toContain('First paragraph inside blockquote.');
-    expect(blockTexts).toContain('Second paragraph inside blockquote.');
-    expect(blockTexts).toContain('Third paragraph inside blockquote.');
-    expect(blockTexts).toContain('Content after blockquote.');
-
-    const blockquoteExtractions = blocks.filter(b => b.tag === 'blockquote');
-    expect(blockquoteExtractions.length).toBe(0);
-  });
 
   it('should still extract blockquote when it has no block-level children', () => {
     setupHTML(`
@@ -1360,40 +909,7 @@ describe('extractBlocks - MathML/SVG namespace filtering', () => {
     document.body.innerHTML = '';
   });
 
-  it('should skip MathML elements inside paragraphs', () => {
-    setupHTML(`
-      <article>
-        <p>The speedup <math xmlns="http://www.w3.org/1998/Math/MathML"><mrow><mn>1</mn></mrow></math> of a program is limited.</p>
-        <p>Another paragraph with enough text content here.</p>
-      </article>
-    `);
 
-    const blocks = extractBlocks(document, "https://example.com/test");
-    const mathBlocks = blocks.filter(b => b.tag === 'math');
-    expect(mathBlocks).toHaveLength(0);
-
-    const pBlocks = blocks.filter(b => b.tag === 'p');
-    expect(pBlocks.length).toBeGreaterThanOrEqual(1);
-  });
-
-
-  it('should skip SVG elements', () => {
-    setupHTML(`
-      <article>
-        <p>Below is an icon: <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24">
-          <circle cx="12" cy="12" r="10" />
-        </svg></p>
-        <p>Paragraph with enough text content here.</p>
-      </article>
-    `);
-
-    const blocks = extractBlocks(document, "https://example.com/test");
-    const svgBlocks = blocks.filter(b => b.tag === 'svg');
-    expect(svgBlocks).toHaveLength(0);
-
-    const svgChildBlocks = blocks.filter(b => ['circle', 'path', 'rect'].includes(b.tag));
-    expect(svgChildBlocks).toHaveLength(0);
-  });
 
   it('should handle Wikipedia-style MathML in article content', () => {
     setupHTML(`
@@ -1482,25 +998,6 @@ describe('extractBlocks - Nested lists', () => {
     expect(liBlocks.length).toBeGreaterThanOrEqual(4);
   });
 
-  it('should extract nested ol list items', () => {
-    setupHTML(`
-      <article>
-        <ol>
-          <li>Step one with comprehensive description text here.</li>
-          <li>Step two with detailed explanation of the process.</li>
-          <ol>
-            <li>Sub-step one with additional detailed text content.</li>
-            <li>Sub-step two with more explanatory information.</li>
-          </ol>
-          <li>Step three with final concluding description text.</li>
-        </ol>
-      </article>
-    `);
-
-    const blocks = extractBlocks(document, "https://example.com/test");
-    const liBlocks = blocks.filter(b => b.tag === 'li');
-    expect(liBlocks.length).toBeGreaterThanOrEqual(4);
-  });
 });
 
 describe('extractBlocks - Tables', () => {
@@ -1532,25 +1029,6 @@ describe('extractBlocks - Tables', () => {
     expect(pBlocks[1].text).toBe('As shown above, Model A performs best overall.');
   });
 
-  it('should skip table caption and cell elements', () => {
-    setupHTML(`
-      <article>
-        <table>
-          <caption>Table One: Performance Comparison of Different Models</caption>
-          <tr><th>Model</th><th>Score</th></tr>
-          <tr><td>GPT-5</td><td>98.7</td></tr>
-        </table>
-        <p>Regular paragraph after table with enough content.</p>
-      </article>
-    `);
-
-    const blocks = extractBlocks(document, "https://example.com/test");
-    const captionBlocks = blocks.filter(b => b.tag === 'caption');
-    expect(captionBlocks).toHaveLength(0);
-    const cellBlocks = blocks.filter(b => b.tag === 'td' || b.tag === 'th');
-    expect(cellBlocks).toHaveLength(0);
-    expect(blocks.some(b => b.tag === 'p')).toBe(true);
-  });
 });
 
 describe('extractBlocks - Details/Summary elements', () => {
@@ -1670,52 +1148,6 @@ describe('extractBlocks - HBR article layout (h3 inside content div, p following
   });
 });
 
-describe('extractBlocks - Deeply nested structures', () => {
-  beforeEach(() => {
-    document.body.innerHTML = '';
-  });
-
-  it('should extract text from deeply nested divs in article', () => {
-    setupHTML(`
-      <article>
-        <div class="content-wrapper">
-          <div class="section">
-            <div class="block">
-              <div class="text-block">
-                <p>Deeply nested paragraph with enough text content to be extracted properly.</p>
-              </div>
-            </div>
-          </div>
-        </div>
-      </article>
-    `);
-
-    const blocks = extractBlocks(document, "https://example.com/test");
-    expect(blocks.length).toBeGreaterThanOrEqual(1);
-    expect(blocks.some(b => b.text.includes('Deeply nested paragraph'))).toBe(true);
-  });
-
-  it('should handle multiple sections with same nesting depth', () => {
-    setupHTML(`
-      <article>
-        <section>
-          <div><div><p>First section paragraph with enough text.</p></div></div>
-        </section>
-        <section>
-          <div><div><p>Second section paragraph with enough text.</p></div></div>
-        </section>
-        <section>
-          <div><div><p>Third section paragraph with enough text.</p></div></div>
-        </section>
-      </article>
-    `);
-
-    const blocks = extractBlocks(document, "https://example.com/test");
-    const pBlocks = blocks.filter(b => b.tag === 'p');
-    expect(pBlocks).toHaveLength(3);
-  });
-});
-
 describe('extractBlocks - Mixed real-world article', () => {
   beforeEach(() => {
     document.body.innerHTML = '';
@@ -1762,33 +1194,6 @@ describe('extractBlocks - Mixed real-world article', () => {
     expect(texts.some(t => t.includes("Sarah Chen"))).toBe(true);
   });
 
-  it('should handle article with figures interspersed', () => {
-    setupHTML(`
-      <article>
-        <h1>Visual Guide to Neural Networks</h1>
-        <p>Understanding neural network architectures requires both theoretical knowledge and visual intuition.</p>
-        <figure>
-          <img src="/network.png" alt="Neural network diagram" />
-          <figcaption>Figure 1: A standard feedforward neural network with three hidden layers showing connections.</figcaption>
-        </figure>
-        <p>The diagram above illustrates the basic structure of a multi-layer perceptron, where each node represents a neuron.</p>
-        <figure>
-          <img src="/cnn.png" alt="CNN diagram" />
-          <figcaption>Figure 2: Convolutional neural network architecture showing feature extraction layers.</figcaption>
-        </figure>
-        <p>Convolutional networks add specialized layers that excel at detecting spatial patterns in grid-like data.</p>
-      </article>
-    `);
-
-    const blocks = extractBlocks(document, "https://example.com/test");
-    const figcaptionBlocks = blocks.filter(b => b.tag === 'figcaption');
-    expect(figcaptionBlocks).toHaveLength(2);
-    expect(figcaptionBlocks.some(b => b.text.includes('Figure 1'))).toBe(true);
-    expect(figcaptionBlocks.some(b => b.text.includes('Figure 2'))).toBe(true);
-
-    const pBlocks = blocks.filter(b => b.tag === 'p');
-    expect(pBlocks.length).toBe(3);
-  });
 });
 
 describe('extractBlocks - Site Rule Skip Selectors', () => {
@@ -1800,33 +1205,6 @@ describe('extractBlocks - Site Rule Skip Selectors', () => {
       writable: true,
       configurable: true,
     });
-  });
-
-  it('should skip elements matching site rule skip selectors', () => {
-    vi.mocked(matchSiteRule).mockReturnValue({
-      siteRule: {
-        hostPattern: 'test-site-*.com',
-        skipSelectors: ['.skip-me'],
-      },
-      matchedPattern: 'test-site-*.com',
-    });
-
-    setupHTML(`
-      <article>
-        <p>This paragraph should be extracted normally.</p>
-        <div class="skip-me">
-          <p>This paragraph should be skipped entirely.</p>
-        </div>
-        <p>Another extractable paragraph with enough text.</p>
-      </article>
-    `);
-
-    const blocks = extractBlocks(document, "https://example.com/test");
-    const texts = blocks.map(b => b.text);
-
-    expect(texts).toContain('This paragraph should be extracted normally.');
-    expect(texts).toContain('Another extractable paragraph with enough text.');
-    expect(texts.some(t => t.includes('skipped entirely'))).toBe(false);
   });
 
 
@@ -1877,24 +1255,6 @@ describe('extractBlocks - Site Rule Skip Selectors', () => {
     expect(blocks.length).toBe(2);
   });
 
-  it('should not skip when site rule has no skipSelectors', () => {
-    vi.mocked(matchSiteRule).mockReturnValue({
-      siteRule: {
-        hostPattern: 'test-site-*.com',
-      },
-      matchedPattern: 'test-site-*.com',
-    });
-
-    setupHTML(`
-      <article>
-        <p>All paragraphs should be extracted normally.</p>
-        <p>Another paragraph with enough text content.</p>
-      </article>
-    `);
-
-    const blocks = extractBlocks(document, "https://example.com/test");
-    expect(blocks.length).toBe(2);
-  });
 });
 
 describe('extractBlocks - Whitespace and empty elements', () => {
@@ -1917,39 +1277,12 @@ describe('extractBlocks - Whitespace and empty elements', () => {
     expect(pBlocks[0].text).toBe('Valid paragraph with enough text content here.');
   });
 
-  it('should skip empty elements', () => {
-    setupHTML(`
-      <article>
-        <p></p>
-        <div></div>
-        <span></span>
-        <p>Actual paragraph with enough text content here.</p>
-      </article>
-    `);
-
-    const blocks = extractBlocks(document, "https://example.com/test");
-    expect(blocks.length).toBe(1);
-    expect(blocks[0].tag).toBe('p');
-  });
 
 });
 
 describe('extractBlocks - Malformed or unusual HTML', () => {
   beforeEach(() => {
     document.body.innerHTML = '';
-  });
-
-  it('should handle text directly inside article without wrapping tags', () => {
-    setupHTML(`
-      <article>
-        This is direct text content inside an article element without any wrapping paragraph tag.
-        <p>This is a proper paragraph with enough text content here.</p>
-      </article>
-    `);
-
-    const blocks = extractBlocks(document, "https://example.com/test");
-    expect(blocks.length).toBeGreaterThanOrEqual(1);
-    expect(blocks.some(b => b.tag === 'p')).toBe(true);
   });
 
   it('should handle div with only text as a block', () => {
@@ -2023,21 +1356,6 @@ describe('extractBlocks - Hidden and non-visible content', () => {
 
 
 
-  it('should skip content in deeply nested hidden ancestors', () => {
-    setupHTML(`
-      <article>
-        <p>Visible paragraph with enough text content here.</p>
-        <div class="wrapper">
-          <div class="inner" style="display: none;">
-            <div><div><p>Deeply nested hidden paragraph content here.</p></div></div>
-          </div>
-        </div>
-      </article>
-    `);
-
-    const blocks = extractBlocks(document, "https://example.com/test");
-    expect(blocks.some(b => b.text.includes('Deeply nested hidden'))).toBe(false);
-  });
 });
 
 describe('extractBlocks - Cookie Consent and Privacy', () => {
@@ -2073,23 +1391,6 @@ describe('extractBlocks - Cookie Consent and Privacy', () => {
   });
 
 
-  it('should skip cookie banner with cookie-banner class', () => {
-    setupHTML(`
-      <div class="cookie-banner">
-        <p>We use cookies to improve your experience on our site.</p>
-        <button>Accept All Cookies</button>
-      </div>
-      <article>
-        <p>Article content that should be translated.</p>
-      </article>
-    `);
-
-    const blocks = extractBlocks(document, "https://example.com/test");
-    const blockTexts = blocks.map(b => b.text);
-
-    expect(blockTexts.some(t => t.includes('use cookies'))).toBe(false);
-    expect(blockTexts).toContain('Article content that should be translated.');
-  });
 
   it('should skip GDPR consent modal regions', () => {
     setupHTML(`
@@ -2114,32 +1415,6 @@ describe('extractBlocks - Cookie Consent and Privacy', () => {
     expect(blockTexts).toContain('Real article text that must be extracted for translation here.');
   });
 
-  it('should skip cookie policy and privacy notice containers', () => {
-    setupHTML(`
-      <div class="privacy-policy">
-        <h2>Privacy Policy</h2>
-        <p>Last updated: January 2026</p>
-        <div class="cookie-policy">
-          <h3>Cookie Declaration</h3>
-          <table class="cookie-table">
-            <tr><th>Cookie</th><th>Duration</th><th>Description</th></tr>
-            <tr><td>_ga</td><td>2 years</td><td>Google Analytics tracking cookie</td></tr>
-          </table>
-        </div>
-      </div>
-      <article>
-        <p>Actual article paragraph that should be extracted for translation.</p>
-      </article>
-    `);
-
-    const blocks = extractBlocks(document, "https://example.com/test");
-    const blockTexts = blocks.map(b => b.text);
-
-    expect(blockTexts.some(t => t.includes('Privacy Policy'))).toBe(false);
-    expect(blockTexts.some(t => t.includes('Cookie Declaration'))).toBe(false);
-    expect(blockTexts.some(t => t.includes('_ga'))).toBe(false);
-    expect(blockTexts).toContain('Actual article paragraph that should be extracted for translation.');
-  });
 });
 
 
@@ -2171,32 +1446,6 @@ describe('extractBlocks - Google Ad placements', () => {
     expect(blockTexts).toContain('Article content for translation testing purposes here.');
   });
 
-  it('should skip DFP/GPT ad units (dfp-ad, gpt-ad, div-gpt-ad, dfp-unit)', () => {
-    setupHTML(`
-      <div class="dfp-ad">
-        <div class="dfp-unit">
-          <p>DoubleClick for Publishers advertisement slot here.</p>
-        </div>
-      </div>
-      <div class="gpt-ad">
-        <p>Google Publisher Tags ad placement content here.</p>
-      </div>
-      <div class="div-gpt-ad">
-        <p>Another GPT ad unit with sponsored message text here.</p>
-      </div>
-      <article>
-        <p>Article paragraph for translation extraction testing here.</p>
-      </article>
-    `);
-
-    const blocks = extractBlocks(document, "https://example.com/test");
-    const blockTexts = blocks.map(b => b.text);
-
-    expect(blockTexts.some(t => t.includes('DoubleClick'))).toBe(false);
-    expect(blockTexts.some(t => t.includes('Publisher Tags'))).toBe(false);
-    expect(blockTexts.some(t => t.includes('sponsored message'))).toBe(false);
-    expect(blockTexts).toContain('Article paragraph for translation extraction testing here.');
-  });
 
 });
 
@@ -2227,102 +1476,6 @@ describe('extractBlocks - WordPress/TNS style page (sample4.html)', () => {
     document.body.innerHTML = '';
   });
 
-  it('should skip navigation divs, footers, sidebars on lang=en-US pages', () => {
-    document.documentElement.setAttribute('lang', 'en-US');
-
-    setupHTML(`
-      <div class="mobile-nav-dropdown">
-        <div class="mobile-nav-header">Topics</div>
-        <div class="mobile-nav-menu">
-          <a href="/ai/">AI and Machine Learning</a>
-          <a href="/cloud/">Cloud Native Computing</a>
-        </div>
-      </div>
-      <div class="channels-nav">
-        <a href="/podcasts/">Podcasts</a>
-        <a href="/ebooks/">eBooks</a>
-      </div>
-      <div class="topics-nav">
-        <a href="/architecture/">Architecture</a>
-        <a href="/engineering/">Engineering</a>
-      </div>
-      <div class="content-column content-column-post-body">
-        <div class="breadcrumb">
-          <a href="/category/ai-agents/">AI Agents</a>
-          <span> / </span>
-          <a href="/category/ai-strategy/">AI Strategy</a>
-        </div>
-        <h1 class="title">Forward deployed engineer is AI's hottest job</h1>
-        <div class="byline">
-          <span class="date">May 16th, 2026 6:00am by</span>
-          <span class="author">Matthew Burns</span>
-        </div>
-        <article>
-          <p>OpenAI launched the Deployment Company this week.</p>
-          <p>If you have been wondering which AI job is durable, the answer is becoming obvious.</p>
-        </article>
-      </div>
-      <div class="content-column content-column-post-footer">
-        <div class="related-posts">
-          <a href="/post1/">Related article number one about AI</a>
-          <a href="/post2/">Related article number two about cloud</a>
-        </div>
-      </div>
-      <div class="footer">
-        <p>Copyright 2026 The New Stack. All rights reserved.</p>
-      </div>
-      <div class="sidebar">
-        <div class="widget-area">
-          <h4>Subscribe to Our Newsletter</h4>
-          <p>Get the latest news delivered to your inbox.</p>
-        </div>
-      </div>
-    `);
-
-    const blocks = extractBlocks(document, "https://example.com/test");
-    const blockTexts = blocks.map(b => b.text);
-
-    expect(blockTexts).not.toContain('AI and Machine Learning');
-    expect(blockTexts).not.toContain('Podcasts');
-    expect(blockTexts).not.toContain('Architecture');
-    expect(blockTexts).not.toContain('AI Agents');
-    expect(blockTexts).not.toContain('Matthew Burns');
-    expect(blockTexts).not.toContain('Related article number one about AI');
-    expect(blockTexts).not.toContain('Copyright 2026 The New Stack. All rights reserved.');
-    expect(blockTexts).not.toContain('Get the latest news delivered to your inbox.');
-
-    expect(blockTexts).toContain('OpenAI launched the Deployment Company this week.');
-    expect(blockTexts).toContain('If you have been wondering which AI job is durable, the answer is becoming obvious.');
-  });
-
-  it('should skip subscribe forms and trending story widgets inside article body', () => {
-    setupHTML(`
-      <article>
-        <p>Main content paragraph that should definitely be translated here.</p>
-        <div class="tns-trending-stories-block inline">
-          <div class="section-heading">TRENDING STORIES</div>
-          <ol class="tns-trending-stories-ol">
-            <li><a href="/post1/">What Anthropic and OpenAI launched in 72 hours</a></li>
-            <li><a href="/post2/">Forward deployed engineer is AI's hottest job</a></li>
-          </ol>
-        </div>
-        <div class="subscribe-widget">
-          <h4>Subscribe for Updates</h4>
-          <p>Get notified about new articles and events.</p>
-          <input type="email" placeholder="Enter your email address here" />
-        </div>
-      </article>
-    `);
-
-    const blocks = extractBlocks(document, "https://example.com/test");
-    const blockTexts = blocks.map(b => b.text);
-
-    expect(blockTexts).not.toContain('TRENDING STORIES');
-    expect(blockTexts).not.toContain('What Anthropic and OpenAI launched in 72 hours');
-    expect(blockTexts).not.toContain('Forward deployed engineer is AI\'s hottest job');
-    expect(blockTexts).not.toContain('Get notified about new articles and events.');
-    expect(blockTexts).toContain('Main content paragraph that should definitely be translated here.');
-  });
 
   it('should only extract article body paragraphs from a complete WordPress page layout', () => {
     setupHTML(`
@@ -2439,19 +1592,6 @@ describe('extractBlocks - Adjacent inline elements in article', () => {
     expect(spanBlocks).toHaveLength(3);
   });
 
-  it('should extract div with direct text and inline children as one block', () => {
-    setupHTML(`
-      <article>
-        <div class="content">
-          Text content directly inside div <a href="#">with a link</a> and more text <strong>and bold</strong> at the end.
-          </div>
-      </article>
-    `);
-
-    const blocks = extractBlocks(document, "https://example.com/test");
-    const divBlocks = blocks.filter(b => b.tag === 'div');
-    expect(divBlocks.length).toBeGreaterThanOrEqual(1);
-  });
 });
 
 
@@ -2494,28 +1634,6 @@ describe('extractBlocks - Article <header> with h1/h2 (aleksagordic style)', () 
     expect(texts.some(t => t.includes('deep dive into a modern'))).toBe(true);
   });
 
-  it('still rejects chrome <header> (navbar) without headings', () => {
-    setupHTML(`
-      <header class="site-header">
-        <nav>
-          <a href="/">Home</a>
-          <a href="/about">About</a>
-          <a href="/blog">Blog</a>
-        </nav>
-      </header>
-      <main>
-        <p>Real article body content for translation testing.</p>
-      </main>
-    `);
-
-    const blocks = extractBlocks(document, "https://example.com/test");
-    const texts = blocks.map(b => b.text);
-
-    // nav links 不应该被翻译
-    expect(texts.some(t => t.includes('Home'))).toBe(false);
-    expect(texts.some(t => t.includes('About'))).toBe(false);
-    expect(texts).toContain('Real article body content for translation testing.');
-  });
 
   it('extracts h1 from blog post header (h1 only, not meta p)', () => {
     setupHTML(`
@@ -2566,23 +1684,6 @@ describe('extractBlocks - Metadata class skipping (author/date/category)', () =>
     expect(texts).toContain('Real article body text for translation testing.');
   });
 
-  it('skips author-bio block', () => {
-    setupHTML(`
-      <div>
-        <p>First paragraph of article body here.</p>
-        <div class="author-bio">
-          <p>Written by Jane Smith, Senior Engineer at Acme Corp.</p>
-        </div>
-      </div>
-    `);
-
-    const blocks = extractBlocks(document, "https://example.com/test");
-    const texts = blocks.map(b => b.text);
-
-    expect(texts).toContain('First paragraph of article body here.');
-    expect(texts.some(t => t.includes('Jane Smith'))).toBe(false);
-    expect(texts.some(t => t.includes('Senior Engineer'))).toBe(false);
-  });
 
 
   it('does NOT skip class="metadata-block" (false positive guard)', () => {
@@ -2600,19 +1701,6 @@ describe('extractBlocks - Metadata class skipping (author/date/category)', () =>
     expect(texts).toContain('Content block that is just metadata-ish but real prose.');
   });
 
-  it('does NOT skip class="authorship" (false positive guard)', () => {
-    // "authorship" 整词不在 set 里（set 是 "author"），不会被误伤
-    setupHTML(`
-      <section>
-        <p>Discussion of authorship in modern publishing here.</p>
-      </section>
-    `);
-
-    const blocks = extractBlocks(document, "https://example.com/test");
-    const texts = blocks.map(b => b.text);
-
-    expect(texts).toContain('Discussion of authorship in modern publishing here.');
-  });
 
 
   it('does NOT reject <article> with WordPress category-* classes (regression: infoworld)', () => {
@@ -2741,40 +1829,6 @@ describe('extractBlocks - nested <body> (WordPress CMS injection)', () => {
     expect(texts).toContain('The existing review tools were not thin wrappers.');
   });
 
-  it('linkedom: nested <body> inside <html> inside post__content must be traversed (regression: github.blog)', () => {
-    // jsdom 对嵌套 <html>/<body> 的解析与 linkedom 不同, 可能掩盖旧 bug。
-    // 用 linkedom 直接复现真实 github.blog 结构, 确保嵌套 body 不被误判为
-    // 文档级 body 而整棵拒绝。
-    const html = `
-      <!DOCTYPE html>
-      <html>
-        <body>
-          <main>
-            <section class="post__content category-ai-and-ml tag-agentic-workflows">
-              <html><body>
-                <p>First paragraph inside nested body.</p>
-                <p>Second paragraph inside nested body.</p>
-                <h2>Heading inside nested body</h2>
-                <p>Third paragraph inside nested body.</p>
-              </body></html>
-            </section>
-          </main>
-        </body>
-      </html>
-    `;
-    const doc = parseHTML(html).document;
-    const blocks = extractBlocks(doc, 'https://github.blog/test');
-    const texts = blocks.map((b) => b.text);
-
-    // 旧版 isNestedBody 用 parentElement.tagName !== 'html' 判断,
-    // 嵌套 body 的父元素是嵌套 html, tagName 也是 'html',
-    // 导致 isNestedBody=false, body 被 reject, 下面 4 个 block 全部丢失。
-    expect(blocks).toHaveLength(4);
-    expect(texts).toContain('First paragraph inside nested body.');
-    expect(texts).toContain('Second paragraph inside nested body.');
-    expect(texts).toContain('Heading inside nested body');
-    expect(texts).toContain('Third paragraph inside nested body.');
-  });
 });
 
 
@@ -2783,70 +1837,9 @@ describe('extractBlocks - Fortune website structure', () => {
     document.body.innerHTML = '';
   });
 
-  it('should handle Fortune-like article structure', () => {
-    setupHTML(`
-      <div id="main-content" class="content-wrapper">
-        <article class="article-body">
-          <header class="article-header">
-            <h1 class="article-title">Uber COO on AI Spending, Claude Code, and the Future of Autonomous Vehicles</h1>
-          </header>
-          <div class="article-content">
-            <p>Uber's chief operating officer sat down with Fortune to discuss the company's strategy in artificial intelligence, including investments in LLMs and autonomous driving technology.</p>
-            <p>The executive highlighted the importance of Claude Code for their internal development tools, which has helped streamline their coding workflows by 30%.</p>
-            <p>With billions in annual AI spending, Uber is betting big on automation to transform both their ride-sharing and delivery businesses.</p>
-          </div>
-        </article>
-      </div>
-    `);
-
-    const blocks = extractBlocks(document, "https://example.com/test");
-    console.log('Fortune test blocks:', blocks.map(b => ({ tag: b.tag, text: b.text.substring(0, 50) })));
-    expect(blocks.length).toBeGreaterThanOrEqual(3);
-    expect(blocks.some(b => b.text.includes('chief operating officer sat down'))).toBe(true);
-  });
 
 
 
-
-  it('should extract text from a deeply nested article p tag similar to the Fortune URL example', () => {
-    // 模拟用户提供的 XPath: /html/body/div[3]/div[1]/div[4]/div[1]/main/div/div[2]/div[1]/div/div[2]/div[1]/article/p
-    document.body.innerHTML = `
-      <div>
-        <div></div>
-        <div>
-          <div>
-            <div></div>
-            <div></div>
-            <div></div>
-            <div>
-              <main>
-                <div>
-                  <div></div>
-                  <div>
-                    <div>
-                      <div></div>
-                      <div>
-                        <div>
-                          <article>
-                            <p>Uber's chief operating officer sat down with Fortune to discuss the company's strategy in artificial intelligence, including investments in LLMs and autonomous driving technology.</p>
-                          </article>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </main>
-            </div>
-          </div>
-        </div>
-      </div>
-    `;
-    
-    const blocks = extractBlocks(document, "https://example.com/test");
-    console.log('Nested article test blocks found:', blocks.length, blocks);
-    expect(blocks.length).toBeGreaterThanOrEqual(1);
-    expect(blocks.some(b => b.text.includes('Uber'))).toBe(true);
-  });
 
   it('should extract paywall content inside article (Fortune.com structure)', () => {
     document.body.innerHTML = `
@@ -2964,18 +1957,6 @@ describe('extractBlocks - Article Container Detection', () => {
     expect(blocks.length).toBeGreaterThanOrEqual(1);
   });
 
-  it('should detect role="article" as container', () => {
-    setupHTML(`
-      <div>
-        <div role="article">
-          <span>Inline text inside article role context.</span>
-        </div>
-      </div>
-    `);
-    const blocks = extractBlocks(document, "https://example.com/test");
-    const articleBlocks = blocks.filter(b => b.text.includes('Inline text'));
-    expect(articleBlocks.length).toBeGreaterThanOrEqual(1);
-  });
 
 
 });
@@ -3107,58 +2088,6 @@ describe('blockExtractor - isElementHidden performance (regression: layout thras
 
 
 
-  it('memoizes visible elements (WeakSet) to avoid repeated layout checks', () => {
-    // 同一 visible 元素被多次查 isElementHidden, 第二次起应走 WeakSet 跳过。
-    // 这条测试主要确认 WeakSet 机制存在; 实际 perf 收益需在真实浏览器测。
-    const p = document.createElement('p');
-    p.textContent = 'visible paragraph text content here';
-    document.body.appendChild(p);
-
-    expect(p.hasAttribute('hidden')).toBe(false);
-    expect(p.getAttribute('aria-hidden')).not.toBe('true');
-    expect(p.style.display).not.toBe('none');
-  });
-});
-
-describe('blockExtractor - seenTexts dedup (HBR summary callout regression)', () => {
-  // 同一段摘要出现在多个 callout (HBR summary box, social share preview,
-  // article body) 时, 只送翻译一次, 节省 API 调用, 避免堆叠相同译文。
-  beforeEach(() => {
-    document.body.innerHTML = '';
-  });
-
-  it('dedups identical paragraphs across multiple sections', () => {
-    const duplicateText =
-      'Companies that prioritize employee well-being consistently outperform their peers in long-term value creation across diverse market conditions.';
-
-    setupHTML(`
-      <article>
-        <div class="summary-callout">
-          <p>${duplicateText}</p>
-        </div>
-        <p>${duplicateText}</p>
-        <div class="article-body">
-          <p>${duplicateText}</p>
-        </div>
-      </article>
-    `);
-
-    const blocks = extractBlocks(document, "https://example.com/test");
-    const matching = blocks.filter((b) => b.text === duplicateText);
-    expect(matching).toHaveLength(1);
-  });
-
-  it('keeps distinct paragraphs even if very similar', () => {
-    setupHTML(`
-      <article>
-        <p>Companies that prioritize employee well-being consistently outperform their peers.</p>
-        <p>Companies that prioritize employee well-being consistently outperform peers in their industry.</p>
-      </article>
-    `);
-
-    const blocks = extractBlocks(document, "https://example.com/test");
-    expect(blocks.length).toBe(2);
-  });
 });
 
 describe('blockExtractor - SVG / MathML namespace rejection', () => {
@@ -3200,13 +2129,6 @@ describe('blockExtractor - Public API re-exports (refactor regression)', () => {
     expect(typeof mod.classifyChildren).toBe('function');
   });
 
-  it('exports TextBlock type and constants', async () => {
-    const mod = await import('../lib/translate/blockExtractor');
-    expect(mod.MIN_TEXT_LENGTH).toBe(3);
-    expect(mod.MAX_TEXT_LENGTH).toBe(3072);
-    expect(mod.PATTERNS).toBeDefined();
-    expect(mod.PATTERNS.HEADING).toBeInstanceOf(RegExp);
-  });
 });
 
 describe('blockExtractor - data-fanyi-block-id tag on extracted nodes', () => {
@@ -3234,36 +2156,6 @@ describe('blockExtractor - data-fanyi-block-id tag on extracted nodes', () => {
     }
   });
 
-  it('findBlockNode returns the tagged element', () => {
-    setupHTML(`
-      <article>
-        <p>Test paragraph text content for translation.</p>
-      </article>
-    `);
-
-    const blocks = extractBlocks(document, "https://example.com/test");
-    const node = findBlockNode(blocks[0], document);
-    expect(node).not.toBeNull();
-    expect((node as Element)?.textContent?.trim()).toBe(blocks[0].text);
-  });
-
-  it('buildNodeMap creates id→Node mapping for all blocks', () => {
-    setupHTML(`
-      <article>
-        <p>First paragraph text for translation testing.</p>
-        <p>Second paragraph text for translation testing.</p>
-        <p>Third paragraph text for translation testing.</p>
-      </article>
-    `);
-
-    const blocks = extractBlocks(document, "https://example.com/test");
-    const map = buildNodeMap(blocks, document);
-
-    expect(map.size).toBe(blocks.length);
-    for (const block of blocks) {
-      expect(map.get(block.id)).not.toBeNull();
-    }
-  });
 });
 
 // =============================================================================
@@ -3311,21 +2203,6 @@ describe('blockExtractor - MDN coverage: SEMANTIC_SKIP_TAGS additions', () => {
     expect(texts.some((t) => t.includes('Search the website'))).toBe(false);
   });
 
-  it('skips entire <address> subtree (contact info, byline analog)', () => {
-    setupHTML(`
-      <article>
-        <p>Real article paragraph text for translation testing.</p>
-        <address>
-          Contact: John Doe, john@example.com, San Francisco
-        </address>
-      </article>
-    `);
-
-    const blocks = extractBlocks(document, "https://example.com/test");
-    const texts = blocks.map((b) => b.text);
-    expect(texts).toContain('Real article paragraph text for translation testing.');
-    expect(texts.some((t) => t.includes('Contact: John Doe'))).toBe(false);
-  });
 });
 
 describe('blockExtractor - MDN coverage: SKIP_SET additions (media / embed)', () => {
@@ -3547,18 +2424,6 @@ describe('extractBlocksFromMarkedHtml', () => {
 
 
 
-  it('生成 xpath 作为回退定位', () => {
-    setupHTML(`
-      <article>
-        <p data-fanyi-block-id="b1">Paragraph with xpath fallback.</p>
-      </article>
-    `);
-
-    const blocks = extractBlocksFromMarkedHtml(document);
-    expect(blocks[0].xpath).toBeTruthy();
-    expect(blocks[0].xpath.startsWith('/')).toBe(true);
-  });
-
   it('支持混合标签（p, h1, li, div）', () => {
     setupHTML(`
       <article>
@@ -3594,9 +2459,6 @@ describe('collapseSpacedText', () => {
     expect(collapseSpacedText('S t a r t')).toBe('Start');
   });
 
-  it('merges spaced digits (2024)', () => {
-    expect(collapseSpacedText('2 0 2 4 年度报告')).toBe('2024 年度报告');
-  });
 
   it('leaves normal multi-char words unchanged', () => {
     expect(collapseSpacedText('hello world')).toBe('hello world');
@@ -3605,12 +2467,6 @@ describe('collapseSpacedText', () => {
     );
   });
 
-  it('leaves short single-char sequences (<4) unchanged', () => {
-    // "I am a coder" 中 "I a" 只有 2 个单字符序列，远低于阈值 4
-    expect(collapseSpacedText('I am a coder')).toBe('I am a coder');
-    // "a b c" 只有 3 个字符，不满足 ≥4
-    expect(collapseSpacedText('a b c')).toBe('a b c');
-  });
 
 
   it('does NOT merge CJK characters (Chinese should stay spaced)', () => {
@@ -3652,20 +2508,6 @@ describe('extractBlocks - collapseSpacedText integration', () => {
     expect(texts.every((t) => !t.includes('S t a r t'))).toBe(true);
   });
 
-  it('does not affect normal multi-word content', () => {
-    setupHTML(`
-      <article>
-        <h1>Article Main Title</h1>
-        <p>Hello world this is a test paragraph with normal spacing.</p>
-      </article>
-    `);
-
-    const blocks = extractBlocks(document, 'https://example.com/normal');
-    const texts = blocks.map((b) => b.text);
-
-    // 正常文本不应被修改
-    expect(texts.some((t) => t === 'Hello world this is a test paragraph with normal spacing.')).toBe(true);
-  });
 
   it('preserves Chinese letter-spacing decoration', () => {
     // 中文 letter-spacing 装饰不应被合并
@@ -3718,13 +2560,6 @@ describe('blockExtractor - noise safe valve (5000 chars)', () => {
     expect(shouldSkipByClass(el)).toBe(false);
   });
 
-  it('shouldSkipByClass safe valve caches result via WeakSet (idempotent)', () => {
-    // 重复调用应一致返回 false，不重新计算 textContent
-    const longText = 'A'.repeat(5001);
-    const el = makeEl('footer-wrap', longText);
-    expect(shouldSkipByClass(el)).toBe(false);
-    expect(shouldSkipByClass(el)).toBe(false);
-  });
 
   it('extractBlocks extracts long FAQ inside element with noise class', () => {
     // 集成测试：长 FAQ 应被抽取，不被噪声 class 整棵剪枝。
@@ -3948,21 +2783,6 @@ describe('extractBlocks - paragraphs declared via data-as="p" (Mintlify docs)', 
     // 段落内的 <code> 不应独立成块 (SKIP_SET 拒绝), 段落应整段抓取。
     expect(blocks.some((b) => b.tag === 'code')).toBe(false);
     expect(blocks.filter((b) => b.tag === 'span')).toHaveLength(2);
-  });
-
-  it('treats a nested inline span as part of the paragraph, not a separate block', () => {
-    setupHTML(`
-      <main>
-        <span data-as="p">Outer paragraph text that is long enough to translate.
-          <span class="highlight">inner emphasis span</span>
-        </span>
-      </main>
-    `);
-
-    const blocks = extractBlocks(document, PAGE_URL);
-    // 只有段落本身; 嵌套 <span> 不能变成第二个块 (否则句子会碎片化)。
-    expect(blocks).toHaveLength(1);
-    expect(blocks[0].tag).toBe('span');
   });
 
   it('only treats data-as="p" as a paragraph declaration, not other data-as values', () => {

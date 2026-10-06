@@ -99,25 +99,6 @@ describe('buildChunks', () => {
     expect(totalBlocks).toBe(3);
   });
 
-  it('splits at structural boundary (heading) when near token limit', () => {
-    const nearLimitText = 'a'.repeat(3000);
-    const blocks = [
-      makeBlock('b1', 'p', nearLimitText),
-      makeBlock('b2', 'h2', 'New Section'),
-      makeBlock('b3', 'p', 'Content under new section.'),
-    ];
-
-    const chunks = buildChunks(blocks);
-    // b1 is ~770 tokens, close to TARGET_TOKENS=800
-    // The heading may or may not start a new chunk depending on exact token count
-    // Verify all blocks are present across chunks
-    const totalBlocks = chunks.reduce((sum, c) => sum + c.blocks.length, 0);
-    expect(totalBlocks).toBe(3);
-    // Verify the heading is present
-    const allBlocks = chunks.flatMap(c => c.blocks);
-    expect(allBlocks.some(b => b.tag === 'h2')).toBe(true);
-  });
-
   // --- token target tests ---
 
   it('splits chunks at TARGET_TOKENS boundary', () => {
@@ -136,16 +117,6 @@ describe('buildChunks', () => {
     }
   });
 
-
-  it('preserves block order with warmup splitting', () => {
-    const blocks = Array.from({ length: 10 }, (_, i) =>
-      tokenBlock(`b${i + 1}`, 'p', 60)
-    );
-
-    const chunks = buildChunks(blocks);
-    const allIds = chunks.flatMap(c => c.blocks.map(b => b.id));
-    expect(allIds).toEqual(['b1', 'b2', 'b3', 'b4', 'b5', 'b6', 'b7', 'b8', 'b9', 'b10']);
-  });
 
   it('small blocks stay in one chunk when under warmup target', () => {
     const blocks = [

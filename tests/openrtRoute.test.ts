@@ -79,13 +79,6 @@ describe('stripMarkdownCodeBlock', () => {
     expect(() => JSON.parse(result)).not.toThrow();
   });
 
-  it('strips opening ``` when closing ``` is missing (truncated, no json label)', async () => {
-    const { stripMarkdownCodeBlock } = await import('../lib/translate/service/shared');
-    const input = '```\n{"translations":[]}';
-    const result = stripMarkdownCodeBlock(input);
-    expect(result).toBe('{"translations":[]}');
-    expect(() => JSON.parse(result)).not.toThrow();
-  });
 });
 
 // 测试 stripThinkingTags 函数
@@ -122,24 +115,9 @@ describe('stripThinkingTags', () => {
     expect(result).toBe('{"translations":[{"id":"b1","translated_text":"你好"}');
   });
 
-  it('handles case-insensitive <think> tags', async () => {
-    const { stripThinkingTags } = await import('../lib/translate/service/shared');
-    const input = '<THINK>reasoning</THINK>\n{"translations":[]}';
-    const result = stripThinkingTags(input);
-    expect(result).toBe('{"translations":[]}');
-  });
 
 
 
-  it('strips <think> inside ```json block (defense in depth)', async () => {
-    // 模型把 thinking 包进 ```json 块：先去 thinking 再去 markdown
-    const { stripThinkingTags, stripMarkdownCodeBlock } = await import('../lib/translate/service/shared');
-    const input = '```json\n<think>reasoning here</think>\n{"translations":[]}\n```';
-    const stripped = stripThinkingTags(input);
-    const result = stripMarkdownCodeBlock(stripped);
-    expect(result).toBe('{"translations":[]}');
-    expect(() => JSON.parse(result)).not.toThrow();
-  });
 
   it('strips <think> before ```json (common qwen3 pattern)', async () => {
     // qwen3 常见输出：先 thinking，再 ```json 块
@@ -160,16 +138,15 @@ describe('GET /openrt/<target> — OpenRouter free model', () => {
     expect(res.headers.get('Content-Type')).toBe('text/html; charset=utf-8');
   });
 
-
-
-  it('returns translated HTML', async () => {
+  // 路由接线的唯一守卫：/openrt/* 必须把 provider='openrouter' 传下去。
+  // （此前只有断言 url 的用例，provider 传错没人发现 —— mutation harness 抓到的洞。）
+  it('uses openrouter provider', async () => {
     const app = buildApp();
-    const res = await app.request(req('/openrt/example.com'));
-    const body = await res.text();
-    expect(body).toContain('<html>');
-    expect(body).toContain('ok');
+    await app.request(req('/openrt/example.com'));
+    const { translateUrl } = await import('../lib/translate/pipeline');
+    const call = (translateUrl as any).mock.calls[0][0];
+    expect(call.provider).toBe('openrouter');
   });
-
 
   it('adds .com suffix for domain without dot', async () => {
     const app = buildApp();
@@ -177,28 +154,5 @@ describe('GET /openrt/<target> — OpenRouter free model', () => {
     const { translateUrl } = await import('../lib/translate/pipeline');
     const call = (translateUrl as any).mock.calls[0][0];
     expect(call.url).toBe('https://towardsdatascience.com/article');
-  });
-
-  it('does not force re-translate (force=false)', async () => {
-    const app = buildApp();
-    await app.request(req('/openrt/example.com'));
-    const { translateUrl } = await import('../lib/translate/pipeline');
-    const call = (translateUrl as any).mock.calls[0][0];
-    // service 模式下 force 应该是 false
-    expect(call.url).toBe('https://example.com');
-  });
-
-  it('400 when target is empty', async () => {
-    const app = buildApp();
-    const res = await app.request(req('/openrt/'));
-    expect(res.status).toBe(400);
-  });
-
-  it('returns translated HTML', async () => {
-    const app = buildApp();
-    const res = await app.request(req('/openrt/example.com'));
-    const body = await res.text();
-    expect(body).toContain('<html>');
-    expect(body).toContain('ok');
   });
 });

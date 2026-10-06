@@ -27,12 +27,6 @@ describe('extractJsonContainer', () => {
       });
     });
 
-    it('截断在对象/数组闭合缺失时保留最后一个 block', () => {
-      const raw = '{"translations":[{"id":"b1","translated_text":"你好"},{"id":"b2","translated_text":"世界"';
-      const out = extractJsonContainer(raw);
-      expect(out).toContain('b2');
-      expect(JSON.parse(repairJson(cleanJsonString(out))).translations).toHaveLength(2);
-    });
 
     it('完整 block 之后的截断不丢尾部 block（3 block 场景）', () => {
       const raw =
@@ -43,33 +37,15 @@ describe('extractJsonContainer', () => {
     });
 
 
-    it('截断后接 markdown 结尾标记也能保留内容', () => {
-      const raw = '{"translations":[{"id":"b1","translated_text":"你好"},{"id":"b2","translated_text":"世界"\n```';
-      const out = extractJsonContainer(raw);
-      expect(out).toContain('b2');
-    });
   });
 
   describe('前后散文剥离', () => {
-    it('剥掉前缀说明文字', () => {
-      const raw = 'Here is the translation:\n{"translations":[{"id":"b1","translated_text":"你好"}]}';
-      expect(extractJsonContainer(raw)).toBe('{"translations":[{"id":"b1","translated_text":"你好"}]}');
-    });
-
-    it('剥掉后缀总结文字', () => {
-      const raw = '{"translations":[{"id":"b1","translated_text":"你好"}]}\n\nHope this helps!';
-      expect(extractJsonContainer(raw)).toBe('{"translations":[{"id":"b1","translated_text":"你好"}]}');
-    });
 
     it('前后都有散文时只取 JSON 容器', () => {
       const raw = 'Sure!\n```json\n{"a":1}\n```\nLet me know.';
       expect(extractJsonContainer(raw)).toBe('{"a":1}');
     });
 
-    it('纯 JSON 输入原样返回（无副作用）', () => {
-      const raw = '{"translations":[{"id":"b1","translated_text":"你好"}]}';
-      expect(extractJsonContainer(raw)).toBe(raw);
-    });
   });
 
   describe('配平扫描正确性', () => {

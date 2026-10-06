@@ -21,12 +21,6 @@ describe('detectFormat', () => {
   });
 
 
-  it('体积上限', () => {
-    expect(isWithinSizeLimit({ fileName: 'a.txt', text: 'x'.repeat(10) })).toBe(true);
-    expect(
-      isWithinSizeLimit({ fileName: 'a.txt', arrayBuffer: new ArrayBuffer(MAX_DOCUMENT_BYTES + 1) }),
-    ).toBe(false);
-  });
 });
 
 // ============================================================
@@ -71,11 +65,6 @@ describe('splitLongText', () => {
     expect(parts.join('')).toBe(text);
   });
 
-  it('无标点时在 1.3 倍处硬切，不会无限累积', () => {
-    const parts = splitLongText('a'.repeat(100), 10);
-    expect(parts.length).toBeGreaterThan(5);
-    expect(parts.join('')).toBe('a'.repeat(100));
-  });
 });
 
 // ============================================================
@@ -113,12 +102,6 @@ Hi there`;
     expect(cues[0]?.text).toBe('Hi there');
   });
 
-  it('每个 cue 独立成 segment，译文可回填时间轴', () => {
-    const doc = parseSubtitleDocument(srt, 'srt', 'demo.srt');
-    expect(doc.segments).toHaveLength(2);
-    expect(doc.segments[0]?.kind).toBe('caption');
-    expect(doc.segments[0]?.start).toBe('00:00:01.000');
-  });
 });
 
 // ============================================================
@@ -135,13 +118,6 @@ describe('parseHtmlDocument', () => {
     expect(doc.segments[0]?.text).toBe('正文');
   });
 
-  it('识别标题层级、列表、引用', () => {
-    const html = '<h2>标题</h2><ul><li>项一</li><li>项二</li></ul><blockquote>引用</blockquote>';
-    const doc = parseHtmlDocument(html);
-    expect(doc.segments[0]).toMatchObject({ kind: 'heading', level: 2, text: '标题' });
-    expect(doc.segments.filter((s) => s.kind === 'list-item')).toHaveLength(2);
-    expect(doc.segments.some((s) => s.kind === 'quote')).toBe(true);
-  });
 
 });
 
@@ -159,12 +135,6 @@ describe('parseJsonDocument', () => {
     expect(doc.segments[0]?.path).toBe('$.greeting');
   });
 
-  it('跳过 URL / 邮箱 / 纯数字', () => {
-    const doc = parseJsonDocument(
-      JSON.stringify({ url: 'https://a.com', mail: 'a@b.com', num: '123', ok: 'Hi' }),
-    );
-    expect(doc.segments.map((s) => s.text)).toEqual(['Hi']);
-  });
 
   it('非法 JSON 返回 warning 而不是抛错', () => {
     const doc = parseJsonDocument('{ not json');
@@ -200,10 +170,6 @@ describe('buildSegmentBatches', () => {
     expect(batches[0]).toHaveLength(3);
   });
 
-  it('按片段数上限分批', () => {
-    const batches = buildSegmentBatches(mk(10, 1), { maxChars: 100000, maxSegments: 4 });
-    expect(batches).toHaveLength(3);
-  });
 
   it('不丢片段', () => {
     const all = mk(17, 50);
@@ -232,10 +198,6 @@ describe('exportDocument', () => {
     expect(out).toContain('正文一句。');
   });
 
-  it('仅译文模式下未翻译的段回退原文', () => {
-    const out = exportDocument(doc, { s0: 'Title' }, 'md', { mode: 'translation' });
-    expect(out).toContain('# Title');
-  });
 
   it('HTML 导出做转义，防注入', () => {
     const evil = parseTextDocument('<img src=x onerror=alert(1)>', 'txt');

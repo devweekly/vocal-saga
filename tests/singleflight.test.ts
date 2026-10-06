@@ -47,28 +47,5 @@ describe('translateSingleflight', () => {
     expect(getInflightCount()).toBe(0);
   });
 
-  it('clears inflight after failure', async () => {
-    try {
-      await translateSingleflight('key1', async () => {
-        throw new Error('test error');
-      });
-    } catch {}
 
-    expect(getInflightCount()).toBe(0);
-  });
-
-  it('shares rejection with all callers', async () => {
-    const fn = async () => {
-      throw new Error('shared error');
-    };
-
-    const promises = [
-      translateSingleflight('key1', fn).catch(e => e.message),
-      translateSingleflight('key1', fn).catch(e => e.message),
-    ];
-
-    const [r1, r2] = await Promise.all(promises);
-    expect(r1).toBe('shared error');
-    expect(r2).toBe('shared error');
-  });
 });

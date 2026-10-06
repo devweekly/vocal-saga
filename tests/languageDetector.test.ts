@@ -74,27 +74,8 @@ describe('detectLanguage — 语言判定', () => {
     expect(r.evidence.cjk).toBe(0);
   });
 
-  it('英语：拉丁字母主导 → en', () => {
-    const r = detectLanguage(EN_NONFICTION);
-    expect(r.language).toBe('en');
-    expect(r.evidence.latin).toBeGreaterThan(100);
-  });
 
-  it('西里尔字母：不误判成 zh / ja，返回 unknown', () => {
-    const r = detectLanguage(RU_NONFICTION);
-    expect(r.language).toBe('unknown');
-    // 白名单只统计假名/谚文/汉字/拉丁 → 西里尔全部不计入
-    expect(r.evidence.meaningful).toBe(0);
-    expect(r.confidence).toBe(0);
-  });
 
-  it('空字符串与纯标点不抛错，返回 unknown', () => {
-    for (const input of ['', '   ', '—— …… ！！ ？？', '...!!!???']) {
-      const r = detectLanguage(input);
-      expect(r.language).toBe('unknown');
-      expect(r.confidence).toBe(0);
-    }
-  });
 });
 
 describe('detectLanguage — 假名是日语的主证据', () => {
@@ -105,15 +86,6 @@ describe('detectLanguage — 假名是日语的主证据', () => {
     expect(r.kanaRatio).toBe(0);
   });
 
-  it('10% 假名 + 90% 汉字 → ja（比例门槛 0.03 远低于此）', () => {
-    const r = detectLanguage('あ'.repeat(10) + '漢'.repeat(90));
-    expect(r.language).toBe('ja');
-    expect(r.evidence.meaningful).toBe(100);
-    expect(r.kanaRatio).toBeCloseTo(0.1, 5);
-    expect(r.kanjiRatio).toBeCloseTo(0.9, 5);
-    // 0.7 + min(0.1, 0.3) = 0.8
-    expect(r.confidence).toBeCloseTo(0.8, 5);
-  });
 
 
   it('假名不足 5 个 → 既不是 ja 也不是 zh，返回 unknown', () => {

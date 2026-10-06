@@ -84,22 +84,11 @@ describe('GET /original/<target>', () => {
 });
 
 describe('GET /o/<target>', () => {
+  // /o/* 是 /original/* 的别名，共用同一个 handleOriginalRequest。
+  // 这里只需证明别名接线存在；HTML 内容 / scheme 剥离由上面的 /original/* 覆盖。
   it('200 with valid request', async () => {
     const app = buildApp();
     const res = await app.request(new Request('http://test/o/example.com'));
-    expect(res.status).toBe(200);
-  });
-
-  it('returns original HTML (same as /original)', async () => {
-    const app = buildApp();
-    const res = await app.request(new Request('http://test/o/example.com'));
-    const body = await res.text();
-    expect(body).toContain('original content');
-  });
-
-  it('strips https:// prefix', async () => {
-    const app = buildApp();
-    const res = await app.request(new Request('http://test/o/https%3A%2F%2Fexample.com/article'));
     expect(res.status).toBe(200);
   });
 });

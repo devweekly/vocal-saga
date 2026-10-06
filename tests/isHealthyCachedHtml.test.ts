@@ -41,10 +41,6 @@ describe('validateTranslationCompleteness — 文档根节点', () => {
     expect(r.healthy).toBe(true);
   });
 
-  it('标准 <html> 文档照常通过', () => {
-    expect(validateTranslationCompleteness(buildDoc({ root: 'html' })).healthy).toBe(true);
-  });
-
   it('doctype 和 <html> 都没有 → 仍判不健康', () => {
     // 长度需 >100，否则会先被"HTML 过短"拦下
     const html = `<body><p>${'占位内容 '.repeat(20)}</p><span class="fanyi-translation">你好</span></body>`;

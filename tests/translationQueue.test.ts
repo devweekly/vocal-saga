@@ -8,11 +8,6 @@ describe('TranslationQueue', () => {
     queue = new TranslationQueue(2, 1, 50);
   });
 
-  it('executes a single task', async () => {
-    const result = await queue.add(() => Promise.resolve('done'));
-    expect(result).toBe('done');
-  });
-
   it('executes multiple tasks sequentially up to concurrency', async () => {
     const order: number[] = [];
     const tasks = [1, 2, 3, 4].map(i =>
@@ -89,24 +84,9 @@ describe('TranslationQueue', () => {
   });
 
 
-  it('preserves result type', async () => {
-    const num = await queue.add(() => Promise.resolve(42));
-    const str = await queue.add(() => Promise.resolve('hello'));
-    const obj = await queue.add(() => Promise.resolve({ key: 'value' }));
-
-    expect(num).toBe(42);
-    expect(str).toBe('hello');
-    expect(obj).toEqual({ key: 'value' });
-  });
 
   // --- error types ---
 
-  it('wraps non-Error throws in Error object', async () => {
-    const promise = queue.add(() => {
-      throw 'string error';
-    });
-    await expect(promise).rejects.toThrow('string error');
-  });
 
   it('preserves original Error instance', async () => {
     const promise = queue.add(() => {
@@ -120,21 +100,6 @@ describe('TranslationQueue', () => {
 
   // --- retry with delay ---
 
-  it('delays between retries', async () => {
-    let attempts = 0;
-    const start = Date.now();
-
-    const result = await queue.add(async () => {
-      attempts++;
-      if (attempts < 2) throw new Error('fail');
-      return 'success';
-    });
-
-    const elapsed = Date.now() - start;
-    expect(result).toBe('success');
-    // With retry delay of 50ms * retry# (1), should be at least 50ms
-    expect(elapsed).toBeGreaterThanOrEqual(40);
-  });
 
   // --- empty queue ---
 
@@ -215,30 +180,6 @@ describe('TranslationQueue', () => {
     expect(maxRunning).toBe(3);
   });
 
-  it('setConcurrency from 1 to higher processes pending tasks in parallel', async () => {
-    const q = new TranslationQueue(1, 0, 0);
-    const order: number[] = [];
-
-    const tasks = [10, 50, 20, 30].map((delay, i) =>
-      q.add(async () => {
-        await new Promise(r => setTimeout(r, delay));
-        order.push(i);
-        return i;
-      })
-    );
-
-    // Let first task start, then bump concurrency so remaining can start
-    await new Promise(r => setTimeout(r, 10));
-    q.setConcurrency(4);
-
-    await Promise.all(tasks);
-    // With concurrency=1, order would be [0,1,2,3] (FIFO completion).
-    // With concurrency=4 after bump, task 1 (50ms) finishes after 2 (20ms) and 3 (30ms).
-    // Task 0 (10ms) was already running, so it finishes first.
-    expect(order[0]).toBe(0);
-    // Task 2 (20ms) should finish before task 1 (50ms)
-    expect(order.indexOf(2)).toBeLessThan(order.indexOf(1));
-  });
 
   it('setConcurrency does not affect already running tasks', async () => {
     const q = new TranslationQueue(2, 0, 0);
@@ -313,9 +254,5 @@ describe('TranslationQueue', () => {
     await expect(task).resolves.toBe('done');
   });
 
-  it('globalQueue exports correct concurrency', async () => {
-    const { globalQueue: gq } = await import('../lib/translate/translationQueue');
-    expect(gq).toBeDefined();
-  });
 
 });

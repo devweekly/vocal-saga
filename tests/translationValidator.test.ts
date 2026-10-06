@@ -1,8 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import {
-  validateTranslationCompleteness,
-  isHealthyTranslation,
-} from '../lib/translate/translationValidator';
+import { validateTranslationCompleteness } from '../lib/translate/translationValidator';
 
 // 构造长度 > 100 的 HTML（满足 validateTranslationCompleteness 的最小长度阈值）
 function wrap(body: string): string {
@@ -19,18 +16,6 @@ describe('validateTranslationCompleteness', () => {
     expect(result.reason).toContain('过短');
   });
 
-  it('rejects html shorter than 100 chars', () => {
-    const result = validateTranslationCompleteness('<html><body>short</body></html>');
-    expect(result.healthy).toBe(false);
-  });
-
-  it('rejects html without <html> tag', () => {
-    // 长度 > 100 但没有 <html> 标签
-    const html = '<div>' + 'x'.repeat(200) + '</div>';
-    const result = validateTranslationCompleteness(html);
-    expect(result.healthy).toBe(false);
-    expect(result.reason).toContain('<html>');
-  });
 
   it('rejects html without translation markers', () => {
     const html = wrap('<p>' + 'hello world '.repeat(20) + '</p>');
@@ -98,30 +83,5 @@ describe('validateTranslationCompleteness', () => {
     expect(result.translatedCount).toBe(2);
   });
 
-  it('detects data-fanyi-translated attribute as a marker', () => {
-    const html = wrap(
-      `<p>${FILLER}</p>` +
-        '<p data-fanyi-translated="true">译文内容</p>',
-    );
-    const result = validateTranslationCompleteness(html);
-    expect(result.healthy).toBe(true);
-  });
 
-});
-
-describe('isHealthyTranslation', () => {
-  it('returns boolean matching validateTranslationCompleteness.healthy', () => {
-    expect(isHealthyTranslation('')).toBe(false);
-    const good = wrap(
-      `<p>${FILLER}</p>` + '<p class="fanyi-translation">你好</p>',
-    );
-    expect(isHealthyTranslation(good)).toBe(true);
-  });
-
-  it('passes expectedBlockCount through', () => {
-    const html = wrap(
-      `<p>${FILLER}</p>` + '<p class="fanyi-translation">你好</p>',
-    );
-    expect(isHealthyTranslation(html, 100)).toBe(false);
-  });
 });

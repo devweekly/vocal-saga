@@ -61,49 +61,6 @@ describe('GET /gemini/<target> — Gemini default model (gemini-3.1-flash-lite)'
     expect(call.provider).toBe('gemini');
   });
 
-  it('uses gemini-3.1-flash-lite as default model', async () => {
-    const app = buildApp();
-    await app.request(req('/gemini/example.com'));
-    const { translateUrl } = await import('../lib/translate/pipeline');
-    const call = (translateUrl as any).mock.calls[0][0];
-    expect(call.model).toBe('gemini-3.1-flash-lite');
-  });
-
-  it('returns translated HTML', async () => {
-    const app = buildApp();
-    const res = await app.request(req('/gemini/example.com'));
-    const body = await res.text();
-    expect(body).toContain('<html>');
-    expect(body).toContain('ok');
-  });
-
-  it('strips https:// prefix', async () => {
-    const app = buildApp();
-    await app.request(req('/gemini/https%3A%2F%2Fexample.com/article'));
-    const { translateUrl } = await import('../lib/translate/pipeline');
-    const call = (translateUrl as any).mock.calls[0][0];
-    expect(call.url).toBe('https://example.com/article');
-  });
-
-  it('adds .com suffix for domain without dot', async () => {
-    const app = buildApp();
-    await app.request(req('/gemini/towardsdatascience/article'));
-    const { translateUrl } = await import('../lib/translate/pipeline');
-    const call = (translateUrl as any).mock.calls[0][0];
-    expect(call.url).toBe('https://towardsdatascience.com/article');
-  });
-
-  it('400 when target is empty', async () => {
-    const app = buildApp();
-    const res = await app.request(req('/gemini/'));
-    expect(res.status).toBe(400);
-  });
-
-  it('does not force re-translate (force=false)', async () => {
-    const app = buildApp();
-    await app.request(req('/gemini/example.com'));
-    const { translateUrl } = await import('../lib/translate/pipeline');
-    const call = (translateUrl as any).mock.calls[0][0];
-    expect(call.url).toBe('https://example.com');
-  });
+  // 该路由是 handleTranslateRequest 的 3 行委托：URL 重建 / 400 空 target /
+  // 500 上游抛错等共享行为由 translateUrlRoute.test.ts 覆盖，这里不再重复。
 });

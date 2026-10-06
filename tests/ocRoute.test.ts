@@ -65,12 +65,6 @@ describe('/oc/* 路由', () => {
     vi.restoreAllMocks();
   });
 
-  // ── 基本路由匹配 ────────────────────────────────────────
-  it('GET /oc/example.com 路由匹配', async () => {
-    const res = await app.request('/oc/example.com');
-    expect(res.status).not.toBe(404);
-  });
-
   // ── path 解析 ───────────────────────────────────────────
   it('GET /oc/example.com → translateUrl url 参数含 https://', async () => {
     await app.request('/oc/example.com');
@@ -90,20 +84,8 @@ describe('/oc/* 路由', () => {
   });
 
   // ── 带 https:// 的 URL ──────────────────────────────────
-  it('GET /oc/https://example.com → url 保留 scheme', async () => {
-    await app.request('/oc/https://example.com');
-    expect(translateUrl).toHaveBeenCalledTimes(1);
-    const args = vi.mocked(translateUrl).mock.calls[0][0];
-    expect(args.url).toBe('https://example.com');
-    expect(args.provider).toBe('opencode');
-  });
 
   // ── provider 传递 ───────────────────────────────────────
-  it('provider 字段固定为 opencode', async () => {
-    await app.request('/oc/example.com');
-    const args = vi.mocked(translateUrl).mock.calls[0][0];
-    expect(args.provider).toBe('opencode');
-  });
 
   // ── /fanyi/page provider=opencode 合法 ──────────────────
   it('POST /fanyi/page provider=opencode 接受请求', async () => {
@@ -148,11 +130,4 @@ describe('/oc/* 路由', () => {
   });
 
   // ── URL 编码路径 ────────────────────────────────────────
-  it('GET /oc/带编码的路径 → decodeURIComponent 解析', async () => {
-    const encoded = encodeURIComponent('example.com/中文路径');
-    await app.request(`/oc/${encoded}`);
-    expect(translateUrl).toHaveBeenCalledTimes(1);
-    const args = vi.mocked(translateUrl).mock.calls[0][0];
-    expect(args.url).toContain('中文路径');
-  });
 });

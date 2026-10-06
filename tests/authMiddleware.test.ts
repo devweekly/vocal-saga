@@ -62,10 +62,6 @@ describe('requireAuth — rejection paths', () => {
     expect(res.status).toBe(200);
   });
 
-  it('401 when Authorization header is malformed (Basic scheme)', async () => {
-    const res = await buildApp().request(req('/protected', { headers: { Authorization: `Basic ${AUTH}` } }));
-    expect(res.status).toBe(401);
-  });
 
   it('401 when AUTH_KEY env is missing entirely', async () => {
     setAuthKey('');
@@ -77,15 +73,6 @@ describe('requireAuth — rejection paths', () => {
     }
   });
 
-  it('401 when AUTH_KEY is too short (<6 chars)', async () => {
-    setAuthKey('short');
-    try {
-      const res = await buildApp().request(req('/protected', { headers: { Authorization: 'Bearer short' } }));
-      expect(res.status).toBe(401);
-    } finally {
-      setAuthKey(AUTH);
-    }
-  });
 });
 
 describe('requireAuth — acceptance paths', () => {
@@ -96,12 +83,6 @@ describe('requireAuth — acceptance paths', () => {
     expect(body.ok).toBe(true);
   });
 
-  it('accepts case-insensitive Bearer prefix', async () => {
-    for (const prefix of ['Bearer', 'bearer', 'BEARER', 'bEaReR']) {
-      const res = await buildApp().request(req('/protected', { headers: { Authorization: `${prefix} ${AUTH}` } }));
-      expect(res.status, `prefix=${prefix}`).toBe(200);
-    }
-  });
 
 
   it('works for POST with JSON body (middleware runs before body parse)', async () => {

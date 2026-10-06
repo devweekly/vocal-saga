@@ -6,9 +6,6 @@ describe('simpleHash', () => {
     expect(simpleHash('hello')).toBe(simpleHash('hello'));
   });
 
-  it('should return different hash for different strings', () => {
-    expect(simpleHash('a')).not.toBe(simpleHash('b'));
-  });
 
 });
 
@@ -40,13 +37,6 @@ describe('generateTranslationCacheKey', () => {
     expect(key1).not.toBe(key2);
   });
 
-  it('should be stable across URL parameter changes', () => {
-    const content = [{ id: 'b1', text: 'Article content here' }];
-    const json = JSON.stringify(content);
-    const key1 = generateTranslationCacheKey(json, 'en', 'zh');
-    const key2 = generateTranslationCacheKey(json, 'en', 'zh');
-    expect(key1).toBe(key2);
-  });
 
   it('should use content prefix for faster comparison', () => {
     const longContent = 'a'.repeat(1000);

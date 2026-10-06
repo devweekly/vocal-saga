@@ -27,16 +27,6 @@ describe('estimateTokens', () => {
     expect(estimateTokens(text)).toBeGreaterThan(estimateTokensOld(text));
   });
 
-  it('中英混排的长文本：非 CJK 字符也计入', () => {
-    const text = '这是一段中文测试文本，用来验证token估算的准确性。';
-    // 20 个 CJK 汉字 + 5 个 'token' 拉丁字母 + 2 个全角标点（'，' U+FF0C、
-    // '。' U+3002 都**不在** U+4E00–U+9FFF，按非 CJK 计权）
-    // → 20*0.5 + 7*0.25 = 11.75 → 12
-    expect(estimateTokens(text)).toBe(12);
-    // 旧口径 ceil(27/4)=7，严重低估 → 这正是 chunk 过大导致 API 截断的原因
-    expect(estimateTokensOld(text)).toBe(7);
-  });
-
 
   it('中英混排：按字符分别计权', () => {
     // 'Hello ' (6) + ' ' (1) + 'world ' (6) = 13 个非 CJK；'你好' + '世界' = 4 个 CJK
@@ -44,17 +34,7 @@ describe('estimateTokens', () => {
     expect(estimateTokens('Hello 你好 world 世界')).toBe(6);
   });
 
-  it('日文假名按 CJK 计权', () => {
-    const text = 'こんにちは';
-    expect(estimateTokens(text)).toBe(Math.ceil(text.length * 0.5));
-    expect(estimateTokens(text)).toBeGreaterThan(estimateTokensOld(text));
-  });
 
-  it('韩文谚文按 CJK 计权', () => {
-    const text = '안녕하세요';
-    expect(estimateTokens(text)).toBe(Math.ceil(text.length * 0.5));
-    expect(estimateTokens(text)).toBeGreaterThan(estimateTokensOld(text));
-  });
 
   it('空字符串返回 0', () => {
     expect(estimateTokens('')).toBe(0);

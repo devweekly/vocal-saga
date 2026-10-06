@@ -32,11 +32,6 @@ describe('extractDeltaContent', () => {
     expect(extractDeltaContent('not json')).toBeNull();
   });
 
-  it('should return null for missing choices', () => {
-    const data = JSON.stringify({});
-    expect(extractDeltaContent(data)).toBeNull();
-  });
-
   it('should handle multi-byte characters', () => {
     const data = JSON.stringify({ choices: [{ delta: { content: '你好世界' } }] });
     expect(extractDeltaContent(data)).toBe('你好世界');

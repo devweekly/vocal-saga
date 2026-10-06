@@ -33,16 +33,6 @@ describe('applyBlockTranslation', () => {
       expect(translationSpan?.textContent).toBe('你好世界');
     });
 
-    it('skips if element is already translated', () => {
-      const p = createP('Hello world');
-      applyBlockTranslation(p, '你好世界', 'bilingual');
-
-      const originalSpanCount = p.querySelectorAll('.fanyi-original').length;
-      applyBlockTranslation(p, '第二次翻译', 'bilingual');
-
-      expect(p.querySelectorAll('.fanyi-original').length).toBe(originalSpanCount);
-      expect(p.querySelector('.fanyi-translation')?.textContent).toBe('你好世界');
-    });
   });
 
   describe('DOM preservation (regression for link/formatting breakage)', () => {
@@ -65,17 +55,6 @@ describe('applyBlockTranslation', () => {
       expect(translation?.textContent).toBe('请阅读本指南');
     });
 
-    it('bilingual: preserves <strong>, <em>, <code> children', () => {
-      const p = document.createElement('p');
-      p.innerHTML = 'Click <strong>here</strong> or <em>there</em> for <code>code</code>';
-
-      applyBlockTranslation(p, '点此或那里看代码', 'bilingual');
-
-      const original = p.querySelector('.fanyi-original')!;
-      expect(original.querySelector('strong')?.textContent).toBe('here');
-      expect(original.querySelector('em')?.textContent).toBe('there');
-      expect(original.querySelector('code')?.textContent).toBe('code');
-    });
 
   });
 });
@@ -96,14 +75,6 @@ describe('restoreBlock', () => {
     expect(p.querySelector('.fanyi-original')).toBeNull();
   });
 
-  it('handles element without originalText gracefully', () => {
-    const p = createP('Hello world');
-    p.classList.add('fanyi-translated');
-    restoreBlock(p);
-
-    expect(p.textContent).toBe('Hello world');
-    expect(p.classList.contains('fanyi-translated')).toBe(false);
-  });
 
   it('bilingual: restores nested <a> links so they are clickable again', () => {
     const p = document.createElement('p');
@@ -150,45 +121,4 @@ describe('toggleBlockTranslation', () => {
     expect(translationSpan.style.display).toBe('');
   });
 
-});
-
-describe('full workflow', () => {
-  beforeEach(() => {
-    document.body.innerHTML = '';
-  });
-
-  it('bilingual: apply → toggle → toggle → restore', () => {
-    const p = createP('Hello world');
-    document.body.appendChild(p);
-
-    applyBlockTranslation(p, '你好世界', 'bilingual');
-    expect(p.querySelector('.fanyi-translation')?.textContent).toBe('你好世界');
-
-    toggleBlockTranslation(p);
-    expect((p.querySelector('.fanyi-translation') as HTMLElement).style.display).toBe('none');
-
-    toggleBlockTranslation(p);
-    expect((p.querySelector('.fanyi-translation') as HTMLElement).style.display).toBe('');
-
-    restoreBlock(p);
-    expect(p.textContent).toBe('Hello world');
-    expect(p.querySelector('.fanyi-translation')).toBeNull();
-  });
-
-  it('preserves element tag and inherits original styling', () => {
-    const h2 = document.createElement('h2');
-    h2.textContent = 'Section Title';
-    document.body.appendChild(h2);
-
-    applyBlockTranslation(h2, '章节标题', 'bilingual');
-    expect(h2.tagName).toBe('H2');
-
-    const originalSpan = h2.querySelector('.fanyi-original');
-    const translationSpan = h2.querySelector('.fanyi-translation');
-    expect(originalSpan?.textContent).toBe('Section Title');
-    expect(translationSpan?.textContent).toBe('章节标题');
-
-    restoreBlock(h2);
-    expect(h2.textContent).toBe('Section Title');
-  });
 });

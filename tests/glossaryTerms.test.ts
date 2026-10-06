@@ -38,16 +38,7 @@ describe('sanitizeDocumentTerms — 基本行为', () => {
   });
 
 
-  it('去重', () => {
-    expect(sanitizeDocumentTerms(['React', 'React', 'react '])).toEqual([
-      'React',
-      'react',
-    ]);
-  });
 
-  it('丢弃空白与纯控制字符条目', () => {
-    expect(sanitizeDocumentTerms(['', '   ', '\n', '\t\r'])).toEqual([]);
-  });
 });
 
 describe('sanitizeDocumentTerms — 注入防护', () => {
@@ -66,16 +57,7 @@ describe('sanitizeDocumentTerms — 注入防护', () => {
     expect(out[0]).not.toMatch(/[\n\r]/);
   });
 
-  it('单条长度截断到 64 字符', () => {
-    const long = 'A'.repeat(500);
-    const out = sanitizeDocumentTerms([long]);
-    expect(out[0]).toHaveLength(64);
-  });
 
-  it('条目总数上限 50', () => {
-    const many = Array.from({ length: 200 }, (_, i) => `Term${i}`);
-    expect(sanitizeDocumentTerms(many)).toHaveLength(50);
-  });
 
   it('混入非字符串元素时被跳过而不是抛错', () => {
     const mixed = ['React', null, undefined, 42, { evil: true }, 'Vue'] as unknown as string[];

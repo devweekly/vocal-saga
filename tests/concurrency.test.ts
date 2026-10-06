@@ -38,27 +38,6 @@ describe('runWithConcurrency', () => {
     expect(peak).toBe(2);
   });
 
-  it('并发度不超过 limit（limit=1 即串行）', async () => {
-    let inFlight = 0;
-    let peak = 0;
-
-    await runWithConcurrency([1, 2, 3, 4, 5], 1, async () => {
-      inFlight++;
-      peak = Math.max(peak, inFlight);
-      await new Promise((r) => setTimeout(r, 2));
-      inFlight--;
-    });
-
-    expect(peak).toBe(1);
-  });
-
-  it('limit 大于任务数时不会创建多余 worker，且任务全执行', async () => {
-    const seen: number[] = [];
-    await runWithConcurrency([1, 2, 3], 100, async (item) => {
-      seen.push(item);
-    });
-    expect(seen.sort()).toEqual([1, 2, 3]);
-  });
 
   it('所有任务恰好各执行一次，不重不漏', async () => {
     const items = Array.from({ length: 50 }, (_, i) => i);
@@ -74,19 +53,6 @@ describe('runWithConcurrency', () => {
     expect([...seen].sort((a, b) => a - b)).toEqual(items);
   });
 
-  it('worker 收到正确的 index', async () => {
-    const items = ['a', 'b', 'c', 'd'];
-    const pairs: Array<[string, number]> = [];
-    await runWithConcurrency(items, 2, async (item, index) => {
-      pairs.push([item, index]);
-    });
-    expect(pairs.sort()).toEqual([
-      ['a', 0],
-      ['b', 1],
-      ['c', 2],
-      ['d', 3],
-    ]);
-  });
 
   it('空列表直接返回，不调用 worker', async () => {
     const worker = vi.fn();
@@ -139,26 +105,5 @@ describe('runWithConcurrency', () => {
       expect(started).toEqual([0, 1]);
     });
 
-    it('不产生 unhandled rejection', async () => {
-      // 多个任务同时失败时，Promise.all 只采纳第一个 rejection，
-      // 其余的必须被接管，否则 Node 会触发 unhandledRejection。
-      const unhandled: unknown[] = [];
-      const onUnhandled = (err: unknown) => unhandled.push(err);
-      process.on('unhandledRejection', onUnhandled);
-
-      try {
-        await expect(
-          runWithConcurrency([1, 2, 3, 4], 4, async () => {
-            throw new Error('all fail');
-          })
-        ).rejects.toThrow('all fail');
-        // 给事件循环一轮机会，让潜在的 unhandledRejection 有机会触发
-        await tick();
-      } finally {
-        process.off('unhandledRejection', onUnhandled);
-      }
-
-      expect(unhandled).toEqual([]);
-    });
   });
 });

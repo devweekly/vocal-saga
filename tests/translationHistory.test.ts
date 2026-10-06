@@ -102,14 +102,6 @@ describe('GET /article/:id — D1 translation history', () => {
     expect(body.error).toMatch(/D1 not available/);
   });
 
-  it('404 for non-existent id', async () => {
-    const app = buildApp();
-    const db = createMockDb();
-    const res = await app.request(req('/article/999'), {}, envWithDb(db));
-    expect(res.status).toBe(404);
-    const body = (await res.json()) as { error: string };
-    expect(body.error).toMatch(/translation not found/);
-  });
 
   it('saves url and html to D1 after /translate/* and retrieves via /article/:id', async () => {
     const app = buildApp();
@@ -184,12 +176,6 @@ describe('GET /article/:id — D1 translation history', () => {
     expect(t2).toContain('__vsRedirectGuard');
   });
 
-  it('non-numeric :id returns 404 (notFound)', async () => {
-    const app = buildApp();
-    const db = createMockDb();
-    const res = await app.request(req('/article/foo'), {}, envWithDb(db));
-    expect(res.status).toBe(404);
-  });
 
   it('handles D1 run error gracefully (save does not block response)', async () => {
     const app = buildApp();

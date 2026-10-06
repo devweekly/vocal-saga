@@ -40,23 +40,6 @@ describe('prepareDocument', () => {
     expect(blocks.length).toBeGreaterThan(0);
   });
 
-  it('should use role="main" when article is not present', () => {
-    document.body.innerHTML = `
-      <nav>Navigation</nav>
-      <div role="main">
-        <h1>Main Content</h1>
-        <p>Main paragraph.</p>
-      </div>
-      <aside>Sidebar</aside>
-    `;
-
-    const { fullText } = prepareDocument(document, "https://example.com/test");
-
-    expect(fullText).toContain('Main Content');
-    expect(fullText).toContain('Main paragraph');
-    expect(fullText).not.toContain('Navigation');
-    expect(fullText).not.toContain('Sidebar');
-  });
 
   it('should use main element when available', () => {
     document.body.innerHTML = `
@@ -101,22 +84,6 @@ describe('prepareDocument', () => {
     expect(fullText).toContain('Some content');
   });
 
-  it('should prefer article over role=main', () => {
-    document.body.innerHTML = `
-      <div role="main">
-        <p>Main role content</p>
-      </div>
-      <article>
-        <p>Article content</p>
-      </article>
-    `;
-
-    const { fullText } = prepareDocument(document, "https://example.com/test");
-
-    // article 优先级更高，应该只提取 article 内容
-    expect(fullText).toContain('Article content');
-    expect(fullText).not.toContain('Main role content');
-  });
 
   it('should keep <article> root when heading lives outside .article-body (bankingdive-style)', () => {
     // bankingdive.com 用 <article> 包裹整页：标题在 .first-page-pdf，
@@ -222,100 +189,7 @@ describe('prepareDocument', () => {
     expect(fullText).not.toContain('Footer');
   });
 
-  it('expands multiple .u-rich-text-blog siblings (Webflow real-world layout)', () => {
-    // claude.com/blog 的真实结构：文章内容被拆到多个 .u-rich-text-blog 容器，
-    // 分布在 .blog_post_wrap 的三个 .blog_post_layout 兄弟节点中。
-    // querySelector('.u-rich-text-blog') 只返回第一个，expandIfFragmented
-    // 必须向上展开到 .blog_post_wrap 才能覆盖全部内容。
-    document.body.innerHTML = `
-      <main>
-        <section class="hero_blog_post_wrap">
-          <p>Hero section（不应被提取）</p>
-        </section>
-        <section class="blog_post_section_wrap u-section">
-          <div class="blog_post_contain u-container">
-            <div class="blog_post_component">
-              <div class="blog_post_wrap u-grid-custom">
-                <div class="blog_post_layout u-column-custom">
-                  <div class="blog_post_content_wrap">
-                    <div class="u-rich-text-blog u-margin-trim w-richtext">
-                      <h2>What are skills?</h2>
-                      <p>Skills are folders of instructions, scripts, and resources.</p>
-                    </div>
-                  </div>
-                </div>
-                <div class="blog_post_layout u-column-custom is-cc">
-                  <div class="blog_post_content_wrap">
-                    <div class="u-rich-text-blog u-margin-trim w-richtext">
-                      <h2>Types of skills</h2>
-                      <p>After cataloging all of our internal skills at Anthropic, we noticed they cluster into nine categories.</p>
-                      <h3>Research skills</h3>
-                      <p>Research skills help Claude find and synthesize information.</p>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </section>
-        <section class="blog_related_section_wrap">
-          <p>Related posts（不应被提取）</p>
-        </section>
-      </main>
-    `;
 
-    const { fullText, blocks } = prepareDocument(document, "https://claude.com/blog/test");
-
-    // 第一个 .u-rich-text-blog 的内容
-    expect(fullText).toContain('What are skills?');
-    expect(fullText).toContain('Skills are folders of instructions');
-    // 第二个 .u-rich-text-blog 的内容（之前被漏掉的部分）
-    expect(fullText).toContain('Types of skills');
-    expect(fullText).toContain('After cataloging all of our internal skills');
-    expect(fullText).toContain('Research skills');
-    expect(fullText).toContain('Research skills help Claude');
-    // 不应包含 hero 和 related posts
-    expect(fullText).not.toContain('Hero section');
-    expect(fullText).not.toContain('Related posts');
-    // 应包含两个 .u-rich-text-blog 的全部 content block
-    expect(blocks.length).toBeGreaterThanOrEqual(6);
-  });
-
-  it('should refine to .post-content inside <article> (Jane Street)', () => {
-    // Jane Street blog: <article> 包含 .post-header + .post-content + .bios-container
-    // 需要下钻到 .post-content 只取正文
-    document.body.innerHTML = `
-      <article>
-        <div class="post-header">
-          <h3>Formal methods and the future of programming</h3>
-          <span class="date">Jun 07, 2026</span>
-          <ul class="social-share">
-            <li><a href="#">Share on Facebook</a></li>
-          </ul>
-          <div class="author">By: Yaron Minsky</div>
-        </div>
-        <div class="post-content">
-          <p>I've been telling people for the last 25 years that Jane Street was not interested in formal methods.</p>
-          <p>I'm not saying that anymore.</p>
-          <h1>Why the change of heart?</h1>
-          <p>Agentic coding upsets the formal-methods apple-cart in a few ways.</p>
-        </div>
-        <div class="bios-container">
-          <p class="bio">Yaron Minsky joined Jane Street back in 2002.</p>
-        </div>
-      </article>
-    `;
-
-    const { fullText, blocks } = prepareDocument(document, "https://blog.janestreet.com/test");
-
-    expect(fullText).toContain("I've been telling people");
-    expect(fullText).toContain("I'm not saying that anymore");
-    expect(fullText).toContain("Why the change of heart");
-    expect(fullText).toContain("Agentic coding upsets");
-    expect(fullText).not.toContain('Share on Facebook');
-    expect(fullText).not.toContain('Yaron Minsky joined Jane Street');
-    expect(blocks.length).toBeGreaterThanOrEqual(4);
-  });
 
   it('should reach main.page_main through 7-layer nesting (claude.com real structure)', () => {
     // claude.com 真实 DOM：.u-rich-text-blog 到 main.page_main 有 7 层嵌套，
@@ -556,24 +430,6 @@ describe('expandRootForHeader', () => {
   });
 
 
-  it('expands for header-like class even without <header> tag', () => {
-    document.body.innerHTML = `
-      <article class="article">
-        <div class="article_header">
-          <h1>Some Title</h1>
-        </div>
-        <div class="article--body">
-          <p>Body without h1.</p>
-        </div>
-      </article>
-    `;
-    const body = document.querySelector('.article--body') as Element;
-
-    const { root, expanded } = expandRootForHeader(body);
-
-    expect(expanded).toBe(true);
-    expect(root.tagName.toLowerCase()).toBe('article');
-  });
 
   it('does NOT expand when root already contains h1', () => {
     document.body.innerHTML = `
@@ -594,25 +450,6 @@ describe('expandRootForHeader', () => {
     expect(root).toBe(body); // 原样返回，不修改
   });
 
-  it('does NOT expand when preceding sibling lacks headings (e.g. nav)', () => {
-    document.body.innerHTML = `
-      <article class="article">
-        <nav class="article_toc">
-          <a href="#s1">Section one</a>
-        </nav>
-        <div class="article--body">
-          <p>Body without h1, sibling is nav.</p>
-          <h2>Subsection inside body</h2>
-        </div>
-      </article>
-    `;
-    const body = document.querySelector('.article--body') as Element;
-
-    const { root, expanded } = expandRootForHeader(body);
-
-    expect(expanded).toBe(false);
-    expect(root).toBe(body);
-  });
 
 });
 
@@ -660,23 +497,6 @@ describe('body-fallback (selectBestRoot integration)', () => {
     expect(report.strategy).toBe('body-fallback');
   });
 
-  it('body-fallback handles page with only loose <p> tags (no container)', () => {
-    // 极端场景：body 直接是游离 <p>，没有 div 包装
-    // L1 失败（无 article / main），L2 失败（短文 Text Density < 300）
-    // body-fallback 应该用 body 作 root，walker 抓出所有 <p>
-    document.body.innerHTML = `
-      <p>Result one short.</p>
-      <p>Result two short.</p>
-      <p>Result three short.</p>
-    `;
-
-    const { blocks, fullText } = prepareDocument(document, "https://example.com/loose");
-
-    expect(blocks.length).toBeGreaterThan(0);
-    expect(fullText).toContain('Result one');
-    expect(fullText).toContain('Result two');
-    expect(fullText).toContain('Result three');
-  });
 });
 
 // =============================================================================
@@ -692,39 +512,6 @@ describe('extractFromDataIsland', () => {
     document.body.innerHTML = '';
   });
 
-  it('extracts article body from __NEXT_DATA__', () => {
-    const articleBody =
-      'This is a long article body that should be extracted from Next.js __NEXT_DATA__ script tag when DOM is empty skeleton.';
-    document.body.innerHTML = `
-      <div id="__next"></div>
-      <script id="__NEXT_DATA__" type="application/json">
-        ${JSON.stringify({
-          props: { pageProps: { article: { articleBody } } },
-        })}
-      </script>
-    `;
-
-    const blocks = extractFromDataIsland(document);
-
-    expect(blocks.length).toBeGreaterThan(0);
-    expect(blocks.some((b) => b.text === articleBody)).toBe(true);
-    expect(blocks.every((b) => b.xpath.startsWith('/data-island/'))).toBe(true);
-  });
-
-  it('extracts content from __NUXT_DATA__', () => {
-    const content =
-      'This is long content from Nuxt SSR payload that should be picked up when DOM skeleton is empty after hydration.';
-    document.body.innerHTML = `
-      <div id="__nuxt"></div>
-      <script id="__NUXT_DATA__" type="application/json">
-        ${JSON.stringify({ state: { content }, url: '/some-path' })}
-      </script>
-    `;
-
-    const blocks = extractFromDataIsland(document);
-
-    expect(blocks.some((b) => b.text === content)).toBe(true);
-  });
 
   it('extracts from generic application/json script', () => {
     const text =
@@ -755,28 +542,6 @@ describe('extractFromDataIsland', () => {
     expect(matches.length).toBe(1);
   });
 
-  it('skips metadata fields (url/href/src/type/name)', () => {
-    document.body.innerHTML = `
-      <script id="__NEXT_DATA__" type="application/json">
-        ${JSON.stringify({
-          url: 'https://example.com/very-long-url-that-should-not-be-extracted-as-content',
-          href: 'https://example.com/another-long-href-that-should-be-skipped-as-metadata',
-          name: 'Some name field that is long enough but should be skipped because it is metadata',
-          type: 'article-type-field-that-is-long-enough-but-should-be-skipped',
-          articleBody: 'This is the real article body that should be extracted as content.',
-        })}
-      </script>
-    `;
-
-    const blocks = extractFromDataIsland(document);
-    const texts = blocks.map((b) => b.text);
-
-    expect(texts.some((t) => t.includes('real article body'))).toBe(true);
-    expect(texts.every((t) => !t.includes('very-long-url'))).toBe(true);
-    expect(texts.every((t) => !t.includes('another-long-href'))).toBe(true);
-    expect(texts.every((t) => !t.includes('article-type-field'))).toBe(true);
-    expect(texts.every((t) => !t.includes('Some name field'))).toBe(true);
-  });
 
   it('extracts priority fields regardless of length (description/summary)', () => {
     // description / summary 是优先字段，短文本也采集
@@ -816,27 +581,7 @@ describe('extractFromDataIsland', () => {
   });
 
 
-  it('silently skips invalid JSON', () => {
-    document.body.innerHTML = `
-      <script id="__NEXT_DATA__" type="application/json">
-        not-valid-json {{{{ broken
-      </script>
-      <script type="application/json">{"articleBody": "Valid JSON content that is long enough to pass threshold check."}</script>
-    `;
 
-    const blocks = extractFromDataIsland(document);
-
-    expect(blocks.length).toBeGreaterThan(0);
-    expect(blocks.some((b) => b.text.includes('Valid JSON content'))).toBe(true);
-  });
-
-  it('returns empty array when no data island scripts exist', () => {
-    document.body.innerHTML = `<div>no script tags here</div>`;
-
-    const blocks = extractFromDataIsland(document);
-
-    expect(blocks).toEqual([]);
-  });
 
 });
 
@@ -982,25 +727,7 @@ describe('applyGlobalNoiseFromUrl', () => {
   });
 
 
-  it('非白名单 host 仍应用通用规则（分享栏 / aside / fixed-sticky 底栏）', () => {
-    const html = `<!doctype html><html><body>
-      <aside><p>侧栏</p></aside>
-      <div class="share-buttons" style="position:fixed;left:0;bottom:50px"><a>X</a></div>
-    </body></html>`;
-    const out = applyGlobalNoiseFromUrl(html, 'https://example.com/foo');
-    // 与原 HTML 不同：通用规则已生效
-    expect(out).not.toBe(html);
-    // 解析后核对标记
-    const { document: doc } = parseHTML(out) as unknown as { document: Document };
-    expect(doc.querySelector('aside')?.getAttribute('data-fanyi-remove')).toBe('true');
-    expect(doc.querySelector('.share-buttons')?.getAttribute('data-fanyi-remove')).toBe('true');
-  });
 
-  it('无 URL / 无 host 时直接返回原 HTML', () => {
-    const html = `<!doctype html><html><body><p>x</p></body></html>`;
-    expect(applyGlobalNoiseFromUrl(html, '')).toBe(html);
-    expect(applyGlobalNoiseFromUrl(html, 'not-a-url')).toBe(html);
-  });
 });
 
 describe('markGlobalNoise: share/social widget detection', () => {

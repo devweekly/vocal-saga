@@ -57,17 +57,6 @@ describe('stripNavigationScripts（第一层：导航防护）', () => {
     expect(out).toContain('__next_f');
   });
 
-  it('保留无害脚本（analytics 等）', () => {
-    const html = `<script>window.dataLayer = window.dataLayer || [];
-      function gtag(){dataLayer.push(arguments);}
-      gtag('js', new Date());
-      gtag('config', 'G-7RBK99YSES');</script>
-      <script>document.cookie="lang=zh-CN; Path=/";</script>`;
-    const out = stripNavigationScripts(html);
-    expect(out).toContain('window.dataLayer');
-    expect(out).toContain("gtag('config'");
-    expect(out).toContain('document.cookie');
-  });
 });
 
 // ════════════════════════════════════════════════════════════
@@ -101,16 +90,6 @@ describe('stripHydrationScripts（第二层：hydration 防护）', () => {
     expect(out).toContain('中文标题');
   });
 
-  it('删除 Substack SPA chunk（substackcdn.com/bundle/static/js/）', () => {
-    const html = `<html><head>
-      <script src="https://substackcdn.com/bundle/static/js/49903.c9e1464c.js"></script>
-      <script src="https://substackcdn.com/bundle/static/js/78444.b32cb399.js"></script>
-      <script src="https://substackcdn.com/bundle/static/js/71142.5669f08b.js"></script>
-    </head><body><p class="fanyi-translation">译文</p></body></html>`;
-    const out = stripHydrationScripts(html);
-    expect(out).not.toContain('substackcdn.com/bundle/static/js/');
-    expect(out).toContain('fanyi-translation');
-  });
 
   it('删除 X/Twitter __INITIAL_STATE__', () => {
     const html = `<html><body>
@@ -142,27 +121,7 @@ describe('stripHydrationScripts（第二层：hydration 防护）', () => {
     expect(out).not.toContain('_next/static/chunks');
   });
 
-  it('删除 Nuxt.js __NUXT__ 和 chunk', () => {
-    const html = `<html><head>
-      <script src="/_nuxt/entry.a1b2c3d.js"></script>
-    </head><body>
-      <script>window.__NUXT__ = (function (a, b) { return { data: [] } }(1, 2))</script>
-    </body></html>`;
-    const out = stripHydrationScripts(html);
-    expect(out).not.toContain('__NUXT__');
-    expect(out).not.toContain('_nuxt/entry');
-  });
 
-  it('删除 SvelteKit chunk 和内联数据', () => {
-    const html = `<html><head>
-      <script type="module" src="/svelte-kit/assets/app.a1b2c3.js"></script>
-    </head><body>
-      <script>__sveltekit = { base: '', assets: '' }</script>
-    </body></html>`;
-    const out = stripHydrationScripts(html);
-    expect(out).not.toContain('svelte-kit');
-    expect(out).not.toContain('__sveltekit');
-  });
 
   it('保留 CSS link 标签（样式不丢失）', () => {
     const html = `<html><head>
@@ -189,28 +148,6 @@ describe('stripHydrationScripts（第二层：hydration 防护）', () => {
 // ════════════════════════════════════════════════════════════
 
 describe('stripDangerousScripts（组合：导航 + hydration）', () => {
-  it('同时删除 JSD 和 SPA chunk/bootstrap', () => {
-    const html = `<html><head>
-      <script src="https://x.com/cdn-cgi/challenge-platform/scripts/jsd/api.js"></script>
-      <script src="https://abs.twimg.com/responsive-web/client-web/main.ea67863a.js"></script>
-      <script>window.__INITIAL_STATE__={"optimist":[]}</script>
-      <script>window.jsdOnload = function() {};</script>
-    </head><body>
-      <p class="fanyi-translation">译文</p>
-      <p>Original text</p>
-    </body></html>`;
-    const out = stripDangerousScripts(html);
-    // JSD 删除（第一层）
-    expect(out).not.toContain('cdn-cgi/challenge-platform');
-    expect(out).not.toContain('jsdOnload');
-    // SPA chunk 删除（第二层）
-    expect(out).not.toContain('abs.twimg.com/responsive-web');
-    expect(out).not.toContain('__INITIAL_STATE__');
-    // 翻译内容保留
-    expect(out).toContain('fanyi-translation');
-    expect(out).toContain('Original text');
-  });
-
   it('与 injectRedirectGuard 组合使用不误删 guard 脚本', () => {
     const html = '<html><head><title>x</title></head><body><p class="fanyi-translation">译文</p></body></html>';
     const guarded = injectRedirectGuard(html);

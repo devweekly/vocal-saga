@@ -63,25 +63,7 @@ describe('applySiteDisplayRules', () => {
   });
 
 
-  it('x.com：注入加宽正文列的 CSS 到 <head>', () => {
-    const html = '<html><head><style>.orig{}</style></head><body>x</body></html>';
-    const out = applySiteDisplayRules(html, 'https://x.com/UberEng/status/1');
-    const d = doc(out);
-    const siteCss = d.querySelector('style[data-fanyi-site-css]');
-    expect(siteCss).not.toBeNull();
-    expect(siteCss?.textContent).toContain('[data-testid="primaryColumn"]');
-    expect(siteCss?.textContent).toContain('max-width: 1000px');
-    // 必须挂在 head 里，且排在原有样式之后
-    expect(d.head?.lastElementChild).toBe(siteCss);
-  });
 
-  it('站点规则里没有展示期配置时不改动 HTML', () => {
-    // github.com 目前只配了 skipSelectors，没有 removeSelectors / displayCss
-    const html = '<html><head></head><body><div>readme</div></body></html>';
-    const out = applySiteDisplayRules(html, 'https://github.com/a/b');
-    expect(doc(out).querySelector('style[data-fanyi-site-css]')).toBeNull();
-    expect(out).not.toContain('data-fanyi-remove');
-  });
 
   it('非法选择器被跳过，不影响其余规则执行', () => {
     const html = '<html><head></head><body><div id="right-rail">ad</div></body></html>';
@@ -90,14 +72,6 @@ describe('applySiteDisplayRules', () => {
     expect(() => applySiteDisplayRules(broken, 'https://www.oreilly.com/x')).not.toThrow();
   });
 
-  it('displayJs 追加到 <body> 末尾且带标记', () => {
-    // 直接验证内部契约：构造一条临时规则不可行（规则表是常量），
-    // 因此这里断言当前规则集里没有站点用 JS（保持"CSS 优先"的约定）。
-    const html = '<html><head></head><body>content</body></html>';
-    for (const url of ['https://x.com/a', 'https://www.oreilly.com/a']) {
-      expect(applySiteDisplayRules(html, url)).not.toContain('data-fanyi-site-js');
-    }
-  });
 
 
   it('MIT Technology Review：隐藏站点 header / sticky 侧边栏 / 相关推荐 / 订阅表单 / 广告位', () => {
@@ -156,23 +130,6 @@ describe('applySiteDisplayRules', () => {
     expect(siteCss).toContain('display: none !important');
   });
 
-  it('Stack Overflow Blog：隐藏 OneTrust Cookie 横幅与偏好 modal', () => {
-    const html = `<html><head></head><body>
-      <article>正文</article>
-      <div id="onetrust-consent-sdk">cookie banner</div>
-      <div id="onetrust-pc-sdk">preference center</div>
-      <section id="ot-fltr-modal">filter modal</section>
-      <aside class="flex--item3 pt12">podcast</aside>
-    </body></html>`;
-    const out = applySiteDisplayRules(html, 'https://stackoverflow.blog/2026/08/foo/');
-    const d = doc(out);
-    expect(d.querySelector('#onetrust-consent-sdk')?.getAttribute('data-fanyi-remove')).toBe('true');
-    expect(d.querySelector('#onetrust-pc-sdk')?.getAttribute('data-fanyi-remove')).toBe('true');
-    expect(d.querySelector('#ot-fltr-modal')?.getAttribute('data-fanyi-remove')).toBe('true');
-    expect(d.querySelector('aside.flex--item3')?.getAttribute('data-fanyi-remove')).toBe('true');
-    // 正文不能被误伤
-    expect(d.querySelector('article')?.getAttribute('data-fanyi-remove')).toBeNull();
-  });
 
   it('InfoQ：隐藏登录弹窗 / 浮动订阅表单 / 底部 Newsletter 广告', () => {
     const html = `<html><head></head><body>

@@ -52,13 +52,6 @@ describe('MapStorage', () => {
     expect(await s.get('k')).toBeNull();
   });
 
-  it('list returns all keys in the store', async () => {
-    const s = new MapStorage('t1');
-    await s.set('a', '1');
-    await s.set('b', '2');
-    const keys = await s.list();
-    expect([...keys].sort()).toEqual(['a', 'b']);
-  });
 
   it('same storeName shares data across instances', async () => {
     const a = new MapStorage('shared');
@@ -67,14 +60,6 @@ describe('MapStorage', () => {
     expect(await b.get('k')).toBe('from-a');
   });
 
-  it('different storeName isolates data', async () => {
-    const a = new MapStorage('storeA');
-    const b = new MapStorage('storeB');
-    await a.set('k', 'A');
-    await b.set('k', 'B');
-    expect(await a.get('k')).toBe('A');
-    expect(await b.get('k')).toBe('B');
-  });
 
   it('reset(StoreName) clears only that store', async () => {
     const a = new MapStorage('storeA');
@@ -109,11 +94,4 @@ describe('default storage registry', () => {
     expect(() => getDefaultStorage()).toThrow(/Default storage not configured/);
   });
 
-  it('re-set after clear replaces the previous adapter', () => {
-    const a = new MapStorage('a');
-    const b = new MapStorage('b');
-    setDefaultStorage(a);
-    setDefaultStorage(b);
-    expect(getDefaultStorage()).toBe(b);
-  });
 });

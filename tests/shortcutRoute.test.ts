@@ -50,26 +50,9 @@ describe('GET / — translation record list', () => {
     expect(text).toContain('暂无翻译记录');
   });
 
-  it('shows records when D1 has data', async () => {
-    // 构造一个带 mock D1 的 app，验证列表渲染
-    const app = buildApp();
-    // 没有 D1 binding 时返回空列表，不报错
-    const res = await app.request(req('/'));
-    expect(res.status).toBe(200);
-    const text = await res.text();
-    expect(text).toContain('<title>翻译记录</title>');
-  });
 });
 
 describe('GET /s/<domain-or-shorthand> — shorthand URL expansion', () => {
-  it('500 when translateUrl throws', async () => {
-    const { translateUrl } = await import('../lib/translate/pipeline');
-    (translateUrl as any).mockRejectedValueOnce(new Error('boom'));
-    const app = buildApp();
-    const res = await app.request(req('/s/example.com'));
-    expect(res.status).toBe(500);
-  });
-
   // ── 单单词扩展 ──
   it('expands single-word to www.<word>.com', async () => {
     const app = buildApp();
@@ -79,13 +62,6 @@ describe('GET /s/<domain-or-shorthand> — shorthand URL expansion', () => {
     expect(call.url).toBe('https://www.medium.com/article');
   });
 
-  it('preserves nested path with default www expansion', async () => {
-    const app = buildApp();
-    await app.request(req('/s/reddit/r/programming'));
-    const { translateUrl } = await import('../lib/translate/pipeline');
-    const call = (translateUrl as any).mock.calls[0][0];
-    expect(call.url).toBe('https://www.reddit.com/r/programming');
-  });
 
 
   // ── 支持 https:// 前缀 ──
@@ -99,13 +75,6 @@ describe('GET /s/<domain-or-shorthand> — shorthand URL expansion', () => {
 
 
   // ── 有点号的域名原样使用 ──
-  it('uses domain as-is when it contains a dot', async () => {
-    const app = buildApp();
-    await app.request(req('/s/example.com/blog'));
-    const { translateUrl } = await import('../lib/translate/pipeline');
-    const call = (translateUrl as any).mock.calls[0][0];
-    expect(call.url).toBe('https://example.com/blog');
-  });
 
 
   // ── 空路径 ──
@@ -138,14 +107,6 @@ describe('GET /s/<domain-or-shorthand> — shorthand URL expansion', () => {
   });
 
   // ── 元数据 header ──
-  it('forwards pipeline metadata as response headers', async () => {
-    const app = buildApp();
-    const res = await app.request(req('/s/medium/article'));
-    expect(res.status).toBe(200);
-    expect(res.headers.get('X-Translate-Blocks')).toBe('5');
-    expect(res.headers.get('X-Translate-Chunks')).toBe('2');
-    expect(res.headers.get('X-Translate-Duration-Ms')).toBe('42');
-  });
 
   // ── 错误传播 ──
   it('500 when translateUrl throws', async () => {

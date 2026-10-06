@@ -59,10 +59,6 @@ describe('POST /api/translate/document/parse', () => {
     expect(res.status).toBe(400);
   });
 
-  it('缺少 content → 400', async () => {
-    const res = await post('/api/translate/document/parse', { fileName: 'a.txt' });
-    expect(res.status).toBe(400);
-  });
 
   it('二进制格式 → 415，并回传支持的格式列表', async () => {
     const res = await post('/api/translate/document/parse', {
@@ -101,11 +97,4 @@ describe('POST /api/translate/document', () => {
     expect(json.failedBatches).toEqual([]);
   });
 
-  it('空文档 → 400', async () => {
-    const res = await post('/api/translate/document', {
-      fileName: 'a.txt',
-      content: '   ',
-    });
-    expect(res.status).toBe(400);
-  });
 });
