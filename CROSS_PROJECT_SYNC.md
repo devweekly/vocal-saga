@@ -361,6 +361,30 @@ Reddit 规则曾含 `'shreddit-comment'`（本意大概是"评论容器不单独
 拿到反爬空壳页，暂无实际触发路径。若服务端未来要支持登录态抓取，必须先
 把 articleRootSelector 接入 `selectBestRoot`。
 
+#### 2.6 缓存页 CSS 自包含：扩展端内联是唯一可靠路径（2026-10-10 修复）
+
+**现象**：`s.sunxiunan.com/article/864`（snowflake.com 博客）整页裸 HTML，
+SVG 无 CSS 约束撑满全屏。
+
+**根因链**（三层叠加，缺一不成立）：
+
+1. 缓存页保留原站 `<link rel=stylesheet>`，靠 `<base href=原站>` 让浏览器
+   回原站取 CSS —— 这条路径对「无防爬的站点」成立；
+2. snowflake.com 是 Akamai 防爬站：访客浏览器没有其第一方 cookie 时，
+   CSS 请求返回 **204 空内容**（不是 403/404！）—— stylesheet 解析成功但
+   规则为零，`link.sheet` 非空、页面完全无样式，极具迷惑性；
+3. Worker 端 cssInliner 也救不了：Akamai 按 IP 信誉拦截机房出口，
+   Worker 抓页面 403、抓 CSS 204。**任何服务端发起的抓取都过不了防爬**。
+
+**结论**：只有浏览器上下文（扩展端）能可靠拿到防爬站点/登录态页面的 CSS。
+已在 fanyi-extension `src/entrypoints/content/inlineStylesheets.ts` 实现：
+prepareHtmlForServer 时在 clone 上把 `link[rel=stylesheet]` 替换为
+`<style data-fanyi-inlined-css>`（同源自带 cookie；跨源走公开 CDN，失败
+保留原 link）。服务端 cssInliner 保留，继续覆盖 /translate 直抓路径。
+
+**排查技巧**：判断「CSS 加载了但没生效」用 `fetch(cssUrl)` 看响应——
+`{status: 204, len: 0}` 即防爬空响应；`link.sheet` 非空 ≠ CSS 有内容。
+
 ### 3. `isOverlayElement`（在 `blockExtractor/rules.ts`）
 - **一致**：识别 cookie / consent / modal / popup / overlay / dialog / backdrop / lightbox / paywall
 - **差异**：
