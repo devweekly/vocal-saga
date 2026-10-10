@@ -300,14 +300,22 @@ export async function translateText(input: TranslateTextInput): Promise<Translat
 // 对外：translateBlocks → 文档翻译的原子能力
 // =============================================================================
 
+export type TranslationProvider =
+  | 'deepseek' | 'openrouter' | 'nvidia' | 'cloudflare' | 'mimo' | 'gemini' | 'opencode';
+
 export interface TranslateBlocksInput {
   /** 一批待翻译片段，id 由调用方保证稳定（文档里就是 segment.id）。 */
-  blocks: Array<{ id: string; text: string }>;
+  blocks: Array<{ id: string; text: string; contextPath?: string; kind?: string; level?: number }>;
   source?: string;
   target?: string;
   glossary?: Glossary;
   promptStyle?: PromptStyle;
   concurrency?: number;
+  /** 文档接口沿用调用方当前选择的 provider；省略时保持旧行为 DeepSeek。 */
+  provider?: TranslationProvider;
+  model?: string;
+  /** 仅 DeepSeek provider 需要由调用方提供的 key。 */
+  apiKey?: string;
 }
 
 /**
@@ -322,11 +330,41 @@ export async function translateBlocks(
 ): Promise<Map<string, string>> {
   const blocks = input.blocks
     .filter((b) => b?.text?.trim())
-    .map((b) => ({ id: b.id, xpath: '', tag: 'p', text: b.text }));
+    .map((b) => ({
+      id: b.id,
+      xpath: '',
+      tag: b.kind === 'heading' ? 'h' + Math.min(6, Math.max(1, b.level ?? 2)) : 'p',
+      text: b.text,
+      ...(b.contextPath?.trim() ? { contextPath: b.contextPath.trim() } : {}),
+      ...(b.kind ? { kind: b.kind } : {}),
+      ...(Number.isInteger(b.level) ? { level: b.level } : {}),
+    }));
   if (!blocks.length) return new Map();
 
   const chunks = buildChunks(blocks as unknown as TextBlock[]);
-  const service = new DeepSeekTranslationService(undefined, input.promptStyle);
+  const provider = input.provider ?? 'deepseek';
+  let service: DeepSeekTranslationService;
+  if (provider === 'openrouter') {
+    const { OpenRouterTranslationService } = await import('./service/openrouter');
+    service = new OpenRouterTranslationService(input.promptStyle) as any;
+  } else if (provider === 'nvidia') {
+    const { NvidiaTranslationService } = await import('./service/nvidia');
+    service = new NvidiaTranslationService(input.model, input.promptStyle) as any;
+  } else if (provider === 'cloudflare') {
+    const { CloudflareAITranslationService } = await import('./service/cloudflare');
+    service = new CloudflareAITranslationService(input.promptStyle) as any;
+  } else if (provider === 'mimo') {
+    const { MimoTranslationService } = await import('./service/mimo');
+    service = new MimoTranslationService(input.promptStyle) as any;
+  } else if (provider === 'gemini') {
+    const { GeminiTranslationService } = await import('./service/gemini');
+    service = new GeminiTranslationService(input.model, input.promptStyle) as any;
+  } else if (provider === 'opencode') {
+    const { OpencodeTranslationService } = await import('./service/opencode');
+    service = new OpencodeTranslationService(input.promptStyle) as any;
+  } else {
+    service = new DeepSeekTranslationService(input.apiKey, input.promptStyle);
+  }
   return translateChunksWithRetry(
     service,
     chunks,
@@ -334,7 +372,7 @@ export async function translateBlocks(
     input.target || 'zh',
     input.glossary,
     input.concurrency ?? 4,
-    /* provider */ 'deepseek',
+    provider,
     input.promptStyle,
   );
 }

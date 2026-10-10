@@ -72,6 +72,94 @@ describe('POST /api/translate/document/parse', () => {
   });
 });
 
+describe('POST /api/translate/document/segments', () => {
+  it('接受扩展端已解析的 PDF 片段，并在预检响应保留页码与章节语境', async () => {
+    const res = await post('/api/translate/document/segments', {
+      fileName: 'research.pdf',
+      title: 'Research',
+      format: 'pdf',
+      translate: false,
+      warnings: ['第 3 页文本较少，建议检查'],
+      segments: [{
+        id: 'pdf-p3-s0',
+        index: 0,
+        text: 'The model improves translation quality.',
+        kind: 'paragraph',
+        page: 3,
+        contextPath: '2 Method > 2.1 Model',
+      }],
+    });
+    expect(res.status).toBe(200);
+    const json: any = await res.json();
+    expect(json.format).toBe('pdf');
+    expect(json.segments[0].id).toBe('pdf-p3-s0');
+    expect(json.segments[0].page).toBe(3);
+    expect(json.segments[0].contextPath).toBe('2 Method > 2.1 Model');
+    expect(json.warnings).toContain('第 3 页文本较少，建议检查');
+    expect(json.translations).toBeUndefined();
+  });
+
+  it('结构化 PDF 通过同一翻译 pipeline 返回逐段结果', async () => {
+    const res = await post('/api/translate/document/segments', {
+      fileName: 'research.pdf',
+      format: 'pdf',
+      target: 'zh',
+      segments: [{
+        id: 'pdf-p3-s0',
+        index: 0,
+        text: 'The model improves translation quality.',
+        kind: 'paragraph',
+        page: 3,
+        contextPath: '2 Method > 2.1 Model',
+      }],
+    });
+    expect(res.status).toBe(200);
+    const json: any = await res.json();
+    expect(json.translations).toEqual({ 'pdf-p3-s0': '译-pdf-p3-s0' });
+    expect(json.complete).toBe(true);
+    expect(json.missingSegmentIds).toEqual([]);
+    expect(json.completedSegmentCount).toBe(1);
+  });
+
+  it('将当前 provider、model 和章节语境传入翻译层', async () => {
+    const res = await post('/api/translate/document/segments', {
+      fileName: 'research.pdf',
+      format: 'pdf',
+      target: 'zh',
+      provider: 'openrouter',
+      model: 'example-model',
+      segments: [{
+        id: 'pdf-p3-s0',
+        text: 'The model improves translation quality.',
+        kind: 'paragraph',
+        page: 3,
+        contextPath: '2 Method > 2.1 Model',
+      }],
+    });
+    expect(res.status).toBe(200);
+    const { translateBlocks } = await import('../lib/translate/pipeline');
+    const input = (translateBlocks as any).mock.calls[0][0];
+    expect(input.provider).toBe('openrouter');
+    expect(input.model).toBe('example-model');
+    expect(input.blocks[0].contextPath).toBe('2 Method > 2.1 Model');
+  });
+
+  it('拒绝重复片段 ID，避免译文回填错位', async () => {
+    const res = await post('/api/translate/document/segments', {
+      fileName: 'research.pdf',
+      format: 'pdf',
+      translate: false,
+      segments: [
+        { id: 'dup', text: 'First paragraph', kind: 'paragraph' },
+        { id: 'dup', text: 'Second paragraph', kind: 'paragraph' },
+      ],
+    });
+    expect(res.status).toBe(400);
+    const json: any = await res.json();
+    expect(json.error).toContain('重复片段 ID');
+  });
+});
+
 describe('POST /api/translate/document', () => {
   it('translate:false 时只解析不翻译', async () => {
     const res = await post('/api/translate/document', {

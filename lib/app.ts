@@ -63,7 +63,7 @@ export function injectTranslationCss(html: string): string {
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { translateText, translateUrl, translateHtml } from './translate/pipeline';
-import { parseDocument, SERVER_SUPPORTED_FORMATS } from './translate/document';
+import { createStructuredDocument, parseDocument, SERVER_SUPPORTED_FORMATS } from './translate/document';
 import { translateDocument } from './translate/documentPipeline';
 import { hasDocumentRoot, validateTranslationCompleteness } from './translate/translationValidator';
 import { simpleHash } from './translate/cacheKey';
@@ -912,6 +912,84 @@ ${pager}
       // 不支持的格式是用户输入问题，不是服务故障 → 415 而不是 500
       const status = message.includes('不支持') || message.includes('上限') ? 415 : 400;
       return c.json({ error: message, supported: SERVER_SUPPORTED_FORMATS }, status);
+    }
+  });
+
+  /**
+   * POST /api/translate/document/segments —— 翻译客户端已经解析完成的结构化片段。
+   *
+   * 典型用途是 PDF：浏览器端用 PDF.js 完成文本重建、栏顺序与章节识别后，只传片段及语境；
+   * 服务端复用同一分批翻译、术语、文风、缺失重试和导出管线，不接收/解析 PDF 二进制。
+   */
+  app.post('/api/translate/document/segments', async (c) => {
+    const body = await c.req.json().catch(() => ({} as any));
+    const { fileName, title, format, segments, warnings, source, target, glossary,
+      promptStyle, exportAs, exportMode, translate, concurrency, budget, provider, model, apiKey } = body || {};
+    if (typeof fileName !== 'string' || !fileName.trim()) {
+      return c.json({ error: 'fileName is required' }, 400);
+    }
+
+    const startedAt = Date.now();
+    try {
+      // Netlify/边缘函数对请求体有实际大小限制。用 UTF-8 预算提前给出可操作错误，
+      // 不让大 PDF 的结构化 JSON 在平台层被截断成含糊的 413/502。
+      const payloadBytes = new TextEncoder().encode(JSON.stringify(body)).byteLength;
+      const MAX_STRUCTURED_REQUEST_BYTES = 5 * 1024 * 1024;
+      if (payloadBytes > MAX_STRUCTURED_REQUEST_BYTES) {
+        return c.json({
+          error: '结构化文档请求体超过 5 MiB。请在扩展端拆分 PDF 或只提交待翻译的章节后重试。',
+          payloadBytes,
+          maxBytes: MAX_STRUCTURED_REQUEST_BYTES,
+        }, 413);
+      }
+      const doc = createStructuredDocument({ fileName, title, format, segments, warnings });
+      if (translate === false) {
+        return c.json({
+          fileName,
+          title: doc.title,
+          format: doc.format,
+          segments: doc.segments,
+          charCount: doc.meta.charCount,
+          segmentCount: doc.segments.length,
+          warnings: doc.meta.warnings,
+          translated: false,
+        });
+      }
+      if (!doc.segments.length) {
+        return c.json({ error: '没有可翻译片段', warnings: doc.meta.warnings }, 400);
+      }
+
+      const supportedProviders = ['deepseek', 'openrouter', 'nvidia', 'cloudflare', 'mimo', 'gemini', 'opencode'];
+      if (provider !== undefined && !supportedProviders.includes(provider)) {
+        return c.json({ error: 'provider is not supported', supportedProviders }, 400);
+      }
+      const result = await translateDocument({
+        doc,
+        source,
+        target,
+        glossary,
+        promptStyle: promptStyle as PromptStyle | undefined,
+        exportAs,
+        exportMode,
+        concurrency: typeof concurrency === 'number' ? concurrency : undefined,
+        budget: budget && typeof budget === 'object' ? budget : undefined,
+        provider,
+        model: typeof model === 'string' ? model : undefined,
+        apiKey: typeof apiKey === 'string' ? apiKey : undefined,
+      });
+      return c.json({
+        ...result,
+        fileName,
+        warnings: doc.meta.warnings,
+        total_ms: Date.now() - startedAt,
+      });
+    } catch (err) {
+      const message = (err as Error).message;
+      const status = message.includes('不支持') ? 415 : 400;
+      return c.json({
+        error: message,
+        supported: ['pdf', ...SERVER_SUPPORTED_FORMATS],
+      }, status);
     }
   });
 

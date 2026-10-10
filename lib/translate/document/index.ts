@@ -25,6 +25,101 @@ export interface ParseDocumentOptions {
   maxSegmentChars?: number;
 }
 
+/**
+ * 已在客户端完成解析的文档入口。
+ *
+ * 浏览器扩展能够访问 PDF.js 和本地 OCR/图像能力；服务端只接收规整后的片段，
+ * 因此不用在 Worker 中载入 PDF.js、canvas 或再次解析原始二进制文件。
+ * 这里会重新验证 ID、类型、长度与结构，防止错误片段导致译文错位或部分成功被误报。
+ */
+export interface StructuredDocumentPayload {
+  fileName: string;
+  title?: string;
+  format: unknown;
+  segments: unknown;
+  warnings?: unknown;
+}
+
+const STRUCTURED_FORMATS = new Set<DocumentFormat>([
+  'pdf', 'txt', 'md', 'html', 'srt', 'vtt', 'json', 'docx', 'epub',
+]);
+const STRUCTURED_SEGMENT_KINDS = new Set([
+  'heading', 'paragraph', 'list-item', 'caption', 'code', 'quote', 'other',
+]);
+const MAX_STRUCTURED_SEGMENTS = 20_000;
+const MAX_STRUCTURED_TEXT_CHARS = 1_500_000;
+
+/**
+ * 验证并构造标准 ParsedDocument，不尝试解析原文件。
+ * id 必须唯一且稳定；服务端在翻译和回填过程中始终保留调用方的 id。
+ */
+export function createStructuredDocument(input: StructuredDocumentPayload): ParsedDocument {
+  if (!input.fileName?.trim()) throw new Error('fileName is required');
+  if (typeof input.format !== 'string' || !STRUCTURED_FORMATS.has(input.format as DocumentFormat)) {
+    throw new Error('不支持的结构化文档格式：' + String(input.format));
+  }
+  if (!Array.isArray(input.segments)) throw new Error('segments 必须是数组');
+  if (input.segments.length > MAX_STRUCTURED_SEGMENTS) {
+    throw new Error('片段数量超过上限 ' + MAX_STRUCTURED_SEGMENTS);
+  }
+
+  const ids = new Set<string>();
+  let charCount = 0;
+  const segments: DocumentSegment[] = input.segments.map((raw: unknown, index: number) => {
+    if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
+      throw new Error('segments[' + index + '] 必须是对象');
+    }
+    const value = raw as Record<string, unknown>;
+    if (typeof value.id !== 'string' || !value.id.trim() || value.id.length > 200) {
+      throw new Error('segments[' + index + '].id 必须是 1-200 字符的非空字符串');
+    }
+    if (ids.has(value.id)) throw new Error('发现重复片段 ID：' + value.id);
+    ids.add(value.id);
+    if (typeof value.text !== 'string' || !value.text.trim()) {
+      throw new Error('segments[' + index + '].text 不能为空');
+    }
+    charCount += value.text.length;
+    if (charCount > MAX_STRUCTURED_TEXT_CHARS) {
+      throw new Error('结构化文档文本超过 ' + MAX_STRUCTURED_TEXT_CHARS + ' 字符上限；大文档请拆分后分批提交');
+    }
+
+    const kind = typeof value.kind === 'string' && STRUCTURED_SEGMENT_KINDS.has(value.kind)
+      ? value.kind as DocumentSegment['kind']
+      : 'paragraph';
+    const segment: DocumentSegment = {
+      id: value.id,
+      index,
+      text: value.text.trim(),
+      kind,
+    };
+    if (Number.isInteger(value.level) && (value.level as number) >= 1 && (value.level as number) <= 6) {
+      segment.level = value.level as number;
+    }
+    if (Number.isInteger(value.page) && (value.page as number) > 0) {
+      segment.page = value.page as number;
+    }
+    if (typeof value.marker === 'string' && value.marker.trim()) segment.marker = value.marker.trim().slice(0, 20);
+    if (typeof value.contextPath === 'string' && value.contextPath.trim()) {
+      segment.contextPath = value.contextPath.trim().slice(0, 500);
+    }
+    if (typeof value.path === 'string' && value.path.trim()) segment.path = value.path.trim().slice(0, 1000);
+    if (typeof value.start === 'string') segment.start = value.start;
+    if (typeof value.end === 'string') segment.end = value.end;
+    return segment;
+  });
+
+  const warnings = Array.isArray(input.warnings)
+    ? input.warnings.filter((warning): warning is string => typeof warning === 'string').slice(0, 100)
+    : [];
+
+  return {
+    format: input.format as DocumentFormat,
+    title: (typeof input.title === 'string' && input.title.trim() ? input.title.trim() : input.fileName).slice(0, 500),
+    segments,
+    meta: { charCount, segmentCount: segments.length, warnings },
+  };
+}
+
 /** 服务端可解析的格式。 */
 export const SERVER_SUPPORTED_FORMATS = ['txt', 'md', 'html', 'srt', 'vtt', 'json'] as const;
 

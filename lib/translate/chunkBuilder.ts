@@ -35,7 +35,13 @@ export function estimateTokens(text: string): number {
 
 function buildJsonContent(blocks: TextBlock[]): string {
   return JSON.stringify(
-    blocks.map((b) => ({ id: b.id, text: b.text }))
+    blocks.map((b) => ({
+      id: b.id,
+      text: b.text,
+      ...(b.contextPath ? { contextPath: b.contextPath } : {}),
+      ...(b.kind ? { kind: b.kind } : {}),
+      ...(Number.isInteger(b.level) ? { level: b.level } : {}),
+    }))
   );
 }
 

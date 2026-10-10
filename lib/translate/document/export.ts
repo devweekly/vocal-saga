@@ -69,28 +69,48 @@ function renderSegmentText(segment: DocumentSegment, translated: string, mode: E
 
 /** HTML：按语义还原标签，双语用 <span class="fanyi-doc-tr"> 区分。 */
 function toHtml(doc: ParsedDocument, translations: Translations, mode: ExportMode): string {
-  const body = doc.segments
-    .map((segment) => {
-      const tr = pick(translations, segment.id);
-      const original = escapeHtml(segment.text).replace(/\n/g, '<br>');
-      const translated = escapeHtml(tr).replace(/\n/g, '<br>');
-      const pair =
-        mode === 'translation'
-          ? `<div class="fanyi-tr">${translated || original}</div>`
-          : `<div class="fanyi-or">${original}</div>${
-              tr ? `<div class="fanyi-tr">${translated}</div>` : ''
-            }`;
+  const bodyParts: string[] = [];
+  let activeListMode: 'ul' | 'ol' | null = null;
+  let listItems: string[] = [];
+  const flushList = () => {
+    if (!activeListMode) return;
+    bodyParts.push('<' + activeListMode + '>' + listItems.join('\n') + '</' + activeListMode + '>');
+    activeListMode = null;
+    listItems = [];
+  };
 
-      if (segment.kind === 'heading') {
-        const level = Math.min(Math.max(segment.level ?? 2, 1), 6);
-        return `<h${level}>${pair}</h${level}>`;
-      }
-      if (segment.kind === 'list-item') return `<li>${pair}</li>`;
-      if (segment.kind === 'quote') return `<blockquote>${pair}</blockquote>`;
-      if (segment.kind === 'code') return `<pre><code>${original}</code></pre>`;
-      return `<p>${pair}</p>`;
-    })
-    .join('\n');
+  for (const segment of doc.segments) {
+    const tr = pick(translations, segment.id);
+    const original = escapeHtml(segment.text).replace(/\n/g, '<br>');
+    const translated = escapeHtml(tr).replace(/\n/g, '<br>');
+    const pair = mode === 'translation'
+      ? '<div class="fanyi-tr">' + (translated || original) + '</div>'
+      : '<div class="fanyi-or">' + original + '</div>' +
+        (tr ? '<div class="fanyi-tr">' + translated + '</div>' : '');
+
+    if (segment.kind === 'list-item') {
+      const marker = segment.marker ?? '-';
+      const nextListMode: 'ul' | 'ol' = /^\s*(?:\d+|[A-Za-z])[.)、]?$/.test(marker) ? 'ol' : 'ul';
+      if (activeListMode && activeListMode !== nextListMode) flushList();
+      activeListMode = nextListMode;
+      listItems.push('<li>' + pair + '</li>');
+      continue;
+    }
+
+    flushList();
+    if (segment.kind === 'heading') {
+      const level = Math.min(Math.max(segment.level ?? 2, 1), 6);
+      bodyParts.push('<h' + level + '>' + pair + '</h' + level + '>');
+    } else if (segment.kind === 'quote') {
+      bodyParts.push('<blockquote>' + pair + '</blockquote>');
+    } else if (segment.kind === 'code') {
+      bodyParts.push('<pre><code>' + original + '</code></pre>');
+    } else {
+      bodyParts.push('<p>' + pair + '</p>');
+    }
+  }
+  flushList();
+  const body = bodyParts.join('\n');
 
   return `<!DOCTYPE html>
 <html lang="zh-CN">
@@ -129,8 +149,9 @@ function toPlainText(
 
     if (segment.kind === 'heading' && markdown) {
       lines.push(`${'#'.repeat(Math.min(Math.max(segment.level ?? 2, 1), 6))} ${text}`, '');
-    } else if (segment.kind === 'list-item' && markdown) {
-      lines.push(`- ${text.replace(/\n/g, ' ')}`);
+    } else if (segment.kind === 'list-item') {
+      const marker = segment.marker ?? '-';
+      lines.push(marker + ' ' + text.replace(/\n/g, ' '));
     } else if (segment.kind === 'code') {
       lines.push(markdown ? '```' : '', segment.text, markdown ? '```' : '', '');
     } else {

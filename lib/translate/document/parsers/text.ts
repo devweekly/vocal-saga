@@ -41,6 +41,8 @@ export function splitLongText(
 interface MdLine {
   kind: SegmentKind;
   level?: number;
+  /** Markdown 有序列表的原始编号；无序列表统一为 -。 */
+  marker?: string;
   text: string;
 }
 
@@ -57,9 +59,14 @@ export function classifyMarkdownLine(line: string): MdLine {
   if (/^>\s?/.test(line)) {
     return { kind: 'quote', text: line.replace(/^>\s?/, '').trim() };
   }
-  const list = /^\s*(?:[-*+]|\d+[.)])\s+(.*)$/.exec(line);
+  const list = /^\s*([-*+]|\d+[.)、])\s+(.*)$/.exec(line);
   if (list) {
-    return { kind: 'list-item', text: (list[1] as string).trim() };
+    const marker = (list[1] as string);
+    return {
+      kind: 'list-item',
+      marker: /^\d/u.test(marker) ? marker : '-',
+      text: (list[2] as string).trim(),
+    };
   }
   return { kind: 'paragraph', text: line.trim() };
 }
@@ -87,11 +94,11 @@ export function parseTextDocument(
   let index = 0;
   let title = '';
 
-  const push = (text: string, kind: SegmentKind, level?: number) => {
+  const push = (text: string, kind: SegmentKind, level?: number, marker?: string) => {
     const trimmed = text.trim();
     if (!trimmed) return;
     for (const part of splitLongText(trimmed, max)) {
-      segments.push({ id: `s${index}`, index, text: part, kind, level });
+      segments.push({ id: `s${index}`, index, text: part, kind, level, ...(marker ? { marker } : {}) });
       index++;
     }
   };
@@ -139,7 +146,7 @@ export function parseTextDocument(
         paragraph.push(info.text);
       } else {
         flushParagraph();
-        push(info.text, info.kind, info.level);
+        push(info.text, info.kind, info.level, info.marker);
       }
     } else {
       paragraph.push(line.trim());

@@ -9,6 +9,10 @@ export interface TextBlock {
   xpath: string;
   tag: string;
   text: string;
+  /** 文档翻译的章节语境；网页翻译块通常不设置。 */
+  contextPath?: string;
+  kind?: string;
+  level?: number;
   /** 渲染提示：Walker 阶段只标记候选，Render 阶段再决定 */
   renderHint?: {
     inlineCandidate?: boolean;

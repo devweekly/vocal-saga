@@ -68,6 +68,46 @@ describe('translateDocument', () => {
   });
 
 
+  it('对缺失片段只重试缺失 ID，并把章节语境传给翻译模型', async () => {
+    mocked
+      .mockImplementationOnce(async ({ blocks }: { blocks: Array<{ id: string }> }) =>
+        new Map(blocks.filter((block) => block.id === 's0').map((block) => [block.id, '译-s0'])),
+      )
+      .mockImplementationOnce(async ({ blocks }: { blocks: Array<{ id: string; contextPath?: string }> }) => {
+        expect(blocks).toHaveLength(1);
+        expect(blocks[0]?.id).toBe('s1');
+        expect(blocks[0]?.contextPath).toBe('Chapter 2');
+        return new Map([['s1', '译-s1']]);
+      });
+
+    const doc = fakeDoc({
+      segments: [
+        { id: 's0', index: 0, text: 'Hello', kind: 'paragraph', contextPath: 'Chapter 1' },
+        { id: 's1', index: 1, text: 'World', kind: 'paragraph', contextPath: 'Chapter 2', page: 4 },
+      ],
+    });
+    const result = await translateDocument({ doc, target: 'zh' });
+
+    expect(mocked).toHaveBeenCalledTimes(2);
+    expect(result.translations).toEqual({ s0: '译-s0', s1: '译-s1' });
+    expect(result.complete).toBe(true);
+    expect(result.missingSegmentIds).toEqual([]);
+  });
+
+  it('重试后仍缺失片段时返回明确的不完整状态', async () => {
+    mocked.mockImplementation(async ({ blocks }: { blocks: Array<{ id: string }> }) =>
+      new Map(blocks.filter((block) => block.id === 's0').map((block) => [block.id, '译-s0'])),
+    );
+    const result = await translateDocument({ doc: fakeDoc(), target: 'zh' });
+
+    expect(result.translations.s0).toBe('译-s0');
+    expect(result.translations.s1).toBeUndefined();
+    expect(result.complete).toBe(false);
+    expect(result.missingSegmentIds).toEqual(['s1']);
+    expect(result.failedBatches).toEqual([0]);
+    expect(result.errors[0]).toContain('s1');
+  });
+
   it('空文档不发起任何翻译请求', async () => {
     const result = await translateDocument({
       doc: fakeDoc({ segments: [], meta: { charCount: 0, segmentCount: 0, warnings: [] } }),

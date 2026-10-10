@@ -32,6 +32,9 @@ export interface DocumentTranslateInput {
   /** 需要时顺带导出成文件内容（bilingual / translation）。 */
   exportAs?: ExportFormat;
   exportMode?: 'bilingual' | 'translation';
+  provider?: import('./pipeline').TranslationProvider;
+  model?: string;
+  apiKey?: string;
 }
 
 export interface DocumentTranslateResult {
@@ -39,8 +42,12 @@ export interface DocumentTranslateResult {
   format: string;
   segmentCount: number;
   charCount: number;
-  /** segmentId → 译文 */
+  /** segmentId → 译文；失败片段保留为空，供调用方有针对性地重试。 */
   translations: Record<string, string>;
+  /** 仍无有效译文的片段 ID；空数组才表示内容完整。 */
+  missingSegmentIds: string[];
+  completedSegmentCount: number;
+  complete: boolean;
   batchCount: number;
   /** 失败的批次下标；为空表示全部成功。 */
   failedBatches: number[];
@@ -86,17 +93,47 @@ export async function translateDocument(
 
   await runWithConcurrency(batches, concurrency, async (batch, index) => {
     try {
-      const result = await translateBlocks({
-        blocks: batch.map((s: DocumentSegment) => ({ id: s.id, text: s.text })),
+      const request = (items: DocumentSegment[]) => translateBlocks({
+        blocks: items.map((segment) => ({
+          id: segment.id,
+          text: segment.text,
+          contextPath: segment.contextPath,
+          kind: segment.kind,
+          level: segment.level,
+        })),
         source: input.source,
         target: input.target,
         glossary: input.glossary,
         promptStyle: effectiveStyle,
         concurrency: 1,
+        provider: input.provider,
+        model: input.model,
+        apiKey: input.apiKey,
       });
-      // 逐批提交：成功的批立刻可见，失败的批不影响已完成部分
-      for (const [id, text] of result) {
-        if (text) translations.set(id, text);
+      const commitExpected = (items: DocumentSegment[], result: Map<string, string>) => {
+        const expected = new Set(items.map((segment) => segment.id));
+        for (const [id, text] of result) {
+          // 不允许模型返回陌生 ID；非空译文才会进入成功集合。
+          if (expected.has(id) && typeof text === 'string' && text.trim()) translations.set(id, text);
+        }
+      };
+
+      const result = await request(batch);
+      commitExpected(batch, result);
+
+      // translateBlocks 会先自行处理 chunk 缺失；这里再按文档片段对账一次，
+      // 防止模型部分漏项或服务端解析异常在 HTTP 200 下被误当成整批成功。
+      const missing = batch.filter((segment) => !translations.get(segment.id)?.trim());
+      if (missing.length) {
+        const retried = await request(missing);
+        commitExpected(missing, retried);
+      }
+      const stillMissing = batch.filter((segment) => !translations.get(segment.id)?.trim());
+      if (stillMissing.length) {
+        throw new Error(
+          '批次仍缺少 ' + stillMissing.length + ' 个片段：' +
+          stillMissing.slice(0, 8).map((segment) => segment.id).join(', '),
+        );
       }
     } catch (err) {
       failedBatches.push(index);
@@ -107,11 +144,14 @@ export async function translateDocument(
   const out: DocumentTranslateResult = {
     title: doc.title,
     format: doc.format,
-    segmentCount: doc.meta.segmentCount,
-    charCount: doc.meta.charCount,
+    segmentCount: doc.segments.length,
+    charCount: doc.segments.reduce((sum, segment) => sum + segment.text.length, 0),
     translations: Object.fromEntries(translations),
+    missingSegmentIds: doc.segments.filter((segment) => !translations.get(segment.id)?.trim()).map((segment) => segment.id),
+    completedSegmentCount: doc.segments.filter((segment) => !!translations.get(segment.id)?.trim()).length,
+    complete: doc.segments.every((segment) => !!translations.get(segment.id)?.trim()),
     batchCount: batches.length,
-    failedBatches,
+    failedBatches: failedBatches.sort((a, b) => a - b),
     errors,
     duration_ms: Date.now() - start,
   };
