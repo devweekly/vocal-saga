@@ -56,7 +56,7 @@ wrangler secret put INSTAPAPER_CLIENT_ID
 wrangler secret put INSTAPAPER_CLIENT_SECRET
 ```
 
-Instapaper OAuth 应用的 Callback URL 需精确配置为 `https://s.sunxiunan.com/instapaper`。常规保存优先使用 Cloudflare 的 `INSTAPAPER_ACCESS_TOKEN`；完成 OAuth 连接后，授权 token 会写入 `VOCAL_SAGA_KV`。浏览器只会调用 Vocal Saga API，不会获得 Instapaper token。
+Instapaper OAuth 应用的 Callback URL 需精确配置为 `https://s.sunxiunan.com/instapaper`。如果已经通过 OAuth 连接账号，`VOCAL_SAGA_KV` 中的授权 token 优先使用；否则回退到 Cloudflare Secret `INSTAPAPER_ACCESS_TOKEN`。浏览器只会调用 Vocal Saga API，不会获得 Instapaper token。
 
 ## Testing
 
