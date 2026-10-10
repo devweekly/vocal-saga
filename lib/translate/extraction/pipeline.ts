@@ -127,16 +127,15 @@ function rankCandidates(
  * @param contextOut 可选 out 参数：透传给 provider，可填充 noiseSet/textCache 等
  * @returns RootSelectionResult（必返回，最差也是 body-fallback）
  */
-export function selectBestRoot(
+export function selectRootCandidates(
   doc: Document,
   pageUrl: string,
   contextOut?: Partial<ArticleContext>,
-): RootSelectionResult {
-  const context: CandidateProviderContext = {
-    pageUrl,
-  };
-
+): RootSelectionResult[] {
+  const context: CandidateProviderContext = { pageUrl };
   const candidates: ArticleCandidate[] = [];
+
+  // 每个 provider 只负责提出候选；所有候选按同一套评分规则排序。
   for (const provider of DEFAULT_PROVIDERS) {
     try {
       const candidate = provider.provide(doc, context);
@@ -146,32 +145,33 @@ export function selectBestRoot(
     }
   }
 
-  // Fallback 1：所有 provider 都无候选 → 返回 body 作为兜底根。
-  // contentHelper.prepareDocument 会用 body 作 root 跑 extractBlocks，
-  // walker 自身的 SKIP_SET / SEMANTIC_SKIP_TAGS 会过滤 nav/aside/footer 等。
-  //
-  // 注意：不在低 confidence 时主动 fallback——原行为是"有候选就用候选"，
-  // 让 prepareDocument 通过 0 块检测再触发 data-island 兜底。
-  // 主动 fallback 会破坏 selectorProvider 的细粒度容器选择（.post-content 等）。
   if (candidates.length === 0) {
-    console.warn('[ExtractionPipeline] No candidates from any provider, falling back to <body>');
-    return buildBodyFallback(doc, contextOut);
+    console.warn('[ExtractionPipeline] No candidates from providers, falling back to <body>');
+    return [buildBodyFallback(doc, contextOut)];
   }
 
   const ranked = rankCandidates(candidates, doc);
   const best = ranked[0];
-
-  // 将 context 中的 noiseSet/textCache 写回 contextOut，供 block extraction 复用。
   writeContextOut(context, contextOut, best);
-
-  return {
-    root: best.root,
-    candidate: best,
-    strategy: best.provider,
-    confidence: best.confidence,
-  };
+  return ranked.map((candidate) => ({
+    root: candidate.root,
+    candidate,
+    strategy: candidate.provider,
+    confidence: candidate.confidence,
+  }));
 }
 
+/**
+ * 保留旧的单候选 API，供只需要最高评分候选的调用方使用。
+ * 正文抽取主流程应优先使用 selectRootCandidates，并通过实际抽取质量决定是否回退。
+ */
+export function selectBestRoot(
+  doc: Document,
+  pageUrl: string,
+  contextOut?: Partial<ArticleContext>,
+): RootSelectionResult {
+  return selectRootCandidates(doc, pageUrl, contextOut)[0];
+}
 /** 把 context 中的 noiseSet/textCache 写回 contextOut，供 block extraction 复用。 */
 function writeContextOut(
   context: CandidateProviderContext,

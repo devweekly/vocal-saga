@@ -1,6 +1,6 @@
 import { extractBlocks, getLastCounters, type TextBlock, type ArticleContext } from './blockExtractor';
 import { buildChunks, type Chunk } from './chunkBuilder';
-import { selectBestRoot } from './extraction/pipeline';
+import { selectRootCandidates } from './extraction/pipeline';
 import { parseHTML } from 'linkedom';
 
 // =============================================================================
@@ -298,18 +298,83 @@ function buildReport(
 function findArticleRoot(
   doc: Document,
   pageUrl: string,
-  /**
-   * 可选 out 参数: 透传给 extraction pipeline, 供 block extraction 复用
-   * noiseSet / textCache / confidence / semanticHints。
-   */
+  /** 可选 out 参数：透传 root detection 与 block extraction 共用的上下文。 */
   contextOut?: Partial<ArticleContext>,
 ): { root: Element; strategy: string } {
-  // P1-3 后 selectBestRoot 已整合 body-fallback（候选质量分 < 阈值或无候选时
-  // 直接返回 doc.body）。contentHelper 不再单独实现 L3 兜底。
-  const selection = selectBestRoot(doc, pageUrl, contextOut);
-  return { root: selection.root, strategy: selection.strategy };
-}
+  const ranked = selectRootCandidates(doc, pageUrl, contextOut);
+  const candidates = [...ranked];
+  const body = doc.body || doc.documentElement;
+  if (body && !candidates.some((candidate) => candidate.root === body)) {
+    candidates.push({
+      root: body,
+      strategy: 'body-fallback',
+      confidence: 0,
+      candidate: { provider: 'body-fallback', root: body, textLength: (body.textContent || '').length, confidence: 0 },
+    });
+  }
 
+  // 候选评分只是初筛，必须实际跑一次正文抽取才能证明它适用。
+  // 预检在 clone 上完成，失败候选不会污染真实 DOM 的 block id。
+  let bestUsable: { root: Element; strategy: string; coverage: number; textLength: number } | null = null;
+  const seenRoots = new Set<Element>();
+  for (const candidate of candidates) {
+    const expanded = expandRootForHeader(candidate.root);
+    const candidateRoot = expanded.root;
+    if (seenRoots.has(candidateRoot)) continue;
+    seenRoots.add(candidateRoot);
+
+    let probeRoot = candidateRoot.cloneNode(true) as Element;
+    if (probeRoot.tagName.toLowerCase() === 'table') {
+      probeRoot = unwrapTableRoot(probeRoot);
+    }
+    let probeBlocks: TextBlock[] = [];
+    try {
+      probeBlocks = extractBlocks(probeRoot, pageUrl);
+    } catch (error) {
+      console.warn(`[ContentHelper] Extraction preflight failed for ${candidate.strategy}:`, error);
+    }
+
+    const extractedLength = probeBlocks.reduce((sum, block) => sum + block.text.length, 0);
+    const rootTextLength = (probeRoot.textContent || '').trim().length;
+    const coverage = rootTextLength > 0 ? extractedLength / rootTextLength : 0;
+    // extractBlocks 从 root 的子节点开始遍历，因此额外检查候选自身及其祖先是否处于
+    // 编辑器、hidden 或 aria-hidden 容器；否则被屏蔽的候选根可能因“root 不访问自身”而漏过。
+    const blockedAncestor = !!candidateRoot.closest(
+      '[contenteditable]:not([contenteditable="false"]), [hidden], [aria-hidden="true"]',
+    );
+    const clearlyIncomplete =
+      blockedAncestor ||
+      probeBlocks.length === 0 ||
+      (rootTextLength >= 600 && (extractedLength < 120 || coverage < 0.08));
+    const strategy = candidate.strategy + (expanded.expanded ? '-header-expand' : '');
+
+    console.log(
+      `[ContentHelper] Extraction preflight: strategy=${strategy}, blocks=${probeBlocks.length}, ` +
+      `extractedChars=${extractedLength}, rootChars=${rootTextLength}, coverage=${coverage.toFixed(3)}, ` +
+      `usable=${!clearlyIncomplete}`,
+    );
+
+    if (!clearlyIncomplete) {
+      return { root: candidateRoot, strategy };
+    }
+
+    // 候选全都未达阈值时，保留最有价值的非空结果，避免短文或特殊格式被误判为无内容。
+    if (probeBlocks.length > 0 && (!bestUsable || coverage > bestUsable.coverage)) {
+      bestUsable = { root: candidateRoot, strategy, coverage, textLength: extractedLength };
+    }
+  }
+
+  if (bestUsable) {
+    console.warn(
+      `[ContentHelper] All candidates were below quality threshold; using ${bestUsable.strategy} ` +
+      `(coverage=${bestUsable.coverage.toFixed(3)}, chars=${bestUsable.textLength})`,
+    );
+    return { root: bestUsable.root, strategy: bestUsable.strategy + '-best-effort' };
+  }
+
+  console.warn('[ContentHelper] All candidate preflights returned no text; falling back to <body>');
+  return { root: body || doc.documentElement, strategy: 'body-fallback' };
+}
 // =============================================================================
 // Data Island fallback —— 从 SPA 数据岛提取正文
 // =============================================================================
@@ -806,6 +871,30 @@ export function expandRootForHeader(
   return { root: effectiveRoot, expanded: false };
 }
 
+/**
+ * 样式快照失败时，把正文候选提升为 Reader 布局唯一主内容。
+ * 对每层祖先只隐藏与正文路径无关的兄弟节点，不删除节点，也不影响正常源站样式模式。
+ */
+function focusReaderOnRoot(root: Element): void {
+  const doc = root.ownerDocument;
+  const body = doc?.body;
+  if (!doc || !body || root === body || root === doc.documentElement) return;
+
+  root.setAttribute('data-fanyi-reader-content', 'true');
+  let branch: Element = root;
+  while (branch.parentElement && branch.parentElement !== body && branch.parentElement !== doc.documentElement) {
+    const parent = branch.parentElement;
+    for (const sibling of Array.from(parent.children)) {
+      if (sibling !== branch) sibling.setAttribute('data-fanyi-reader-hidden', 'true');
+    }
+    branch = parent;
+  }
+  if (branch.parentElement === body) {
+    for (const sibling of Array.from(body.children)) {
+      if (sibling !== branch) sibling.setAttribute('data-fanyi-reader-hidden', 'true');
+    }
+  }
+}
 export function prepareDocument(
   root: Document | Element,
   pageUrl: string
@@ -856,6 +945,14 @@ export function prepareDocument(
         `[ContentHelper] Header expansion: root expanded to <${parent.tagName.toLowerCase()}> (included preceding header with headings)`
       );
     }
+  }
+
+  // CSS 无法完整快照时统一切到 Reader 布局，并聚焦本次已验证的正文根。
+  const renderDocument = isDoc
+    ? (root as Document).documentElement
+    : (root as Element).ownerDocument?.documentElement;
+  if (renderDocument?.getAttribute('data-fanyi-render-mode') === 'reader') {
+    focusReaderOnRoot(effectiveRoot);
   }
 
   let blocks = extractBlocks(effectiveRoot, pageUrl, articleContext);

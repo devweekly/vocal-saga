@@ -77,6 +77,7 @@ import { stripDangerousScripts, stripNavigationScripts } from './spaGuard';
 import { devirtualizeLayout } from './devirtualize';
 import { applyGlobalNoiseFromUrl } from './translate/contentHelper';
 import { applySiteDisplayRules } from './translate/displayRules';
+import { inlineExternalStylesheets } from './translate/cssInliner';
 import {
   CF_BASE,
   DS_BASE,
@@ -248,6 +249,42 @@ export function createApp(env?: Record<string, unknown>, storage?: StorageAdapte
     return pageUrl ? applySiteDisplayRules(processed, pageUrl) : processed;
   };
 
+  /**
+   * 展示历史缓存前，尝试把遗留 CSS 外链升级为当前版本的样式快照。
+   * 这样旧 /article/:id 不需要等用户重新翻译，就能补齐还可访问的 CSS；
+   * 若关键 CSS 已失效，cssInliner 会明确切换为 Reader，而不是继续输出半残布局。
+   */
+  const renderCachedTranslationHtml = async (
+    html: string,
+    pageUrl: string,
+    db?: any,
+    cacheId?: number | string,
+  ): Promise<string> => {
+    let baseUrl = pageUrl;
+    const baseMatch = html.match(/<base\b[^>]*\bhref\s*=\s*["']([^"']+)["']/i);
+    if (baseMatch?.[1]) {
+      try {
+        baseUrl = new URL(baseMatch[1].replace(/&amp;/g, '&'), pageUrl).href;
+      } catch {
+        // 坏的历史 base 不应阻止缓存页面显示；退回记录中的原 URL。
+      }
+    }
+    let refreshed = html;
+    try {
+      refreshed = await inlineExternalStylesheets(html, { baseUrl, timeoutMs: 2500 });
+    } catch (error) {
+      console.warn('[CachedCss] failed to upgrade cached stylesheet snapshot:', (error as Error)?.message);
+    }
+    if (refreshed !== html && db && cacheId !== undefined && cacheId !== null) {
+      try {
+        await db.prepare('UPDATE translations SET html = ? WHERE id = ?').bind(refreshed, Number(cacheId)).run();
+      } catch (error) {
+        // 展示路径不应因历史缓存回写失败而报错；本次响应仍使用刷新后的 HTML。
+        console.warn('[CachedCss] could not persist upgraded cached HTML:', (error as Error)?.message);
+      }
+    }
+    return processTranslationHtml(refreshed, pageUrl);
+  };
   // 原始 HTML 处理 pipeline：仅导航清理 → 注入守卫
   const processOriginalHtml = (html: string) =>
     injectRedirectGuard(stripNavigationScripts(html));
@@ -412,7 +449,7 @@ ${pager}
     if (!db) return c.json({ error: 'D1 not available' }, 500);
     try {
       const row: any = await db.prepare(
-        'SELECT url, source_lang, target_lang, html FROM translations WHERE id = ?'
+        'SELECT id, url, source_lang, target_lang, html FROM translations WHERE id = ?'
       ).bind(Number(id)).first();
       if (!row) return c.json({ error: 'translation not found' }, 404);
 
@@ -420,7 +457,7 @@ ${pager}
       if (isHealthyCachedHtml(row.html)) {
         // 传入 row.url：对白名单 host 重新应用全局噪声标记，修复旧缓存里
         // .fanyi-remove 缺失导致侧边栏不隐藏的问题（典型：x.com 文章页）。
-        return new Response(processTranslationHtml(row.html, row.url || ''), {
+        return new Response(await renderCachedTranslationHtml(row.html, row.url || '', db, row.id), {
           status: 200,
           headers: { 'Content-Type': 'text/html; charset=utf-8' },
         });
@@ -430,11 +467,11 @@ ${pager}
       // 典型场景：/fanyi/page 保存了带 content_hash 的记录（id=432），而
       // /translate/* 后来保存了 URL 级记录（id=433），后者应能被 /article/:id 使用。
       const latest: any = await db.prepare(
-        'SELECT html FROM translations WHERE url = ? AND source_lang = ? AND target_lang = ? ORDER BY created_at DESC LIMIT 1'
+        'SELECT id, html FROM translations WHERE url = ? AND source_lang = ? AND target_lang = ? ORDER BY created_at DESC LIMIT 1'
       ).bind(row.url, row.source_lang, row.target_lang).first();
       if (latest && isHealthyCachedHtml(latest.html)) {
         console.log(`[D1] article/${id} found newer healthy cache for same URL, serving it`);
-        return new Response(processTranslationHtml(latest.html, row.url || ''), {
+        return new Response(await renderCachedTranslationHtml(latest.html, row.url || '', db, latest.id), {
           status: 200,
           headers: { 'Content-Type': 'text/html; charset=utf-8' },
         });
@@ -580,7 +617,7 @@ ${pager}
         // （向后兼容：旧记录 content_hash 为 NULL 或空，无法比对时直接返回缓存）
         const existing: any = await db
           .prepare(
-            'SELECT html, content_hash FROM translations WHERE url = ? AND source_lang = ? AND target_lang = ? ORDER BY created_at DESC LIMIT 1',
+            'SELECT id, html, content_hash FROM translations WHERE url = ? AND source_lang = ? AND target_lang = ? ORDER BY created_at DESC LIMIT 1',
           )
           .bind(cacheKeyUrl(url), sourceStored, targetStored)
           .first();
@@ -602,7 +639,7 @@ ${pager}
           }
           if (hashValid) {
             console.log(`[fanyi/page/check] D1 cache hit for ${url} sid=${sid}`);
-            return new Response(processTranslationHtml(existing.html, url), {
+            return new Response(await renderCachedTranslationHtml(existing.html, url, db, existing.id), {
             status: 200,
             headers: {
               'Content-Type': 'text/html; charset=utf-8',
@@ -702,7 +739,7 @@ ${pager}
     if (db) {
       try {
         const existing: any = await db.prepare(
-          'SELECT html, content_hash FROM translations WHERE url = ? AND source_lang = ? AND target_lang = ? ORDER BY created_at DESC LIMIT 1'
+          'SELECT id, html, content_hash FROM translations WHERE url = ? AND source_lang = ? AND target_lang = ? ORDER BY created_at DESC LIMIT 1'
         ).bind(cacheKey, sourceStored, targetStored).first();
         if (existing && isHealthyCachedHtml(existing.html)) {
           // /fanyi/page 接收扩展端预标记 HTML，block ID 由扩展端 walker 分配。
@@ -715,7 +752,7 @@ ${pager}
             // fall through to translate
           } else if (hashValid) {
             console.log(`[fanyi/page] D1 cache hit for ${url} sid=${sid}`);
-            return new Response(processTranslationHtml(existing.html, url), {
+            return new Response(await renderCachedTranslationHtml(existing.html, url, db, existing.id), {
               status: 200,
               headers: {
                 'Content-Type': 'text/html; charset=utf-8',
@@ -1008,12 +1045,12 @@ ${pager}
     if (db && !force) {
       try {
         const existing: any = await db.prepare(
-          'SELECT html FROM translations WHERE url = ? AND source_lang = ? AND target_lang = ? ORDER BY created_at DESC LIMIT 1'
+          'SELECT id, html FROM translations WHERE url = ? AND source_lang = ? AND target_lang = ? ORDER BY created_at DESC LIMIT 1'
         ).bind(cacheKey, sourceStored, targetStored).first();
         cachedRow = existing || null;
         if (existing && isHealthyCachedHtml(existing.html)) {
           console.log(`[translate/url-page] D1 cache hit for ${url}`);
-          return new Response(processTranslationHtml(existing.html, url), {
+          return new Response(await renderCachedTranslationHtml(existing.html, url, db, existing.id), {
             status: 200,
             headers: {
               'Content-Type': 'text/html; charset=utf-8',
@@ -1099,7 +1136,7 @@ ${pager}
       // 有损"的译文，也不要让用户什么都看不到。
       if (cachedRow?.html) {
         console.warn(`[translate/url-page] serving stale D1 cache for ${url} after failure`);
-        return new Response(processTranslationHtml(cachedRow.html, url), {
+        return new Response(await renderCachedTranslationHtml(cachedRow.html, url, db, cachedRow.id), {
           status: 200,
           headers: {
             'Content-Type': 'text/html; charset=utf-8',

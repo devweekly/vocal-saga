@@ -18,7 +18,7 @@ let base: string;
 
 beforeAll(async () => {
   server = createServer((req, res) => {
-    const url = req.url || '/';
+    const url = (req.url || '/').split('?')[0];
     if (url === '/app.css') {
       res.writeHead(200, { 'Content-Type': 'text/css' });
       res.end('.a{color:red}');
@@ -27,6 +27,16 @@ beforeAll(async () => {
     if (url === '/print.css') {
       res.writeHead(200, { 'Content-Type': 'text/css' });
       res.end('.p{color:blue}');
+      return;
+    }
+    if (url === '/styles/main.css') {
+      res.writeHead(200, { 'Content-Type': 'text/css' });
+      res.end('@import "./theme.css" screen; .hero{background-image:url("../images/hero.png")}');
+      return;
+    }
+    if (url === '/styles/theme.css') {
+      res.writeHead(200, { 'Content-Type': 'text/css' });
+      res.end('.theme{background-image:url("../images/theme.png")}');
       return;
     }
     if (url === '/evil.css') {
@@ -88,6 +98,17 @@ describe('inlineExternalStylesheets', () => {
     expect(out).toContain('.a{color:red}');
   });
 
+  it('历史缓存已丢失全部 CSS 时，仍能切换到 Reader 布局', async () => {
+    const html = `<!doctype html><html><head></head><body>
+      <main><article><h1 data-fanyi-block-id="b1">Title</h1>
+      <p data-fanyi-block-id="b2"><span class="fanyi-original">Original text</span>
+      <span class="fanyi-translation">原文内容</span></p></article></main>
+      <aside>Sidebar</aside></body></html>`;
+    const out = await run(html);
+    expect(out).toContain('data-fanyi-render-mode="reader"');
+    expect(out).toContain('data-fanyi-reader-content="true"');
+    expect(out).toContain('data-fanyi-reader-css');
+  });
   it('没有外联样式表时原样返回（不解析 DOM、不发请求）', async () => {
     const html = `<html><head><style>.a{}</style></head><body>x</body></html>`;
     const out = await run(html, {
@@ -111,14 +132,17 @@ describe('inlineExternalStylesheets', () => {
   it('404 的样式表保留原 <link>（不内联、不删）', async () => {
     const html = `<html><head><link rel="stylesheet" href="/gone.css"></head><body>x</body></html>`;
     const out = await run(html, { onError: () => {} });
-    expect(out).toContain('<link rel="stylesheet" href="/gone.css">');
+    expect(out).toContain('data-fanyi-render-mode="reader"');
+    expect(out).toContain('data-fanyi-reader-css');
+    expect(out).not.toContain('<link rel="stylesheet" href="/gone.css">');
     expect(out).not.toContain('Not Found');
   });
 
   it('200 但返回 HTML 的样式表（SPA 兜底路由）不内联', async () => {
     const html = `<html><head><link rel="stylesheet" href="/spa-fallback.css"></head><body>x</body></html>`;
     const out = await run(html, { onError: () => {} });
-    expect(out).toContain('/spa-fallback.css');
+    expect(out).toContain('data-fanyi-render-mode="reader"');
+    expect(out).not.toContain('/spa-fallback.css');
     expect(out).not.toContain('app shell');
   });
 
@@ -136,7 +160,8 @@ describe('inlineExternalStylesheets', () => {
   it('超出单张字节上限时不内联', async () => {
     const html = `<html><head><link rel="stylesheet" href="/app.css"></head><body>x</body></html>`;
     const out = await run(html, { maxBytesPerSheet: 3, onError: () => {} });
-    expect(out).toContain('/app.css"');
+    expect(out).toContain('data-fanyi-render-mode="reader"');
+    expect(out).not.toContain('/app.css"');
     expect(out).not.toContain('color:red');
   });
 
@@ -147,18 +172,20 @@ describe('inlineExternalStylesheets', () => {
     </head><body>x</body></html>`;
     // 两张表各 12 字节：预算 15 只够放第一张，第二张整张跳过
     const out = await run(html, { maxBytesTotal: 15, onError: () => {} });
-    expect(out).toContain('.a{color:red}');
+    expect(out).toContain('data-fanyi-render-mode="reader"');
+    expect(out).not.toContain('.a{color:red}');
     expect(out).not.toContain('.p{color:blue}');
   });
 
-  it('超过 maxSheets 的样式表保留外链', async () => {
+  it('超过 maxSheets 的样式表不静默保留外链，而是切换到 Reader', async () => {
     const html = `<html><head>
       <link rel="stylesheet" href="/app.css">
       <link rel="stylesheet" href="/print.css">
     </head><body>x</body></html>`;
     const out = await run(html, { maxSheets: 1, onError: () => {} });
-    expect(out).toContain('.a{color:red}');
-    expect(out).toContain('<link rel="stylesheet" href="/print.css">');
+    expect(out).toContain('data-fanyi-render-mode="reader"');
+    expect(out).not.toContain('.a{color:red}');
+    expect(out).not.toContain('<link rel="stylesheet" href="/print.css">');
   });
 
   it('跳过 data: / javascript: 等非网络协议', async () => {
@@ -177,12 +204,38 @@ describe('inlineExternalStylesheets', () => {
     const out = await run(html, {
       onError: (_u: string, reason: string) => reasons.push(reason),
     });
-    expect(out).toContain('169.254.169.254');
+    expect(out).toContain('data-fanyi-render-mode="reader"');
+    expect(out).not.toContain('169.254.169.254');
     expect(reasons.join('|')).toMatch(/blocked/);
   });
 
 
-  it('网络异常时保留原 <link>，不抛错', async () => {
+  it('递归内联 @import，并相对于原 stylesheet 地址改写 url()', async () => {
+    const html = `<html><head><link rel="stylesheet" href="/styles/main.css"></head><body><p class="hero">x</p></body></html>`;
+    const out = await run(html);
+    expect(out).toContain('background-image:url("' + base + '/images/theme.png")');
+    expect(out).toContain('background-image:url("' + base + '/images/hero.png")');
+    expect(out).not.toContain('@import');
+    expect(out).toContain('data-fanyi-css-snapshot="v2-complete"');
+  });
+
+  it('完整快照重复处理时不再次请求 CSS', async () => {
+    const html = `<html><head><link rel="stylesheet" href="/app.css"></head><body>x</body></html>`;
+    const first = await run(html);
+    const second = await run(first, {
+      fetchFn: () => { throw new Error('complete snapshot must not refetch'); },
+    });
+    expect(second).toBe(first);
+  });
+  it('默认处理超过六张的 stylesheet，不再静默留下第七张以后依赖', async () => {
+    const links = Array.from({ length: 11 }, (_, i) => `<link rel="stylesheet" href="/app.css?v=${i}">`).join('');
+    const out = await run(`<html><head>${links}</head><body>x</body></html>`);
+    expect(out).toContain('data-fanyi-css-snapshot="v2-complete"');
+    expect(out).not.toContain('<link rel="stylesheet"');
+    expect((out.match(/data-fanyi-inlined-css=/g) || []).length).toBe(11);
+  });
+
+  it('网络异常时切换到 Reader，不抛错', async () => {
     const html = `<html><head><link rel="stylesheet" href="/app.css"></head><body>x</body></html>`;
     const out = await run(html, {
       fetchFn: async () => {
@@ -190,7 +243,8 @@ describe('inlineExternalStylesheets', () => {
       },
       onError: () => {},
     });
-    expect(out).toContain('<link rel="stylesheet" href="/app.css">');
+    expect(out).toContain('data-fanyi-render-mode="reader"');
+    expect(out).not.toContain('<link rel="stylesheet" href="/app.css">');
   });
 
 });

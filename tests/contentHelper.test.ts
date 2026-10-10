@@ -688,6 +688,48 @@ describe('prepareDocument data island integration', () => {
     expect(result.report.strategy).toContain('table-unwrap');
   });
 
+
+  it('正文抽取预检会跳过无法遍历的高分候选，并继续尝试后续候选', () => {
+    const editorText = 'EDITOR_ONLY_SENTENCE '.repeat(45);
+    const paragraphOne = 'The actual article explains the architecture and its trade-offs in detail. '.repeat(8);
+    const paragraphTwo = 'A second paragraph describes the implementation and the resulting behavior. '.repeat(8);
+    document.body.innerHTML = `
+      <main class="main-content">
+        <div class="article-content">
+          <div contenteditable="true">
+            <h1>Editor chrome only</h1><p>${editorText}</p>
+          </div>
+        </div>
+        <article class="post-content">
+          <h1>Actual article headline</h1>
+          <p>${paragraphOne}</p><p>${paragraphTwo}</p>
+        </article>
+      </main>`;
+
+    const result = prepareDocument(document, 'https://new-publisher.example/article');
+    expect(result.fullText).toContain('Actual article headline');
+    expect(result.fullText).toContain('actual article explains the architecture');
+    expect(result.fullText).not.toContain('EDITOR_ONLY_SENTENCE');
+  });
+
+  it('样式快照失败时聚焦正文根，并隐藏与阅读无关的兄弟区域', () => {
+    document.documentElement.setAttribute('data-fanyi-render-mode', 'reader');
+    document.body.innerHTML = `
+      <header><nav>Site navigation</nav></header>
+      <main><article><h1>Reader title</h1>
+        <p>${'A complete article paragraph for the reader layout. '.repeat(12)}</p>
+      </article></main>
+      <aside>Related links</aside>`;
+
+    try {
+      prepareDocument(document, 'https://publisher.example/article');
+      expect(document.querySelector('[data-fanyi-reader-content="true"]')).not.toBeNull();
+      expect(document.querySelector('header')?.getAttribute('data-fanyi-reader-hidden')).toBe('true');
+      expect(document.querySelector('aside')?.getAttribute('data-fanyi-reader-hidden')).toBe('true');
+    } finally {
+      document.documentElement.removeAttribute('data-fanyi-render-mode');
+    }
+  });
 });
 
 // =============================================================================
