@@ -51,6 +51,12 @@ const translateLocal = (url: string) => translateUrl({ url, ssrfGuard: localGuar
 function startServer(): Promise<{ server: http.Server; baseUrl: string }> {
   return new Promise((resolve) => {
     const srv = http.createServer((req, res) => {
+      // 当前端到端流程会把 CSS 快照内联；这里返回真正的 CSS，而不是把未知路由当作 HTML。
+      if (req.url === '/static/style.css') {
+        res.writeHead(200, { 'Content-Type': 'text/css; charset=utf-8' });
+        res.end('.site-layout { max-width: 800px; }');
+        return;
+      }
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
       switch (req.url) {
         case '/no-base':
@@ -179,10 +185,12 @@ describe('translateUrl — end-to-end with linkedom', () => {
     expect(headMatch).toBeTruthy();
     const head = headMatch![0];
     const baseIndex = head.indexOf('<base');
-    const linkIndex = head.indexOf('<link');
+    // 新架构会把源站 stylesheet 快照内联成 <style>，因此不再要求保留原 <link>。
+    const styleSnapshotIndex = head.indexOf('data-fanyi-inlined-css=');
     expect(baseIndex).toBeGreaterThanOrEqual(0);
-    expect(linkIndex).toBeGreaterThanOrEqual(0);
-    expect(baseIndex).toBeLessThan(linkIndex);
+    expect(styleSnapshotIndex).toBeGreaterThanOrEqual(0);
+    expect(baseIndex).toBeLessThan(styleSnapshotIndex);
+    expect(head).not.toContain('<link');
   });
 
 

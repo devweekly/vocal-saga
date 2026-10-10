@@ -432,7 +432,7 @@ function rewriteCssUrls(css: string, stylesheetUrl: string): string {
   return css.replace(
     /url\(\s*(?:(["'])(.*?)\1|([^)]*?))\s*\)/gi,
     (whole, quote: string | undefined, quoted: string | undefined, bare: string | undefined) => {
-      const value = (quote ? quoted : bare || '').trim();
+      const value = ((quote ? quoted : bare) ?? '').trim();
       if (!value || /^(?:data:|blob:|https?:|\/\/|#|var\()/i.test(value)) {
         return whole;
       }
