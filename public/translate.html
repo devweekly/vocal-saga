@@ -50,6 +50,7 @@
 </div>
 <div class="panel" data-panel="url" data-page-node-id="sgWfFjUM1xBPxJpkLb5gPH">
   <input type="text" id="inputUrl" placeholder="https://example.com/article" style="width: 100%; margin-bottom: 8px" data-page-node-id="pdbJahKR94ITP5pIpthlNw">
+  <input type="text" id="inputTitle" placeholder="文章标题（可选）" style="width: 100%; margin-bottom: 8px" aria-label="Instapaper 文章标题">
   <div class="row" data-page-node-id="gukDoMMFyOqYjnDyA4hQW1">
     <label data-page-node-id="GOBgcMJQuJTO6ASYT6jr7v">模式: <select id="urlMode" data-page-node-id="ZKn2yX9GKoBjN26usHkGUr">
       <option value="bilingual" data-page-node-id="KoQnyShbK8B2JPzmWO8OE7">bilingual</option>
@@ -61,6 +62,8 @@
 
 <div class="row" style="margin-top: 12px" data-page-node-id="o2ctZUG9BmPCkETzYG8avB">
   <button class="primary" id="translate" data-page-node-id="k7c2Efltz686uLYcOE0UIU">翻译</button>
+  <button id="saveInstapaper" type="button">保存到 Instapaper</button>
+  <button id="connectInstapaper" type="button" title="使用 Instapaper OAuth 连接或切换账号">连接 / 切换 Instapaper 账号</button>
   <span class="meta" id="meta" data-page-node-id="5tvXZDyYrwuQoFUduNPYIu"></span>
 </div>
 
@@ -101,6 +104,46 @@
     if (!r.ok) throw new Error(data.error || `${r.status} ${r.statusText}`);
     return data;
   }
+
+  // 保存当前 URL 到服务端配置的 Instapaper 账号。Access Token 只在 Worker 内使用。
+  $('saveInstapaper').addEventListener('click', async () => {
+    const url = inputUrl.value.trim();
+    if (!url) {
+      meta.textContent = '请先切换到 URL 标签并输入文章地址';
+      return;
+    }
+    meta.textContent = '正在保存到 Instapaper…';
+    outMeta.textContent = '';
+    try {
+      const result = await api('/api/instapaper/save', {
+        method: 'POST',
+        body: JSON.stringify({ url, title: $('inputTitle').value.trim() }),
+      });
+      const bookmark = result.bookmark || {};
+      meta.textContent = '已保存到 Instapaper';
+      output.textContent = bookmark.title || bookmark.url || url;
+      outMeta.textContent = '已保存：' + (bookmark.url || url);
+    } catch (e) {
+      meta.textContent = '保存失败';
+      outMeta.textContent = e.message || 'Instapaper 保存失败';
+    }
+  });
+
+  // OAuth 可选：需要服务端配置 INSTAPAPER_CLIENT_ID / INSTAPAPER_CLIENT_SECRET。
+  $('connectInstapaper').addEventListener('click', async () => {
+    meta.textContent = '正在连接 Instapaper…';
+    try {
+      const result = await api('/api/instapaper/connect', {
+        method: 'POST',
+        body: JSON.stringify({}),
+      });
+      if (!result.authorizationUrl) throw new Error('服务端没有返回 Instapaper 授权地址');
+      window.location.assign(result.authorizationUrl);
+    } catch (e) {
+      meta.textContent = '连接失败';
+      outMeta.textContent = e.message || '无法连接 Instapaper';
+    }
+  });
 
   // 翻译
   $('translate').addEventListener('click', async () => {
