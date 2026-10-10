@@ -61,6 +61,7 @@ export function injectTranslationCss(html: string): string {
  */
 
 import { Hono } from 'hono';
+import { Instapaper, OAuth } from 'instapaper-api';
 import { cors } from 'hono/cors';
 import { translateText, translateUrl, translateHtml } from './translate/pipeline';
 import { createStructuredDocument, parseDocument, SERVER_SUPPORTED_FORMATS } from './translate/document';
@@ -202,6 +203,10 @@ export function createApp(env?: Record<string, unknown>, storage?: StorageAdapte
   const cfAccountId = getEnv('CLOUDFLARE_ACCOUNT_ID');
   const cfApiToken = getEnv('CLOUDFLARE_API_TOKEN');
   const authKey = getEnv('AUTH_KEY');
+  // Instapaper：个人 Access Token 可直接保存；OAuth 凭据用于授权回调流程。
+  const instapaperAccessToken = getEnv('INSTAPAPER_ACCESS_TOKEN');
+  const instapaperClientId = getEnv('INSTAPAPER_CLIENT_ID');
+  const instapaperClientSecret = getEnv('INSTAPAPER_CLIENT_SECRET');
   if (dsKey) setDSApiKey(dsKey);
   if (openrouterKey) setOpenrouterApiKey(openrouterKey);
   if (nvidiaKey) setNvidiaApiKey(nvidiaKey);
@@ -223,6 +228,200 @@ export function createApp(env?: Record<string, unknown>, storage?: StorageAdapte
 
   const app = new Hono();
   app.use('*', cors());
+
+  // Instapaper v2 SDK 在服务端/Workers 运行；Access Token 和 OAuth Client Secret 绝不返回浏览器。
+  const INSTAPAPER_CALLBACK_URL = 'https://s.sunxiunan.com/instapaper';
+  const INSTAPAPER_TOKEN_KV_KEY = 'vocal-saga:instapaper:access-token';
+  const INSTAPAPER_STATE_COOKIE = 'vocal_saga_instapaper_state';
+
+  /** 构造统一的授权回调结果页，避免把 OAuth code 或 access token 写进页面。 */
+  const instapaperCallbackPage = (
+    status: number,
+    heading: string,
+    message: string,
+    clearStateCookie = false,
+  ): Response => {
+    const clearCookie = clearStateCookie
+      ? INSTAPAPER_STATE_COOKIE + '=; Max-Age=0; Path=/instapaper; HttpOnly; Secure; SameSite=Lax'
+      : '';
+    const headers = new Headers({
+      'Content-Type': 'text/html; charset=utf-8',
+      'Cache-Control': 'no-store',
+      'Referrer-Policy': 'no-referrer',
+      'X-Content-Type-Options': 'nosniff',
+    });
+    if (clearCookie) headers.set('Set-Cookie', clearCookie);
+    const html =
+      '<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">' +
+      '<meta name="viewport" content="width=device-width,initial-scale=1">' +
+      '<title>Instapaper · Vocal Saga</title></head>' +
+      '<body style="font:16px/1.6 system-ui,sans-serif;max-width:640px;margin:12vh auto;padding:0 20px;color:#1f2937">' +
+      '<h1>' + escapeHtml(heading) + '</h1><p>' + escapeHtml(message) + '</p>' +
+      '<p><a href="/translate.html">返回 Vocal Saga 翻译工具</a></p></body></html>';
+    return new Response(html, { status, headers });
+  };
+
+  /** OAuth 回调获得的 token 存在 Cloudflare KV；部署 Secret 仍是首次配置的 fallback。 */
+  async function getInstapaperAccessToken(c: any): Promise<string> {
+    const kv = (c.env as any)?.VOCAL_SAGA_KV;
+    try {
+      if (kv && typeof kv.get === 'function') {
+        const stored = await kv.get(INSTAPAPER_TOKEN_KV_KEY);
+        if (typeof stored === 'string' && stored.trim()) return stored.trim();
+      }
+    } catch (error) {
+      console.warn('[Instapaper] Could not read OAuth token from KV:', (error as Error)?.message);
+    }
+    return instapaperAccessToken;
+  }
+
+  /**
+   * POST /api/instapaper/connect —— 由已有 Vocal Saga AUTH_KEY 保护的 OAuth 发起端。
+   * state 放在 SameSite=Lax + HttpOnly cookie 中，防止跨站伪造授权回调。
+   */
+  app.post('/api/instapaper/connect', requireAuth, (c) => {
+    if (!instapaperClientId || !instapaperClientSecret) {
+      return c.json({
+        error: 'OAuth 尚未配置；请设置 INSTAPAPER_CLIENT_ID 和 INSTAPAPER_CLIENT_SECRET。已有 INSTAPAPER_ACCESS_TOKEN 时仍可直接保存文章。',
+      }, 503);
+    }
+    try {
+      const state = crypto.randomUUID();
+      const oauth = new OAuth({
+        clientId: instapaperClientId,
+        clientSecret: instapaperClientSecret,
+        redirectUri: INSTAPAPER_CALLBACK_URL,
+      });
+      const authorizationUrl = oauth.authorizationUrl({ state });
+      return new Response(JSON.stringify({ authorizationUrl }), {
+        status: 200,
+        headers: {
+          'Content-Type': 'application/json; charset=utf-8',
+          'Cache-Control': 'no-store',
+          'Set-Cookie': INSTAPAPER_STATE_COOKIE + '=' + state + '; Max-Age=600; Path=/instapaper; HttpOnly; Secure; SameSite=Lax',
+        },
+      });
+    } catch (error) {
+      console.error('[Instapaper] Could not start OAuth:', (error as Error)?.message);
+      return c.json({ error: '无法开始 Instapaper 授权，请检查 OAuth 配置。' }, 500);
+    }
+  });
+
+  /**
+   * GET /instapaper —— Instapaper OAuth callback URI。
+   * code 只用于服务端 exchange；长期 token 存 KV，不进入 URL 以外的客户端可读数据。
+   */
+  app.get('/instapaper', async (c) => {
+    const code = c.req.query('code') || '';
+    const oauthError = c.req.query('error') || '';
+    if (!code && !oauthError) {
+      return instapaperCallbackPage(
+        200,
+        'Instapaper 集成',
+        '这是 Instapaper OAuth 回调地址。请从 Vocal Saga 翻译工具发起授权；保存文章请返回翻译工具。',
+      );
+    }
+
+    const state = c.req.query('state') || '';
+    const cookieHeader = c.req.header('cookie') || '';
+    const stateCookie = cookieHeader
+      .split(';')
+      .map((part) => part.trim())
+      .find((part) => part.startsWith(INSTAPAPER_STATE_COOKIE + '='));
+    const expectedState = stateCookie
+      ? stateCookie.slice((INSTAPAPER_STATE_COOKIE + '=').length)
+      : '';
+    if (!state || !expectedState || state !== expectedState) {
+      return instapaperCallbackPage(400, '授权验证失败', 'OAuth state 不匹配或已过期，请回到工具重新发起授权。', true);
+    }
+    if (oauthError) {
+      return instapaperCallbackPage(400, '未完成授权', 'Instapaper 未完成授权。你可以返回工具继续使用已配置的 Access Token。', true);
+    }
+    if (!instapaperClientId || !instapaperClientSecret) {
+      return instapaperCallbackPage(503, '授权配置缺失', '服务端尚未配置 INSTAPAPER_CLIENT_ID / INSTAPAPER_CLIENT_SECRET。', true);
+    }
+
+    try {
+      const oauth = new OAuth({
+        clientId: instapaperClientId,
+        clientSecret: instapaperClientSecret,
+        redirectUri: INSTAPAPER_CALLBACK_URL,
+      });
+      const token = await oauth.exchangeCode(code);
+      const kv = (c.env as any)?.VOCAL_SAGA_KV;
+      if (!kv || typeof kv.put !== 'function') {
+        return instapaperCallbackPage(503, '无法保存授权', 'Cloudflare KV 不可用，无法持久化 Instapaper Access Token。', true);
+      }
+      await kv.put(INSTAPAPER_TOKEN_KV_KEY, token.access_token);
+      return instapaperCallbackPage(200, 'Instapaper 已连接', '授权已完成。之后通过 Vocal Saga 保存的文章会进入这个 Instapaper 账号。', true);
+    } catch (error) {
+      const detail = (error as Error)?.message || '未知错误';
+      console.error('[Instapaper] OAuth callback failed:', detail);
+      return instapaperCallbackPage(502, '授权失败', 'Instapaper 未能完成授权交换，请重试；服务端没有保存新的 Access Token。', true);
+    }
+  });
+
+  /**
+   * POST /api/instapaper/save —— 保存 URL 到配置的 Instapaper 账号。
+   * 写入操作必须通过 Vocal Saga 自身 AUTH_KEY 鉴权，不能开放成匿名代理。
+   */
+  app.post('/api/instapaper/save', requireAuth, async (c) => {
+    const body = await c.req.json().catch(() => ({} as any));
+    const rawUrl = typeof body?.url === 'string' ? body.url.trim() : '';
+    const rawTitle = body?.title;
+    if (!rawUrl || rawUrl.length > 4096) {
+      return c.json({ error: 'url is required and must be at most 4096 characters' }, 400);
+    }
+    if (rawTitle !== undefined && typeof rawTitle !== 'string') {
+      return c.json({ error: 'title must be a string' }, 400);
+    }
+    const title = typeof rawTitle === 'string' ? rawTitle.trim() : '';
+    if (title.length > 500) return c.json({ error: 'title must be at most 500 characters' }, 400);
+
+    let parsedUrl: URL;
+    try {
+      parsedUrl = new URL(rawUrl);
+      if (!['http:', 'https:'].includes(parsedUrl.protocol) || parsedUrl.username || parsedUrl.password) {
+        return c.json({ error: 'url must be a valid http(s) URL without embedded credentials' }, 400);
+      }
+    } catch {
+      return c.json({ error: 'url must be a valid http(s) URL' }, 400);
+    }
+
+    const accessToken = await getInstapaperAccessToken(c);
+    if (!accessToken) {
+      return c.json({
+        error: 'Instapaper 未配置；请在 Cloudflare 设置 INSTAPAPER_ACCESS_TOKEN，或先完成 OAuth 连接。',
+      }, 503);
+    }
+
+    try {
+      const client = new Instapaper({ accessToken });
+      const saved = await client.bookmarks.save({
+        url: parsedUrl.toString(),
+        ...(title ? { title } : {}),
+      });
+      return c.json({
+        saved: true,
+        bookmark: {
+          id: saved.id,
+          url: saved.url || parsedUrl.toString(),
+          title: saved.title || title || parsedUrl.hostname,
+        },
+      });
+    } catch (error) {
+      const err = error as Error & { status?: number };
+      const upstreamStatus = Number(err?.status);
+      const status = Number.isInteger(upstreamStatus) && upstreamStatus >= 400 && upstreamStatus < 500
+        ? upstreamStatus
+        : 502;
+      console.error('[Instapaper] Save failed:', err?.message || 'unknown error');
+      return c.json({
+        error: 'Instapaper 保存失败',
+        detail: (err?.message || '请稍后重试').slice(0, 300),
+      }, status as any);
+    }
+  });
 
   /**
    * 翻译 HTML 处理 pipeline：导航清理 → 去虚拟化 → 注入 CSS → 注入守卫。
