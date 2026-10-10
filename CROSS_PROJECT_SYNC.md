@@ -621,3 +621,11 @@ prepareHtmlForServer 时在 clone 上把 `link[rel=stylesheet]` 替换为
 > - `B1`:架构改进
 > - `C1`:协议升级
 > - `S1-S9`:应同步的设计点
+
+
+## PDF 结构化翻译（2026-10）
+
+- 浏览器扩展负责 PDF.js 文本层解析，服务端只接收结构化 segments，不接收 PDF 二进制；接口为 `/api/translate/document/segments`。
+- 片段的 `id`、`kind`、`level`、`marker`、`page`、`contextPath` 在客户端和服务端保持一致。章节路径、列表标记及页码作为只读元数据使用，不进入译文正文。
+- 只有所有预期 ID 都有非空译文时 `complete` 才为 true。服务端会重试一次缺失片段；仍缺失时返回 `missingSegmentIds`，扩展保留已完成结果并允许只重试缺失片段。
+- 当前 PDF parser 会告警扫描件/低文本页；本次没有接入 OCR 引擎，不能把无文本层的页面报告成已识别。

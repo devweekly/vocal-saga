@@ -100,6 +100,7 @@ export async function translateDocument(
           contextPath: segment.contextPath,
           kind: segment.kind,
           level: segment.level,
+          marker: segment.marker,
         })),
         source: input.source,
         target: input.target,

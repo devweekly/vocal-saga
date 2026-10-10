@@ -133,6 +133,7 @@ describe('POST /api/translate/document/segments', () => {
         text: 'The model improves translation quality.',
         kind: 'paragraph',
         page: 3,
+        marker: '2.',
         contextPath: '2 Method > 2.1 Model',
       }],
     });

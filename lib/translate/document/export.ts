@@ -71,11 +71,21 @@ function renderSegmentText(segment: DocumentSegment, translated: string, mode: E
 function toHtml(doc: ParsedDocument, translations: Translations, mode: ExportMode): string {
   const bodyParts: string[] = [];
   let activeListMode: 'ul' | 'ol' | null = null;
+  let activeListType: '1' | 'a' | 'A' | undefined;
+  let activeListStart: number | undefined;
   let listItems: string[] = [];
   const flushList = () => {
     if (!activeListMode) return;
-    bodyParts.push('<' + activeListMode + '>' + listItems.join('\n') + '</' + activeListMode + '>');
+    const typeAttribute = activeListMode === 'ol' && activeListType && activeListType !== '1'
+      ? ' type="' + activeListType + '"'
+      : '';
+    const startAttribute = activeListMode === 'ol' && activeListStart && activeListStart !== 1
+      ? ' start="' + activeListStart + '"'
+      : '';
+    bodyParts.push('<' + activeListMode + typeAttribute + startAttribute + '>' + listItems.join('\n') + '</' + activeListMode + '>');
     activeListMode = null;
+    activeListType = undefined;
+    activeListStart = undefined;
     listItems = [];
   };
 
@@ -90,9 +100,25 @@ function toHtml(doc: ParsedDocument, translations: Translations, mode: ExportMod
 
     if (segment.kind === 'list-item') {
       const marker = segment.marker ?? '-';
-      const nextListMode: 'ul' | 'ol' = /^\s*(?:\d+|[A-Za-z])[.)、]?$/.test(marker) ? 'ol' : 'ul';
-      if (activeListMode && activeListMode !== nextListMode) flushList();
-      activeListMode = nextListMode;
+      const isNumeric = /^\d/u.test(marker);
+      const isLetter = /^[A-Za-z]/u.test(marker);
+      const nextListMode: 'ul' | 'ol' = isNumeric || isLetter ? 'ol' : 'ul';
+      const nextListType: '1' | 'a' | 'A' | undefined = isLetter
+        ? (marker[0] === marker[0]?.toUpperCase() ? 'A' : 'a')
+        : nextListMode === 'ol' ? '1' : undefined;
+      if (activeListMode && (
+        activeListMode !== nextListMode ||
+        (nextListMode === 'ol' && activeListType !== nextListType)
+      )) flushList();
+      if (!activeListMode) {
+        activeListMode = nextListMode;
+        activeListType = nextListType;
+        if (nextListMode === 'ol' && isNumeric) activeListStart = Number.parseInt(marker, 10);
+        if (nextListMode === 'ol' && isLetter) {
+          const code = marker.charCodeAt(0);
+          activeListStart = nextListType === 'A' ? code - 64 : code - 96;
+        }
+      }
       listItems.push('<li>' + pair + '</li>');
       continue;
     }

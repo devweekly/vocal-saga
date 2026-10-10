@@ -97,8 +97,19 @@ export function parseTextDocument(
   const push = (text: string, kind: SegmentKind, level?: number, marker?: string) => {
     const trimmed = text.trim();
     if (!trimmed) return;
-    for (const part of splitLongText(trimmed, max)) {
-      segments.push({ id: `s${index}`, index, text: part, kind, level, ...(marker ? { marker } : {}) });
+    const pieces = splitLongText(trimmed, max);
+    for (let pieceIndex = 0; pieceIndex < pieces.length; pieceIndex++) {
+      const part = pieces[pieceIndex] as string;
+      // 长列表项被软切后，仅第一段保留列表标记，避免导出时重复编号。
+      const segmentKind = marker && pieceIndex > 0 ? 'paragraph' : kind;
+      segments.push({
+        id: `s${index}`,
+        index,
+        text: part,
+        kind: segmentKind,
+        level,
+        ...(marker && pieceIndex === 0 ? { marker } : {}),
+      });
       index++;
     }
   };

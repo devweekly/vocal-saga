@@ -305,7 +305,7 @@ export type TranslationProvider =
 
 export interface TranslateBlocksInput {
   /** 一批待翻译片段，id 由调用方保证稳定（文档里就是 segment.id）。 */
-  blocks: Array<{ id: string; text: string; contextPath?: string; kind?: string; level?: number }>;
+  blocks: Array<{ id: string; text: string; contextPath?: string; kind?: string; level?: number; marker?: string }>;
   source?: string;
   target?: string;
   glossary?: Glossary;
@@ -338,6 +338,7 @@ export async function translateBlocks(
       ...(b.contextPath?.trim() ? { contextPath: b.contextPath.trim() } : {}),
       ...(b.kind ? { kind: b.kind } : {}),
       ...(Number.isInteger(b.level) ? { level: b.level } : {}),
+      ...(b.marker ? { marker: b.marker } : {}),
     }));
   if (!blocks.length) return new Map();
 

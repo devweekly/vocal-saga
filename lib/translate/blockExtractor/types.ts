@@ -13,6 +13,8 @@ export interface TextBlock {
   contextPath?: string;
   kind?: string;
   level?: number;
+  /** 编号列表标记；作为结构元数据，绝不混入待翻译正文。 */
+  marker?: string;
   /** 渲染提示：Walker 阶段只标记候选，Render 阶段再决定 */
   renderHint?: {
     inlineCandidate?: boolean;

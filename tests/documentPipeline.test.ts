@@ -73,7 +73,7 @@ describe('translateDocument', () => {
       .mockImplementationOnce(async ({ blocks }: { blocks: Array<{ id: string }> }) =>
         new Map(blocks.filter((block) => block.id === 's0').map((block) => [block.id, '译-s0'])),
       )
-      .mockImplementationOnce(async ({ blocks }: { blocks: Array<{ id: string; contextPath?: string }> }) => {
+      .mockImplementationOnce(async ({ blocks }: { blocks: Array<{ id: string; contextPath?: string; kind?: string; marker?: string }> }) => {
         expect(blocks).toHaveLength(1);
         expect(blocks[0]?.id).toBe('s1');
         expect(blocks[0]?.contextPath).toBe('Chapter 2');

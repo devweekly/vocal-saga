@@ -78,14 +78,14 @@ export function buildSystemContent(
 // ── 翻译请求体构造 ──────────────────────────────────────────
 
 export function buildTranslationBody(
-  blocks: Array<{ id: string; text: string; contextPath?: string; kind?: string; level?: number }>,
+  blocks: Array<{ id: string; text: string; contextPath?: string; kind?: string; level?: number; marker?: string }>,
   sourceLang: string,
   targetLang: string,
   glossary?: Glossary,
   model?: string,
   style?: PromptStyle
 ) {
-  const hasContext = blocks.some((block) => !!block.contextPath?.trim() || !!block.kind);
+  const hasContext = blocks.some((block) => !!block.contextPath?.trim() || !!block.kind || !!block.marker);
   const blocksJson = JSON.stringify(
     blocks.map((b) => ({
       id: b.id,
@@ -93,6 +93,7 @@ export function buildTranslationBody(
       ...(b.contextPath?.trim() ? { contextPath: b.contextPath.trim() } : {}),
       ...(b.kind ? { kind: b.kind } : {}),
       ...(Number.isInteger(b.level) ? { level: b.level } : {}),
+      ...(b.marker ? { marker: b.marker } : {}),
     })),
     null,
     2
@@ -110,7 +111,7 @@ export function buildTranslationBody(
       {
         role: 'user' as const,
         content: hasContext
-          ? `下面的 JSON 包含待翻译片段。只翻译每个对象的 text 字段。contextPath 是只读章节语境；kind 和 level 是只读文档结构元数据，用于区分标题、正文和列表。不要翻译或改写这些元数据，也不要将它们混入译文；保持原有 id 与翻译响应协议不变。\n\nJSON:\n\n${blocksJson}`
+          ? `下面的 JSON 包含待翻译片段。只翻译每个对象的 text 字段。contextPath 是只读章节语境；kind、level 和 marker 是只读文档结构元数据，用于区分标题、正文和列表并保留原始编号。不要翻译或改写这些元数据，也不要将它们混入译文；保持原有 id 与翻译响应协议不变。\n\nJSON:\n\n${blocksJson}`
           : `JSON:\n\n${blocksJson}`,
       },
     ],

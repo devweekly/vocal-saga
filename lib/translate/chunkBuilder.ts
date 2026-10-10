@@ -41,6 +41,7 @@ function buildJsonContent(blocks: TextBlock[]): string {
       ...(b.contextPath ? { contextPath: b.contextPath } : {}),
       ...(b.kind ? { kind: b.kind } : {}),
       ...(Number.isInteger(b.level) ? { level: b.level } : {}),
+      ...(b.marker ? { marker: b.marker } : {}),
     }))
   );
 }
