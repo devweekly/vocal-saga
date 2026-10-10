@@ -12,7 +12,7 @@
  *
  * 支持：TXT / Markdown / HTML / SRT / VTT / JSON
  */
-import type { DocumentInput, ParsedDocument } from './types';
+import type { DocumentFormat, DocumentInput, DocumentSegment, ParsedDocument } from './types';
 import { detectFormat, isWithinSizeLimit, MAX_DOCUMENT_BYTES } from './detect';
 
 // 与 fanyi-extension 保持一致：不静态导出 parser，避免破坏动态 import 的分包。
