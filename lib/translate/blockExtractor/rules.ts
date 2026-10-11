@@ -129,6 +129,7 @@ const SKIP_CLASS_EXACT_SET: ReadonlySet<string> = new Set(SKIP_CLASS_PATTERNS);
 export function shouldSkipByClass(
   el: Element,
   noiseMemo?: WeakMap<Element, boolean>,
+  patternExceptions: readonly string[] = [],
 ): boolean {
   const tokens = tokenizeClass(el);
   if (tokens.length === 0) return false;
@@ -136,6 +137,7 @@ export function shouldSkipByClass(
   // 快速路径: Set O(1) 精确匹配
   for (const token of tokens) {
     if (SKIP_CLASS_EXACT_SET.has(token)) {
+      if (patternExceptions.includes(token)) continue;
       if (isNoiseSafeValve(el, noiseMemo)) return false;
       return true;
     }
@@ -144,6 +146,7 @@ export function shouldSkipByClass(
   // 慢速路径: 前后缀 pattern 匹配 (startsWith/endsWith)
   for (const token of tokens) {
     for (const pattern of SKIP_CLASS_PATTERNS) {
+      if (patternExceptions.includes(pattern)) continue;
       if (matchesSkipClass(token, pattern)) {
         if (isNoiseSafeValve(el, noiseMemo)) return false;
         return true;
@@ -222,12 +225,15 @@ export interface SiteWalkOptions {
   excludeFromText: readonly string[] | undefined;
   /** 是否放行 SKIP_SET 里的 <table> 系标签。 */
   translateTables: boolean;
+  /** 针对特定站点，声明通用噪声类名模式的豁免项。 */
+  skipClassPatternExceptions: readonly string[] | undefined;
 }
 
-/** 无站点规则时的默认选项（两个开关都关闭 = 历史行为）。 */
+/** 无站点规则时关闭所有站点专属行为，保持历史默认值。 */
 const DEFAULT_SITE_WALK_OPTIONS: SiteWalkOptions = {
   excludeFromText: undefined,
   translateTables: false,
+  skipClassPatternExceptions: undefined,
 };
 
 export function getSiteWalkOptions(pageUrl: string): SiteWalkOptions {
@@ -235,9 +241,11 @@ export function getSiteWalkOptions(pageUrl: string): SiteWalkOptions {
   if (!rule) return DEFAULT_SITE_WALK_OPTIONS;
 
   const exclude = rule.excludeFromTextSelectors;
+  const exceptions = rule.skipClassPatternExceptions;
   return {
     excludeFromText: exclude && exclude.length > 0 ? exclude : undefined,
     translateTables: rule.translateTables === true,
+    skipClassPatternExceptions: exceptions && exceptions.length > 0 ? exceptions : undefined,
   };
 }
 

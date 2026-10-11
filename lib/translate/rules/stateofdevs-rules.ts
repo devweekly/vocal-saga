@@ -9,6 +9,7 @@ import type { SiteRule } from './types';
 export const stateOfDevsRule: SiteRule = {
   hostPattern: '*.stateofdevs.com',
   articleRootSelector: 'main',
+  skipClassPatternExceptions: ['survey'],
   promptInstructions:
     'This is a developer survey results dashboard. Translate explanatory prose, section headings, chart labels, and survey questions naturally; preserve numbers, percentages, and proper names.',
 };

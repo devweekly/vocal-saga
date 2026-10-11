@@ -359,7 +359,7 @@ function acceptWalkerNode(
     counters.rejected++;
     return FILTER_REJECT;
   }
-  if (shouldSkipByClass(el, cache.noiseMemo) || shouldSkipBySiteRules(el, pageUrl)) {
+  if (shouldSkipByClass(el, cache.noiseMemo, cache.site.skipClassPatternExceptions) || shouldSkipBySiteRules(el, pageUrl)) {
     // article / main 例外：噪声类（如 has-sidebar）命中时只跳过自身、继续下钻子树，
     // 避免整棵正文被拒（404media.co 的 <article class="... has-sidebar"> 因 "sidebar"
     // 模式被整棵拒绝，正文全失）。与下方元数据类守卫对 article/main 的特例保持一致。

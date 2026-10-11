@@ -11,6 +11,12 @@ export interface SiteRule {
   skipSelectors?: string[];
 
   /**
+   * 跳过通用噪声 class 模式的站点级豁免项。只豁免列出的模式，其它噪声判断不变。
+   * 例如调查结果仪表盘中的 survey-section 是正文，不应按 poll/survey 控件过滤。
+   */
+  skipClassPatternExceptions?: string[];
+
+  /**
    * 抽取块文本时，把这些选择器命中的子树从文本里**剔除**（默认不剔除）。
    *
    * 与 `skipSelectors` 的区别（为什么不用同一个列表）：
