@@ -821,4 +821,42 @@ describe('markGlobalNoise: share/social widget detection', () => {
     expect(doc.querySelector('[data-testid="sidebarColumn"]')?.getAttribute('data-fanyi-remove')).toBe('true');
     expect(doc.querySelector('[data-testid="primaryColumn"]')?.getAttribute('data-fanyi-remove')).toBeNull();
   });
+  it('extracts the full State of Devs dashboard instead of only its overview metric', () => {
+    document.body.innerHTML = `
+      <nav>Site navigation that should not be translated</nav>
+      <main>
+        <section class="overview">
+          <article>
+            <p>Percentage of U.S. respondents who cited rising authoritarianism as a concern.</p>
+          </article>
+        </section>
+        <section class="survey-section">
+          <h2>Global Issues</h2>
+          <p>European countries that experienced a violent heatwave cited climate change as a top concern.</p>
+          <p>Another concern is rising authoritarianism, especially in countries such as Sweden, the U.S., France, and Germany.</p>
+        </section>
+        <section class="survey-section">
+          <h2>Political Expression</h2>
+          <p>While free speech is protected in most countries, that does not always mean people feel comfortable expressing opinions.</p>
+        </section>
+      </main>
+      <footer>Footer boilerplate that should not be translated</footer>
+    `;
+
+    const { blocks, fullText } = prepareDocument(
+      document,
+      'https://2026.stateofdevs.com/en-US/worldview/',
+    );
+
+    expect(fullText).toContain('Percentage of U.S. respondents');
+    expect(fullText).toContain('Global Issues');
+    expect(fullText).toContain('climate change as a top concern');
+    expect(fullText).toContain('rising authoritarianism, especially');
+    expect(fullText).toContain('Political Expression');
+    expect(fullText).toContain('comfortable expressing opinions');
+    expect(fullText).not.toContain('Site navigation');
+    expect(fullText).not.toContain('Footer boilerplate');
+    expect(blocks.length).toBeGreaterThan(4);
+  });
+
 });

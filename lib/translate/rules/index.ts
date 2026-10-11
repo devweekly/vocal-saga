@@ -15,6 +15,7 @@ import { stackoverflowblogRule } from './stackoverflowblog-rules';
 import { inforqRule } from './infoq-rules';
 import { archiveRule } from './archive-rules';
 import { awsblogsRule } from './awsblogs-rules';
+import { stateOfDevsRule } from './stateofdevs-rules';
 
 const RULES: SiteRule[] = [
   githubRule,
@@ -32,6 +33,7 @@ const RULES: SiteRule[] = [
   inforqRule,
   archiveRule,
   awsblogsRule,
+  stateOfDevsRule,
 ];
 
 export function matchSiteRule(url: string): MatchedRule | null {
