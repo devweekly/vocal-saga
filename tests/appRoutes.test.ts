@@ -13,6 +13,7 @@ import { createApp } from '../lib/app';
 import { MapStorage, setDefaultStorage } from '../lib/storage';
 import { cacheKeyUrl } from '../lib/urlUtils';
 import { simpleHash } from '../lib/translate/cacheKey';
+import { buildPageCacheFingerprint } from '../lib/translate/pageCacheKey';
 
 function mockClearAll(...mocks: any[]) {
   for (const m of mocks) m.mockClear();
@@ -365,7 +366,7 @@ describe('GET /fanyi/page/check', () => {
       source_lang: 'en',
       target_lang: 'zh',
       html: '<html><head><style>.original { color: black; }</style></head><body>cached translation<span class="fanyi-translation">译文</span></body></html>',
-      content_hash: 'b1:h3|b2:p|b3:p',
+      content_hash: buildPageCacheFingerprint('b1:h3|b2:p|b3:p', 'https://example.com/article', 'deepseek', 'default'),
       created_at: new Date().toISOString(),
     });
 
@@ -393,7 +394,7 @@ describe('GET /fanyi/page/check', () => {
       source_lang: 'en',
       target_lang: 'zh',
       html: '<html><head><style>.original { color: black; }</style></head><body>cached translation<span class="fanyi-translation">译文</span></body></html>',
-      content_hash: fingerprint,
+      content_hash: buildPageCacheFingerprint(fingerprint, 'https://example.com/article', 'deepseek', 'default'),
       created_at: new Date().toISOString(),
     });
 
@@ -509,7 +510,7 @@ describe('POST /fanyi/page', () => {
       // 健康缓存需保留原页面样式
       html: '<html><head><link rel="stylesheet" href="/style.css"></head><body>cached from d1<span class="fanyi-translation">译文</span></body></html>',
       // content_hash 必须等于提交 html 的 simpleHash 才能命中（与线上修复一致）
-      content_hash: String(simpleHash('<html><body>new</body></html>')),
+      content_hash: buildPageCacheFingerprint(String(simpleHash('<html><body>new</body></html>')), 'https://example.com', 'deepseek', 'default'),
       created_at: new Date().toISOString(),
     });
 
@@ -561,7 +562,7 @@ describe('POST /fanyi/page', () => {
     );
 
     expect(res.status).toBe(200);
-    expect(db._lastInsertArgs?.[5]).toBe(fingerprint);
+    expect(db._lastInsertArgs?.[5]).toBe(buildPageCacheFingerprint(fingerprint, 'https://example.com', 'deepseek', 'default'));
     expect(db._lastInsertArgs?.[5]).not.toBe(String(simpleHash('<html><body>new</body></html>')));
   });
 
@@ -576,7 +577,7 @@ describe('POST /fanyi/page', () => {
       source_lang: 'en',
       target_lang: 'zh',
       html: '<html><head><link rel="stylesheet" href="/style.css"></head><body>cached from d1<span class="fanyi-translation">译文</span></body></html>',
-      content_hash: fingerprint,
+      content_hash: buildPageCacheFingerprint(fingerprint, 'https://example.com', 'deepseek', 'default'),
       created_at: new Date().toISOString(),
     });
 
@@ -612,7 +613,7 @@ describe('POST /fanyi/page', () => {
       source_lang: 'en',
       target_lang: 'zh',
       html: '<html><head><link rel="stylesheet" href="/style.css"></head><body>cached from d1<span class="fanyi-translation">译文</span></body></html>',
-      content_hash: String(simpleHash(html)),
+      content_hash: buildPageCacheFingerprint(String(simpleHash(html)), 'https://example.com', 'deepseek', 'default'),
       created_at: new Date().toISOString(),
     });
 
@@ -642,7 +643,7 @@ describe('POST /fanyi/page', () => {
       source_lang: 'en',
       target_lang: 'zh',
       html: '<html><head><link rel="stylesheet" href="/style.css"></head><body>stale cached<span class="fanyi-translation">旧译文</span></body></html>',
-      content_hash: 'b1:h3|b2:p',
+      content_hash: buildPageCacheFingerprint('b1:h3|b2:p', 'https://example.com', 'deepseek', 'default'),
       created_at: new Date().toISOString(),
     });
 
