@@ -976,6 +976,7 @@ ${pager}
       const result = await translateHtml({
         html,
         url,
+        blocks: Array.isArray(body.blocks) ? body.blocks : undefined,
         source: sourceStored,
         target: targetStored,
         mode,

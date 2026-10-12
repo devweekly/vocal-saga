@@ -1,6 +1,7 @@
 export interface Glossary {
   /** 需保留原文的专有名词，由 glossaryExtractor 从页面正文自动抽取（用户无感）。 */
   document_terms?: string[];
+  site_instructions?: string[];
 }
 
 export interface GlossaryEntry {

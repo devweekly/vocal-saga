@@ -8,6 +8,7 @@ import type { SiteRule } from './types';
  */
 export const stateOfDevsRule: SiteRule = {
   hostPattern: '*.stateofdevs.com',
+  pathPattern: 'worldview/?$',
   articleRootSelector: 'main',
   skipClassPatternExceptions: ['survey'],
   promptInstructions:

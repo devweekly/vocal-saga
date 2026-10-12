@@ -325,12 +325,18 @@ describe('extractBlocks - Text Length Filtering', () => {
     expect(blocks[0].text).toContain('longer paragraph');
   });
 
-  it('should skip very long text (3072+ chars)', () => {
-    const longText = 'a'.repeat(3100);
-    setupHTML(`
-      <p>${longText}</p>
-      <p>Normal length paragraph here.</p>
-    `);
+  it('keeps readable paragraphs below the safety ceiling', () => {
+    const longText = 'This is a long but valid paragraph. '.repeat(130);
+    setupHTML(`<p>${longText}</p><p>Normal length paragraph here.</p>`);
+
+    const blocks = extractBlocks(document, "https://example.com/test");
+    expect(blocks).toHaveLength(2);
+    expect(blocks[0].text).toContain('This is a long but valid paragraph.');
+  });
+
+  it('rejects pathological single-block text above the safety ceiling', () => {
+    const longText = 'a'.repeat(16_400);
+    setupHTML(`<p>${longText}</p><p>Normal length paragraph here.</p>`);
 
     const blocks = extractBlocks(document, "https://example.com/test");
     expect(blocks).toHaveLength(1);
@@ -2394,6 +2400,32 @@ describe('extractBlocksFromMarkedHtml', () => {
     expect(blocks[0].tag).toBe('p');
     expect(blocks[1].id).toBe('b2');
     expect(blocks[2].id).toBe('b3');
+  });
+
+  it('uses client-extracted text so server does not re-add filtered author/link text', () => {
+    setupHTML(`
+      <article>
+        <p data-fanyi-block-id="b1">Actual body <a>Reply</a> by Author.</p>
+      </article>
+    `);
+    const blocks = extractBlocksFromMarkedHtml(document, [
+      { id: 'b1', tag: 'p', text: 'Actual body.' },
+    ]);
+    expect(blocks).not.toBeNull();
+    expect(blocks?.[0].text).toBe('Actual body.');
+  });
+
+  it('rejects client snapshots whose block order does not match marked HTML', () => {
+    setupHTML(`
+      <article>
+        <p data-fanyi-block-id="b1">First body paragraph.</p>
+        <p data-fanyi-block-id="b2">Second body paragraph.</p>
+      </article>
+    `);
+    expect(extractBlocksFromMarkedHtml(document, [
+      { id: 'b2', tag: 'p', text: 'Second body paragraph.' },
+      { id: 'b1', tag: 'p', text: 'First body paragraph.' },
+    ])).toBeNull();
   });
 
   it('按数值顺序排序（b10 在 b2 之后）', () => {

@@ -129,11 +129,20 @@ export function findBlockNode(block: TextBlock, root: Document): Node | null {
 }
 
 /**
- * 从已标记 data-fanyi-block-id 的 HTML 中直接提取 blocks。
- * 扩展端 walker 在浏览器中执行时已经给 DOM 元素设置了 data-fanyi-block-id，
- * 序列化后的 HTML 会保留这些属性。服务端收到后无需重新 walk，直接收集即可。
+ * 扩展端按浏览器 DOM 与站点规则抽取文本；服务端仅用标记 ID 定位回填。
  */
-export function extractBlocksFromMarkedHtml(doc: Document): TextBlock[] {
+export interface ClientBlockText {
+  id: string;
+  tag: string;
+  text: string;
+}
+
+export function extractBlocksFromMarkedHtml(doc: Document): TextBlock[];
+export function extractBlocksFromMarkedHtml(doc: Document, clientBlocks: unknown): TextBlock[] | null;
+export function extractBlocksFromMarkedHtml(
+  doc: Document,
+  clientBlocks?: unknown,
+): TextBlock[] | null {
   const blocks: TextBlock[] = [];
   const seenIds = new Set<string>();
 
@@ -141,30 +150,40 @@ export function extractBlocksFromMarkedHtml(doc: Document): TextBlock[] {
     const id = el.getAttribute('data-fanyi-block-id');
     if (!id || seenIds.has(id)) return;
     seenIds.add(id);
-
-    // 与客户端 walker 的 getBlockText 保持同一份规整逻辑，
-    // 否则服务端送进模型的文本会带着客户端已去掉的零宽字符。
     const text = normalizeBlockText(el.textContent ?? '');
     if (!text) return;
-
-    blocks.push({
-      id,
-      xpath: getXPath(el),
-      tag: el.tagName.toLowerCase(),
-      text,
-      // renderHint 和 context 信息在扩展端 walker 中已丢失，
-      // 但回填时只需要 id 即可定位元素，不影响核心功能。
-      // 如需完整 renderHint，扩展端可通过 data-fanyi-inline-candidate 属性传递。
-    });
+    blocks.push({ id, xpath: getXPath(el), tag: el.tagName.toLowerCase(), text });
   });
 
-  // 按 b1, b2, b10... 的数值顺序排序，避免字典序 b10 < b2
+  if (clientBlocks !== undefined) {
+    // 接纳客户端快照前，ID、标签、数量和顺序必须与标记 DOM 一一对应。
+    // 快照不完整或映射不一致时整体拒绝，避免混用两种文本来源。
+    if (!Array.isArray(clientBlocks) || clientBlocks.length !== blocks.length || blocks.length === 0) return null;
+    const merged: TextBlock[] = [];
+    for (let i = 0; i < blocks.length; i++) {
+      const supplied = clientBlocks[i] as Partial<ClientBlockText> | null;
+      const marked = blocks[i];
+      if (
+        !supplied ||
+        typeof supplied.id !== 'string' ||
+        typeof supplied.tag !== 'string' ||
+        typeof supplied.text !== 'string' ||
+        supplied.text.length > 100_000 ||
+        supplied.id !== marked.id ||
+        supplied.tag.toLowerCase() !== marked.tag ||
+        !/^b[1-9][0-9]*$/.test(supplied.id) ||
+        supplied.text.trim().length === 0
+      ) return null;
+      merged.push({ ...marked, text: normalizeBlockText(supplied.text) });
+    }
+    return merged;
+  }
+
   blocks.sort((a, b) => {
     const na = parseInt(a.id.replace(/^b/, ''), 10) || 0;
     const nb = parseInt(b.id.replace(/^b/, ''), 10) || 0;
     return na - nb;
   });
-
   console.log(`[BlockExtractor] Extracted ${blocks.length} blocks from pre-marked HTML`);
   return blocks;
 }

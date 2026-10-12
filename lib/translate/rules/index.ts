@@ -44,10 +44,17 @@ export function matchSiteRule(url: string): MatchedRule | null {
     return null;
   }
 
+  const pathname = new URL(url).pathname;
   for (const rule of RULES) {
-    if (hostMatches(host, rule.hostPattern)) {
-      return { siteRule: rule, matchedPattern: rule.hostPattern };
+    if (!hostMatches(host, rule.hostPattern)) continue;
+    if (rule.pathPattern) {
+      try {
+        if (!new RegExp(rule.pathPattern).test(pathname)) continue;
+      } catch {
+        continue;
+      }
     }
+    return { siteRule: rule, matchedPattern: rule.hostPattern };
   }
 
   return null;

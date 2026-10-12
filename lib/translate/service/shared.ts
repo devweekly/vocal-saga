@@ -72,7 +72,12 @@ export function buildSystemContent(
   glossary?: Glossary,
   style?: PromptStyle
 ): string {
-  return buildStyledSystemContent(sourceLang, targetLang, glossary, style);
+  const base = buildStyledSystemContent(sourceLang, targetLang, glossary, style);
+  const instructions = (glossary?.site_instructions ?? [])
+    .map((instruction) => instruction.trim())
+    .filter(Boolean);
+  if (instructions.length === 0) return base;
+  return `${base}\n\n站点专属翻译要求（与通用翻译规则同时遵守）：\n${instructions.join('\n')}`;
 }
 
 // ── 翻译请求体构造 ──────────────────────────────────────────

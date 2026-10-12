@@ -5,6 +5,9 @@ export interface SiteRule {
    */
   hostPattern: string;
 
+  /** Optional regular expression matched against URL.pathname after host matching. */
+  pathPattern?: string;
+
   /**
    * CSS selectors whose content should be skipped entirely
    */

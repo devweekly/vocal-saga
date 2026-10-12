@@ -6,6 +6,7 @@ import {
   applyGlobalNoiseFromUrl,
   markGlobalNoise,
 } from '../lib/translate/contentHelper';
+import { matchSiteRule } from '../lib/translate/rules';
 import { parseHTML } from 'linkedom';
 
 function setupHTML(html: string): Document {
@@ -821,6 +822,11 @@ describe('markGlobalNoise: share/social widget detection', () => {
     expect(doc.querySelector('[data-testid="sidebarColumn"]')?.getAttribute('data-fanyi-remove')).toBe('true');
     expect(doc.querySelector('[data-testid="primaryColumn"]')?.getAttribute('data-fanyi-remove')).toBeNull();
   });
+  it('applies State of Devs rules only to the worldview route', () => {
+    expect(matchSiteRule('https://2026.stateofdevs.com/en-US/worldview/')).not.toBeNull();
+    expect(matchSiteRule('https://2026.stateofdevs.com/en-US/')).toBeNull();
+  });
+
   it('extracts the full State of Devs dashboard instead of only its overview metric', () => {
     document.body.innerHTML = `
       <nav>Site navigation that should not be translated</nav>

@@ -266,11 +266,8 @@ export function getSiteWalkOptions(pageUrl: string): SiteWalkOptions {
  *   3. 如果实测有漏网, 可以升级为带 memoization 的实现 (WeakSet 已查过 visible
  *      的元素跳过 computed style 查), 见 _elementVisibilityMemo。
  */
-const _elementVisibilityMemo = new WeakSet<Element>();
-
 export function isElementHidden(el: Element): boolean {
-  // 已确认可见的, 不再查 (避免在子树中重复 layout)
-  if (_elementVisibilityMemo.has(el)) return false;
+  // 每次扫描都读取当前状态；SPA 可能复用节点并改变隐藏属性或样式。
 
   // Cheap: 显式属性
   if (el.hasAttribute('hidden')) return true;
@@ -298,8 +295,6 @@ export function isElementHidden(el: Element): boolean {
     }
   }
 
-  // 标记可见, 后续子孙中的同元素 (e.g. 多个 walker visit 同一节点) 跳过
-  _elementVisibilityMemo.add(el);
   return false;
 }
 

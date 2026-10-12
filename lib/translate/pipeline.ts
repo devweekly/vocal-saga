@@ -84,11 +84,18 @@ export function withSiteDocumentTerms(
   glossary: Glossary | undefined,
   finalUrl: string
 ): Glossary | undefined {
-  const siteTerms = matchSiteRule(finalUrl)?.siteRule.documentTerms;
-  if (!siteTerms || siteTerms.length === 0) return glossary;
+  const rule = matchSiteRule(finalUrl)?.siteRule;
+  const siteTerms = rule?.documentTerms ?? [];
+  const siteInstruction = rule?.promptInstructions?.trim();
+  if (siteTerms.length === 0 && !siteInstruction) return glossary;
   return {
     ...glossary,
-    document_terms: [...(glossary?.document_terms ?? []), ...siteTerms],
+    ...(siteTerms.length > 0
+      ? { document_terms: [...(glossary?.document_terms ?? []), ...siteTerms] }
+      : {}),
+    ...(siteInstruction
+      ? { site_instructions: [...(glossary?.site_instructions ?? []), siteInstruction] }
+      : {}),
   };
 }
 
@@ -416,6 +423,8 @@ export interface TranslateUrlResult {
 export interface TranslateHtmlInput {
   html: string;
   url: string;
+  /** Exact extension-extracted text; accepted only when IDs/tags/order match marked HTML. */
+  blocks?: Array<{ id: string; tag: string; text: string }>;
   source?: string;
   target?: string;
   mode?: 'bilingual';
@@ -741,8 +750,14 @@ export async function translateHtml(input: TranslateHtmlInput): Promise<Translat
   let preExtractedBlocks: TextBlock[] | undefined;
 
   if (hasMarkedBlocks) {
-    preExtractedBlocks = extractBlocksFromMarkedHtml(doc);
-    console.log(`[Pipeline] Received pre-marked HTML from extension: ${input.url} (${input.html.length} bytes, ${preExtractedBlocks.length} blocks)`);
+    const reconciled = input.blocks
+      ? extractBlocksFromMarkedHtml(doc, input.blocks)
+      : extractBlocksFromMarkedHtml(doc);
+    preExtractedBlocks = reconciled ?? extractBlocksFromMarkedHtml(doc);
+    if (input.blocks && !reconciled) {
+      console.warn(`[Pipeline] Client block snapshot did not match marked HTML; falling back to DOM text: ${input.url}`);
+    }
+    console.log(`[Pipeline] Received pre-marked HTML from extension: ${input.url} (${input.html.length} bytes, ${preExtractedBlocks.length} blocks, clientText=${Boolean(reconciled)})`);
   } else {
     console.log(`[Pipeline] Received HTML from extension: ${input.url} (${input.html.length} bytes, no pre-marked blocks)`);
   }
