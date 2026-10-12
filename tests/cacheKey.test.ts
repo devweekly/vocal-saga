@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { simpleHash, generateTranslationCacheKey } from '../lib/translate/cacheKey';
+import { buildPageCacheFingerprint } from '../lib/translate/pageCacheKey';
 
 describe('simpleHash', () => {
   it('should return consistent hash for same string', () => {
@@ -37,6 +38,16 @@ describe('generateTranslationCacheKey', () => {
     expect(key1).not.toBe(key2);
   });
 
+
+  it('invalidates page cache when provider, style, or site rules change', () => {
+    const hash = 'v2:3:abc:def';
+    const url = 'https://2026.stateofdevs.com/en-US/worldview/';
+    const base = buildPageCacheFingerprint(hash, url, 'deepseek', 'default');
+    expect(buildPageCacheFingerprint(hash, url, 'openrouter', 'default')).not.toBe(base);
+    expect(buildPageCacheFingerprint(hash, url, 'deepseek', 'formal')).not.toBe(base);
+    expect(buildPageCacheFingerprint(hash, 'https://2026.stateofdevs.com/en-US/', 'deepseek', 'default')).not.toBe(base);
+    expect(buildPageCacheFingerprint(hash, url, 'deepseek', 'default')).toBe(base);
+  });
 
   it('includes site-specific instructions in the translation cache key', () => {
     const json = JSON.stringify([{ id: 'b1', text: 'Translate this sentence.' }]);

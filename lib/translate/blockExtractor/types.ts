@@ -9,6 +9,11 @@ export interface TextBlock {
   xpath: string;
   tag: string;
   text: string;
+  /** Internal oversized-text segment metadata; merged before DOM write-back. */
+  segmentOf?: string;
+  segmentIndex?: number;
+  segmentCount?: number;
+  separatorBefore?: string;
   /** 文档翻译的章节语境；网页翻译块通常不设置。 */
   contextPath?: string;
   kind?: string;

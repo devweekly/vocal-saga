@@ -13,7 +13,7 @@
  */
 
 import { prepareDocument } from './contentHelper';
-import { buildChunks, type Chunk } from './chunkBuilder';
+import { buildChunks, mergeSegmentTranslations, type Chunk } from './chunkBuilder';
 import { extractBlocksFromMarkedHtml, type TextBlock } from './blockExtractor';
 import {
   buildRetryChunk,
@@ -99,7 +99,7 @@ export function withSiteDocumentTerms(
   };
 }
 
-async function translateChunk(
+export async function translateChunk(
   service: DeepSeekTranslationService,
   chunk: ReturnType<typeof buildChunks>[number],
   sourceLang: string,
@@ -116,49 +116,103 @@ async function translateChunk(
   const tChunk = performance.now();
   const chunkLabel = `[Chunk ${chunk.id}]`;
   const cacheKey = generateTranslationCacheKey(chunk.jsonContent, sourceLang, targetLang, provider, promptStyle, glossary);
-
-  // 1) 缓存
   const us = (ms: number) => `${Math.round(ms * 1000)}µs`;
   console.log(`${chunkLabel} start (${chunk.blocks.length} blocks, ${chunk.estimatedTokens} tokens)`);
-  // skipCache=true 时跳过 chunk 缓存查询，直接调 LLM（强制刷新）
+
   if (!isRetry && !skipCache) {
-    const cached = await getCachedTranslation(cacheKey);
-    if (cached) {
-      console.log(`${chunkLabel} cache hit`);
-      return cached;
+    const cachedChunk = await getCachedTranslation(cacheKey);
+    if (cachedChunk) {
+      // 旧版只缓存整 chunk。命中后顺手填充单块缓存，后续同 chunk 内局部变更时可增量复用。
+      const items = JSON.parse(chunk.jsonContent) as Array<{ id: string; text: string } & Record<string, unknown>>;
+      await Promise.all(items.map(async (item) => {
+        const translated = cachedChunk.get(item.id);
+        if (!translated?.trim()) return;
+        const itemKey = generateTranslationCacheKey(
+          JSON.stringify([item]),
+          sourceLang,
+          targetLang,
+          provider,
+          promptStyle,
+          glossary,
+        );
+        await cacheTranslation(itemKey, new Map([[item.id, translated]]));
+      }));
+      console.log(`${chunkLabel} cache hit (block cache warmed)`);
+      return cachedChunk;
     }
   }
 
-  // 2) 调 service（直接并行，不走队列）
-  console.log(`${chunkLabel} api.call start`);
-  const tApi = performance.now();
+  // Chunk 改变时先按 block 内容查缓存。这样同一 chunk 里只有一段正文变化，
+  // 未变化的 block 仍可复用旧译文；provider、文风、术语表和站点指令均参与 key。
+  const payloadItems = JSON.parse(chunk.jsonContent) as Array<Record<string, unknown> & { id: string; text: string }>;
+  const blockCacheKeys = new Map<string, string>();
+  const cachedBlocks = new Map<string, string>();
+  if (!isRetry && !skipCache) {
+    for (const item of payloadItems) {
+      const itemJson = JSON.stringify([item]);
+      const itemKey = generateTranslationCacheKey(itemJson, sourceLang, targetLang, provider, promptStyle, glossary);
+      blockCacheKeys.set(item.id, itemKey);
+      const cachedBlock = await getCachedTranslation(itemKey);
+      const text = cachedBlock?.get(item.id);
+      if (typeof text === 'string' && text.trim()) cachedBlocks.set(item.id, text);
+    }
+  }
 
-  // 故障隔离：单个 chunk 的 provider 调用或解析失败，不应拖垮整页翻译。
-  // 返回空 Map → 所有 block 计为缺失 → 触发一次缺失重试；重试仍失败则
-  // 这些 block 保持未翻译（页面原样渲染），而不是让 /fanyi/page 整体 500。
+  const missingItems = payloadItems.filter((item) => !cachedBlocks.has(item.id));
+  if (missingItems.length === 0) {
+    console.log(`${chunkLabel} all ${payloadItems.length} blocks reused from block cache`);
+    if (!isRetry && cachedBlocks.size > 0) await cacheTranslation(cacheKey, cachedBlocks);
+    return cachedBlocks;
+  }
+
+  const pendingJsonContent = missingItems.length === payloadItems.length
+    ? chunk.jsonContent
+    : JSON.stringify(missingItems);
+  const pendingKey = missingItems.length === payloadItems.length
+    ? cacheKey
+    : generateTranslationCacheKey(pendingJsonContent, sourceLang, targetLang, provider, promptStyle, glossary);
+  const expectedById = new Map(chunk.blocks.map((block) => [block.id, block]));
+  const pendingBlocks = missingItems.map((item) => expectedById.get(item.id)).filter(
+    (block): block is NonNullable<typeof block> => Boolean(block),
+  );
+
+  // 只向模型提交未命中的 block。失败时仍返回已命中缓存的块，让上层只重试真正缺失项。
+  console.log(`${chunkLabel} api.call start (missing=${missingItems.length}, reused=${cachedBlocks.size})`);
+  const tApi = performance.now();
   let raw: string;
   try {
-    raw = await translateSingleflight(cacheKey, () => service.translate(chunk.jsonContent, sourceLang, targetLang, glossary));
+    raw = await translateSingleflight(pendingKey, () => service.translate(pendingJsonContent, sourceLang, targetLang, glossary));
   } catch (err) {
-    console.error(`${chunkLabel} provider call failed, treating all blocks as missing (retry will follow):`, (err as Error)?.message);
-    return new Map<string, string>();
+    console.error(`${chunkLabel} provider call failed, treating uncached blocks as missing:`, (err as Error)?.message);
+    return cachedBlocks;
   }
   console.log(`${chunkLabel} api.call done (${us(performance.now() - tApi)})`);
 
-  // 一次 parse 完成 result 提取 + unchanged 检测（原流程 parse 两次）
-  // processTranslationWithCheck 自身已容错（解析彻底失败返回空 Map），
-  // 这里再包一层防御，确保任何意外异常都能降级而非上抛。
-  let result: Map<string, string>;
+  let freshResult: Map<string, string>;
   try {
-    result = processTranslationWithCheck(raw, chunk.blocks.map((b) => ({ id: b.id, text: b.text })));
+    freshResult = processTranslationWithCheck(raw, pendingBlocks.map((block) => ({ id: block.id, text: block.text })));
   } catch (err) {
-    console.error(`${chunkLabel} translation parse failed, treating all blocks as missing:`, (err as Error)?.message);
-    result = new Map<string, string>();
+    console.error(`${chunkLabel} translation parse failed, treating uncached blocks as missing:`, (err as Error)?.message);
+    freshResult = new Map<string, string>();
   }
 
-  // 3) 缓存（仅首次；skipCache 时仍写入以刷新旧缓存，只跳过读取）
-  // 注意：空结果（provider/解析失败）绝不写入缓存，否则会污染 KV，
-  // 后续缓存命中直接返回空 → 永远缺失且不再重试。
+  const result = new Map(cachedBlocks);
+  for (const [id, text] of freshResult) result.set(id, text);
+
+  // 先缓存可复用的单块译文，再缓存本次完整 chunk 结果。retry 不污染任何缓存。
+  if (!isRetry && freshResult.size > 0) {
+    await Promise.all(Array.from(freshResult, async ([id, text]) => {
+      const itemKey = blockCacheKeys.get(id) ?? generateTranslationCacheKey(
+        JSON.stringify([payloadItems.find((item) => item.id === id)]),
+        sourceLang,
+        targetLang,
+        provider,
+        promptStyle,
+        glossary,
+      );
+      await cacheTranslation(itemKey, new Map([[id, text]]));
+    }));
+  }
   if (!isRetry && result.size > 0) {
     await cacheTranslation(cacheKey, result);
   }
@@ -247,7 +301,7 @@ async function translateChunksWithRetry(
     throw err;
   }
 
-  return finalTranslations;
+  return mergeSegmentTranslations(chunks, finalTranslations);
 }
 
 // =============================================================================

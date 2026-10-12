@@ -68,6 +68,7 @@ import { createStructuredDocument, parseDocument, SERVER_SUPPORTED_FORMATS } fro
 import { translateDocument } from './translate/documentPipeline';
 import { hasDocumentRoot, validateTranslationCompleteness } from './translate/translationValidator';
 import { simpleHash } from './translate/cacheKey';
+import { buildPageCacheFingerprint } from './translate/pageCacheKey';
 import type { PromptStyle } from './translate/service/shared';
 import { setDefaultStorage, type StorageAdapter } from './storage';
 import { requireAuth } from './auth';
@@ -802,8 +803,13 @@ ${pager}
 
     const source = c.req.query('source') || 'en';
     const target = c.req.query('target') || 'zh';
-    // 可选：客户端传来的内容哈希，用于检测页面内容是否已更新
+    const provider = c.req.query('provider') || 'deepseek';
+    const promptStyle = c.req.query('promptStyle') || 'default';
+    // 客户端内容指纹与服务端当前的翻译配置/站点规则共同决定缓存是否可复用。
     const clientContentHash = c.req.query('contentHash');
+    const expectedContentHash = clientContentHash
+      ? buildPageCacheFingerprint(clientContentHash, url, provider, promptStyle)
+      : null;
 
     const VALID_LANG_RE = /^(auto|[a-zA-Z]{2,3})(-[a-zA-Z]{2,3})?$/;
     const sourceStored = source && VALID_LANG_RE.test(source) ? source : 'en';
@@ -829,9 +835,9 @@ ${pager}
           // 因此：空 content_hash 在 /fanyi/page 路径下必须视为未命中（强制走完整 pipeline）。
           const hashValid = existing.content_hash && existing.content_hash !== '';
           if (
-            clientContentHash &&
+            expectedContentHash &&
             hashValid &&
-            clientContentHash !== existing.content_hash
+            expectedContentHash !== existing.content_hash
           ) {
             console.log(`[fanyi/page/check] D1 cache stale for ${url} (content_hash mismatch) sid=${sid}`);
             return new Response(null, { status: 410 });
@@ -929,10 +935,11 @@ ${pager}
     // 旧版扩展不传 contentHash → 退回 simpleHash(html)，保持向后兼容。
     // 两者的字符串形态不同（指纹是 "b1:h3|b2:p|..."，simpleHash 是数字），
     // 所以升级后的第一次访问必然不匹配 → 重新翻译并写入新形态，只付一次代价。
-    const contentHash =
+    const clientContentHash =
       typeof body.contentHash === 'string' && body.contentHash.length > 0
         ? body.contentHash
         : String(simpleHash(html));
+    const contentHash = buildPageCacheFingerprint(clientContentHash, url, provider, promptStyle);
     const db = (c.env as any)?.DB999;
     const cacheKey = cacheKeyUrl(url);
     if (db) {

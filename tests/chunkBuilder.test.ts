@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildChunks } from '../lib/translate/chunkBuilder';
+import { buildChunks, mergeSegmentTranslations } from '../lib/translate/chunkBuilder';
 import type { TextBlock } from '../lib/translate/blockExtractor';
 
 function makeBlock(id: string, tag: string, text: string): TextBlock {
@@ -18,6 +18,32 @@ function tokenBlock(id: string, tag: string, tokens: number): TextBlock {
 describe('buildChunks', () => {
   it('returns empty array for no blocks', () => {
     expect(buildChunks([])).toEqual([]);
+  });
+
+  it('segments oversized prose and reassembles only when every segment has a translation', () => {
+    const longText = 'This is a reasonably long sentence that should remain intact at chunk boundaries. '.repeat(90);
+    const block = makeBlock('b1', 'p', longText);
+    const chunks = buildChunks([block]);
+    const parts = chunks.flatMap((chunk) => chunk.blocks)
+      .filter((part) => part.segmentOf === 'b1')
+      .sort((a, b) => (a.segmentIndex ?? 0) - (b.segmentIndex ?? 0));
+
+    expect(parts.length).toBeGreaterThan(1);
+    expect(parts.every((part) => part.text.length <= 2400)).toBe(true);
+    expect(parts.map((part) => part.id)).not.toContain('b1');
+    const reconstructed = parts[0].text + parts.slice(1)
+      .map((part) => (part.separatorBefore ?? '') + part.text).join('');
+    expect(reconstructed).toBe(longText);
+
+    const segmentTranslations = new Map(parts.map((part) => [part.id, `译文-${part.segmentIndex}`]));
+    const merged = mergeSegmentTranslations(chunks, segmentTranslations);
+    expect(merged.size).toBe(1);
+    expect(merged.get('b1')).toBe(parts.map((part, index) =>
+      index === 0 ? `译文-${part.segmentIndex}` : (part.separatorBefore ?? '') + `译文-${part.segmentIndex}`
+    ).join(''));
+
+    const incomplete = new Map(parts.slice(1).map((part) => [part.id, '缺失首片']));
+    expect(mergeSegmentTranslations(chunks, incomplete).has('b1')).toBe(false);
   });
 
   it('creates a single chunk for a small set of blocks', () => {

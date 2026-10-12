@@ -13,7 +13,7 @@
 export const MIN_TEXT_LENGTH = 3;
 
 /** 最大可翻译文本长度 (字符数)。超长文本很可能是误抓的代码块 / 数据表。 */
-export const MAX_TEXT_LENGTH = 16384;
+export const MAX_TEXT_LENGTH = 100_000;
 
 /** XHTML 命名空间 URI。SVG/MathML 等非 HTML 命名空间下的元素整棵拒绝。 */
 export const XHTML_NAMESPACE = 'http://www.w3.org/1999/xhtml';

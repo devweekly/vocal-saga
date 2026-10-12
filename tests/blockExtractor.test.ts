@@ -326,16 +326,17 @@ describe('extractBlocks - Text Length Filtering', () => {
   });
 
   it('keeps readable paragraphs below the safety ceiling', () => {
-    const longText = 'This is a long but valid paragraph. '.repeat(130);
+    const longText = 'This is a long but valid paragraph. '.repeat(500);
     setupHTML(`<p>${longText}</p><p>Normal length paragraph here.</p>`);
 
     const blocks = extractBlocks(document, "https://example.com/test");
     expect(blocks).toHaveLength(2);
     expect(blocks[0].text).toContain('This is a long but valid paragraph.');
+    expect(blocks[0].text.length).toBeGreaterThan(16_384);
   });
 
   it('rejects pathological single-block text above the safety ceiling', () => {
-    const longText = 'a'.repeat(16_400);
+    const longText = 'a'.repeat(100_100);
     setupHTML(`<p>${longText}</p><p>Normal length paragraph here.</p>`);
 
     const blocks = extractBlocks(document, "https://example.com/test");
