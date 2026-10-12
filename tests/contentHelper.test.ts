@@ -19,6 +19,34 @@ describe('prepareDocument', () => {
     document.body.innerHTML = '';
   });
 
+  it('aggregates sibling content regions on multi-section pages', () => {
+    document.body.innerHTML = `
+      <nav>Site navigation and unrelated links</nav>
+      <main>
+        <section>
+          <h2>Climate Change</h2>
+          <p>European countries that experienced the recent heatwave cited climate change as a major public concern across the region.</p>
+        </section>
+        <section>
+          <h2>Rising Authoritarianism</h2>
+          <p>Respondents in several countries are increasingly concerned about authoritarianism and the weakening of democratic institutions.</p>
+        </section>
+        <aside>Unrelated sidebar promotions and account links.</aside>
+      </main>
+      <footer>Site footer boilerplate</footer>
+    `;
+
+    const { blocks, fullText } = prepareDocument(document, 'https://example.com/results');
+
+    expect(fullText).toContain('Climate Change');
+    expect(fullText).toContain('Rising Authoritarianism');
+    expect(fullText).toContain('weakening of democratic institutions');
+    expect(fullText).not.toContain('Site navigation');
+    expect(fullText).not.toContain('Unrelated sidebar');
+    expect(fullText).not.toContain('Site footer boilerplate');
+    expect(blocks.length).toBeGreaterThan(3);
+  });
+
   it('should use article element as root when present', () => {
     document.body.innerHTML = `
       <nav>Navigation content</nav>

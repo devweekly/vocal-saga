@@ -30,6 +30,9 @@ export function generateTranslationCacheKey(
     (glossary?.document_terms?.length
       ? `|g${simpleHash(JSON.stringify(glossary.document_terms))}`
       : '') +
+    (glossary?.site_instructions?.length
+      ? `|s${simpleHash(JSON.stringify(glossary.site_instructions))}`
+      : '') +
     (sitePrompt?.trim() ? `|r${simpleHash(sitePrompt)}` : '');
   const contentHash = simpleHash(jsonContent + extra);
   const contentPrefix = jsonContent.substring(0, 200);

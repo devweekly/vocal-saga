@@ -38,6 +38,19 @@ describe('generateTranslationCacheKey', () => {
   });
 
 
+  it('includes site-specific instructions in the translation cache key', () => {
+    const json = JSON.stringify([{ id: 'b1', text: 'Translate this sentence.' }]);
+    const generic = generateTranslationCacheKey(json, 'en', 'zh', 'deepseek', 'default', {});
+    const siteA = generateTranslationCacheKey(json, 'en', 'zh', 'deepseek', 'default', {
+      site_instructions: ['Preserve survey percentages and chart labels.'],
+    });
+    const siteB = generateTranslationCacheKey(json, 'en', 'zh', 'deepseek', 'default', {
+      site_instructions: ['Use formal legal language.'],
+    });
+    expect(siteA).not.toBe(generic);
+    expect(siteA).not.toBe(siteB);
+  });
+
   it('should use content prefix for faster comparison', () => {
     const longContent = 'a'.repeat(1000);
     const json = JSON.stringify([{ id: 'b1', text: longContent }]);

@@ -1,6 +1,7 @@
 import { extractBlocks, getLastCounters, type TextBlock, type ArticleContext } from './blockExtractor';
 import { buildChunks, type Chunk } from './chunkBuilder';
 import { selectRootCandidates } from './extraction/pipeline';
+import { matchSiteRule } from './rules';
 import { parseHTML } from 'linkedom';
 
 // =============================================================================
@@ -295,6 +296,44 @@ function buildReport(
   };
 }
 
+/**
+ * 识别由多个并列正文区域组成的页面（搜索/调查结果/专题首页）。
+ * 仅当 main 下有至少两个独立、具备段落文本的区域，且区域正文占 main 文本的
+ * 足够比例时才尝试聚合 main；最终仍需经过真实抽取预检。
+ */
+function hasMultipleContentRegions(main: Element): boolean {
+  const mainTextLength = (main.textContent || '').trim().length;
+  if (mainTextLength < 300) return false;
+  const candidates = Array.from(
+    main.querySelectorAll('section, article, [role="article"]'),
+  ).filter((el) => {
+    if (el.closest('nav, aside, footer, [hidden], [aria-hidden="true"], [contenteditable]:not([contenteditable="false"])')) {
+      return false;
+    }
+    if ((el.textContent || '').trim().length < 80) return false;
+    return el.querySelector('p, li, blockquote') !== null;
+  });
+  const candidateSet = new Set(candidates);
+  const topRegions = candidates.filter((el) => {
+    let parent = el.parentElement;
+    while (parent && parent !== main) {
+      if (candidateSet.has(parent)) return false;
+      parent = parent.parentElement;
+    }
+    return true;
+  });
+  if (topRegions.length < 2) return false;
+  const regionTextLength = topRegions.reduce(
+    (sum, el) => sum + (el.textContent || '').trim().length,
+    0,
+  );
+  const largestRegion = Math.max(
+    ...topRegions.map((el) => (el.textContent || '').trim().length),
+  );
+  return regionTextLength >= largestRegion * 1.3 &&
+    regionTextLength / mainTextLength >= 0.35;
+}
+
 function findArticleRoot(
   doc: Document,
   pageUrl: string,
@@ -303,6 +342,27 @@ function findArticleRoot(
 ): { root: Element; strategy: string } {
   const ranked = selectRootCandidates(doc, pageUrl, contextOut);
   const candidates = [...ranked];
+
+  // 多区域页面在通用候选前尝试聚合 main，但不覆盖显式站点根规则。
+  // 和其它根候选一样，必须通过后续的真实文本抽取预检才会被采用。
+  if (!matchSiteRule(pageUrl)?.siteRule.articleRootSelector) {
+    const main = doc.querySelector('main');
+    if (main && hasMultipleContentRegions(main) && !candidates.some((candidate) => candidate.root === main)) {
+      const textLength = (main.textContent || '').trim().length;
+      candidates.unshift({
+        root: main,
+        strategy: 'multi-region-main',
+        confidence: 0.88,
+        candidate: {
+          provider: 'multi-region-main',
+          root: main,
+          textLength,
+          confidence: 0.88,
+        },
+      });
+    }
+  }
+
   const body = doc.body || doc.documentElement;
   if (body && !candidates.some((candidate) => candidate.root === body)) {
     candidates.push({
