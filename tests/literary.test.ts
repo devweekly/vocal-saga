@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
+  buildLiteraryContextForText,
   buildLiteraryReviewInstructions,
   buildLiteraryTranslationInstructions,
   mergeLiteraryMemory,
@@ -33,6 +34,16 @@ describe('literary book memory', () => {
     expect(merged.styleGuide.dialogue).toBe('人物对话有差异');
     expect(merged.relationships).toHaveLength(2);
     expect(merged.chapterSummaries).toHaveLength(2);
+  });
+
+  it('keeps a small named-entity window for passages that use pronouns', () => {
+    const memory = sanitizeLiteraryMemory({
+      entities: [{ source: 'Alice', target: '艾丽丝', kind: 'person' }],
+      relationships: [{ subject: 'Alice', predicate: 'protects', object: 'Bob' }],
+    });
+    const context = JSON.parse(buildLiteraryContextForText(memory, 'She said nothing.'));
+    expect(context.entities[0].target).toBe('艾丽丝');
+    expect(context.relationships[0].subject).toBe('Alice');
   });
 
   it('sanitizes untrusted entity strings and caps memory size', () => {

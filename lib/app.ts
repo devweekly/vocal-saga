@@ -1190,8 +1190,9 @@ ${pager}
         model: typeof model === 'string' ? model : undefined,
         apiKey: typeof apiKey === 'string' ? apiKey : undefined,
         // 只有电子书客户端显式开启文学模式时才使用独立记忆与审校流程。
-        literaryContext: literaryContext && typeof literaryContext === 'object' ? literaryContext : undefined,
-        literaryReview: literaryReview === true,
+        literaryContext: (format === 'epub' || format === 'pdf') &&
+          literaryContext && typeof literaryContext === 'object' ? literaryContext : undefined,
+        literaryReview: literaryReview === true && (format === 'epub' || format === 'pdf'),
         chapterTitle: typeof chapterTitle === 'string' ? chapterTitle.slice(0, 160) : undefined,
       });
       return c.json({

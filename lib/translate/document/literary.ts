@@ -283,7 +283,8 @@ export function buildLiteraryContextForText(memoryInput: unknown, sourceText: st
   const matches = memory.entities.filter((entity) =>
     [entity.source, ...(entity.aliases ?? [])].some((name) => name && source.includes(name.toLocaleLowerCase())),
   );
-  const selectedEntities = matches.slice(0, 10);
+  // 代词、称谓或省略主语句不一定直接包含实体名；无匹配时带少量近期实体帮助指代消歧。
+  const selectedEntities = (matches.length ? matches : memory.entities.slice(-5)).slice(0, 10);
   const names = new Set(selectedEntities.map((entity) => entity.source.toLocaleLowerCase()));
   const relationships = memory.relationships.filter((relation) =>
     names.has(relation.subject.toLocaleLowerCase()) || names.has(relation.object.toLocaleLowerCase()),
