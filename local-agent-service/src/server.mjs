@@ -193,7 +193,7 @@ export function parseJsonObject(text) {
   const fence = String.fromCharCode(96).repeat(3);
   if (value.startsWith(fence)) {
     value = value.slice(fence.length).trimStart();
-    if (value.slice(0, 4).toLowerCase() === 'json' && (value.length === 4 || /\\s/.test(value[4]))) value = value.slice(4).trimStart();
+    if (value.slice(0, 4).toLowerCase() === 'json') value = value.slice(4).trimStart();
   }
   if (value.endsWith(fence)) value = value.slice(0, -fence.length).trimEnd();
   try {
