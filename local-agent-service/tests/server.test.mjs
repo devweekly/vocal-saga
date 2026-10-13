@@ -14,6 +14,11 @@ test('routes explicit OpenCode provider/model aliases', () => {
   assert.equal(result.model, 'openai/gpt-5.4');
 });
 
+test('parses JSON inside a Markdown code fence', () => {
+  const fence = String.fromCharCode(96).repeat(3);
+  assert.deepEqual(parseJsonObject(fence + 'json\\n{"ok":true}\\n' + fence), { ok: true });
+});
+
 test('parses a JSON object wrapped in explanation', () => {
   assert.deepEqual(parseJsonObject('result:\n{"ok":true}\nthanks'), { ok: true });
 });

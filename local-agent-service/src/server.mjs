@@ -188,9 +188,14 @@ export function buildAgentPrompt(messages, jsonMode = false) {
 }
 
 export function parseJsonObject(text) {
-  const value = String(text || '').trim()
-    .replace(/^\\u0060\\u0060\\u0060(?:json)?\\s*/i, '')
-    .replace(/\\s*\\u0060\\u0060\\u0060$/, '');
+  let value = String(text || '').trim();
+  // Avoid brittle escaping for Markdown fences; model runtimes sometimes wrap valid JSON this way.
+  const fence = String.fromCharCode(96).repeat(3);
+  if (value.startsWith(fence)) {
+    value = value.slice(fence.length).trimStart();
+    if (/^json\\b/i.test(value)) value = value.slice(4).trimStart();
+  }
+  if (value.endsWith(fence)) value = value.slice(0, -fence.length).trimEnd();
   try {
     const parsed = JSON.parse(value);
     return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : null;
@@ -542,6 +547,11 @@ async function handleRequest(req, res) {
         ? normalized.userPrompt + '\n\n输出约束：只返回严格合法的 JSON 对象，不要 Markdown、前言或后记。'
         : normalized.userPrompt;
       output = await runAgent(agent, prompt, normalized.systemPrompt);
+      if (jsonMode) {
+        const parsedOutput = parseJsonObject(output);
+        if (!parsedOutput) throw new Error('本机 Agent 返回内容不是有效 JSON；请重试该批次');
+        output = JSON.stringify(parsedOutput);
+      }
       sendJson(res, 200, {
         id: 'chatcmpl-' + requestId, object: 'chat.completion',
         created: Math.floor(Date.now() / 1000), model: body.model,
@@ -578,6 +588,9 @@ export function startLocalAgentServer() {
     throw new Error('LOCAL_AGENT_HOST 必须是 loopback 地址（默认 127.0.0.1），本服务不允许监听局域网');
   }
   if (!Number.isInteger(PORT) || PORT < 1 || PORT > 65535) throw new Error('LOCAL_AGENT_PORT 不合法');
+  if (!LOCAL_TOKEN || /replace-with-a-long-random-token/i.test(LOCAL_TOKEN)) {
+    throw new Error('请在 local-agent-service/.env 中配置随机 LOCAL_AGENT_TOKEN；服务不会使用示例占位值启动。');
+  }
   db = initDatabase();
   const server = createServer((req, res) => {
     void handleRequest(req, res).catch((error) => {

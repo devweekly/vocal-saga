@@ -1,0 +1,30 @@
+name: Local Agent Service
+
+on:
+  push:
+    paths:
+      - 'local-agent-service/**'
+      - '.github/workflows/local-agent-service.yml'
+  pull_request:
+    paths:
+      - 'local-agent-service/**'
+      - '.github/workflows/local-agent-service.yml'
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.13.0'
+      - name: Install local service dependencies
+        working-directory: local-agent-service
+        run: npm install
+      - name: Run local service tests
+        working-directory: local-agent-service
+        run: npm test
+      - name: Check JavaScript syntax
+        working-directory: local-agent-service
+        run: node --check src/server.mjs

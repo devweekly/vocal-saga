@@ -14,7 +14,10 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "unlock": "sh scripts/rm-git-lock.sh"
+    "unlock": "sh scripts/rm-git-lock.sh",
+    "local-agent:install": "npm --prefix local-agent-service install",
+    "local-agent:start": "npm --prefix local-agent-service start",
+    "local-agent:test": "npm --prefix local-agent-service test"
   },
   "dependencies": {
     "@google/genai": "^2.21.0",
