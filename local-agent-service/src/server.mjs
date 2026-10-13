@@ -17,7 +17,11 @@ const PORT = Number.parseInt(process.env.LOCAL_AGENT_PORT || '8789', 10);
 const DATA_DIR = path.resolve(process.env.LOCAL_AGENT_DATA_DIR || path.join(homedir(), '.vocal-saga-local-agent'));
 const DATABASE_PATH = path.resolve(process.env.LOCAL_AGENT_DATABASE || path.join(DATA_DIR, 'local-agent.sqlite'));
 const WORK_DIR = path.resolve(process.env.LOCAL_AGENT_WORKDIR || path.join(DATA_DIR, 'workspace'));
-const LOCAL_TOKEN = process.env.LOCAL_AGENT_TOKEN || '';
+const configuredToken = (process.env.LOCAL_AGENT_TOKEN || '').trim();
+// Token is optional for loopback-only use. Treat the example placeholder as unset.
+const LOCAL_TOKEN = configuredToken && !/replace-with-a-long-random-token/i.test(configuredToken)
+  ? configuredToken
+  : '';
 const DEFAULT_PROVIDER = (process.env.LOCAL_AGENT_PROVIDER || 'opencode').toLowerCase();
 const DEFAULT_WORKBUDDY_MODEL = process.env.LOCAL_WORKBUDDY_MODEL || process.env.WORKBUDDY_MODEL || process.env.CODEBUDDY_DEFAULT_MODEL || '';
 const DEFAULT_OPENCODE_MODEL = process.env.LOCAL_OPENCODE_MODEL || process.env.OPENCODE_MODEL || '';
@@ -29,7 +33,7 @@ const STORE_CONTENT = (process.env.LOCAL_AGENT_STORE_CONTENT || 'true').toLowerC
 let db;
 
 function isLoopbackHost(host) {
-  return host === '127.0.0.1' || host === 'localhost' || host === '[::1]';
+  return host === '127.0.0.1' || host === 'localhost' || host === '::1' || host === '[::1]';
 }
 
 function sendJson(res, status, body) {
@@ -43,11 +47,22 @@ function sendJson(res, status, body) {
 }
 
 function addCors(req, res) {
-  // Loopback bind + no cookies: allow browser extension origins without credentialed CORS.
-  res.setHeader('Access-Control-Allow-Origin', '*');
+  // A loopback service can still be targeted by a webpage open in the browser.
+  // Permit browser extension origins only; allow command-line clients with no Origin header.
+  const origin = typeof req.headers.origin === 'string' ? req.headers.origin : '';
+  if (origin) {
+    let parsed;
+    try { parsed = new URL(origin); } catch { return false; }
+    if (!['chrome-extension:', 'moz-extension:', 'safari-web-extension:'].includes(parsed.protocol) || !parsed.hostname) {
+      return false;
+    }
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Vary', 'Origin');
+  }
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
   res.setHeader('Access-Control-Max-Age', '600');
+  return true;
 }
 
 function authorize(req) {
@@ -79,6 +94,7 @@ async function readJson(req) {
 
 function initDatabase() {
   mkdirSync(DATA_DIR, { recursive: true });
+  mkdirSync(path.dirname(DATABASE_PATH), { recursive: true });
   mkdirSync(WORK_DIR, { recursive: true });
   const database = new DatabaseSync(DATABASE_PATH);
   database.exec('PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 5000;');
@@ -489,10 +505,16 @@ async function runLiteraryReview(body) {
 }
 
 async function handleRequest(req, res) {
-  addCors(req, res);
+  if (!addCors(req, res)) {
+    sendJson(res, 403, { error: '本机服务不接受普通网页来源；请从浏览器扩展或本机命令行调用' });
+    return;
+  }
+  const hostHeader = String(req.headers.host || '').trim().toLowerCase();
+  const hostname = hostHeader.startsWith('[')
+    ? hostHeader.slice(1, hostHeader.indexOf(']'))
+    : hostHeader.replace(/:\\d+$/, '');
+  if (!isLoopbackHost(hostname)) { sendJson(res, 403, { error: '此服务只允许通过 localhost/127.0.0.1 访问' }); return; }
   if (req.method === 'OPTIONS') { res.writeHead(204); res.end(); return; }
-  const hostHeader = String(req.headers.host || '').split(':')[0].toLowerCase();
-  if (!isLoopbackHost(hostHeader)) { sendJson(res, 403, { error: '此服务只允许通过 localhost/127.0.0.1 访问' }); return; }
   const url = new URL(req.url || '/', 'http://127.0.0.1');
   if (req.method === 'GET' && url.pathname === '/health') {
     sendJson(res, 200, {
@@ -594,9 +616,8 @@ export function startLocalAgentServer() {
     throw new Error('LOCAL_AGENT_HOST 必须是 loopback 地址（默认 127.0.0.1），本服务不允许监听局域网');
   }
   if (!Number.isInteger(PORT) || PORT < 1 || PORT > 65535) throw new Error('LOCAL_AGENT_PORT 不合法');
-  if (!LOCAL_TOKEN || /replace-with-a-long-random-token/i.test(LOCAL_TOKEN)) {
-    throw new Error('请在 local-agent-service/.env 中配置随机 LOCAL_AGENT_TOKEN；服务不会使用示例占位值启动。');
-  }
+  // Local single-user service: authentication is optional because the server binds
+  // exclusively to loopback. If configured, the token is still enforced per request.
   db = initDatabase();
   const server = createServer((req, res) => {
     void handleRequest(req, res).catch((error) => {
