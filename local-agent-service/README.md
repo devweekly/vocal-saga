@@ -1,6 +1,6 @@
 # vocal-saga Local Agent Service
 
-这是 vocal-saga 中独立的本机 Node.js Provider，供 fanyi-extension 使用。它把 OpenAI-compatible Chat Completions 请求转交给本机 Workbuddy（@tencent-ai/agent-sdk）或 OpenCode CLI，并使用 SQLite 记录本机请求历史。
+这是 vocal-saga 中独立的本机 Node.js Provider，供 fanyi-extension 使用。它把 OpenAI-compatible Chat Completions 请求转交给本机 Workbuddy（@tencent-ai/agent-sdk）或 OpenCode CLI，并使用 SQLite 记录本机请求历史。扩展启用本机 Provider 后，网页翻译、文档翻译、侧栏对话以及 EPUB/PDF 的文学分析和 Reviewer 都走这个本机进程。
 
 ## 环境要求
 
@@ -12,7 +12,8 @@
 
     cd local-agent-service
     cp .env.example .env
-    # 编辑 .env，设置 LOCAL_AGENT_TOKEN 和需要使用的模型
+    # 编辑 .env，设置随机 LOCAL_AGENT_TOKEN；为准备使用的运行时设置模型
+    # OpenCode：LOCAL_OPENCODE_MODEL=provider/model；Workbuddy：LOCAL_WORKBUDDY_MODEL=本机 SDK 模型 ID
     npm install
     npm start
 
@@ -28,4 +29,4 @@
 
 数据库默认位置为 ~/.vocal-saga-local-agent/local-agent.sqlite，使用 WAL。保留运行状态、provider/model、时延、字符数、成功/失败和历史记录。默认 LOCAL_AGENT_STORE_CONTENT=true，会将完整请求 prompt、原文和译文保存在本机 SQLite；如果不希望持久化正文，在 .env 设置 LOCAL_AGENT_STORE_CONTENT=false 并重启，此时仅记录元数据与长度。GET /api/history?limit=30 可查询最近记录；DELETE /api/history 可清空历史。
 
-建议配置随机 LOCAL_AGENT_TOKEN，并始终将服务保持在 127.0.0.1。
+服务会拒绝空 Token 或示例占位 Token 启动。请使用 openssl rand -hex 32 生成随机值，并同时填入扩展设置。服务始终只监听 127.0.0.1，不应通过反向代理、隧道或局域网地址暴露。

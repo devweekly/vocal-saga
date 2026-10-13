@@ -65,3 +65,12 @@ npm test              # Vitest
 npm run build:lib     # 编译 lib/
 npm run typecheck     # 类型检查
 ```
+
+
+## Local Agent Service（macOS）
+
+除部署到 Cloudflare Workers 的远程翻译 API 外，仓库还提供一个独立的本机 Node.js Provider，供 `saga/fanyi-extension` 将请求转交给本机 Workbuddy/CodeBuddy SDK 或 OpenCode CLI。服务使用 SQLite 记录请求历史，与 Cloudflare Worker 部署解耦。
+
+启动步骤：进入 `local-agent-service`，复制 `.env.example` 为 `.env`，填入随机 `LOCAL_AGENT_TOKEN` 与所需模型，然后运行 `npm install` 和 `npm start`。
+
+服务默认监听 `http://127.0.0.1:8789`。需要 Node.js >= 22.13，详细设置、SQLite 存储和隐私选项见 [local-agent-service/README.md](local-agent-service/README.md)。也可从仓库根目录运行 `npm run local-agent:install`、`npm run local-agent:start` 和 `npm run local-agent:test`。该服务仅面向本机使用，不随 Cloudflare Worker 一起部署。

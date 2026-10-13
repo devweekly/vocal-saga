@@ -12,7 +12,6 @@ import { homedir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const HOST = (process.env.LOCAL_AGENT_HOST || '127.0.0.1').trim();
 const PORT = Number.parseInt(process.env.LOCAL_AGENT_PORT || '8789', 10);
 const DATA_DIR = path.resolve(process.env.LOCAL_AGENT_DATA_DIR || path.join(homedir(), '.vocal-saga-local-agent'));
@@ -253,8 +252,10 @@ function runOpenCode(agent, prompt, systemPrompt) {
     let stdoutFallback = '';
     let stderr = '';
     let finished = false;
+    let timedOut = false;
     const timer = setTimeout(() => {
       if (finished) return;
+      timedOut = true;
       child.kill('SIGTERM');
       setTimeout(() => { if (!finished) child.kill('SIGKILL'); }, 3000).unref();
     }, REQUEST_TIMEOUT_MS);
@@ -290,6 +291,10 @@ function runOpenCode(agent, prompt, systemPrompt) {
       clearTimeout(timer);
       if (buffer.trim()) handleLine(buffer);
       const output = answer.trim() || stdoutFallback.trim();
+      if (timedOut) {
+        reject(new Error('OpenCode 调用超时（' + REQUEST_TIMEOUT_MS + ' ms）'));
+        return;
+      }
       if (signal || code !== 0) {
         reject(new Error('OpenCode 执行失败（exit=' + code + (signal ? ', signal=' + signal : '') + '）：' + (stderr.trim() || output.slice(-1000) || '无详细错误')));
         return;
@@ -327,7 +332,7 @@ async function runWorkbuddy(agent, prompt, systemPrompt) {
   let timedOut = false;
   const timer = setTimeout(() => {
     timedOut = true;
-    Promise.resolve(query.interrupt?.()).catch(() => {});
+    try { Promise.resolve(query.interrupt?.()).catch(() => {}); } catch { /* timeout is handled below */ }
   }, REQUEST_TIMEOUT_MS);
   timer.unref();
   try {
@@ -343,6 +348,7 @@ async function runWorkbuddy(agent, prompt, systemPrompt) {
       }
     }
   } catch (error) {
+    if (timedOut) throw new Error('Workbuddy 调用超时（' + REQUEST_TIMEOUT_MS + ' ms）');
     throw new Error('Workbuddy Agent SDK 调用失败：' + (error instanceof Error ? error.message : String(error)));
   } finally {
     clearTimeout(timer);
