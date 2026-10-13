@@ -922,7 +922,10 @@ ${pager}
     const sourceStored = source && VALID_LANG_RE.test(source) ? source : 'en';
     const targetStored = VALID_LANG_RE.test(target) ? target : 'zh';
 
-    console.log(`[fanyi/page] url=${url} src=${sourceStored} tgt=${targetStored} mode=${mode} provider=${provider} html=${html.length} bytes client=${clientLabel} sid=${sid}`);
+    // JS 的 string.length 是 UTF-16 code unit 数，不是网络传输字节数。同时记录字符数和 UTF-8 字节数，
+    // 以便排查大页面请求；这里不设置应用层 HTML 大小上限。
+    const htmlUtf8Bytes = new TextEncoder().encode(html).byteLength;
+    console.log(`[fanyi/page] url=${url} src=${sourceStored} tgt=${targetStored} mode=${mode} provider=${provider} htmlChars=${html.length} htmlUtf8Bytes=${htmlUtf8Bytes} client=${clientLabel} sid=${sid}`);
 
     // ── D1 缓存：同 URL+source+target 已存在且 content_hash 匹配则直接返回 ──
     // content_hash 的语义是「这份缓存的 block id 映射是否仍然有效」：
