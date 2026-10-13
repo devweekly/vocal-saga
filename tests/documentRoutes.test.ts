@@ -167,7 +167,7 @@ describe('POST /api/translate/document/literary/analyze', () => {
     (translateBlocks as any).mockResolvedValueOnce(new Map([[
       'literary-analysis',
       JSON.stringify({
-        entities: [{ source: 'Alice', target: '艾丽丝', kind: 'person', aliases: ['Miss Alice'] }],
+        entities: [{ source: 'Alice', target: '艾丽丝', kind: 'person', aliases: ['Miss Alice'], reviewStatus: 'confirmed' }],
         relationships: [{ subject: 'Alice', predicate: 'protects', object: 'Bob' }],
         styleGuide: { narrativeVoice: '克制的第三人称', rhythm: '短句与长句交替' },
         chapterSummary: 'Alice protects Bob.',
@@ -183,6 +183,7 @@ describe('POST /api/translate/document/literary/analyze', () => {
     const json: any = await res.json();
     expect(json.analyzed).toBe(true);
     expect(json.memory.entities[0].target).toBe('艾丽丝');
+    expect(json.memory.entities[0].reviewStatus).toBe('suggested');
     expect(json.memory.relationships[0].predicate).toBe('protects');
     expect(json.memory.styleGuide.narrativeVoice).toBe('克制的第三人称');
     expect(json.memory.chapterSummaries[0].chapter).toBe('Chapter One');

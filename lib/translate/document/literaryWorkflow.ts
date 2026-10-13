@@ -128,10 +128,14 @@ export async function analyzeLiteraryChapter(
     ? parsed.styleGuide as LiteraryStyleGuide
     : {};
   const summary = typeof parsed.chapterSummary === 'string' ? parsed.chapterSummary : '';
+  // Model output is never evidence of human approval. Force every new entity/relation to suggested;
+  // mergeLiteraryMemory will preserve prior entries (including user-confirmed ones) unchanged.
   const incoming = sanitizeLiteraryMemory({
     version: 1,
-    entities: entities as LiteraryEntity[],
-    relationships: relationships as LiteraryRelationship[],
+    entities: entities.filter((item) => item && typeof item === 'object' && !Array.isArray(item))
+      .map((item) => ({ ...(item as Record<string, unknown>), reviewStatus: 'suggested' })),
+    relationships: relationships.filter((item) => item && typeof item === 'object' && !Array.isArray(item))
+      .map((item) => ({ ...(item as Record<string, unknown>), reviewStatus: 'suggested' })),
     styleGuide,
     chapterSummaries: summary.trim() ? [{ chapter: chapterTitle, summary }] : [],
   });
