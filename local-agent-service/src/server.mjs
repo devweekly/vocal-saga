@@ -512,7 +512,7 @@ async function handleRequest(req, res) {
   const hostHeader = String(req.headers.host || '').trim().toLowerCase();
   const hostname = hostHeader.startsWith('[')
     ? hostHeader.slice(1, hostHeader.indexOf(']'))
-    : hostHeader.replace(/:\\d+$/, '');
+    : hostHeader.replace(/:\d+$/, '');
   if (!isLoopbackHost(hostname)) { sendJson(res, 403, { error: '此服务只允许通过 localhost/127.0.0.1 访问' }); return; }
   if (req.method === 'OPTIONS') { res.writeHead(204); res.end(); return; }
   const url = new URL(req.url || '/', 'http://127.0.0.1');
