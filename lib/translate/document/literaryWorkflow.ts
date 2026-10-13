@@ -8,8 +8,6 @@ import {
   mergeLiteraryMemory,
   sanitizeLiteraryMemory,
   type LiteraryBookMemory,
-  type LiteraryEntity,
-  type LiteraryRelationship,
   type LiteraryStyleGuide,
 } from './literary';
 
