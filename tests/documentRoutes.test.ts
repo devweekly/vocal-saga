@@ -190,9 +190,15 @@ describe('POST /api/translate/document/literary/analyze', () => {
 });
 
 describe('POST /api/translate/document/literary/review', () => {
-  it('sends source and draft to a separate reviewer and returns per-id final prose', async () => {
+  it('applies only required corrections and returns style preferences as optional findings', async () => {
     const { translateBlocks } = await import('../lib/translate/pipeline');
-    (translateBlocks as any).mockResolvedValueOnce(new Map([['s0', '她轻轻推开那扇旧门。']]));
+    (translateBlocks as any).mockResolvedValueOnce(new Map([['s0', JSON.stringify({
+      finalTranslation: '她推开了那扇旧门。',
+      findings: [
+        { category: 'accuracy', priority: 'must_fix', sourceExcerpt: 'opened', draftExcerpt: '打开', reason: '时态和动作含义错误。', suggestion: '推开' },
+        { category: 'style', priority: 'must_fix', sourceExcerpt: 'She opened', draftExcerpt: '她打开了', reason: '个人风格偏好。', suggestion: '她轻轻推开' },
+      ],
+    })]]));
 
     const res = await post('/api/translate/document/literary/review', {
       chapterTitle: 'Chapter One',
@@ -210,9 +216,12 @@ describe('POST /api/translate/document/literary/review', () => {
     });
     expect(res.status).toBe(200);
     const json: any = await res.json();
-    expect(json.translations.s0).toBe('她轻轻推开那扇旧门。');
+    expect(json.translations.s0).toBe('她推开了那扇旧门。');
     expect(json.reviewedIds).toEqual(['s0']);
     expect(json.missingIds).toEqual([]);
+    expect(json.findings).toHaveLength(2);
+    expect(json.findings[0].priority).toBe('must_fix');
+    expect(json.findings[1].priority).toBe('optional');
   });
 });
 

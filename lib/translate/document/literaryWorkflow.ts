@@ -44,6 +44,18 @@ export interface ReviewLiterarySegment {
   contextPath?: string;
 }
 
+export type LiteraryReviewCategory = 'accuracy' | 'terminology' | 'style';
+export type LiteraryReviewPriority = 'must_fix' | 'optional';
+export interface LiteraryReviewFinding {
+  id: string;
+  category: LiteraryReviewCategory;
+  priority: LiteraryReviewPriority;
+  sourceExcerpt: string;
+  draftExcerpt: string;
+  reason: string;
+  suggestion: string;
+}
+
 function extractJsonObject(input: string): Record<string, unknown> | null {
   const cleaned = input.trim();
   try {
@@ -138,14 +150,14 @@ export async function reviewLiteraryBatch(input: LiteraryWorkflowOptions & {
   chapterTitle?: string;
   memory?: unknown;
   segments: ReviewLiterarySegment[];
-}): Promise<{ translations: Record<string, string>; reviewedIds: string[]; missingIds: string[] }> {
+}): Promise<{ translations: Record<string, string>; reviewedIds: string[]; missingIds: string[]; findings: LiteraryReviewFinding[] }> {
   const memory = sanitizeLiteraryMemory(input.memory);
   const segments = input.segments.filter((segment) =>
     typeof segment.id === 'string' && segment.id.trim() &&
     typeof segment.source === 'string' && segment.source.trim() &&
     typeof segment.draft === 'string' && segment.draft.trim(),
   );
-  if (!segments.length) return { translations: {}, reviewedIds: [], missingIds: [] };
+  if (!segments.length) return { translations: {}, reviewedIds: [], missingIds: [], findings: [] };
 
   const blocks = segments.map((segment) => ({
     id: segment.id,
@@ -175,14 +187,47 @@ export async function reviewLiteraryBatch(input: LiteraryWorkflowOptions & {
   });
 
   const translations: Record<string, string> = {};
+  const findings: LiteraryReviewFinding[] = [];
   for (const segment of segments) {
     const value = reviewed.get(segment.id);
-    if (typeof value === 'string' && value.trim()) translations[segment.id] = value.trim();
+    if (typeof value !== 'string' || !value.trim()) continue;
+    const parsed = extractJsonObject(value);
+    if (!parsed || typeof parsed.finalTranslation !== 'string' || !parsed.finalTranslation.trim()) {
+      // Fail closed: malformed reviewer output must never rewrite a valid first draft.
+      continue;
+    }
+    const segmentFindings: LiteraryReviewFinding[] = [];
+    if (Array.isArray(parsed.findings)) {
+      for (const raw of parsed.findings.slice(0, 12)) {
+        if (!raw || typeof raw !== 'object' || Array.isArray(raw)) continue;
+        const item = raw as Record<string, unknown>;
+        const category = item.category;
+        if (category !== 'accuracy' && category !== 'terminology' && category !== 'style') continue;
+        // 风格问题无论模型如何标 priority，都不能触发自动改写。
+        const priority: LiteraryReviewPriority = category !== 'style' && item.priority === 'must_fix' ? 'must_fix' : 'optional';
+        const finding: LiteraryReviewFinding = {
+          id: segment.id,
+          category,
+          priority,
+          sourceExcerpt: typeof item.sourceExcerpt === 'string' ? item.sourceExcerpt.slice(0, 240) : '',
+          draftExcerpt: typeof item.draftExcerpt === 'string' ? item.draftExcerpt.slice(0, 240) : '',
+          reason: typeof item.reason === 'string' ? item.reason.slice(0, 400) : '',
+          suggestion: typeof item.suggestion === 'string' ? item.suggestion.slice(0, 400) : '',
+        };
+        if (finding.reason || finding.suggestion) segmentFindings.push(finding);
+      }
+    }
+    findings.push(...segmentFindings);
+    const hasMustFix = segmentFindings.some((finding) => finding.priority === 'must_fix');
+    // 只在 reviewer 给出明确定义的事实/术语错误时采用修正版。其余情况原样保留初译。
+    translations[segment.id] = hasMustFix ? parsed.finalTranslation.trim().slice(0, 5_000) : segment.draft.trim().slice(0, 5_000);
   }
   const expectedIds = segments.map((segment) => segment.id);
+  const reviewedIds = expectedIds.filter((id) => typeof translations[id] === 'string');
   return {
     translations,
-    reviewedIds: expectedIds.filter((id) => typeof translations[id] === 'string'),
-    missingIds: expectedIds.filter((id) => !translations[id]),
+    reviewedIds,
+    missingIds: expectedIds.filter((id) => !reviewedIds.includes(id)),
+    findings: findings.slice(0, 240),
   };
 }
