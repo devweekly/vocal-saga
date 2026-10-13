@@ -23,7 +23,7 @@
 
 ## 配置 fanyi-extension
 
-在扩展 Popup 勾选“本机 Workbuddy/OpenCode Provider”，选择 Workbuddy 或 OpenCode；服务地址填 http://127.0.0.1:8789。默认无 Token 时扩展的 Token 字段留空；只有在服务端主动配置了 LOCAL_AGENT_TOKEN 时才需要同步填入。模型覆盖可留空，或者填写 Workbuddy 的本机模型 ID / OpenCode 的 provider/model（例如 openai/gpt-5.4 或 ollama/qwen3-coder）。
+在扩展 Popup 勾选“本机 Workbuddy/OpenCode Provider”，选择 Workbuddy 或 OpenCode；服务地址填 http://127.0.0.1:8789。默认无 Token 时扩展的 Token 字段留空；只有在服务端主动配置了 LOCAL_AGENT_TOKEN 时才需要同步填入。模型覆盖可以留空（使用 Workbuddy SDK / OpenCode 自身默认模型），或者填写 Workbuddy 的本机模型 ID / OpenCode 的 provider/model（例如 openai/gpt-5.4 或 ollama/qwen3-coder）。
 
 启用本机 Provider 后，扩展会优先走本机服务，不会发送到 s.sunxiunan.com。EPUB/PDF 文学模式的实体分析与 Reviewer 也使用相同的本机服务。取消勾选后，原来的 DeepSeek 和远程 vocal-saga 配置继续可用。
 
