@@ -225,6 +225,33 @@ describe('POST /api/translate/document/literary/review', () => {
   });
 });
 
+
+describe('POST /api/translate/document/literary/review — conservative style guard', () => {
+  it('keeps the exact draft when findings are style-only, even if model asks for a rewrite', async () => {
+    const { translateBlocks } = await import('../lib/translate/pipeline');
+    (translateBlocks as any).mockResolvedValueOnce(new Map([['s0', JSON.stringify({
+      finalTranslation: '她轻轻地推开那扇古老的门。',
+      findings: [{
+        category: 'style', priority: 'must_fix',
+        sourceExcerpt: 'opened the door', draftExcerpt: '推开旧门',
+        reason: '更有文学感', suggestion: '她轻轻地推开那扇古老的门。',
+      }],
+    })]]));
+
+    const draft = '她推开了旧门。';
+    const res = await post('/api/translate/document/literary/review', {
+      chapterTitle: 'Chapter One',
+      source: 'en',
+      target: 'zh',
+      segments: [{ id: 's0', source: 'She opened the old door.', draft, kind: 'paragraph' }],
+    });
+    expect(res.status).toBe(200);
+    const json: any = await res.json();
+    expect(json.translations.s0).toBe(draft);
+    expect(json.findings[0].priority).toBe('optional');
+  });
+});
+
 describe('POST /api/translate/document', () => {
   it('translate:false 时只解析不翻译', async () => {
     const res = await post('/api/translate/document', {

@@ -10,8 +10,8 @@ import {
 describe('literary book memory', () => {
   it('keeps the first canonical entity translation stable across chapters', () => {
     const first = sanitizeLiteraryMemory({
-      entities: [{ source: 'Alice', target: '艾丽丝', kind: 'person', aliases: ['Alice'] }],
-      relationships: [{ subject: 'Alice', predicate: 'is sister of', object: 'Bob' }],
+      entities: [{ source: 'Alice', target: '艾丽丝', kind: 'person', aliases: ['Alice'], reviewStatus: 'confirmed' }],
+      relationships: [{ subject: 'Alice', predicate: 'is sister of', object: 'Bob', reviewStatus: 'confirmed' }],
       styleGuide: { narrativeVoice: '克制的第三人称', register: '现代口语' },
       chapterSummaries: [{ chapter: 'Chapter 1', summary: 'Alice meets Bob.' }],
       recentExamples: [],
@@ -28,8 +28,11 @@ describe('literary book memory', () => {
 
     const merged = mergeLiteraryMemory(first, next);
     expect(merged.entities.find((entity) => entity.source === 'Alice')?.target).toBe('艾丽丝');
+    expect(merged.entities.find((entity) => entity.source === 'Alice')?.reviewStatus).toBe('confirmed');
+    expect(merged.relationships[0]?.reviewStatus).toBe('confirmed');
     expect(merged.entities.find((entity) => entity.source === 'Alice')?.aliases).toContain('Miss Alice');
     expect(merged.entities.find((entity) => entity.source === 'London')?.target).toBe('伦敦');
+    expect(merged.entities.find((entity) => entity.source === 'London')?.reviewStatus).toBe('suggested');
     expect(merged.styleGuide.narrativeVoice).toBe('克制的第三人称');
     expect(merged.styleGuide.dialogue).toBe('人物对话有差异');
     expect(merged.relationships).toHaveLength(2);
