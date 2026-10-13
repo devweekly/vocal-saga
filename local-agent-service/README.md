@@ -12,7 +12,8 @@
 
     cd local-agent-service
     cp .env.example .env
-    # 编辑 .env，设置随机 LOCAL_AGENT_TOKEN；为准备使用的运行时设置模型
+    # 生成 Token：openssl rand -hex 32；将结果填入 LOCAL_AGENT_TOKEN
+    # 为准备使用的运行时设置模型
     # OpenCode：LOCAL_OPENCODE_MODEL=provider/model；Workbuddy：LOCAL_WORKBUDDY_MODEL=本机 SDK 模型 ID
     npm install
     npm start

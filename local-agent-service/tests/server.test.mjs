@@ -16,7 +16,8 @@ test('routes explicit OpenCode provider/model aliases', () => {
 
 test('parses JSON inside a Markdown code fence', () => {
   const fence = String.fromCharCode(96).repeat(3);
-  assert.deepEqual(parseJsonObject(fence + 'json\\n{"ok":true}\\n' + fence), { ok: true });
+  const newline = String.fromCharCode(10);
+  assert.deepEqual(parseJsonObject(fence + 'json' + newline + '{"ok":true}' + newline + fence), { ok: true });
 });
 
 test('parses a JSON object wrapped in explanation', () => {
