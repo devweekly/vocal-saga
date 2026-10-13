@@ -8,6 +8,16 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildAgentPrompt, parseAgentModel, parseJsonObject } from '../src/server.mjs';
 
+test('uses the runtime default model when no override is configured', () => {
+  const openCode = parseAgentModel('opencode');
+  assert.equal(openCode.provider, 'opencode');
+  assert.ok(!openCode.model || openCode.model.includes('/'));
+
+  const workbuddy = parseAgentModel('workbuddy', 'opencode');
+  assert.equal(workbuddy.provider, 'workbuddy');
+  assert.ok(typeof workbuddy.model === 'string');
+});
+
 test('routes explicit Workbuddy model aliases', () => {
   const result = parseAgentModel('workbuddy:claude-sonnet-example', 'opencode');
   assert.equal(result.provider, 'workbuddy');
