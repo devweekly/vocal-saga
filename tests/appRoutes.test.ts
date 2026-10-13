@@ -462,6 +462,32 @@ describe('POST /fanyi/page', () => {
 
 
 
+  it('accepts an HTML request larger than 4 MB and passes the complete document to translation', async () => {
+    const app = buildApp();
+    const { translateHtml } = await import('../lib/translate/pipeline');
+    const largeHtml =
+      '<html><head><style>.article{color:red}</style></head><body>' +
+      '<p data-fanyi-block-id="b1">Test</p><div>' +
+      'x'.repeat(4_200_000) +
+      '</div></body></html>';
+
+    const res = await app.request(req('/fanyi/page', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        html: largeHtml,
+        url: 'https://example.com/large-article',
+        apiKey: 'sk-test-api-key',
+      }),
+    }));
+
+    expect(res.status).toBe(200);
+    expect(translateHtml).toHaveBeenCalledTimes(1);
+    expect((translateHtml as any).mock.calls[0][0].html).toBe(largeHtml);
+    expect((translateHtml as any).mock.calls[0][0].html).toContain('<style>.article{color:red}</style>');
+    expect((translateHtml as any).mock.calls[0][0].html).toContain('data-fanyi-block-id="b1"');
+  });
+
   it('returns 400 when apiKey is missing for deepseek', async () => {
     const app = buildApp();
     const res = await app.request(req('/fanyi/page', {
