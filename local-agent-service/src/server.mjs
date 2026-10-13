@@ -165,13 +165,11 @@ export function parseAgentModel(modelValue, providerHint = '') {
 
   if (provider !== 'workbuddy' && provider !== 'opencode') throw new Error('LOCAL_AGENT_PROVIDER 只支持 workbuddy 或 opencode');
   if (!model || model.toLowerCase() === 'auto') model = provider === 'workbuddy' ? DEFAULT_WORKBUDDY_MODEL : DEFAULT_OPENCODE_MODEL;
-  if (!model) {
-    const required = provider === 'workbuddy'
-      ? '请设置 LOCAL_WORKBUDDY_MODEL（也兼容 WORKBUDDY_MODEL / CODEBUDDY_DEFAULT_MODEL）'
-      : '请设置 LOCAL_OPENCODE_MODEL（格式为 provider/model，例如 openai/gpt-5.4）';
-    throw new Error('没有配置 ' + provider + ' 模型。' + required);
+  // 未显式配置模型时，交给已登录的 CLI/SDK 使用自身默认模型。
+  // 只校验非空覆盖值，避免把“未设置模型”变成服务启动/路由故障。
+  if (model && provider === 'opencode' && !model.includes('/')) {
+    throw new Error('OpenCode 模型必须使用 provider/model 格式，例如 openai/gpt-5.4');
   }
-  if (provider === 'opencode' && !model.includes('/')) throw new Error('OpenCode 模型必须使用 provider/model 格式，例如 openai/gpt-5.4');
   return { provider, model };
 }
 
@@ -256,8 +254,9 @@ function runOpenCode(agent, prompt, systemPrompt) {
       systemPrompt ? 'SYSTEM INSTRUCTIONS:\n' + systemPrompt : '',
       'USER REQUEST:\n' + prompt,
     ].filter(Boolean).join('\n\n');
-    const args = ['run', '--format', 'json', '--model', agent.model, '--dir', WORK_DIR,
-      '--agent', 'fanyi-local-translation', '--auto', fullPrompt];
+    const args = ['run', '--format', 'json'];
+    if (agent.model) args.push('--model', agent.model);
+    args.push('--dir', WORK_DIR, '--agent', 'fanyi-local-translation', '--auto', fullPrompt);
     const child = spawn('opencode', args, {
       cwd: WORK_DIR,
       env: { ...process.env, OPENCODE_CONFIG_CONTENT: buildOpenCodeConfig() },
@@ -331,7 +330,7 @@ async function runWorkbuddy(agent, prompt, systemPrompt) {
   const query = sdk.query({
     prompt: combinedPrompt,
     options: {
-      model: agent.model,
+      ...(agent.model ? { model: agent.model } : {}),
       cwd: WORK_DIR,
       permissionMode: 'default',
       tools: [],
