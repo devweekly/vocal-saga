@@ -27,7 +27,7 @@ import {
   sanitizeLiteraryMemory,
   type LiteraryBookMemory,
 } from './document/literary';
-import { reviewLiteraryBatch } from './document/literaryWorkflow';
+import { reviewLiteraryBatch, type LiteraryReviewFinding } from './document/literaryWorkflow';
 
 export interface DocumentTranslateInput {
   doc: ParsedDocument;
@@ -68,6 +68,8 @@ export interface DocumentTranslateResult {
   /** 成功经过独立文学 reviewer 的片段数；0 表示未启用或审校未成功。 */
   reviewedSegmentCount: number;
   reviewerErrors: string[];
+  /** Optional style ideas remain separate; they must never be auto-applied. */
+  reviewFindings: LiteraryReviewFinding[];
   duration_ms: number;
   /** exportAs 指定时才存在。 */
   exported?: string;
@@ -86,6 +88,7 @@ export async function translateDocument(
   const failedBatches: number[] = [];
   const errors: string[] = [];
   const reviewerErrors: string[] = [];
+  const reviewFindings: LiteraryReviewFinding[] = [];
   let reviewedSegmentCount = 0;
   let literaryMemory: LiteraryBookMemory | undefined = input.literaryReview
     ? sanitizeLiteraryMemory(input.literaryContext)
@@ -209,6 +212,7 @@ export async function translateDocument(
               reviewedSegmentCount++;
             }
           }
+          reviewFindings.push(...review.findings);
           if (review.missingIds.length) {
             reviewerErrors.push('审校未返回片段：' + review.missingIds.slice(0, 8).join(', '));
           }
@@ -249,6 +253,7 @@ export async function translateDocument(
     errors,
     reviewedSegmentCount,
     reviewerErrors,
+    reviewFindings: reviewFindings.slice(0, 500),
     duration_ms: Date.now() - start,
   };
 
