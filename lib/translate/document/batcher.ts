@@ -15,11 +15,14 @@ export interface BatchBudget {
   maxChars: number;
   /** 单批最大片段数，避免一次塞几千条字幕。 */
   maxSegments: number;
+  /** 电子书模式在章节/页边界强制切批；默认 false 以保持现有网页/普通文档行为。 */
+  splitOnContextChange?: boolean;
 }
 
 export const DEFAULT_BUDGET: BatchBudget = {
   maxChars: 3000,
   maxSegments: 24,
+  splitOnContextChange: false,
 };
 
 /**
@@ -30,7 +33,7 @@ export function buildSegmentBatches(
   segments: DocumentSegment[],
   budget: Partial<BatchBudget> = {},
 ): DocumentSegment[][] {
-  const { maxChars, maxSegments } = { ...DEFAULT_BUDGET, ...budget };
+  const { maxChars, maxSegments, splitOnContextChange } = { ...DEFAULT_BUDGET, ...budget };
   const batches: DocumentSegment[][] = [];
   let current: DocumentSegment[] = [];
   let chars = 0;
@@ -39,7 +42,12 @@ export function buildSegmentBatches(
     const size = segment.text.length;
     const overChars = current.length > 0 && chars + size > maxChars;
     const overCount = current.length >= maxSegments;
-    if (overChars || overCount) {
+    const currentGroup = current[0]
+      ? (current[0].contextPath || '') + '|page:' + (current[0].page ?? '')
+      : '';
+    const nextGroup = (segment.contextPath || '') + '|page:' + (segment.page ?? '');
+    const overContext = current.length > 0 && splitOnContextChange && currentGroup !== nextGroup;
+    if (overChars || overCount || overContext) {
       batches.push(current);
       current = [];
       chars = 0;

@@ -6,6 +6,7 @@ vi.mock('../lib/translate/pipeline', () => ({
 
 import { translateBlocks } from '../lib/translate/pipeline';
 import { parseDocument } from '../lib/translate/document';
+import { buildSegmentBatches } from '../lib/translate/document/batcher';
 import { translateDocument } from '../lib/translate/documentPipeline';
 
 const mocked = translateBlocks as unknown as ReturnType<typeof vi.fn>;
@@ -39,6 +40,23 @@ describe('parseDocument（服务端）', () => {
     await expect(parseDocument({ fileName: 'a.epub', text: 'x' })).rejects.toThrow(/服务端不支持解析/);
   });
 
+});
+
+describe('buildSegmentBatches', () => {
+  it('书籍模式按章节与 PDF 页码边界拆批', () => {
+    const segments = [
+      { id: 'a', index: 0, text: 'one', kind: 'paragraph' as const, contextPath: 'Chapter One', page: 1 },
+      { id: 'b', index: 1, text: 'two', kind: 'paragraph' as const, contextPath: 'Chapter One', page: 1 },
+      { id: 'c', index: 2, text: 'three', kind: 'paragraph' as const, contextPath: 'Chapter Two', page: 1 },
+      { id: 'd', index: 3, text: 'four', kind: 'paragraph' as const, contextPath: 'Chapter Two', page: 2 },
+    ];
+    expect(buildSegmentBatches(segments, { maxChars: 1000, maxSegments: 10 })).toHaveLength(1);
+    expect(buildSegmentBatches(segments, {
+      maxChars: 1000,
+      maxSegments: 10,
+      splitOnContextChange: true,
+    }).map((batch) => batch.map((segment) => segment.id))).toEqual([['a', 'b'], ['c'], ['d']]);
+  });
 });
 
 describe('translateDocument', () => {

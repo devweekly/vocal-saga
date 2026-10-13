@@ -377,6 +377,11 @@ export interface TranslateBlocksInput {
   model?: string;
   /** 仅 DeepSeek provider 需要由调用方提供的 key。 */
   apiKey?: string;
+  /**
+   * 只用于文档专用任务（书籍分析/翻译/审校）。被合并进 request glossary 的 system instructions，
+   * 因而会参与 cache key；不传时网页翻译 prompt 与缓存行为保持不变。
+   */
+  taskInstructions?: string;
 }
 
 /**
@@ -402,6 +407,19 @@ export async function translateBlocks(
       ...(b.marker ? { marker: b.marker } : {}),
     }));
   if (!blocks.length) return new Map();
+
+  // 文学书籍的专用任务指令只在调用方显式提供时加入，不改变网页翻译默认 prompt。
+  // 与提示词一起进入 glossary cache fingerprint，避免旧直译缓存污染审校/分析结果。
+  const taskInstruction = input.taskInstructions?.trim();
+  const requestGlossary: Glossary | undefined = taskInstruction
+    ? {
+        ...(input.glossary ?? {}),
+        site_instructions: [
+          ...(input.glossary?.site_instructions ?? []),
+          taskInstruction,
+        ].filter((instruction) => typeof instruction === 'string' && instruction.trim()),
+      }
+    : input.glossary;
 
   const chunks = buildChunks(blocks as unknown as TextBlock[]);
   const provider = input.provider ?? 'deepseek';
@@ -432,7 +450,7 @@ export async function translateBlocks(
     chunks,
     input.source || 'auto',
     input.target || 'zh',
-    input.glossary,
+    requestGlossary,
     input.concurrency ?? 4,
     provider,
     input.promptStyle,

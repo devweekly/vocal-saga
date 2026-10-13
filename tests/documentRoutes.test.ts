@@ -161,6 +161,61 @@ describe('POST /api/translate/document/segments', () => {
   });
 });
 
+describe('POST /api/translate/document/literary/analyze', () => {
+  it('returns bounded chapter memory with canonical entities and relationships', async () => {
+    const { translateBlocks } = await import('../lib/translate/pipeline');
+    (translateBlocks as any).mockResolvedValueOnce(new Map([[
+      'literary-analysis',
+      JSON.stringify({
+        entities: [{ source: 'Alice', target: '艾丽丝', kind: 'person', aliases: ['Miss Alice'] }],
+        relationships: [{ subject: 'Alice', predicate: 'protects', object: 'Bob' }],
+        styleGuide: { narrativeVoice: '克制的第三人称', rhythm: '短句与长句交替' },
+        chapterSummary: 'Alice protects Bob.',
+      }),
+    ]]));
+
+    const res = await post('/api/translate/document/literary/analyze', {
+      chapterTitle: 'Chapter One',
+      target: 'zh',
+      segments: [{ id: 's0', text: 'Alice opened the old door.', kind: 'paragraph', contextPath: 'Chapter One' }],
+    });
+    expect(res.status).toBe(200);
+    const json: any = await res.json();
+    expect(json.analyzed).toBe(true);
+    expect(json.memory.entities[0].target).toBe('艾丽丝');
+    expect(json.memory.relationships[0].predicate).toBe('protects');
+    expect(json.memory.styleGuide.narrativeVoice).toBe('克制的第三人称');
+    expect(json.memory.chapterSummaries[0].chapter).toBe('Chapter One');
+  });
+});
+
+describe('POST /api/translate/document/literary/review', () => {
+  it('sends source and draft to a separate reviewer and returns per-id final prose', async () => {
+    const { translateBlocks } = await import('../lib/translate/pipeline');
+    (translateBlocks as any).mockResolvedValueOnce(new Map([['s0', '她轻轻推开那扇旧门。']]));
+
+    const res = await post('/api/translate/document/literary/review', {
+      chapterTitle: 'Chapter One',
+      source: 'en',
+      target: 'zh',
+      memory: {
+        version: 1,
+        entities: [{ source: 'Alice', target: '艾丽丝', kind: 'person' }],
+        relationships: [],
+        styleGuide: { narrativeVoice: '克制的第三人称' },
+        chapterSummaries: [],
+        recentExamples: [],
+      },
+      segments: [{ id: 's0', source: 'She opened the old door.', draft: '她打开了老旧的门。', kind: 'paragraph' }],
+    });
+    expect(res.status).toBe(200);
+    const json: any = await res.json();
+    expect(json.translations.s0).toBe('她轻轻推开那扇旧门。');
+    expect(json.reviewedIds).toEqual(['s0']);
+    expect(json.missingIds).toEqual([]);
+  });
+});
+
 describe('POST /api/translate/document', () => {
   it('translate:false 时只解析不翻译', async () => {
     const res = await post('/api/translate/document', {

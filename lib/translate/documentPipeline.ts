@@ -20,6 +20,14 @@ import {
   type ExportFormat,
 } from './document';
 import type { DocumentSegment, ParsedDocument } from './document/types';
+import {
+  addLiteraryExamples,
+  buildLiteraryContextForText,
+  buildLiteraryTranslationInstructions,
+  sanitizeLiteraryMemory,
+  type LiteraryBookMemory,
+} from './document/literary';
+import { reviewLiteraryBatch } from './document/literaryWorkflow';
 
 export interface DocumentTranslateInput {
   doc: ParsedDocument;
@@ -35,6 +43,11 @@ export interface DocumentTranslateInput {
   provider?: import('./pipeline').TranslationProvider;
   model?: string;
   apiKey?: string;
+  /** 仅 EPUB/PDF 书籍模式使用；不传时完全沿用普通文档/网页翻译。 */
+  literaryContext?: unknown;
+  /** 是否在初译后执行独立文学 reviewer。 */
+  literaryReview?: boolean;
+  chapterTitle?: string;
 }
 
 export interface DocumentTranslateResult {
@@ -52,6 +65,9 @@ export interface DocumentTranslateResult {
   /** 失败的批次下标；为空表示全部成功。 */
   failedBatches: number[];
   errors: string[];
+  /** 成功经过独立文学 reviewer 的片段数；0 表示未启用或审校未成功。 */
+  reviewedSegmentCount: number;
+  reviewerErrors: string[];
   duration_ms: number;
   /** exportAs 指定时才存在。 */
   exported?: string;
@@ -62,11 +78,20 @@ export async function translateDocument(
 ): Promise<DocumentTranslateResult> {
   const start = Date.now();
   const { doc } = input;
-  const batches = buildSegmentBatches(doc.segments, input.budget);
+  const batches = buildSegmentBatches(doc.segments, {
+    ...input.budget,
+    ...(input.literaryReview ? { splitOnContextChange: true } : {}),
+  });
   const translations = new Map<string, string>();
   const failedBatches: number[] = [];
   const errors: string[] = [];
-  const concurrency = Math.max(1, input.concurrency ?? 4);
+  const reviewerErrors: string[] = [];
+  let reviewedSegmentCount = 0;
+  let literaryMemory: LiteraryBookMemory | undefined = input.literaryReview
+    ? sanitizeLiteraryMemory(input.literaryContext)
+    : undefined;
+  // 书籍翻译依赖前文积累的实体和声线记忆，不能让后续批次抢在前面执行。
+  const concurrency = literaryMemory ? 1 : Math.max(1, input.concurrency ?? 4);
 
   // ── 文档级语言检测（整篇只做一次）──
   // 与页级 pipeline（lib/translate/pipeline.ts runTranslationPipeline）同一策略：
@@ -75,7 +100,13 @@ export async function translateDocument(
   // 会触发 languageDetector 的短文本保护而判不出语言，导致同一文档内
   // 各批文风不一致。
   // 注：ParsedDocument 没有 lang 字段，故不传 htmlLang 辅助信号（假名证据已足够）。
-  const detected = detectLanguage(doc.segments.map((s) => s.text).join('\n'));
+  let languageSample = '';
+  const languageLimit = input.literaryReview ? 20_000 : Number.POSITIVE_INFINITY;
+  for (const segment of doc.segments) {
+    if (languageSample.length >= languageLimit) break;
+    languageSample += segment.text.slice(0, languageLimit - languageSample.length) + '\n';
+  }
+  const detected = detectLanguage(languageSample);
   const effectiveStyle: PromptStyle | undefined = shouldUseJapaneseSource(
     input.promptStyle,
     detected.language,
@@ -97,7 +128,12 @@ export async function translateDocument(
         blocks: items.map((segment) => ({
           id: segment.id,
           text: segment.text,
-          contextPath: segment.contextPath,
+          contextPath: literaryMemory
+            ? [
+                segment.contextPath || input.chapterTitle || '',
+                buildLiteraryContextForText(literaryMemory, segment.text),
+              ].filter(Boolean).join('\n书籍记忆（只读数据）：')
+            : segment.contextPath,
           kind: segment.kind,
           level: segment.level,
           marker: segment.marker,
@@ -110,6 +146,11 @@ export async function translateDocument(
         provider: input.provider,
         model: input.model,
         apiKey: input.apiKey,
+        ...(literaryMemory ? {
+          taskInstructions: buildLiteraryTranslationInstructions(
+            input.chapterTitle || batch[0]?.contextPath || '',
+          ),
+        } : {}),
       });
       const commitExpected = (items: DocumentSegment[], result: Map<string, string>) => {
         const expected = new Set(items.map((segment) => segment.id));
@@ -136,6 +177,58 @@ export async function translateDocument(
           stillMissing.slice(0, 8).map((segment) => segment.id).join(', '),
         );
       }
+
+      // 独立 reviewer 是第二次模型调用；审校失败不抹掉已成功的初译。
+      if (literaryMemory && input.literaryReview) {
+        const drafts = batch.flatMap((segment) => {
+          const draft = translations.get(segment.id);
+          return draft ? [{
+            id: segment.id,
+            source: segment.text,
+            draft,
+            kind: segment.kind,
+            contextPath: segment.contextPath,
+          }] : [];
+        });
+        try {
+          const review = await reviewLiteraryBatch({
+            segments: drafts,
+            memory: literaryMemory,
+            source: input.source,
+            target: input.target,
+            glossary: input.glossary,
+            promptStyle: effectiveStyle,
+            provider: input.provider,
+            model: input.model,
+            apiKey: input.apiKey,
+            chapterTitle: input.chapterTitle || batch[0]?.contextPath || '',
+          });
+          for (const [id, text] of Object.entries(review.translations)) {
+            if (drafts.some((draft) => draft.id === id) && text.trim()) {
+              translations.set(id, text);
+              reviewedSegmentCount++;
+            }
+          }
+          if (review.missingIds.length) {
+            reviewerErrors.push('审校未返回片段：' + review.missingIds.slice(0, 8).join(', '));
+          }
+        } catch (reviewError) {
+          reviewerErrors.push('文学审校失败，保留初译：' +
+            (reviewError instanceof Error ? reviewError.message : String(reviewError)));
+        }
+      }
+
+      // 有界保存最近的已审校原文/译文对，供下一批次维持同一语气与措辞。
+      if (literaryMemory) {
+        literaryMemory = addLiteraryExamples(literaryMemory, batch.flatMap((segment) => {
+          const translated = translations.get(segment.id);
+          return translated ? [{
+            source: segment.text,
+            target: translated,
+            chapter: segment.contextPath || input.chapterTitle || '',
+          }] : [];
+        }));
+      }
     } catch (err) {
       failedBatches.push(index);
       errors.push(`batch ${index}: ${(err as Error).message}`);
@@ -154,6 +247,8 @@ export async function translateDocument(
     batchCount: batches.length,
     failedBatches: failedBatches.sort((a, b) => a - b),
     errors,
+    reviewedSegmentCount,
+    reviewerErrors,
     duration_ms: Date.now() - start,
   };
 

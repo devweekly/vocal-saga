@@ -66,6 +66,8 @@ import { cors } from 'hono/cors';
 import { translateText, translateUrl, translateHtml } from './translate/pipeline';
 import { createStructuredDocument, parseDocument, SERVER_SUPPORTED_FORMATS } from './translate/document';
 import { translateDocument } from './translate/documentPipeline';
+import { analyzeLiteraryChapter, reviewLiteraryBatch } from './translate/document/literaryWorkflow';
+import type { LiterarySourceSegment, ReviewLiterarySegment } from './translate/document/literaryWorkflow';
 import { hasDocumentRoot, validateTranslationCompleteness } from './translate/translationValidator';
 import { simpleHash } from './translate/cacheKey';
 import { buildPageCacheFingerprint } from './translate/pageCacheKey';
@@ -1134,7 +1136,8 @@ ${pager}
   app.post('/api/translate/document/segments', async (c) => {
     const body = await c.req.json().catch(() => ({} as any));
     const { fileName, title, format, segments, warnings, source, target, glossary,
-      promptStyle, exportAs, exportMode, translate, concurrency, budget, provider, model, apiKey } = body || {};
+      promptStyle, exportAs, exportMode, translate, concurrency, budget, provider, model, apiKey,
+      literaryContext, literaryReview, chapterTitle } = body || {};
     if (typeof fileName !== 'string' || !fileName.trim()) {
       return c.json({ error: 'fileName is required' }, 400);
     }
@@ -1186,6 +1189,10 @@ ${pager}
         provider,
         model: typeof model === 'string' ? model : undefined,
         apiKey: typeof apiKey === 'string' ? apiKey : undefined,
+        // 只有电子书客户端显式开启文学模式时才使用独立记忆与审校流程。
+        literaryContext: literaryContext && typeof literaryContext === 'object' ? literaryContext : undefined,
+        literaryReview: literaryReview === true,
+        chapterTitle: typeof chapterTitle === 'string' ? chapterTitle.slice(0, 160) : undefined,
       });
       return c.json({
         ...result,
@@ -1200,6 +1207,126 @@ ${pager}
         error: message,
         supported: ['pdf', ...SERVER_SUPPORTED_FORMATS],
       }, status);
+    }
+  });
+
+  /**
+   * POST /api/translate/document/literary/analyze
+   *
+   * 电子书专用的逐章分析接口。每章只发送一个有界片段窗口，更新书籍实体词典、
+   * 人物/事物关系和统一声线。这个端点与普通网页翻译隔离，不写网页翻译缓存。
+   */
+  app.post('/api/translate/document/literary/analyze', async (c) => {
+    const body = await c.req.json().catch(() => ({} as any));
+    const {
+      chapterTitle, segments, memory, source, target, glossary, promptStyle,
+      provider, model, apiKey,
+    } = body || {};
+    if (typeof chapterTitle !== 'string' || !chapterTitle.trim()) {
+      return c.json({ error: 'chapterTitle is required' }, 400);
+    }
+    if (!Array.isArray(segments) || segments.length === 0 || segments.length > 24) {
+      return c.json({ error: 'segments must contain 1-24 chapter excerpts' }, 400);
+    }
+    const payloadBytes = new TextEncoder().encode(JSON.stringify(body)).byteLength;
+    if (payloadBytes > 128 * 1024) {
+      return c.json({ error: '章节分析输入超过 128 KiB；请只发送当前章节的代表性片段' }, 413);
+    }
+    const supportedProviders = ['deepseek', 'openrouter', 'nvidia', 'cloudflare', 'mimo', 'gemini', 'opencode'];
+    if (provider !== undefined && !supportedProviders.includes(provider)) {
+      return c.json({ error: 'provider is not supported', supportedProviders }, 400);
+    }
+
+    const sourceSegments: LiterarySourceSegment[] = [];
+    for (const raw of segments) {
+      if (!raw || typeof raw !== 'object' || typeof raw.id !== 'string' ||
+        typeof raw.text !== 'string' || !raw.text.trim()) continue;
+      sourceSegments.push({
+        id: raw.id.slice(0, 160),
+        text: raw.text.slice(0, 900),
+        kind: typeof raw.kind === 'string' ? raw.kind.slice(0, 30) : 'paragraph',
+        contextPath: typeof raw.contextPath === 'string' ? raw.contextPath.slice(0, 160) : chapterTitle,
+      });
+    }
+    if (sourceSegments.length === 0) return c.json({ error: '没有有效的章节文本可供分析' }, 400);
+
+    try {
+      const result = await analyzeLiteraryChapter({
+        chapterTitle,
+        segments: sourceSegments,
+        memory,
+        source: typeof source === 'string' ? source : 'auto',
+        target: typeof target === 'string' ? target : 'zh',
+        glossary,
+        promptStyle: promptStyle as PromptStyle | undefined,
+        provider,
+        model: typeof model === 'string' ? model : undefined,
+        apiKey: typeof apiKey === 'string' ? apiKey : undefined,
+      });
+      return c.json(result);
+    } catch (error) {
+      console.error('[document/literary/analyze] failed:', error);
+      return c.json({
+        error: error instanceof Error ? error.message : String(error),
+        fallback: '保留已有书籍记忆并继续当前章节翻译',
+      }, 502);
+    }
+  });
+
+  /**
+   * POST /api/translate/document/literary/review
+   *
+   * 电子书专用独立审校接口，接收原文与初译，不接受或执行原文里的指令。
+   * 返回每个 id 的最终译文；缺失 ID 由调用方回退到初译，不能丢失已翻译片段。
+   */
+  app.post('/api/translate/document/literary/review', async (c) => {
+    const body = await c.req.json().catch(() => ({} as any));
+    const {
+      chapterTitle, segments, memory, source, target, glossary, promptStyle,
+      provider, model, apiKey,
+    } = body || {};
+    if (!Array.isArray(segments) || segments.length === 0 || segments.length > 32) {
+      return c.json({ error: 'segments must contain 1-32 source/draft pairs' }, 400);
+    }
+    const payloadBytes = new TextEncoder().encode(JSON.stringify(body)).byteLength;
+    if (payloadBytes > 256 * 1024) return c.json({ error: '审校请求超过 256 KiB' }, 413);
+    const supportedProviders = ['deepseek', 'openrouter', 'nvidia', 'cloudflare', 'mimo', 'gemini', 'opencode'];
+    if (provider !== undefined && !supportedProviders.includes(provider)) {
+      return c.json({ error: 'provider is not supported', supportedProviders }, 400);
+    }
+
+    const reviewSegments: ReviewLiterarySegment[] = [];
+    for (const raw of segments) {
+      if (!raw || typeof raw !== 'object' || typeof raw.id !== 'string' ||
+        typeof raw.source !== 'string' || !raw.source.trim() ||
+        typeof raw.draft !== 'string' || !raw.draft.trim()) continue;
+      reviewSegments.push({
+        id: raw.id.slice(0, 160),
+        source: raw.source.slice(0, 4_000),
+        draft: raw.draft.slice(0, 5_000),
+        kind: typeof raw.kind === 'string' ? raw.kind.slice(0, 30) : 'paragraph',
+        contextPath: typeof raw.contextPath === 'string' ? raw.contextPath.slice(0, 160) : chapterTitle,
+      });
+    }
+    if (reviewSegments.length === 0) return c.json({ error: '没有有效的原文与初译对' }, 400);
+
+    try {
+      const result = await reviewLiteraryBatch({
+        segments: reviewSegments,
+        memory,
+        chapterTitle: typeof chapterTitle === 'string' ? chapterTitle.slice(0, 160) : '',
+        source: typeof source === 'string' ? source : 'auto',
+        target: typeof target === 'string' ? target : 'zh',
+        glossary,
+        promptStyle: promptStyle as PromptStyle | undefined,
+        provider,
+        model: typeof model === 'string' ? model : undefined,
+        apiKey: typeof apiKey === 'string' ? apiKey : undefined,
+      });
+      return c.json(result);
+    } catch (error) {
+      console.error('[document/literary/review] failed:', error);
+      return c.json({ error: error instanceof Error ? error.message : String(error) }, 502);
     }
   });
 
