@@ -32,6 +32,7 @@
 本机服务不只是模型转发代理。启用扩展本机 Provider 后，新增以下本机业务 API：
 
 - `POST /api/cache/translation/get` / `POST /api/cache/translation/set`：SQLite 持久化翻译缓存。网页分块翻译可复用之前的译文，文档翻译通过相同 background 分块入口时也共享缓存。默认 7 天 TTL，最多保留 20,000 条；缓存不可用时按 cache miss 处理，不阻断翻译。
+- `POST /api/cache/translation/delete`：删除指定缓存 key，用于清除检测到的缺失片段/无效译文缓存，防止一直重复命中不完整结果。
 - `DELETE /api/cache/translation`：清空本机翻译缓存；扩展的“清空缓存”会同时清理本机缓存。
 - `POST /api/documents/batches`：把结构化文档片段交给本机服务计算批次边界。支持字符数、片段数、章节/PDF 页边界约束，返回片段 ID 而不是重复传回全文；服务不可用时扩展才使用同一套确定性本地计算作为降级，不会调用远程服务。
 - `POST /api/documents/session/save` / `POST /api/documents/session/get`：SQLite 文档检查点，保存阅读位置、已完成译文、书籍记忆和任务状态；保留最近 30 个会话。后续检查点只提交变化的译文，服务端合并回完整快照，避免每批重复上传整本书的译文。
