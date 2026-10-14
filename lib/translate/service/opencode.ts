@@ -17,6 +17,7 @@ import {
   stripMarkdownCodeBlock,
   repairJson,
   type PromptStyle,
+  type TranslationMode,
 } from './shared';
 
 const API_URL = 'https://opencode.ai/zen/v1/chat/completions';
@@ -37,8 +38,9 @@ function buildOpencodeBody(
   targetLang: string,
   glossary?: Glossary,
   style?: PromptStyle,
+  translationMode: TranslationMode = 'technical',
 ) {
-  const body = buildTranslationBody(blocks, sourceLang, targetLang, glossary, DEFAULT_MODEL, style);
+  const body = buildTranslationBody(blocks, sourceLang, targetLang, glossary, DEFAULT_MODEL, style, translationMode);
   return {
     ...body,
     response_format: { type: 'json_object' },
@@ -124,9 +126,11 @@ async function callApi(body: string): Promise<string> {
 export class OpencodeTranslationService implements TranslationService {
   /** 翻译文风，默认 undefined 表示使用通用直译风格 */
   private style?: PromptStyle;
+  private translationMode: TranslationMode;
 
-  constructor(style?: PromptStyle) {
+  constructor(style?: PromptStyle, translationMode: TranslationMode = 'technical') {
     this.style = style;
+    this.translationMode = translationMode;
   }
 
   async translate(
@@ -136,7 +140,7 @@ export class OpencodeTranslationService implements TranslationService {
     glossary?: Glossary,
   ): Promise<string> {
     const blocks = JSON.parse(jsonContent);
-    const body = buildOpencodeBody(blocks, sourceLang, targetLang, glossary, this.style);
+    const body = buildOpencodeBody(blocks, sourceLang, targetLang, glossary, this.style, this.translationMode);
     return callApi(JSON.stringify(body));
   }
 
