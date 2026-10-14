@@ -25,8 +25,9 @@ export function generateTranslationCacheKey(
   //   - 旧调用方没传 glossary/sitePrompt 时 extra 与改动前完全一致 → key 不变，向后兼容
   //   - 用户没术语表（glossary 为空/undefined）时 key 也不变，不无谓地 bust 缓存
   const base = provider || promptStyle ? `${provider ?? ''}:${promptStyle ?? ''}` : '';
+  // Bump this revision when translation instructions change, so bad older translations cannot be reused.
   const extra =
-    base +
+    'translation-prompt-v2|' + base +
     (glossary?.document_terms?.length
       ? `|g${simpleHash(JSON.stringify(glossary.document_terms))}`
       : '') +
