@@ -99,11 +99,11 @@ export async function runLiteraryReview(body: any, requestId: string) {
   const segments = validateSegments(body.segments, 32, 'review');
   const memory = body.memory && typeof body.memory === 'object' ? body.memory : {};
   const systemPrompt = [
-    '你是文学翻译的独立审校者。目标是找到明确错误，不是把译文改成你偏好的文风。',
-    '每个片段输出 finalTranslation 和 findings。category 只能 accuracy、terminology、style；priority 只能 must_fix、optional。',
-    '只有明确改变原意、事实、情节、否定/时态/视角/指代/人物关系，或违反已有规范译名时才允许 must_fix。style 一律 optional。',
-    '只要没有 must_fix，finalTranslation 必须与 draft 完全相同，不许改写正文。must_fix 时仅做最小修正。',
-    '只返回严格 JSON：{ "results": [{ "id": "...", "finalTranslation": "...", "findings": [{ "category": "accuracy|terminology|style", "priority": "must_fix|optional", "sourceExcerpt": "...", "draftExcerpt": "...", "reason": "...", "suggestion": "..." }] }] }。',
+    '你是文学翻译的独立审校者，只找确实影响原意/事实的错误，不做文风润色。',
+    '每个片段输出 finalTranslation 和 findings。category 只能 accuracy 或 terminology；措辞、语气、节奏等 style 问题一律不报。',
+    '每条 finding 都必须是 must_fix：确实改变原意、事实、情节、否定/时态/视角/指代/人物关系，或违反已有规范译名。拿不准的宁可不报。',
+    'finalTranslation 必须保留 draft 的全部可取之处，只做最小修正，不追求重写。',
+    '只返回严格 JSON：{ "results": [{ "id": "...", "finalTranslation": "...", "findings": [{ "category": "accuracy|terminology", "sourceExcerpt": "...", "draftExcerpt": "...", "reason": "...", "suggestion": "..." }] }] }。',
   ].join('\n');
   const prompt = [
     '目标语言：' + (body.target || 'zh'),
@@ -126,10 +126,10 @@ export async function runLiteraryReview(body: any, requestId: string) {
     const candidateFindings: any[] = [];
     if (Array.isArray(raw.findings)) {
       for (const item of raw.findings.slice(0, 12)) {
-        if (!item || !['accuracy', 'terminology', 'style'].includes(item.category)) continue;
-        const priority = item.category !== 'style' && item.priority === 'must_fix' ? 'must_fix' : 'optional';
+        // 只收明确错误；style（措辞/语气）已从审校范围移除，这里一并挡掉旧数据里的残留。
+        if (!item || !['accuracy', 'terminology'].includes(item.category)) continue;
         const finding = {
-          id: raw.id, category: item.category, priority,
+          id: raw.id, category: item.category, priority: 'must_fix',
           sourceExcerpt: typeof item.sourceExcerpt === 'string' ? item.sourceExcerpt.slice(0, 240) : '',
           draftExcerpt: typeof item.draftExcerpt === 'string' ? item.draftExcerpt.slice(0, 240) : '',
           reason: typeof item.reason === 'string' ? item.reason.slice(0, 400) : '',
@@ -138,13 +138,11 @@ export async function runLiteraryReview(body: any, requestId: string) {
         if (finding.reason || finding.suggestion) candidateFindings.push(finding);
       }
     }
-    const hasMustFix = candidateFindings.some((item) => item.priority === 'must_fix');
+    const hasMustFix = candidateFindings.length > 0;
     if (hasMustFix && !candidateUsable) {
       for (const finding of candidateFindings) {
-        if (finding.priority === 'must_fix') {
-          finding.priority = 'optional';
-          finding.reason = (finding.reason ? finding.reason + '；' : '') + '本机未返回长度合规的完整修正译文，因此没有自动覆盖初译';
-        }
+        finding.priority = 'optional';
+        finding.reason = (finding.reason ? finding.reason + '；' : '') + '本机未返回长度合规的完整修正译文，因此没有自动覆盖初译';
       }
     }
     findings.push(...candidateFindings);

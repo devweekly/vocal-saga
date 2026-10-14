@@ -191,12 +191,12 @@ describe('POST /api/translate/document/literary/analyze', () => {
 });
 
 describe('POST /api/translate/document/literary/review', () => {
-  it('applies only required corrections and returns style preferences as optional findings', async () => {
+  it('applies required corrections and drops style findings entirely', async () => {
     const { translateBlocks } = await import('../lib/translate/pipeline');
     (translateBlocks as any).mockResolvedValueOnce(new Map([['s0', JSON.stringify({
       finalTranslation: '她推开了那扇旧门。',
       findings: [
-        { category: 'accuracy', priority: 'must_fix', sourceExcerpt: 'opened', draftExcerpt: '打开', reason: '时态和动作含义错误。', suggestion: '推开' },
+        { category: 'accuracy', sourceExcerpt: 'opened', draftExcerpt: '打开', reason: '时态和动作含义错误。', suggestion: '推开' },
         { category: 'style', priority: 'must_fix', sourceExcerpt: 'She opened', draftExcerpt: '她打开了', reason: '个人风格偏好。', suggestion: '她轻轻推开' },
       ],
     })]]));
@@ -220,14 +220,15 @@ describe('POST /api/translate/document/literary/review', () => {
     expect(json.translations.s0).toBe('她推开了那扇旧门。');
     expect(json.reviewedIds).toEqual(['s0']);
     expect(json.missingIds).toEqual([]);
-    expect(json.findings).toHaveLength(2);
+    // style 不在审校范围：即便模型自称 must_fix 也不采纳、不展示。
+    expect(json.findings).toHaveLength(1);
     expect(json.findings[0].priority).toBe('must_fix');
-    expect(json.findings[1].priority).toBe('optional');
+    expect(json.findings[0].category).toBe('accuracy');
   });
 });
 
 
-describe('POST /api/translate/document/literary/review — conservative style guard', () => {
+describe('POST /api/translate/document/literary/review — style is out of scope', () => {
   it('keeps the exact draft when findings are style-only, even if model asks for a rewrite', async () => {
     const { translateBlocks } = await import('../lib/translate/pipeline');
     (translateBlocks as any).mockResolvedValueOnce(new Map([['s0', JSON.stringify({
@@ -249,7 +250,8 @@ describe('POST /api/translate/document/literary/review — conservative style gu
     expect(res.status).toBe(200);
     const json: any = await res.json();
     expect(json.translations.s0).toBe(draft);
-    expect(json.findings[0].priority).toBe('optional');
+    // 全部是 style 时视同没有可报告问题：既不改译文，也不产出任何建议。
+    expect(json.findings).toEqual([]);
   });
 });
 

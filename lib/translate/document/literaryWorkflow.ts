@@ -204,9 +204,10 @@ export async function reviewLiteraryBatch(input: LiteraryWorkflowOptions & {
         if (!raw || typeof raw !== 'object' || Array.isArray(raw)) continue;
         const item = raw as Record<string, unknown>;
         const category = item.category;
-        if (category !== 'accuracy' && category !== 'terminology' && category !== 'style') continue;
-        // 风格问题无论模型如何标 priority，都不能触发自动改写。
-        const priority: LiteraryReviewPriority = category !== 'style' && item.priority === 'must_fix' ? 'must_fix' : 'optional';
+        // 审校只管明确错误：style（措辞/语气/节奏）不在范围内，旧结果里的也一并挡掉。
+        if (category !== 'accuracy' && category !== 'terminology') continue;
+        // 收进来的每条都是 must_fix，priority 不再由模型决定。
+        const priority: LiteraryReviewPriority = 'must_fix';
         const finding: LiteraryReviewFinding = {
           id: segment.id,
           category,
@@ -220,7 +221,7 @@ export async function reviewLiteraryBatch(input: LiteraryWorkflowOptions & {
       }
     }
     findings.push(...segmentFindings);
-    const hasMustFix = segmentFindings.some((finding) => finding.priority === 'must_fix');
+    const hasMustFix = segmentFindings.length > 0;
     // 只在 reviewer 给出明确定义的事实/术语错误时采用修正版。其余情况原样保留初译。
     translations[segment.id] = hasMustFix ? parsed.finalTranslation.trim().slice(0, 5_000) : segment.draft.trim().slice(0, 5_000);
   }

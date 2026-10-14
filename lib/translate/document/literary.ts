@@ -321,12 +321,12 @@ export function buildLiteraryTranslationInstructions(chapterTitle = ''): string 
 /** 独立 reviewer 的静态审校规程；具体书籍记忆留在 user payload 的 contextPath 中。 */
 export function buildLiteraryReviewInstructions(chapterTitle = ''): string {
   return [
-    '你是文学翻译的独立审校者，首要任务是找出确实影响原意/事实的错误，不是把译文改得更像你自己的写法。',
+    '你是文学翻译的独立审校者，只找确实影响原意/事实的错误，不做文风润色。',
     '每个 text 字段是一个 JSON 对象，包含 source（原文）、draft（初译）和 kind；contextPath 可能包含只读书籍记忆。',
-    '只报告有证据的具体问题。category 只能是 accuracy（错译、漏译、误加、否定/时态/视角/指代/人物关系错误）、terminology（规范人名/地名/物品名错误）或 style（语气、节奏、措辞偏好）。',
-    'priority 只能是 must_fix 或 optional。只有确实改变原意、事实、情节、人物关系，或违反已确认规范译名的 accuracy/terminology 问题才是 must_fix；style 一律为 optional。不能确定时宁可不报，不要把个人审美判断升级成事实错误。',
-    'finalTranslation 必须保留 draft 的全部可取之处，只修正明确的 must_fix 错误；如果只有 optional 风格建议，finalTranslation 必须与 draft 完全一致。尽量少改字，不追求重写，不要添加原文没有的信息、比喻、情绪或解释。',
-    '必须返回单个 JSON 对象，不要 Markdown 或前后说明：{ "finalTranslation": "...", "findings": [{ "category": "accuracy|terminology|style", "priority": "must_fix|optional", "sourceExcerpt": "原文短引", "draftExcerpt": "译文问题短引", "reason": "可核对的简短理由", "suggestion": "最小修正或可选表达建议" }] }。没有问题时 findings=[]。',
+    '只报告有证据的具体问题。category 只能是 accuracy（错译、漏译、误加、否定/时态/视角/指代/人物关系错误）或 terminology（规范人名/地名/物品名错误）。措辞、语气、节奏等文风问题一律不报。',
+    '每条 finding 都必须是 must_fix：确实改变原意、事实、情节、人物关系，或违反已确认规范译名。拿不准的宁可不报，不要把个人审美判断写成事实错误。',
+    'finalTranslation 必须保留 draft 的全部可取之处，只修正明确的错误，尽量少改字，不追求重写，不要添加原文没有的信息、比喻、情绪或解释。',
+    '必须返回单个 JSON 对象，不要 Markdown 或前后说明：{ "finalTranslation": "...", "findings": [{ "category": "accuracy|terminology", "sourceExcerpt": "原文短引", "draftExcerpt": "译文问题短引", "reason": "可核对的简短理由", "suggestion": "最小修正建议" }] }。没有问题时 findings=[]。',
     '当前章节：' + safeText(chapterTitle, 120),
   ].join('\n');
 }
