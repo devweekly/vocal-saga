@@ -176,13 +176,14 @@ function buildMimoBody(
   targetLang: string,
   glossary?: Glossary,
   style?: PromptStyle,
+  translationMode: TranslationMode = 'technical',
 ) {
   const blocksJson = JSON.stringify(
     blocks.map((b) => ({ id: b.id, text: b.text })),
     null,
     2,
   );
-  const systemContent = buildSystemContent(sourceLang, targetLang, glossary, style);
+  const systemContent = buildSystemContent(sourceLang, targetLang, glossary, style, translationMode);
   return {
     model: MODEL,
     messages: [
@@ -196,9 +197,11 @@ function buildMimoBody(
 export class MimoTranslationService implements TranslationService {
   /** 翻译文风，默认 undefined 表示使用通用直译风格 */
   private style?: PromptStyle;
+  private translationMode: TranslationMode;
 
-  constructor(style?: PromptStyle) {
+  constructor(style?: PromptStyle, translationMode: TranslationMode = 'technical') {
     this.style = style;
+    this.translationMode = translationMode;
   }
 
   async translate(
@@ -208,7 +211,7 @@ export class MimoTranslationService implements TranslationService {
     glossary?: Glossary,
   ): Promise<string> {
     const blocks = JSON.parse(jsonContent);
-    const body = buildMimoBody(blocks, sourceLang, targetLang, glossary, this.style);
+    const body = buildMimoBody(blocks, sourceLang, targetLang, glossary, this.style, this.translationMode);
     const raw = await callApi(JSON.stringify(body));
     return raw;
   }
