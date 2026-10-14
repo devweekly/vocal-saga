@@ -490,8 +490,16 @@ function validateSegments(input: any, max: number, type: string) {
     seen.add(raw.id);
     if (type === 'review') {
       if (typeof raw.source !== 'string' || !raw.source.trim() || typeof raw.draft !== 'string' || !raw.draft.trim()) continue;
+      // 审校输入一旦被静默截断，Reviewer 可能把残缺译文当成全文返回并覆盖原稿。
+      // 超出单片段预算时拒绝整次审校，由扩展保留初译，而不是破坏用户已有译文。
+      if (raw.source.length > 4000 || raw.draft.length > 5000) {
+        throw Object.assign(
+          new Error('审校片段超过本机单片段限制（原文 4000、译文 5000 字符）；已拒绝截断输入'),
+          { status: 400 },
+        );
+      }
       segments.push({
-        id: raw.id.slice(0, 160), source: raw.source.slice(0, 4000), draft: raw.draft.slice(0, 5000),
+        id: raw.id.slice(0, 160), source: raw.source, draft: raw.draft,
         kind: typeof raw.kind === 'string' ? raw.kind.slice(0, 30) : 'paragraph',
         contextPath: typeof raw.contextPath === 'string' ? raw.contextPath.slice(0, 160) : '',
       });
@@ -572,6 +580,10 @@ async function runLiteraryReview(body: any) {
   for (const raw of parsed.results.slice(0, 32)) {
     if (!raw || typeof raw.id !== 'string' || !byId.has(raw.id)) continue;
     const original = byId.get(raw.id);
+    let candidateText = typeof raw.finalTranslation === 'string' ? raw.finalTranslation.trim() : '';
+    // 不要用 slice 截断模型输出；超过预算的修正直接作废，保留原始初译。
+    const candidateUsable = candidateText.length > 0 && candidateText.length <= 5000;
+    if (!candidateUsable) candidateText = original.draft;
     const candidateFindings = [];
     if (Array.isArray(raw.findings)) {
       for (const item of raw.findings.slice(0, 12)) {
@@ -587,11 +599,18 @@ async function runLiteraryReview(body: any) {
         if (finding.reason || finding.suggestion) candidateFindings.push(finding);
       }
     }
-    findings.push(...candidateFindings);
     const hasMustFix = candidateFindings.some((item) => item.priority === 'must_fix');
-    const candidate = typeof raw.finalTranslation === 'string' && raw.finalTranslation.trim()
-      ? raw.finalTranslation.trim().slice(0, 5000) : original.draft;
-    translations[raw.id] = hasMustFix ? candidate : original.draft;
+    if (hasMustFix && !candidateUsable) {
+      // 把“必须修正”降为待人工处理，因为没有可安全应用的完整修正译文。
+      for (const finding of candidateFindings) {
+        if (finding.priority === 'must_fix') {
+          finding.priority = 'optional';
+          finding.reason = (finding.reason ? finding.reason + '；' : '') + '本机未返回长度合规的完整修正译文，因此没有自动覆盖初译';
+        }
+      }
+    }
+    findings.push(...candidateFindings);
+    translations[raw.id] = hasMustFix && candidateUsable ? candidateText : original.draft;
   }
   const expectedIds = segments.map((item) => item.id);
   return {
