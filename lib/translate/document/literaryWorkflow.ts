@@ -101,8 +101,9 @@ export async function analyzeLiteraryChapter(
     blocks: [{ id: 'literary-analysis', text: task, kind: 'other', contextPath: chapterTitle }],
     source: 'auto',
     target: input.target || 'zh',
-    glossary: input.glossary,
+    glossary: undefined,
     promptStyle: input.promptStyle,
+    translationMode: 'literary',
     provider: input.provider,
     model: input.model,
     apiKey: input.apiKey,
@@ -179,8 +180,9 @@ export async function reviewLiteraryBatch(input: LiteraryWorkflowOptions & {
     blocks,
     source: 'auto',
     target: input.target || 'zh',
-    glossary: input.glossary,
+    glossary: undefined,
     promptStyle: input.promptStyle,
+    translationMode: 'literary',
     provider: input.provider,
     model: input.model,
     apiKey: input.apiKey,
@@ -204,10 +206,9 @@ export async function reviewLiteraryBatch(input: LiteraryWorkflowOptions & {
         if (!raw || typeof raw !== 'object' || Array.isArray(raw)) continue;
         const item = raw as Record<string, unknown>;
         const category = item.category;
-        // 审校只管明确错误：style（措辞/语气/节奏）不在范围内，旧结果里的也一并挡掉。
-        if (category !== 'accuracy' && category !== 'terminology') continue;
-        // 收进来的每条都是 must_fix，priority 不再由模型决定。
-        const priority: LiteraryReviewPriority = 'must_fix';
+        // 准确性与已确认实体译名问题属于必须修复；文学风格问题允许作为受控修订理由。
+        if (category !== 'accuracy' && category !== 'terminology' && category !== 'style') continue;
+        const priority: LiteraryReviewPriority = category === 'style' ? 'optional' : 'must_fix';
         const finding: LiteraryReviewFinding = {
           id: segment.id,
           category,
@@ -221,9 +222,11 @@ export async function reviewLiteraryBatch(input: LiteraryWorkflowOptions & {
       }
     }
     findings.push(...segmentFindings);
-    const hasMustFix = segmentFindings.length > 0;
-    // 只在 reviewer 给出明确定义的事实/术语错误时采用修正版。其余情况原样保留初译。
-    translations[segment.id] = hasMustFix ? parsed.finalTranslation.trim().slice(0, 5_000) : segment.draft.trim().slice(0, 5_000);
+    const hasActionableFinding = segmentFindings.length > 0;
+    // 有明确事实错误或具体文风问题时采纳受控修订版；无问题时保留初译，避免无意义重写。
+    translations[segment.id] = hasActionableFinding
+      ? parsed.finalTranslation.trim().slice(0, 5_000)
+      : segment.draft.trim().slice(0, 5_000);
   }
   const expectedIds = segments.map((segment) => segment.id);
   const reviewedIds = expectedIds.filter((id) => typeof translations[id] === 'string');
