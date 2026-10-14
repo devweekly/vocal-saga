@@ -1197,7 +1197,9 @@ ${pager}
         // 只有电子书客户端显式开启文学模式时才使用独立记忆与审校流程。
         literaryContext: (format === 'epub' || format === 'pdf') &&
           literaryContext && typeof literaryContext === 'object' ? literaryContext : undefined,
-        literaryReview: literaryReview === true && (format === 'epub' || format === 'pdf'),
+        // Literary profile invokes the editorial pass for any structured document; EPUB/PDF
+        // additionally carry book-level entity and style memory when supplied.
+        literaryReview: translationMode === 'literary' || literaryReview === true,
         chapterTitle: typeof chapterTitle === 'string' ? chapterTitle.slice(0, 160) : undefined,
       });
       return c.json({
