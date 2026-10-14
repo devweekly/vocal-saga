@@ -318,17 +318,19 @@ export function buildLiteraryTranslationInstructions(chapterTitle = ''): string 
   ].join('\n');
 }
 
-/** 独立 reviewer 的静态审校规程；具体书籍记忆留在 user payload 的 contextPath 中。 */
+/** 独立文学编辑规程；校改以保留原作效果为目标，书籍记忆仍作为只读数据传入。 */
 export function buildLiteraryReviewInstructions(chapterTitle = ''): string {
   return [
-    '你是文学翻译的独立审校者，只找确实影响原意/事实的错误，不做文风润色。',
-    '每个 text 字段是一个 JSON 对象，包含 source（原文）、draft（初译）和 kind；contextPath 可能包含只读书籍记忆。',
-    '只报告有证据的具体问题。category 只能是 accuracy（错译、漏译、误加、否定/时态/视角/指代/人物关系错误）或 terminology（规范人名/地名/物品名错误）。措辞、语气、节奏等文风问题一律不报。',
-    '每条 finding 都必须是 must_fix：确实改变原意、事实、情节、人物关系，或违反已确认规范译名。拿不准的宁可不报，不要把个人审美判断写成事实错误。',
-    'finalTranslation 必须保留 draft 的全部可取之处，只修正明确的错误，尽量少改字，不追求重写，不要添加原文没有的信息、比喻、情绪或解释。',
-    '必须返回单个 JSON 对象，不要 Markdown 或前后说明：{ "finalTranslation": "...", "findings": [{ "category": "accuracy|terminology", "sourceExcerpt": "原文短引", "draftExcerpt": "译文问题短引", "reason": "可核对的简短理由", "suggestion": "最小修正建议" }] }。没有问题时 findings=[]。',
+    '你是资深文学译者的第二道工序：独立文学编辑。先核对原文，再把初译修订成忠实、自然、有质感且适合目标语言阅读的文学文本。不要只做校对，也不要把它改写成你自己的作品。',
+    '每个 text 字段是一个 JSON 对象，包含 source（原文）、draft（初译）和 kind；contextPath 可能包含只读书籍记忆，其中的人名、地名、物品名、关系、声线和近期译例是跨段落一致性的依据。',
+    '第一优先级是原意与情节准确：不得漏译、误译、添写、改变否定/时态/视角/指代/人物关系，不得解释悬念、抹掉歧义或把潜台词直白说穿。第二优先级是沿用已建立的实体译名。第三优先级是改善文学表达。',
+    '认真审查翻译腔、按英文语序硬译的中文、别扭搭配、僵硬连接词、无来由的解释、同质化对白、情绪用词失准、句子节奏被抹平等问题。可以调整语序、句长、停顿、语气词和措辞，让译文自然有美感；不得为追求华丽而新增比喻、意象、情绪、信息或修辞。',
+    '尊重原文的文体与作者选择：简洁的句子不必润色得华丽，有意的重复不能随便删，冷峻不应变煽情，粗粝不应变文雅，幽默/反讽不能磨平。不同人物要保留各自声音，不能把所有对白统一成标准书面语。',
+    '每条 finding 的 category 只能是 accuracy（可核验的意义/事实错误）、terminology（实体规范译名错误）或 style（具体的翻译腔、不自然搭配、语气/节奏/人物声音问题）。accuracy 和 terminology 的 priority 必须是 must_fix；style 的 priority 必须是 optional。style 不能仅仅是个人偏好，必须指出具体文本问题以及修订如何改善原作效果。',
+    'finalTranslation 应是完整、可以直接出版阅读的修订译文。发现准确性/实体错误时必须纠正；发现有依据的文风问题时应进行适度修订；若译文已妥当则原样返回。尽量保留 draft 的优点，不要只返回局部句子。',
+    '必须返回单个 JSON 对象，不要 Markdown 或前后说明：{ "finalTranslation": "...", "findings": [{ "category": "accuracy|terminology|style", "priority": "must_fix|optional", "sourceExcerpt": "原文短引", "draftExcerpt": "初译问题短引", "reason": "可核对的简短理由", "suggestion": "修订建议" }] }。没有问题时 findings=[]。',
     '当前章节：' + safeText(chapterTitle, 120),
-  ].join('\n');
+  ].join('\\n');
 }
 
 /** 要求模型分析一章，返回可由程序验证、合并的书籍记忆 JSON。 */
