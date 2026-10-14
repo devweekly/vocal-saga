@@ -229,6 +229,28 @@ test('会话池失败后丢弃会话并抛错', async () => {
   pool.closeAll();
 });
 
+test('会话池预热拉起全部空闲槽，失败不抛', async () => {
+  const { WorkbuddySessionPool } = await import('../src/agents/workbuddyPool.ts');
+  let connects = 0;
+  let creates = 0;
+  const factory = () => {
+    creates++;
+    if (creates === 2) throw new Error('boot failed');
+    return {
+      async send() {}, async *stream() {}, async interrupt() {}, close() {},
+      async setModel() {}, async connect() { connects++; },
+    };
+  };
+  const pool = new WorkbuddySessionPool(3, 25, factory);
+  // 占住一个槽：预热跳过忙槽。
+  const busy = await pool.acquire({ provider: 'workbuddy', model: '' });
+  await pool.prewarm({ provider: 'workbuddy', model: '' });
+  assert.equal(connects, 1);
+  pool.release(busy);
+  await pool.prewarm({ provider: 'workbuddy', model: '' });
+  pool.closeAll();
+});
+
 test('会话池模型不一致时热切换', async () => {
   const { WorkbuddySessionPool } = await import('../src/agents/workbuddyPool.ts');
   let session;
@@ -289,6 +311,8 @@ test('starts without LOCAL_AGENT_TOKEN, allows extension requests, and blocks we
     // Malformed optional numeric settings must fall back to defaults rather than poisoning timers/SQLite.
     LOCAL_AGENT_TIMEOUT_MS: 'not-a-number',
     LOCAL_AGENT_MAX_HISTORY: 'not-a-number',
+    // 集成测试不预热真 CLI 进程（慢且依赖登录态）；单测已覆盖 prewarm。
+    LOCAL_AGENT_PREWARM: 'false',
   };
   env.LOCAL_AGENT_TOKEN = '';
 
@@ -468,4 +492,44 @@ test('starts without LOCAL_AGENT_TOKEN, allows extension requests, and blocks we
   });
   assert.equal(allowedOrigin.status, 204);
   assert.equal(allowedOrigin.headers.get('access-control-allow-origin'), extensionOrigin);
+});
+
+test('salvages quote-poisoned translation JSON via jsonrepair fallback', () => {
+  // 线上实录：模型用 ASCII 双引号写中文对话引语，严格解析全灭。
+  const poisoned = [
+    '```json',
+    '{',
+    '  "translations": [',
+    '    {"id": "s148", "translated_text": ""我没犯法——""},',
+    '    {"id": "s149", "translated_text": ""那你的钱从哪来的？"格雷问""}',
+    '  ]',
+    '}',
+    '```',
+  ].join('\n');
+  const salvaged = parseJsonValue(poisoned);
+  assert.ok(salvaged && typeof salvaged === 'object' && !Array.isArray(salvaged));
+  const items = salvaged.translations;
+  assert.equal(items.length, 2);
+  assert.equal(items[0].id, 's148');
+  assert.ok(items[0].translated_text.includes('我没犯法'));
+  assert.equal(items[1].id, 's149');
+});
+
+test('salvages truncated translation JSON, keeping complete items', () => {
+  const truncated = [
+    '{"translations": [',
+    '  {"id": "b33", "translated_text": "长段译文一。"},',
+    '  {"id": "b34", "translated_text": "长段译文二。"},',
+    '  {"id": "b35", "translated_text": "没写完的译文',
+  ].join('\n');
+  const salvaged = parseJsonValue(truncated);
+  assert.ok(Array.isArray(salvaged) || (salvaged && Array.isArray(salvaged.translations)));
+  const items = Array.isArray(salvaged) ? salvaged : salvaged.translations;
+  assert.ok(items.length >= 2);
+  assert.equal(items[0].id, 'b33');
+});
+
+test('pure prose with no JSON still returns null', () => {
+  assert.equal(parseJsonValue('抱歉，我无法翻译这段内容。'), null);
+  assert.equal(parseJsonValue(''), null);
 });

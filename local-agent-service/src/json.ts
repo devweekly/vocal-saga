@@ -1,4 +1,5 @@
 import { DEFAULT_OPENCODE_MODEL, DEFAULT_PROVIDER, DEFAULT_WORKBUDDY_MODEL } from './config.ts';
+import { jsonrepair } from 'jsonrepair';
 
 export function parseAgentModel(modelValue: unknown, providerHint = '') {
   const raw = typeof modelValue === 'string' ? modelValue.trim() : '';
@@ -94,7 +95,9 @@ export function parseJsonValue(text: unknown): Record<string, any> | any[] | nul
 
   // Find the first complete top-level object/array while respecting escaped quotes and nesting.
   // This handles output such as "Result:\\n[{...}]" without slicing on braces inside strings.
-  for (let start = 0; start < value.length; start += 1) {
+  // 截断输出只能捡回第一个完整 item（如 {"id":"b33",...}），先记下来，后面跟 repair 比"谁捡得多"。
+  let scanned: Record<string, any> | any[] | null = null;
+  for (let start = 0; start < value.length && scanned === null; start += 1) {
     const opening = value[start];
     if (opening !== '{' && opening !== '[') continue;
     const stack: string[] = [opening === '{' ? '}' : ']'];
@@ -115,14 +118,42 @@ export function parseJsonValue(text: unknown): Record<string, any> | any[] | nul
         if (stack[stack.length - 1] !== char) break;
         stack.pop();
         if (stack.length === 0) {
-          const parsed = parseContainer(value.slice(start, index + 1));
-          if (parsed !== null) return parsed;
+          scanned = parseContainer(value.slice(start, index + 1));
           break;
         }
       }
     }
   }
-  return null;
+
+  // 模型常在译文里用 ASCII 双引号写中文对话引语（""我没犯法——""），
+  // 或输出被截断：上面两种确定性解析只能捡回零散 item。jsonrepair 做最后兜底——
+  // 只在本来就要返回残缺/null 的路上尝试，修不好就维持原结果，不污染正常输出。
+  // 谁捡回的条目多用谁；修出来的残缺数组由调用方按 id 过滤、缺段重试补齐。
+  try {
+    const repaired = parseContainer(jsonrepair(value));
+    if (repaired !== null && containerItemCount(repaired) > containerItemCount(scanned)) {
+      console.info('[local-agent] json-repair salvaged invalid model output (inputChars=' + value.length + ')');
+      return repaired;
+    }
+  } catch {
+    /* 修不好就维持扫描结果，老行为不变 */
+  }
+  return scanned;
+}
+
+/** 比较"捡回多少有效条目"：只数带 string id 的对象。
+ *  必须这么比——jsonrepair 会把解释文字也包进数组（如 ["result:", {...}, "thanks"]），
+ *  按容器长度比会让幻觉结果打败精确扫描。 */
+function containerItemCount(value: Record<string, any> | any[] | null): number {
+  if (value === null) return 0;
+  const items = Array.isArray(value)
+    ? value
+    : Array.isArray((value as Record<string, unknown>).translations)
+      ? ((value as Record<string, unknown>).translations as unknown[])
+      : [value];
+  return items.filter((item) =>
+    !!item && typeof item === 'object' && !Array.isArray(item) &&
+    typeof (item as Record<string, unknown>).id === 'string').length;
 }
 
 /** Retain an object-only parser for the literary analysis and Reviewer schemas. */

@@ -15,7 +15,8 @@
   },
   "dependencies": {
     "@tencent-ai/agent-sdk": "^0.3.276",
-    "express": "^5.1.0"
+    "express": "^5.1.0",
+    "jsonrepair": "^3.15.0"
   },
   "devDependencies": {
     "@types/express": "^5.0.3",

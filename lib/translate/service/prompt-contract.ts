@@ -153,6 +153,7 @@ export function renderOutputFormat(sourceLangName: string, targetLangName: strin
 - 不输出 Markdown。
 - 不输出额外字段。
 - 不返回空字符串。
+- 译文里不得出现 ASCII 双引号 "（会破坏 JSON 结构）；中文引语一律用中文引号“”。
 
 </输出格式>`;
 }

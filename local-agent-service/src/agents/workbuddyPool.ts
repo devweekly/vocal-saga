@@ -8,6 +8,8 @@ export interface PooledSession {
   interrupt(): Promise<void>;
   close(): void;
   setModel?(model: string): Promise<void>;
+  /** 只 boot CLI 进程，不调模型（SDK Session.connect 的预热语义）。 */
+  connect?(): Promise<void>;
 }
 
 export type SessionFactory = (options: Record<string, any>) => PooledSession | Promise<PooledSession>;
@@ -123,6 +125,13 @@ export class WorkbuddySessionPool {
       this.dropSession(index);
       throw new Error('Workbuddy 调用超时（' + timeoutMs + ' ms）');
     }
+    // 空文本不能当成功：多半是会话已坏（后继请求会连续空转 15-20s）。
+    // 直接丢会话，下次懒重建；调用方走现有重试链路。
+    if (!text.trim()) {
+      console.error('[local-agent][' + requestId + '] workbuddy-empty-text dropping poisoned session');
+      this.dropSession(index);
+      throw new Error('Workbuddy 返回了空内容，会话已丢弃重建；请重试该批次');
+    }
     console.info(
       '[local-agent][' + requestId + '] workbuddy-timing ttftMs=' + (firstTextAt ? firstTextAt - startedAt : -1) +
       ' totalMs=' + (Date.now() - startedAt) +
@@ -139,6 +148,30 @@ export class WorkbuddySessionPool {
   closeAll(): void {
     for (let i = 0; i < this.slots.length; i++) this.dropSession(i);
     this.waiters.splice(0).forEach((wake) => { wake(); });
+  }
+
+  // 服务启动后后台调用一次：把空闲槽位的 CLI 进程提前拉起。
+  // connect 只 boot 进程、不发 prompt（不调模型、不花 token）；initialize 留给首单。
+  // 单个失败只丢该槽——首单仍走懒创建，不影响可用性。
+  async prewarm(agent: WorkbuddyAgent): Promise<void> {
+    const jobs: Promise<void>[] = [];
+    for (let i = 0; i < this.slots.length; i++) {
+      const slot = this.slots[i];
+      if (slot.busy || slot.session) continue;
+      slot.busy = true;
+      jobs.push((async () => {
+        try {
+          await this.ensureSession(i, agent);
+          await slot.session?.connect?.();
+        } catch {
+          this.dropSession(i);
+        } finally {
+          slot.busy = false;
+          this.wakeNext();
+        }
+      })());
+    }
+    await Promise.all(jobs);
   }
 
   // 保证槽位有可用会话；模型与槽位不一致时热切换（控制请求，无需重启进程）。

@@ -13,6 +13,7 @@ import {
 import { initDatabase } from './db.ts';
 import { sendJson, addCors, isLoopbackHost } from './middleware.ts';
 import { handleRequest } from './routes.ts';
+import { getTextPool } from './agents/workbuddyPool.ts';
 
 // 兼容旧入口与测试：继续从 server.ts 导出这些函数。
 export { parseAgentModel, buildAgentPrompt, parseJsonObject, parseJsonValue, normalizeMessages } from './json.ts';
@@ -72,6 +73,11 @@ export function startLocalAgentServer() {
     console.log('[local-agent] provider default: ' + DEFAULT_PROVIDER);
     console.log('[local-agent] SQLite: ' + DATABASE_PATH);
     console.log('[local-agent] prompt/translation content storage: ' + String(STORE_CONTENT));
+    // 后台预热会话池：首波翻译不付 CLI 启动费。只 boot 进程不调模型；
+    // 失败自吞，首单懒创建同效。测试用 LOCAL_AGENT_PREWARM=false 关闭。
+    if ((process.env.LOCAL_AGENT_PREWARM || 'true').toLowerCase() !== 'false') {
+      void getTextPool().prewarm({ provider: 'workbuddy', model: '' }).catch(() => {});
+    }
   });
   void server;
   void path;
