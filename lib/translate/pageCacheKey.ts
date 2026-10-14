@@ -13,6 +13,7 @@ export function buildPageCacheFingerprint(
   pageUrl: string,
   provider?: string,
   promptStyle?: string,
+  translationMode?: string,
 ): string {
   const rule = matchSiteRule(pageUrl)?.siteRule;
   const ruleContext = rule
@@ -36,7 +37,8 @@ export function buildPageCacheFingerprint(
   const context = JSON.stringify({
     provider: provider || 'deepseek',
     promptStyle: promptStyle || 'default',
+    translationMode: translationMode || 'technical',
     rule: ruleContext,
   });
-  return `page-v1:${clientContentHash}:${simpleHash(context).toString(36)}`;
+  return `page-v2:${clientContentHash}:${simpleHash(context).toString(36)}`;
 }
