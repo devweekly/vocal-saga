@@ -6,7 +6,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { buildAgentPrompt, parseAgentModel, parseJsonObject } from '../src/server.mjs';
+import { buildAgentPrompt, parseAgentModel, parseJsonObject } from '../src/server.ts';
 
 test('uses the runtime default model when no override is configured', () => {
   const openCode = parseAgentModel('opencode');
@@ -69,7 +69,7 @@ test('starts without LOCAL_AGENT_TOKEN, allows extension requests, and blocks we
   const tempDir = await mkdtemp(path.join(os.tmpdir(), 'vocal-saga-local-agent-test-'));
   const port = await reserveLoopbackPort();
   const serviceDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-  const script = path.join(serviceDir, 'src', 'start.mjs');
+  const script = path.join(serviceDir, 'src', 'start.ts');
   const env = {
     ...process.env,
     LOCAL_AGENT_HOST: '127.0.0.1',
@@ -84,7 +84,7 @@ test('starts without LOCAL_AGENT_TOKEN, allows extension requests, and blocks we
   };
   env.LOCAL_AGENT_TOKEN = '';
 
-  const child = spawn(process.execPath, [script], {
+  const child = spawn(process.execPath, ['--import', 'tsx', script], {
     cwd: serviceDir,
     env,
     stdio: ['ignore', 'pipe', 'pipe'],
