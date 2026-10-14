@@ -6,6 +6,10 @@
 import express, { type Request, type Response, type NextFunction } from 'express';
 import { DatabaseSync } from 'node:sqlite';
 import { randomUUID, timingSafeEqual } from 'node:crypto';
+import { spawn } from 'node:child_process';
+import { mkdirSync } from 'node:fs';
+import { homedir } from 'node:os';
+import path from 'node:path';
 
 const HOST = (process.env.LOCAL_AGENT_HOST || '127.0.0.1').trim();
 const PORT = Number.parseInt(process.env.LOCAL_AGENT_PORT || '8789', 10);
