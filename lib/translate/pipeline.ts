@@ -29,7 +29,7 @@ import { generateTranslationCacheKey } from './cacheKey';
 import { translateSingleflight } from './singleflight.js';
 import { DeepSeekTranslationService } from './service/deepseek';
 import type { Glossary } from './service/_service';
-import type { PromptStyle } from './service/shared';
+import type { PromptStyle, TranslationMode } from './service/shared';
 import { detectLanguage, shouldUseJapaneseSource } from './languageDetector';
 import { fetchPage } from './urlFetcher';
 import { runWithConcurrency } from './concurrency';
@@ -112,10 +112,11 @@ export async function translateChunk(
   promptStyle?: string,
   /** 跳过 chunk 缓存读取（强制刷新场景：/force/* 路由） */
   skipCache = false,
+  translationMode: TranslationMode = 'technical',
 ): Promise<Map<string, string>> {
   const tChunk = performance.now();
   const chunkLabel = `[Chunk ${chunk.id}]`;
-  const cacheKey = generateTranslationCacheKey(chunk.jsonContent, sourceLang, targetLang, provider, promptStyle, glossary);
+  const cacheKey = generateTranslationCacheKey(chunk.jsonContent, sourceLang, targetLang, provider, promptStyle, glossary, undefined, translationMode);
   const us = (ms: number) => `${Math.round(ms * 1000)}µs`;
   console.log(`${chunkLabel} start (${chunk.blocks.length} blocks, ${chunk.estimatedTokens} tokens)`);
 
@@ -134,6 +135,8 @@ export async function translateChunk(
           provider,
           promptStyle,
           glossary,
+          undefined,
+          translationMode,
         );
         await cacheTranslation(itemKey, new Map([[item.id, translated]]));
       }));
@@ -150,7 +153,7 @@ export async function translateChunk(
   if (!isRetry && !skipCache) {
     for (const item of payloadItems) {
       const itemJson = JSON.stringify([item]);
-      const itemKey = generateTranslationCacheKey(itemJson, sourceLang, targetLang, provider, promptStyle, glossary);
+      const itemKey = generateTranslationCacheKey(itemJson, sourceLang, targetLang, provider, promptStyle, glossary, undefined, translationMode);
       blockCacheKeys.set(item.id, itemKey);
       const cachedBlock = await getCachedTranslation(itemKey);
       const text = cachedBlock?.get(item.id);
@@ -170,7 +173,7 @@ export async function translateChunk(
     : JSON.stringify(missingItems);
   const pendingKey = missingItems.length === payloadItems.length
     ? cacheKey
-    : generateTranslationCacheKey(pendingJsonContent, sourceLang, targetLang, provider, promptStyle, glossary);
+    : generateTranslationCacheKey(pendingJsonContent, sourceLang, targetLang, provider, promptStyle, glossary, undefined, translationMode);
   const expectedById = new Map(chunk.blocks.map((block) => [block.id, block]));
   const pendingBlocks = missingItems.map((item) => expectedById.get(item.id)).filter(
     (block): block is NonNullable<typeof block> => Boolean(block),
@@ -240,6 +243,7 @@ async function translateChunksWithRetry(
   promptStyle?: string,
   /** 跳过 chunk 缓存读取（强制刷新场景） */
   skipCache = false,
+  translationMode: TranslationMode = 'technical',
 ): Promise<Map<string, string>> {
   const finalTranslations = new Map<string, string>();
   if (chunks.length === 0) return finalTranslations;
@@ -251,7 +255,7 @@ async function translateChunksWithRetry(
   async function processOneChunk(
     chunk: ReturnType<typeof buildChunks>[number]
   ): Promise<void> {
-    const result = await translateChunk(service, chunk, sourceLang, targetLang, glossary, false, provider, promptStyle, skipCache);
+    const result = await translateChunk(service, chunk, sourceLang, targetLang, glossary, false, provider, promptStyle, skipCache, translationMode);
 
     // 缺失检测 + 重试
     const inputIds = chunk.blocks.map((b) => b.id);
@@ -279,6 +283,7 @@ async function translateChunksWithRetry(
         provider,
         promptStyle,
         skipCache,
+        translationMode,
       );
       for (const [id, text] of retryResult) {
         result.set(id, text);
@@ -315,6 +320,7 @@ export interface TranslateTextInput {
   glossary?: Glossary;
   /** 翻译文风，默认通用直译 */
   promptStyle?: PromptStyle;
+  translationMode?: TranslationMode;
 }
 
 export interface TranslateTextResult {
@@ -338,7 +344,7 @@ export async function translateText(input: TranslateTextInput): Promise<Translat
   ];
   const chunks = buildChunks(blocks as any);
 
-  const service = new DeepSeekTranslationService(undefined, input.promptStyle);
+  const service = new DeepSeekTranslationService(undefined, input.promptStyle, input.translationMode);
   const translations = await translateChunksWithRetry(
     service,
     chunks,
@@ -348,6 +354,8 @@ export async function translateText(input: TranslateTextInput): Promise<Translat
     6,
     /* provider */ 'deepseek',
     input.promptStyle,
+    false,
+    input.translationMode,
   );
 
   return {
@@ -371,6 +379,8 @@ export interface TranslateBlocksInput {
   target?: string;
   glossary?: Glossary;
   promptStyle?: PromptStyle;
+  /** 独立翻译目标：技术准确性优先或文学表达/实体一致性优先。 */
+  translationMode?: TranslationMode;
   concurrency?: number;
   /** 文档接口沿用调用方当前选择的 provider；省略时保持旧行为 DeepSeek。 */
   provider?: TranslationProvider;
@@ -411,39 +421,47 @@ export async function translateBlocks(
   // 文学书籍的专用任务指令只在调用方显式提供时加入，不改变网页翻译默认 prompt。
   // 与提示词一起进入 glossary cache fingerprint，避免旧直译缓存污染审校/分析结果。
   const taskInstruction = input.taskInstructions?.trim();
+  const translationMode: TranslationMode = input.translationMode === 'literary' ? 'literary' : 'technical';
+  // Literary mode has no generic terminology glossary. Keep only explicit site/task instructions
+  // because those are workflow constraints, not terms that force words to remain untranslated.
+  const baseGlossary: Glossary | undefined = translationMode === 'literary'
+    ? (input.glossary?.site_instructions?.length
+        ? { site_instructions: input.glossary.site_instructions }
+        : undefined)
+    : input.glossary;
   const requestGlossary: Glossary | undefined = taskInstruction
     ? {
-        ...(input.glossary ?? {}),
+        ...(baseGlossary ?? {}),
         site_instructions: [
-          ...(input.glossary?.site_instructions ?? []),
+          ...(baseGlossary?.site_instructions ?? []),
           taskInstruction,
         ].filter((instruction) => typeof instruction === 'string' && instruction.trim()),
       }
-    : input.glossary;
+    : baseGlossary;
 
   const chunks = buildChunks(blocks as unknown as TextBlock[]);
   const provider = input.provider ?? 'deepseek';
   let service: DeepSeekTranslationService;
   if (provider === 'openrouter') {
     const { OpenRouterTranslationService } = await import('./service/openrouter');
-    service = new OpenRouterTranslationService(input.promptStyle) as any;
+    service = new OpenRouterTranslationService(input.promptStyle, translationMode) as any;
   } else if (provider === 'nvidia') {
     const { NvidiaTranslationService } = await import('./service/nvidia');
-    service = new NvidiaTranslationService(input.model, input.promptStyle) as any;
+    service = new NvidiaTranslationService(input.model, input.promptStyle, translationMode) as any;
   } else if (provider === 'cloudflare') {
     const { CloudflareAITranslationService } = await import('./service/cloudflare');
-    service = new CloudflareAITranslationService(input.promptStyle) as any;
+    service = new CloudflareAITranslationService(input.promptStyle, translationMode) as any;
   } else if (provider === 'mimo') {
     const { MimoTranslationService } = await import('./service/mimo');
-    service = new MimoTranslationService(input.promptStyle) as any;
+    service = new MimoTranslationService(input.promptStyle, translationMode) as any;
   } else if (provider === 'gemini') {
     const { GeminiTranslationService } = await import('./service/gemini');
-    service = new GeminiTranslationService(input.model, input.promptStyle) as any;
+    service = new GeminiTranslationService(input.model, input.promptStyle, translationMode) as any;
   } else if (provider === 'opencode') {
     const { OpencodeTranslationService } = await import('./service/opencode');
-    service = new OpencodeTranslationService(input.promptStyle) as any;
+    service = new OpencodeTranslationService(input.promptStyle, translationMode) as any;
   } else {
-    service = new DeepSeekTranslationService(input.apiKey, input.promptStyle);
+    service = new DeepSeekTranslationService(input.apiKey, input.promptStyle, translationMode);
   }
   return translateChunksWithRetry(
     service,
@@ -454,6 +472,8 @@ export async function translateBlocks(
     input.concurrency ?? 4,
     provider,
     input.promptStyle,
+    false,
+    translationMode,
   );
 }
 
@@ -472,6 +492,8 @@ export interface TranslateUrlInput {
   model?: string;
   /** 翻译文风，默认通用直译 */
   promptStyle?: PromptStyle;
+  /** 独立技术/文学翻译模式；未传时保持旧的技术模式。 */
+  translationMode?: TranslationMode;
   /** 跳过 chunk 缓存读取（强制刷新场景：/force/* 路由） */
   skipCache?: boolean;
   /**
@@ -508,6 +530,8 @@ export interface TranslateHtmlInput {
   apiKey?: string;
   /** 翻译文风，默认通用直译 */
   promptStyle?: PromptStyle;
+  /** 独立技术/文学翻译模式；未传时保持旧的技术模式。 */
+  translationMode?: TranslationMode;
   /** 跳过 chunk 缓存读取（强制刷新场景：/force/* 路由） */
   skipCache?: boolean;
 }
@@ -527,6 +551,7 @@ async function runTranslationPipeline(
   style?: PromptStyle,
   /** 跳过 chunk 缓存读取（强制刷新场景） */
   skipCache = false,
+  translationMode: TranslationMode = 'technical',
 ): Promise<{ title: string; html: string; blocks: number; translatedBlocks: number; chunks: number }> {
   const title =
     (doc.querySelector('title')?.textContent || '').trim().substring(0, 200) ||
@@ -582,24 +607,24 @@ async function runTranslationPipeline(
   let service: DeepSeekTranslationService;
   if (provider === 'openrouter') {
     const { OpenRouterTranslationService } = await import('./service/openrouter');
-    service = new OpenRouterTranslationService(effectiveStyle) as any;
+    service = new OpenRouterTranslationService(effectiveStyle, translationMode) as any;
   } else if (provider === 'nvidia') {
     const { NvidiaTranslationService } = await import('./service/nvidia');
-    service = new NvidiaTranslationService(model, effectiveStyle) as any;
+    service = new NvidiaTranslationService(model, effectiveStyle, translationMode) as any;
   } else if (provider === 'cloudflare') {
     const { CloudflareAITranslationService } = await import('./service/cloudflare');
-    service = new CloudflareAITranslationService(effectiveStyle) as any;
+    service = new CloudflareAITranslationService(effectiveStyle, translationMode) as any;
   } else if (provider === 'mimo') {
     const { MimoTranslationService } = await import('./service/mimo');
-    service = new MimoTranslationService(effectiveStyle) as any;
+    service = new MimoTranslationService(effectiveStyle, translationMode) as any;
   } else if (provider === 'gemini') {
     const { GeminiTranslationService } = await import('./service/gemini');
-    service = new GeminiTranslationService(model, effectiveStyle) as any;
+    service = new GeminiTranslationService(model, effectiveStyle, translationMode) as any;
   } else if (provider === 'opencode') {
     const { OpencodeTranslationService } = await import('./service/opencode');
-    service = new OpencodeTranslationService(effectiveStyle) as any;
+    service = new OpencodeTranslationService(effectiveStyle, translationMode) as any;
   } else {
-    service = new DeepSeekTranslationService(apiKey, effectiveStyle);
+    service = new DeepSeekTranslationService(apiKey, effectiveStyle, translationMode);
   }
   const tTrans = performance.now();
   // 并发度：opencode 限流严格（CF Worker 共享 IP 易触发 429）与 openrouter 的
@@ -616,11 +641,17 @@ async function runTranslationPipeline(
     chunks,
     sourceLang,
     targetLang,
-    withSiteDocumentTerms(glossary, finalUrl),
+    translationMode === 'literary'
+      ? (() => {
+          const siteAware = withSiteDocumentTerms(glossary, finalUrl);
+          return siteAware?.site_instructions?.length ? { site_instructions: siteAware.site_instructions } : undefined;
+        })()
+      : withSiteDocumentTerms(glossary, finalUrl),
     concurrency,
     provider,
     effectiveStyle,
     skipCache,
+    translationMode,
   );
 
   // 回填：一次性 querySelectorAll 建 Map → O(1) 查找（原实现 O(blocks × N)）
@@ -779,6 +810,7 @@ export async function translateUrl(input: TranslateUrlInput): Promise<TranslateU
     undefined,
     input.promptStyle,
     input.skipCache ?? false,
+    input.translationMode,
   );
 
   return {
