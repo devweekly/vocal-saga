@@ -7,7 +7,7 @@
 import type { TranslationService, Glossary } from './_service';
 import { parseSSEStream } from './streamParser';
 import { getNvidiaApiKey } from '../../config';
-import { buildTranslationBody, stripThinkingTags, stripMarkdownCodeBlock, cleanJsonString, repairJson, type PromptStyle } from './shared';
+import { buildTranslationBody, stripThinkingTags, stripMarkdownCodeBlock, cleanJsonString, repairJson, type PromptStyle, type TranslationMode } from './shared';
 
 const API_URL = 'https://integrate.api.nvidia.com/v1/chat/completions';
 const DEFAULT_MODEL = 'stepfun-ai/step-3.7-flash';
@@ -93,10 +93,12 @@ export class NvidiaTranslationService implements TranslationService {
   private model: string;
   /** 翻译文风，默认 undefined 表示使用通用直译风格 */
   private style?: PromptStyle;
+  private translationMode: TranslationMode;
 
-  constructor(model?: string, style?: PromptStyle) {
+  constructor(model?: string, style?: PromptStyle, translationMode: TranslationMode = 'technical') {
     this.model = model || DEFAULT_MODEL;
     this.style = style;
+    this.translationMode = translationMode;
   }
 
   async translate(
@@ -107,7 +109,7 @@ export class NvidiaTranslationService implements TranslationService {
   ): Promise<string> {
     const blocks = JSON.parse(jsonContent);
 
-    const body = buildTranslationBody(blocks, sourceLang, targetLang, glossary, this.model, this.style);
+    const body = buildTranslationBody(blocks, sourceLang, targetLang, glossary, this.model, this.style, this.translationMode);
     const raw = await callApi(JSON.stringify({ ...body }));
 
     // 简单的 unchanged 检测
