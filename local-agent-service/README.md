@@ -1,10 +1,10 @@
 # vocal-saga Local Agent Service
 
-这是 vocal-saga 中独立的本机 Node.js Provider，供 fanyi-extension 使用。它把 OpenAI-compatible Chat Completions 请求转交给本机 Workbuddy（@tencent-ai/agent-sdk）或 OpenCode CLI，并使用 SQLite 记录本机请求历史。扩展启用本机 Provider 后，网页翻译、文档翻译、侧栏对话以及 EPUB/PDF 的文学分析和 Reviewer 都走这个本机进程。
+这是 vocal-saga 中独立的本机 Express + TypeScript Provider，供 fanyi-extension 使用。它把 OpenAI-compatible Chat Completions 请求转交给本机 Workbuddy（@tencent-ai/agent-sdk）或 OpenCode CLI，并使用 Node 内置 SQLite 记录本机请求历史。扩展启用本机 Provider 后，网页翻译、文档翻译、侧栏对话以及 EPUB/PDF 的文学分析和 Reviewer 都走这个本机进程。
 
 ## 环境要求
 
-- macOS 与 Node.js >= 22.13（使用 Node 内置 node:sqlite，不需要另外安装 sqlite3）。
+- macOS 与 Node.js >= 22.13（使用 Node 内置 `node:sqlite`，不需要另外安装 sqlite3）。
 - Workbuddy/CodeBuddy SDK 已在本机登录可用，或 OpenCode CLI 已安装并完成所需 provider 登录。
 - 翻译任务不需要打开任何 git 仓库；服务禁用工具，避免模型操作本机文件和 Shell。
 
@@ -16,6 +16,8 @@
     # LOCAL_AGENT_TOKEN 和模型覆盖都可留空
     npm install
     npm start
+
+服务入口为 TypeScript，HTTP 路由和 JSON body 处理使用 Express。`npm run typecheck` 做类型检查，`npm test` 运行单元和本机 HTTP 集成测试。
 
 默认服务地址是 http://127.0.0.1:8789，启动后可检查 GET /health。本服务强制绑定 loopback，不允许监听 0.0.0.0 或局域网地址。
 
