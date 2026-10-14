@@ -41,6 +41,8 @@ const REQUEST_TIMEOUT_MS = positiveIntegerEnv('LOCAL_AGENT_TIMEOUT_MS', 180_000,
 const MAX_BODY_BYTES = 6 * 1024 * 1024;
 const MAX_HISTORY_ROWS = positiveIntegerEnv('LOCAL_AGENT_MAX_HISTORY', 500, 50);
 const STORE_CONTENT = (process.env.LOCAL_AGENT_STORE_CONTENT || 'true').toLowerCase() !== 'false';
+// Only a failed JSON response is previewed in local terminal logs; set false to suppress text previews.
+const LOG_RESPONSE_PREVIEW = (process.env.LOCAL_AGENT_LOG_RESPONSE_PREVIEW || 'true').toLowerCase() !== 'false';
 
 let db: DatabaseSync | undefined;
 const app = express();
@@ -295,34 +297,82 @@ function normalizeMessages(messages: any) {
 export function buildAgentPrompt(messages: any, jsonMode = false) {
   const normalized = normalizeMessages(messages);
   const formatRule = jsonMode
-    ? '\n\n输出约束：只输出一个严格合法的 JSON 对象，不要 Markdown 代码围栏、前言或后记。保留调用方指定的全部字段和 ID。'
+    ? '\n\n输出约束：只输出一个严格合法的 JSON 对象或数组；具体结构以 SYSTEM INSTRUCTIONS 和 USER REQUEST 为准。不要 Markdown 代码围栏、前言或后记。保留调用方指定的全部字段与 ID。'
     : '';
   return { systemPrompt: normalized.systemPrompt, prompt: normalized.userPrompt + formatRule };
 }
 
-export function parseJsonObject(text: unknown): Record<string, any> | null {
-  let value = String(text || '').trim();
-  // Avoid brittle escaping for Markdown fences; model runtimes sometimes wrap valid JSON this way.
+/**
+ * 解析模型输出中的 JSON 对象或数组。
+ *
+ * 翻译提示词的历史协议允许返回 JSON 数组，而文学分析/Reviewer 使用 JSON 对象。
+ * 不能因为顶层是数组就把成功的翻译响应误判为 502。
+ * 同时接受代码围栏，或 JSON 前后附带少量解释文本的常见模型输出。
+ */
+export function parseJsonValue(text: unknown): Record<string, any> | any[] | null {
+  const original = String(text ?? '').trim();
+  if (!original) return null;
+
   const fence = String.fromCharCode(96).repeat(3);
-  if (value.startsWith(fence)) {
-    value = value.slice(fence.length).trimStart();
-    if (value.slice(0, 4).toLowerCase() === 'json') value = value.slice(4).trimStart();
+  const fenceStart = original.indexOf(fence);
+  const fenceEnd = original.lastIndexOf(fence);
+  let value = original;
+  if (fenceStart >= 0 && fenceEnd > fenceStart) {
+    value = original.slice(fenceStart + fence.length, fenceEnd).trim();
+    value = value.replace(/^json\s*/i, '');
   }
-  if (value.endsWith(fence)) value = value.slice(0, -fence.length).trimEnd();
-  try {
-    const parsed = JSON.parse(value);
-    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed as Record<string, any> : null;
-  } catch {
-    const first = value.indexOf('{');
-    const last = value.lastIndexOf('}');
-    if (first < 0 || last <= first) return null;
+
+  const parseContainer = (candidate: string): Record<string, any> | any[] | null => {
     try {
-      const parsed = JSON.parse(value.slice(first, last + 1));
-      return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed as Record<string, any> : null;
+      const parsed = JSON.parse(candidate);
+      return parsed !== null && typeof parsed === 'object'
+        ? parsed as Record<string, any> | any[]
+        : null;
     } catch {
       return null;
     }
+  };
+
+  const direct = parseContainer(value);
+  if (direct !== null) return direct;
+
+  // Find the first complete top-level object/array while respecting escaped quotes and nesting.
+  // This handles output such as "Result:\\n[{...}]" without slicing on braces inside strings.
+  for (let start = 0; start < value.length; start += 1) {
+    const opening = value[start];
+    if (opening !== '{' && opening !== '[') continue;
+    const stack: string[] = [opening === '{' ? '}' : ']'];
+    let inString = false;
+    let escaped = false;
+    for (let index = start + 1; index < value.length; index += 1) {
+      const char = value[index];
+      if (inString) {
+        if (escaped) escaped = false;
+        else if (char === '\\\\') escaped = true;
+        else if (char === '"') inString = false;
+        continue;
+      }
+      if (char === '"') { inString = true; continue; }
+      if (char === '{') stack.push('}');
+      else if (char === '[') stack.push(']');
+      else if (char === '}' || char === ']') {
+        if (stack[stack.length - 1] !== char) break;
+        stack.pop();
+        if (stack.length === 0) {
+          const parsed = parseContainer(value.slice(start, index + 1));
+          if (parsed !== null) return parsed;
+          break;
+        }
+      }
+    }
   }
+  return null;
+}
+
+/** Retain an object-only parser for the literary analysis and Reviewer schemas. */
+export function parseJsonObject(text: unknown): Record<string, any> | null {
+  const parsed = parseJsonValue(text);
+  return parsed && !Array.isArray(parsed) ? parsed as Record<string, any> : null;
 }
 
 function buildOpenCodeConfig() {
@@ -773,12 +823,39 @@ async function handleRequest(req: Request, res: Response): Promise<void> {
       agent = parseAgentModel(body.model);
       const jsonMode = body.response_format?.type === 'json_object';
       const prompt = jsonMode
-        ? normalized.userPrompt + '\n\n输出约束：只返回严格合法的 JSON 对象，不要 Markdown、前言或后记。'
+        ? normalized.userPrompt + '\n\n输出约束：只返回与系统指令和用户请求一致的严格合法 JSON 对象或数组，不要 Markdown、前言或后记。'
         : normalized.userPrompt;
+      const requestMeta = requestMetadata(body);
+      console.info(
+        '[local-agent][' + requestId + '] start endpoint=' + url.pathname +
+        ' provider=' + agent.provider +
+        ' model=' + (agent.model || '<runtime-default>') +
+        ' inputChars=' + requestMeta.inputChars +
+        ' jsonMode=' + String(jsonMode) +
+        ' storeContent=' + String(STORE_CONTENT),
+      );
       output = await runAgent(agent, prompt, normalized.systemPrompt);
+      console.info(
+        '[local-agent][' + requestId + '] provider-complete durationMs=' + (Date.now() - startedAt) +
+        ' outputChars=' + output.length,
+      );
       if (jsonMode) {
-        const parsedOutput = parseJsonObject(output);
-        if (!parsedOutput) throw new Error('本机 Agent 返回内容不是有效 JSON；请重试该批次');
+        const parsedOutput = parseJsonValue(output);
+        if (!parsedOutput) {
+          const preview = LOG_RESPONSE_PREVIEW
+            ? ' preview=' + JSON.stringify(output.slice(0, 600))
+            : ' preview=<disabled>';
+          console.error(
+            '[local-agent][' + requestId + '] invalid-json endpoint=' + url.pathname +
+            ' provider=' + agent.provider +
+            ' model=' + (agent.model || '<runtime-default>') +
+            ' outputChars=' + output.length + preview,
+          );
+          throw new Error(
+            '本机 Agent 返回内容不是有效 JSON（输出 ' + output.length +
+            ' 字符）；详情见本机服务日志。请检查本机模型输出或重试该批次',
+          );
+        }
         output = JSON.stringify(parsedOutput);
       }
       sendJson(res, 200, {
@@ -798,15 +875,50 @@ async function handleRequest(req: Request, res: Response): Promise<void> {
       output = JSON.stringify(result);
       sendJson(res, 200, result);
     }
+    const durationMs = Date.now() - startedAt;
     saveHistory({ id: requestId, endpoint: url.pathname, agent, body, output,
-      durationMs: Date.now() - startedAt, status: 'success' });
+      durationMs, status: 'success' });
+    console.info(
+      '[local-agent][' + requestId + '] success endpoint=' + url.pathname +
+      ' provider=' + agent.provider +
+      ' model=' + (agent.model || '<runtime-default>') +
+      ' durationMs=' + durationMs +
+      ' outputChars=' + output.length,
+    );
   } catch (error) {
     const status = Number.isInteger(error?.status) ? error.status : 502;
     const message = error instanceof Error ? error.message : String(error);
+    const durationMs = Date.now() - startedAt;
+    const requestMeta = requestMetadata(body || {});
     saveHistory({ id: requestId, endpoint: url.pathname, agent, body, output,
-      error: message, durationMs: Date.now() - startedAt, status: 'error' });
+      error: message, durationMs, status: 'error' });
+    console.error(
+      '[local-agent][' + requestId + '] failed endpoint=' + url.pathname +
+      ' provider=' + agent.provider +
+      ' model=' + (agent.model || '<runtime-default>') +
+      ' status=' + status +
+      ' durationMs=' + durationMs +
+      ' inputChars=' + requestMeta.inputChars +
+      ' outputChars=' + output.length +
+      ' error=' + message,
+    );
+    if (error instanceof Error && error.stack) {
+      console.error('[local-agent][' + requestId + '] stack=' + error.stack);
+    }
     const payload = url.pathname === '/v1/chat/completions'
-      ? { error: { message, type: 'local_agent_error' } } : { error: message };
+      ? {
+          error: {
+            message,
+            type: 'local_agent_error',
+            request_id: requestId,
+            provider: agent.provider,
+            model: agent.model || null,
+            status,
+            duration_ms: durationMs,
+            output_chars: output.length,
+          },
+        }
+      : { error: message, requestId, provider: agent.provider, model: agent.model || null, status, durationMs };
     if (!res.headersSent) sendJson(res, status, payload);
     else res.end();
   }
