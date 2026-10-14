@@ -94,6 +94,10 @@ function initDatabase(): DatabaseSync {
     'status TEXT NOT NULL, duration_ms INTEGER NOT NULL, input_chars INTEGER NOT NULL, output_chars INTEGER NOT NULL, ' +
     'request_json TEXT, response_text TEXT, error TEXT);' +
     'CREATE INDEX IF NOT EXISTS idx_request_history_created_at ON request_history(created_at DESC);' +
+    'CREATE TABLE IF NOT EXISTS translation_cache (cache_key TEXT PRIMARY KEY, payload_json TEXT NOT NULL, created_at TEXT NOT NULL, expires_at INTEGER NOT NULL, hits INTEGER NOT NULL DEFAULT 0);' +
+    'CREATE INDEX IF NOT EXISTS idx_translation_cache_expires ON translation_cache(expires_at);' +
+    'CREATE TABLE IF NOT EXISTS document_sessions (session_id TEXT PRIMARY KEY, title TEXT NOT NULL, format TEXT NOT NULL, updated_at TEXT NOT NULL, payload_json TEXT NOT NULL);' +
+    'CREATE INDEX IF NOT EXISTS idx_document_sessions_updated ON document_sessions(updated_at DESC);' +
     'CREATE TABLE IF NOT EXISTS service_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT NOT NULL);'
   );
   database.prepare(
@@ -101,6 +105,69 @@ function initDatabase(): DatabaseSync {
     'ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at'
   ).run('store_content', String(STORE_CONTENT), new Date().toISOString());
   return database;
+}
+
+
+/** SQLite translation cache shared by webpages and document batches. */
+function getTranslationCache(cacheKey: string) {
+  const row = db.prepare(
+    'SELECT payload_json FROM translation_cache WHERE cache_key = ? AND expires_at > ?'
+  ).get(cacheKey, Date.now()) as { payload_json?: string } | undefined;
+  if (!row?.payload_json) {
+    db.prepare('DELETE FROM translation_cache WHERE cache_key = ? AND expires_at <= ?').run(cacheKey, Date.now());
+    return null;
+  }
+  db.prepare('UPDATE translation_cache SET hits = hits + 1 WHERE cache_key = ?').run(cacheKey);
+  try {
+    const value = JSON.parse(row.payload_json);
+    return value && typeof value === 'object' && !Array.isArray(value) ? value : null;
+  } catch {
+    db.prepare('DELETE FROM translation_cache WHERE cache_key = ?').run(cacheKey);
+    return null;
+  }
+}
+
+function setTranslationCache(cacheKey: string, value: unknown, ttlMs: number) {
+  if (!cacheKey || cacheKey.length > 500) throw Object.assign(new Error('cacheKey 必须是 1-500 字符'), { status: 400 });
+  const payload = JSON.stringify(value);
+  if (Buffer.byteLength(payload, 'utf8') > 2 * 1024 * 1024) {
+    throw Object.assign(new Error('单条缓存超过 2 MiB'), { status: 413 });
+  }
+  const now = Date.now();
+  const ttl = Number.isFinite(ttlMs) ? Math.max(60_000, Math.min(ttlMs, 90 * 24 * 60 * 60 * 1000)) : 7 * 24 * 60 * 60 * 1000;
+  db.prepare(
+    'INSERT INTO translation_cache(cache_key, payload_json, created_at, expires_at, hits) VALUES (?, ?, ?, ?, 0) ' +
+    'ON CONFLICT(cache_key) DO UPDATE SET payload_json=excluded.payload_json, created_at=excluded.created_at, expires_at=excluded.expires_at, hits=0'
+  ).run(cacheKey, payload, new Date(now).toISOString(), now + ttl);
+  // Opportunistic cleanup: expired rows and oldest/least-used rows are bounded.
+  db.prepare('DELETE FROM translation_cache WHERE expires_at <= ?').run(now);
+  db.prepare('DELETE FROM translation_cache WHERE cache_key IN (SELECT cache_key FROM translation_cache ORDER BY hits ASC, created_at ASC LIMIT MAX(0, (SELECT COUNT(*) FROM translation_cache) - 20000))').run();
+}
+
+function normalizeDocumentSegments(input: unknown) {
+  if (!Array.isArray(input) || input.length > 100000) throw Object.assign(new Error('segments 必须是数组，最多 100000 项'), { status: 400 });
+  return input.flatMap((raw: any) => {
+    if (!raw || typeof raw.id !== 'string' || !raw.id || typeof raw.text !== 'string') return [];
+    return [{
+      id: raw.id.slice(0, 200),
+      text: raw.text,
+      kind: typeof raw.kind === 'string' ? raw.kind.slice(0, 40) : 'paragraph',
+      contextPath: typeof raw.contextPath === 'string' ? raw.contextPath.slice(0, 500) : '',
+      page: Number.isFinite(raw.page) ? raw.page : null,
+    }];
+  });
+}
+
+/** Store resumable document state in SQLite; this is separate from short-lived request history. */
+function saveDocumentSession(sessionId: string, title: string, format: string, payload: unknown) {
+  if (!sessionId || sessionId.length > 200) throw Object.assign(new Error('sessionId 必须是 1-200 字符'), { status: 400 });
+  const json = JSON.stringify(payload);
+  if (Buffer.byteLength(json, 'utf8') > 5 * 1024 * 1024) throw Object.assign(new Error('文档快照超过 5 MiB'), { status: 413 });
+  db.prepare(
+    'INSERT INTO document_sessions(session_id, title, format, updated_at, payload_json) VALUES (?, ?, ?, ?, ?) ' +
+    'ON CONFLICT(session_id) DO UPDATE SET title=excluded.title, format=excluded.format, updated_at=excluded.updated_at, payload_json=excluded.payload_json'
+  ).run(sessionId, title.slice(0, 500), format.slice(0, 20), new Date().toISOString(), json);
+  db.prepare('DELETE FROM document_sessions WHERE session_id IN (SELECT session_id FROM document_sessions ORDER BY updated_at DESC LIMIT -1 OFFSET 30)').run();
 }
 
 function requestMetadata(body: any) {
