@@ -71,7 +71,7 @@ import type { LiterarySourceSegment, ReviewLiterarySegment } from './translate/d
 import { hasDocumentRoot, validateTranslationCompleteness } from './translate/translationValidator';
 import { simpleHash } from './translate/cacheKey';
 import { buildPageCacheFingerprint } from './translate/pageCacheKey';
-import type { PromptStyle } from './translate/service/shared';
+import type { PromptStyle, TranslationMode } from './translate/service/shared';
 import { setDefaultStorage, type StorageAdapter } from './storage';
 import { requireAuth } from './auth';
 import { extractClientInfo, formatClientLabel } from './clientInfo';
@@ -807,10 +807,11 @@ ${pager}
     const target = c.req.query('target') || 'zh';
     const provider = c.req.query('provider') || 'deepseek';
     const promptStyle = c.req.query('promptStyle') || 'default';
+    const translationMode: TranslationMode = c.req.query('translationMode') === 'literary' ? 'literary' : 'technical';
     // 客户端内容指纹与服务端当前的翻译配置/站点规则共同决定缓存是否可复用。
     const clientContentHash = c.req.query('contentHash');
     const expectedContentHash = clientContentHash
-      ? buildPageCacheFingerprint(clientContentHash, url, provider, promptStyle)
+      ? buildPageCacheFingerprint(clientContentHash, url, provider, promptStyle, translationMode)
       : null;
 
     const VALID_LANG_RE = /^(auto|[a-zA-Z]{2,3})(-[a-zA-Z]{2,3})?$/;
@@ -903,6 +904,7 @@ ${pager}
 
     // 翻译文风：从 body 读取，不传时下游默认 'default'（向后兼容）
     const promptStyle = body.promptStyle as PromptStyle | undefined;
+    const translationMode: TranslationMode = body.translationMode === 'literary' ? 'literary' : 'technical';
 
     // provider 字段统一命名（扩展端 / 服务端一致），避免与 TranslationService 类混淆
     const provider = body.provider || c.req.query('provider') || 'deepseek';
@@ -944,7 +946,7 @@ ${pager}
       typeof body.contentHash === 'string' && body.contentHash.length > 0
         ? body.contentHash
         : String(simpleHash(html));
-    const contentHash = buildPageCacheFingerprint(clientContentHash, url, provider, promptStyle);
+    const contentHash = buildPageCacheFingerprint(clientContentHash, url, provider, promptStyle, translationMode);
     const db = (c.env as any)?.DB999;
     const cacheKey = cacheKeyUrl(url);
     if (db) {
@@ -995,6 +997,7 @@ ${pager}
         provider,
         apiKey,
         promptStyle,
+        translationMode,
       });
 
       // 翻译 0 个 block → 不缓存 D1，直接返回错误
@@ -1068,7 +1071,7 @@ ${pager}
 
   // ── 翻译代理 ──────────────────────────────────────────
   app.post('/api/translate/text', async (c) => {
-    const { text, source, target, glossary, promptStyle } = await c.req.json().catch(() => ({} as any));
+    const { text, source, target, glossary, promptStyle, translationMode } = await c.req.json().catch(() => ({} as any));
     if (!text || typeof text !== 'string') {
       return c.json({ error: 'text is required' }, 400);
     }
@@ -1080,6 +1083,7 @@ ${pager}
         target,
         glossary,
         promptStyle: promptStyle as PromptStyle | undefined,
+        translationMode: translationMode === 'literary' ? 'literary' : 'technical',
       });
       console.log(`[translate/text] chunks=${result.chunks} duration=${result.duration_ms}ms`);
       return c.json(result);
@@ -1136,7 +1140,7 @@ ${pager}
   app.post('/api/translate/document/segments', async (c) => {
     const body = await c.req.json().catch(() => ({} as any));
     const { fileName, title, format, segments, warnings, source, target, glossary,
-      promptStyle, exportAs, exportMode, translate, concurrency, budget, provider, model, apiKey,
+      promptStyle, translationMode, exportAs, exportMode, translate, concurrency, budget, provider, model, apiKey,
       literaryContext, literaryReview, chapterTitle } = body || {};
     if (typeof fileName !== 'string' || !fileName.trim()) {
       return c.json({ error: 'fileName is required' }, 400);
@@ -1182,6 +1186,7 @@ ${pager}
         target,
         glossary,
         promptStyle: promptStyle as PromptStyle | undefined,
+        translationMode: translationMode === 'literary' || (literaryReview === true && (format === 'epub' || format === 'pdf')) ? 'literary' : 'technical',
         exportAs,
         exportMode,
         concurrency: typeof concurrency === 'number' ? concurrency : undefined,
@@ -1341,7 +1346,7 @@ ${pager}
     const body = await c.req.json().catch(() => ({} as any));
     const {
       fileName, content, contentBase64, source, target, glossary,
-      promptStyle, exportAs, exportMode, maxSegmentChars, translate,
+      promptStyle, translationMode, exportAs, exportMode, maxSegmentChars, translate,
     } = body || {};
     if (!fileName || typeof fileName !== 'string') {
       return c.json({ error: 'fileName is required' }, 400);
@@ -1386,6 +1391,7 @@ ${pager}
         target,
         glossary,
         promptStyle: promptStyle as PromptStyle | undefined,
+        translationMode: translationMode === 'literary' ? 'literary' : 'technical',
         exportAs,
         exportMode,
       });
