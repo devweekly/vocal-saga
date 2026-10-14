@@ -134,3 +134,55 @@ describe('translateDocument', () => {
     expect(result.batchCount).toBe(0);
   });
 });
+
+
+describe('文学翻译 profile', () => {
+  it('非 EPUB/PDF 文档也使用文学 prompt 与独立文风审校，不传通用术语表', async () => {
+    mocked.mockImplementation(async ({
+      blocks,
+      glossary,
+      translationMode,
+    }: {
+      blocks: Array<{ id: string; text: string }>;
+      glossary?: unknown;
+      translationMode?: string;
+    }) => {
+      expect(translationMode).toBe('literary');
+      expect(glossary).toBeUndefined();
+      return new Map(blocks.map((block) => {
+        let payload: { source?: string; draft?: string } | null = null;
+        try {
+          payload = JSON.parse(block.text) as { source?: string; draft?: string };
+        } catch {
+          // 初译使用普通 text；审校请求的 text 是 source/draft JSON。
+        }
+        if (payload?.source && payload.draft) {
+          return [block.id, JSON.stringify({
+            finalTranslation: '具有文学感的修订译文 ' + block.id,
+            findings: [{
+              category: 'style',
+              priority: 'optional',
+              sourceExcerpt: payload.source,
+              draftExcerpt: payload.draft,
+              reason: '初译存在生硬的直译搭配',
+              suggestion: '调整为符合目标语言习惯的表达',
+            }],
+          })];
+        }
+        return [block.id, '初译 ' + block.id];
+      }));
+    });
+
+    const result = await translateDocument({
+      doc: fakeDoc(),
+      target: 'zh',
+      translationMode: 'literary',
+    });
+
+    expect(result.translations.s0).toBe('具有文学感的修订译文 s0');
+    expect(result.translations.s1).toBe('具有文学感的修订译文 s1');
+    expect(result.reviewedSegmentCount).toBe(2);
+    expect(result.reviewFindings.every((finding) => finding.category === 'style')).toBe(true);
+    expect(mocked).toHaveBeenCalledTimes(2);
+  });
+});
