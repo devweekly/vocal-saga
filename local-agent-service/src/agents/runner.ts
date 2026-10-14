@@ -7,6 +7,7 @@ export async function runAgent(
   prompt: string,
   systemPrompt: string,
   requestId = 'unknown',
+  sessionScope?: string,
 ): Promise<string> {
   const startedAt = Date.now();
   console.info(
@@ -17,7 +18,7 @@ export async function runAgent(
   );
   try {
     let output: string;
-    if (agent.provider === 'workbuddy') output = await runWorkbuddy(agent, prompt, systemPrompt, requestId);
+    if (agent.provider === 'workbuddy') output = await runWorkbuddy(agent, prompt, systemPrompt, requestId, sessionScope);
     else if (agent.provider === 'opencode') output = await runOpenCode(agent, prompt, systemPrompt);
     else throw new Error('不支持的本机 Agent：' + agent.provider);
     console.info(
@@ -48,6 +49,7 @@ export async function runAgentJson(
   systemPrompt: string,
   schema: Record<string, unknown>,
   requestId = 'unknown',
+  sessionScope?: string,
 ): Promise<Record<string, any>> {
   const startedAt = Date.now();
   console.info(
@@ -59,7 +61,7 @@ export async function runAgentJson(
   try {
     let parsed: Record<string, any>;
     if (agent.provider === 'workbuddy') {
-      parsed = await runWorkbuddyJson(agent, prompt, systemPrompt, schema, requestId);
+      parsed = await runWorkbuddyJson(agent, prompt, systemPrompt, schema, requestId, sessionScope);
     } else if (agent.provider === 'opencode') {
       const output = await runOpenCode(agent, prompt, systemPrompt);
       const value = parseJsonValue(output);
@@ -95,6 +97,7 @@ export async function runAgentStructured(
   systemPrompt: string,
   schema: Record<string, unknown>,
   requestId = 'unknown',
+  sessionScope?: string,
 ): Promise<Record<string, any> | any[]> {
   const startedAt = Date.now();
   console.info(
@@ -106,7 +109,7 @@ export async function runAgentStructured(
   try {
     let result: Record<string, any> | any[];
     if (agent.provider === 'workbuddy') {
-      result = await runWorkbuddyStructured(agent, prompt, systemPrompt, schema, requestId);
+      result = await runWorkbuddyStructured(agent, prompt, systemPrompt, schema, requestId, sessionScope);
     } else if (agent.provider === 'opencode') {
       const output = await runOpenCode(agent, prompt, systemPrompt);
       const value = parseJsonValue(output);
