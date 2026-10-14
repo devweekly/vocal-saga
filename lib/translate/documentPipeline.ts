@@ -11,7 +11,7 @@
 import { runWithConcurrency } from './concurrency';
 import { translateBlocks } from './pipeline';
 import type { Glossary } from './service/_service';
-import type { PromptStyle } from './service/shared';
+import type { PromptStyle, TranslationMode } from './service/shared';
 import { detectLanguage, shouldUseJapaneseSource } from './languageDetector';
 import {
   buildSegmentBatches,
@@ -35,6 +35,8 @@ export interface DocumentTranslateInput {
   target?: string;
   glossary?: Glossary;
   promptStyle?: PromptStyle;
+  /** 独立翻译目标，文学模式不消费通用术语表。 */
+  translationMode?: TranslationMode;
   concurrency?: number;
   budget?: Partial<BatchBudget>;
   /** 需要时顺带导出成文件内容（bilingual / translation）。 */
@@ -143,8 +145,9 @@ export async function translateDocument(
         })),
         source: input.source,
         target: input.target,
-        glossary: input.glossary,
+        glossary: input.translationMode === 'literary' || literaryMemory ? undefined : input.glossary,
         promptStyle: effectiveStyle,
+        translationMode: input.translationMode === 'literary' || literaryMemory ? 'literary' : 'technical',
         concurrency: 1,
         provider: input.provider,
         model: input.model,
@@ -199,8 +202,9 @@ export async function translateDocument(
             memory: literaryMemory,
             source: input.source,
             target: input.target,
-            glossary: input.glossary,
+            glossary: undefined,
             promptStyle: effectiveStyle,
+            translationMode: 'literary',
             provider: input.provider,
             model: input.model,
             apiKey: input.apiKey,
