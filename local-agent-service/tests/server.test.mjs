@@ -172,7 +172,7 @@ test('书籍 Session 按文档和任务角色隔离，同时复用同一 scope �
     created.push(session);
     return session;
   };
-  const pool = new WorkbuddySessionPool(3, 10, factory);
+  const pool = new WorkbuddySessionPool(4, 10, factory);
   const agent = { provider: 'workbuddy', model: 'test-model' };
 
   const firstBook = await pool.acquire(agent, 'book-a:translation');
@@ -195,9 +195,15 @@ test('书籍 Session 按文档和任务角色隔离，同时复用同一 scope �
   await pool.runPrompt(reviewer, 'review book A', 'review', 5000);
   pool.release(reviewer);
 
+  const genericWeb = await pool.acquire(agent);
+  assert.notEqual(genericWeb, firstBook, 'generic web translations must not reuse a book Session');
+  await pool.runPrompt(genericWeb, 'web page translation', 'web', 5000);
+  pool.release(genericWeb);
+
   assert.deepEqual(created[0].sent, ['book A chapter 1', 'book A chapter 2']);
   assert.deepEqual(created[1].sent, ['book B chapter 1']);
   assert.deepEqual(created[2].sent, ['review book A']);
+  assert.deepEqual(created[3].sent, ['web page translation']);
   pool.closeAll();
 });
 
