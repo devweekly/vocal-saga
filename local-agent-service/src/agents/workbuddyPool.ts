@@ -17,8 +17,12 @@ export type SessionFactory = (options: Record<string, any>) => PooledSession | P
 interface Slot {
   session: PooledSession | null;
   model: string;
+  /** Scope is document+task-role; different books/roles must never share conversational history. */
+  scopeKey: string;
+  schemaKey: string;
   uses: number;
   busy: boolean;
+  lastUsedAt: number;
 }
 
 // 长驻 Workbuddy 会话池：CLI 进程一次启动、多次复用，摊掉每单约 4s 的启动+初始化开销。
@@ -31,7 +35,9 @@ interface Slot {
 // 约束：
 // - 一个会话同时只能跑一轮（串行），池大小对齐扩展侧扇出（默认 4）。
 // - 每 send 一次历史就变长（输入 token 与耗时 creep），用满 maxUses 轮即重建。
-// - 文学 JSON 模式不用池：量小且天然串行，沿用单次 query（见 workbuddy.ts）。
+// - 书籍翻译/分析/审校使用独立 scopeKey；只在同一本书的同一种任务内延续上下文。
+// - 同一个 scopeKey 同时只允许一个请求运行，避免并发请求把轮次交错写入同一对话。
+// - 达到 maxUses 后销毁会话；新会话首轮会重新注入稳定 prompt，动态书籍记忆由调用方重传。
 export class WorkbuddySessionPool {
   private slots: Slot[];
   private waiters: Array<() => void> = [];
@@ -41,31 +47,82 @@ export class WorkbuddySessionPool {
     private readonly maxUses: number,
     private readonly factory: SessionFactory,
   ) {
-    this.slots = Array.from({ length: size }, () => ({ session: null, model: '', uses: 0, busy: false }));
+    this.slots = Array.from({ length: size }, () => ({
+      session: null, model: '', scopeKey: '', schemaKey: '', uses: 0, busy: false, lastUsedAt: 0,
+    }));
   }
 
   // 取一个空闲槽位并保证会话就绪；全忙时排队等（不另起进程，避免无界膨胀）。
-  async acquire(agent: WorkbuddyAgent): Promise<number> {
+  async acquire(
+    agent: WorkbuddyAgent,
+    scopeKey = 'shared-text-translation',
+    schema?: Record<string, unknown>,
+  ): Promise<number> {
+    const schemaKey = schema ? JSON.stringify(schema) : '';
+    const requestedKey = [scopeKey, agent.model || '<runtime-default>', schemaKey].join('\\u0000');
     for (;;) {
-      const index = this.slots.findIndex((slot) => !slot.busy);
-      if (index >= 0) {
-        const slot = this.slots[index];
+      // A scoped conversation has exactly one slot. Do not create a second copy while its
+      // first copy is busy: parallel sends would split history and make turn order nondeterministic.
+      const existingIndex = this.slots.findIndex((slot) => slot.scopeKey === requestedKey);
+      if (existingIndex >= 0) {
+        const slot = this.slots[existingIndex];
+        if (slot.busy) {
+          await new Promise<void>((resolve) => { this.waiters.push(resolve); });
+          continue;
+        }
         slot.busy = true;
         try {
-          await this.ensureSession(index, agent);
+          await this.ensureSession(existingIndex, agent, requestedKey, schema);
         } catch (error) {
           slot.busy = false;
           this.wakeNext();
           throw error;
         }
-        return index;
+        slot.lastUsedAt = Date.now();
+        return existingIndex;
       }
-      await new Promise<void>((resolve) => { this.waiters.push(resolve); });
+
+      let index = this.slots.findIndex((slot) => !slot.busy && !slot.session);
+      if (index < 0) {
+        // Bound memory/CLI children: evict the least-recently-used idle session only.
+        const idle = this.slots
+          .map((slot, slotIndex) => ({ slot, slotIndex }))
+          .filter(({ slot }) => !slot.busy)
+          .sort((a, b) => a.slot.lastUsedAt - b.slot.lastUsedAt)[0];
+        if (idle) index = idle.slotIndex;
+      }
+      if (index < 0) {
+        await new Promise<void>((resolve) => { this.waiters.push(resolve); });
+        continue;
+      }
+
+      const slot = this.slots[index];
+      slot.busy = true;
+      if (slot.session) this.dropSession(index);
+      slot.scopeKey = requestedKey;
+      slot.schemaKey = schemaKey;
+      try {
+        await this.ensureSession(index, agent, requestedKey, schema);
+      } catch (error) {
+        slot.busy = false;
+        this.wakeNext();
+        throw error;
+      }
+      slot.lastUsedAt = Date.now();
+      return index;
     }
   }
 
+  /** True when the next turn must seed a fresh session with stable system instructions. */
+  isFresh(index: number): boolean {
+    return this.slots[index]?.uses === 0;
+  }
+
   release(index: number): void {
-    this.slots[index].busy = false;
+    const slot = this.slots[index];
+    if (!slot) return;
+    slot.busy = false;
+    slot.lastUsedAt = Date.now();
     this.wakeNext();
   }
 
@@ -175,11 +232,27 @@ export class WorkbuddySessionPool {
   }
 
   // 保证槽位有可用会话；模型与槽位不一致时热切换（控制请求，无需重启进程）。
-  private async ensureSession(index: number, agent: WorkbuddyAgent): Promise<void> {
+  private async ensureSession(
+    index: number,
+    agent: WorkbuddyAgent,
+    requestedKey: string,
+    schema?: Record<string, unknown>,
+  ): Promise<void> {
     const slot = this.slots[index];
     if (!slot.session) {
-      slot.session = await this.factory(buildTextSessionOptions(agent));
+      slot.session = await this.factory(buildTextSessionOptions(agent, schema));
       slot.model = agent.model || '';
+      slot.scopeKey = requestedKey;
+      slot.schemaKey = schema ? JSON.stringify(schema) : '';
+      slot.uses = 0;
+      return;
+    }
+    if (slot.scopeKey !== requestedKey) {
+      this.dropSession(index);
+      slot.session = await this.factory(buildTextSessionOptions(agent, schema));
+      slot.model = agent.model || '';
+      slot.scopeKey = requestedKey;
+      slot.schemaKey = schema ? JSON.stringify(schema) : '';
       slot.uses = 0;
       return;
     }
@@ -196,6 +269,10 @@ export class WorkbuddySessionPool {
       slot.session = null;
     }
     slot.uses = 0;
+    slot.scopeKey = '';
+    slot.schemaKey = '';
+    slot.model = '';
+    slot.lastUsedAt = Date.now();
   }
 
   private wakeNext(): void {
@@ -207,8 +284,8 @@ export class WorkbuddySessionPool {
 // 复用会话的 options：与单次 query 一致，但去掉 maxTurns。
 // --max-turns 是按进程（会话生命周期）计的预算，不适合复用会话；
 // 单轮护栏由 tools:[]（无工具可循环）+ 超时承担。
-export function buildTextSessionOptions(agent: WorkbuddyAgent): Record<string, any> {
-  const { maxTurns: _unused, ...rest } = buildWorkbuddyOptions(agent);
+export function buildTextSessionOptions(agent: WorkbuddyAgent, schema?: Record<string, unknown>): Record<string, any> {
+  const { maxTurns: _unused, ...rest } = buildWorkbuddyOptions(agent, schema);
   return rest;
 }
 
