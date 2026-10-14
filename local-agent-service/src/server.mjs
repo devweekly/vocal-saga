@@ -25,9 +25,22 @@ const LOCAL_TOKEN = configuredToken && !/replace-with-a-long-random-token/i.test
 const DEFAULT_PROVIDER = (process.env.LOCAL_AGENT_PROVIDER || 'opencode').toLowerCase();
 const DEFAULT_WORKBUDDY_MODEL = (process.env.LOCAL_WORKBUDDY_MODEL || process.env.WORKBUDDY_MODEL || process.env.CODEBUDDY_DEFAULT_MODEL || '').trim();
 const DEFAULT_OPENCODE_MODEL = (process.env.LOCAL_OPENCODE_MODEL || process.env.OPENCODE_MODEL || '').trim();
-const REQUEST_TIMEOUT_MS = Math.max(10_000, Number.parseInt(process.env.LOCAL_AGENT_TIMEOUT_MS || '180000', 10));
+
+/** Parse optional integer settings without allowing malformed .env values to poison runtime timers/SQL. */
+function positiveIntegerEnv(name, fallback, minimum = 1) {
+  const raw = process.env[name];
+  if (raw == null || !raw.trim()) return fallback;
+  const parsed = Number.parseInt(raw, 10);
+  if (!Number.isFinite(parsed) || parsed < 1) {
+    console.warn('[local-agent] Ignoring invalid ' + name + '=' + JSON.stringify(raw) + '; using default ' + fallback);
+    return fallback;
+  }
+  return Math.max(minimum, parsed);
+}
+
+const REQUEST_TIMEOUT_MS = positiveIntegerEnv('LOCAL_AGENT_TIMEOUT_MS', 180_000, 10_000);
 const MAX_BODY_BYTES = 6 * 1024 * 1024;
-const MAX_HISTORY_ROWS = Math.max(50, Number.parseInt(process.env.LOCAL_AGENT_MAX_HISTORY || '500', 10));
+const MAX_HISTORY_ROWS = positiveIntegerEnv('LOCAL_AGENT_MAX_HISTORY', 500, 50);
 const STORE_CONTENT = (process.env.LOCAL_AGENT_STORE_CONTENT || 'true').toLowerCase() !== 'false';
 
 let db;
