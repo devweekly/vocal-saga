@@ -11,11 +11,9 @@
 ## 启动
 
     cd local-agent-service
-    cp .env.example .env
-    # LOCAL_AGENT_TOKEN 可留空，直接启动即可
-    # 如需额外客户端校验，再生成 Token：openssl rand -hex 32
-    # 为准备使用的运行时设置模型
-    # OpenCode：LOCAL_OPENCODE_MODEL=provider/model；Workbuddy：LOCAL_WORKBUDDY_MODEL=本机 SDK 模型 ID
+    # .env 是可选的；仅当需要覆盖默认设置时才复制配置模板
+    # cp .env.example .env
+    # LOCAL_AGENT_TOKEN 和模型覆盖都可留空
     npm install
     npm start
 
