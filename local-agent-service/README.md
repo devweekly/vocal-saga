@@ -35,7 +35,7 @@
 
 ## WorkBuddy/CodeBuddy 调用方式与性能说明
 
-网页和 EPUB/PDF 翻译属于单轮、无工具的结构化文本任务，不需要 Agent 检索仓库、调用 Shell、运行 MCP 或保存对话历史。当前 Workbuddy 路径使用官方 `@tencent-ai/agent-sdk` 的 `query()`，并显式禁用工具、配置加载和后台任务；同时设置 `persistSession: false`，避免把每个翻译 chunk 写成持久化会话记录（需要 CodeBuddy CLI >= 2.125.1）。本机服务自己的 SQLite 请求历史、译文缓存和文档断点仍独立保留，不依赖 SDK 的 Agent transcript。
+网页和 EPUB/PDF 翻译属于单轮、无工具的结构化文本任务，不需要 Agent 检索仓库、调用 Shell、运行 MCP 或保存对话历史。当前 Workbuddy 路径使用官方 `@tencent-ai/agent-sdk` 的 `query()`，并显式禁用工具和配置加载（SDK 的单次 `query()` 模式会自动禁用后台任务）；同时设置 `persistSession: false`，避免把每个翻译 chunk 写成持久化会话记录（需要 CodeBuddy CLI >= 2.125.1）。本机服务自己的 SQLite 请求历史、译文缓存和文档断点仍独立保留，不依赖 SDK 的 Agent transcript。
 
 已核对官方 `http-api.md`、`headless.md`、`sdk.md` 和 `sdk-typescript.md`：
 
