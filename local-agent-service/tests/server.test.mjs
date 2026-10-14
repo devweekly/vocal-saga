@@ -8,7 +8,10 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildAgentPrompt, parseAgentModel, parseJsonObject, parseJsonValue } from '../src/server.ts';
 
-test('uses the runtime default model when no override is configured', () => {
+test('uses Workbuddy as the default runtime and respects explicit runtime overrides', () => {
+  const defaultAgent = parseAgentModel('auto');
+  assert.equal(defaultAgent.provider, 'workbuddy');
+
   const openCode = parseAgentModel('opencode');
   assert.equal(openCode.provider, 'opencode');
   assert.ok(!openCode.model || openCode.model.includes('/'));
