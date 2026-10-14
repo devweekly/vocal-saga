@@ -59,6 +59,17 @@
 
 这些端点只供 loopback 本机扩展使用，沿用同一可选 Token 校验。缓存值、文档检查点与请求历史是独立表；`LOCAL_AGENT_STORE_CONTENT=false` 只控制请求历史是否记录完整 prompt/响应，不会关闭业务缓存和文档检查点。扩展当前将单个文档检查点限制在序列化 JSON 5 MiB 以内，HTTP 请求体上限为 6 MiB；由于快照同时保存解析后的文档和部分原始文本，某些接近 20 MiB 文件上限的 EPUB/PDF 无法完整写入 SQLite。扩展会停止重试这个过大的 SQLite 快照，但仍会继续使用 IndexedDB 主存储；如果 IndexedDB 也不可用，这类大文档就没有 SQLite 恢复副本。清空翻译缓存不会删除文档快照或请求历史。要彻底清除本机保存的内容，应在停止服务后删除整个 SQLite 数据库文件。
 
+## PDF/EPUB 的 CodeBuddy Session 策略
+
+本机 Workbuddy Provider 对文档翻译采用按任务隔离的 SDK Session；扩展发送一个稳定的、不含原文的文档指纹，服务按“文档指纹 + 任务角色 + Provider/模型 + 语言方向 + 文风/模式版本”分配会话：
+
+- `translation`、`analysis`、`review` 三种角色互不共享历史；不同文档也不会复用同一段对话。相同书籍、相同角色且配置一致时，后续批次继续使用已有 Session。
+- 每个 Session 同一时间只处理一轮。默认会话池最多 4 个槽位、每个 Session 最多复用 10 轮；槽位不足时只淘汰空闲会话中最近最少使用的一条。达到轮数上限或遇到失败后会丢弃会话，下次请求重新创建并注入稳定提示词。
+- 章节名、当前原文、相关实体映射和近期译文样例作为每轮数据发送；扩展/SQLite 中已保存的书籍记忆才是可恢复的正式状态。服务重启后不会依赖旧的对话 transcript，而是用当前请求携带的记忆重新建立 Session。
+- SDK Session 当前不启用会话 transcript 持久化（`persistSession: false`），避免隐式保留完整原文、译文和历史提示词。普通网页翻译仍使用原有共享文本池，不加入文档专属会话。
+- 该实现复用 CLI/SDK 进程、避免每轮重复注入整个系统指令，并为同一本书保留有限的局部上下文；它不等于模型供应方的 Prompt Cache，也不保证缓存命中或费用下降。应结合 `ttftMs`、整批耗时及模型服务可提供的缓存统计评估。
+- OpenCode 当前仍使用一次性 CLI 调用，没有接入 CodeBuddy SDK Session 池；其请求仍会携带显式书籍记忆与任务提示词。因此，上述长驻 Session 优化目前适用于 Workbuddy/CodeBuddy SDK。
+
 ## SQLite 与隐私
 
 数据库默认位置为 ~/.vocal-saga-local-agent/local-agent.sqlite，使用 WAL。保留运行状态、provider/model、时延、字符数、成功/失败和历史记录。默认 LOCAL_AGENT_STORE_CONTENT=true，会将完整请求 prompt、原文和译文保存在本机 SQLite；如果不希望持久化正文，在 .env 设置 LOCAL_AGENT_STORE_CONTENT=false 并重启，此时仅记录元数据与长度。GET /api/history?limit=30 可查询最近记录；DELETE /api/history 可清空历史。
