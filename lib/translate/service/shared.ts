@@ -6,11 +6,11 @@
 
 import { jsonrepair } from 'jsonrepair';
 import type { Glossary } from './_service';
-import { buildStyledSystemContent, type PromptStyle } from './prompt-style';
+import { buildStyledSystemContent, type PromptStyle, type TranslationMode } from './prompt-style';
 
 // 文风类型与调度集中在 service/prompt-style.ts；此处再导出，
 // 让既有 `from './shared'` 的引用（各 LLM service 适配层）保持可用。
-export type { PromptStyle };
+export type { PromptStyle, TranslationMode };
 
 // ── JSON 修复 ────────────────────────────────────────────────
 
@@ -70,9 +70,10 @@ export function buildSystemContent(
   sourceLang: string,
   targetLang: string,
   glossary?: Glossary,
-  style?: PromptStyle
+  style?: PromptStyle,
+  translationMode: TranslationMode = 'technical',
 ): string {
-  const base = buildStyledSystemContent(sourceLang, targetLang, glossary, style);
+  const base = buildStyledSystemContent(sourceLang, targetLang, glossary, style, translationMode);
   const instructions = (glossary?.site_instructions ?? [])
     .map((instruction) => instruction.trim())
     .filter(Boolean);
@@ -88,7 +89,8 @@ export function buildTranslationBody(
   targetLang: string,
   glossary?: Glossary,
   model?: string,
-  style?: PromptStyle
+  style?: PromptStyle,
+  translationMode: TranslationMode = 'technical',
 ) {
   const hasContext = blocks.some((block) => !!block.contextPath?.trim() || !!block.kind || !!block.marker);
   const blocksJson = JSON.stringify(
@@ -104,7 +106,7 @@ export function buildTranslationBody(
     2
   );
 
-  const systemContent = buildSystemContent(sourceLang, targetLang, glossary, style);
+  const systemContent = buildSystemContent(sourceLang, targetLang, glossary, style, translationMode);
 
   return {
     model: model || 'deepseek-v4-flash',
