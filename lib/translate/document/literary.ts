@@ -330,7 +330,7 @@ export function buildLiteraryReviewInstructions(chapterTitle = ''): string {
     'finalTranslation 应是完整、可以直接出版阅读的修订译文。发现准确性/实体错误时必须纠正；发现有依据的文风问题时应进行适度修订；若译文已妥当则原样返回。尽量保留 draft 的优点，不要只返回局部句子。',
     '必须返回单个 JSON 对象，不要 Markdown 或前后说明：{ "finalTranslation": "...", "findings": [{ "category": "accuracy|terminology|style", "priority": "must_fix|optional", "sourceExcerpt": "原文短引", "draftExcerpt": "初译问题短引", "reason": "可核对的简短理由", "suggestion": "修订建议" }] }。没有问题时 findings=[]。',
     '当前章节：' + safeText(chapterTitle, 120),
-  ].join('\\n');
+  ].join('\n');
 }
 
 /** 要求模型分析一章，返回可由程序验证、合并的书籍记忆 JSON。 */
