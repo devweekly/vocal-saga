@@ -21,7 +21,7 @@ const configuredToken = (process.env.LOCAL_AGENT_TOKEN || '').trim();
 const LOCAL_TOKEN = configuredToken && !/replace-with-a-long-random-token/i.test(configuredToken)
   ? configuredToken
   : '';
-const DEFAULT_PROVIDER = (process.env.LOCAL_AGENT_PROVIDER || 'opencode').toLowerCase();
+const DEFAULT_PROVIDER = (process.env.LOCAL_AGENT_PROVIDER || 'workbuddy').toLowerCase();
 const DEFAULT_WORKBUDDY_MODEL = (process.env.LOCAL_WORKBUDDY_MODEL || process.env.WORKBUDDY_MODEL || process.env.CODEBUDDY_DEFAULT_MODEL || '').trim();
 const DEFAULT_OPENCODE_MODEL = (process.env.LOCAL_OPENCODE_MODEL || process.env.OPENCODE_MODEL || '').trim();
 
@@ -486,6 +486,9 @@ async function runWorkbuddy(agent: { provider: string; model: string }, prompt: 
       tools: [],
       allowedTools: [],
       settingSources: [],
+      // Translation calls are stateless and must not pay transcript/session checkpoint I/O.
+      // Requires CodeBuddy CLI >= 2.125.1, as documented by the TypeScript SDK.
+      persistSession: false,
       maxTurns: 1,
       canUseTool: async (toolName) => ({
         behavior: 'deny',
