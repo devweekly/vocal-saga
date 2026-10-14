@@ -99,12 +99,15 @@ export async function runLiteraryReview(body: any, requestId: string) {
   const segments = validateSegments(body.segments, 32, 'review');
   const memory = body.memory && typeof body.memory === 'object' ? body.memory : {};
   const systemPrompt = [
-    '你是文学翻译的独立审校者，只找确实影响原意/事实的错误，不做文风润色。',
-    '每个片段输出 finalTranslation 和 findings。category 只能 accuracy 或 terminology；措辞、语气、节奏等 style 问题一律不报。',
-    '每条 finding 都必须是 must_fix：确实改变原意、事实、情节、否定/时态/视角/指代/人物关系，或违反已有规范译名。拿不准的宁可不报。',
-    'finalTranslation 必须保留 draft 的全部可取之处，只做最小修正，不追求重写。',
-    '只返回严格 JSON：{ "results": [{ "id": "...", "finalTranslation": "...", "findings": [{ "category": "accuracy|terminology", "sourceExcerpt": "...", "draftExcerpt": "...", "reason": "...", "suggestion": "..." }] }] }。',
-  ].join('\n');
+    '你是文学翻译的第二道工序：独立文学编辑。请对照原文，将 draft 修订为准确、自然、有质感、适合目标语言阅读的文学译文；不要只做校对，也不要改写成你自己的作品。',
+    '每个片段包含 source（原文）、draft（初译）和 kind；随请求提供的书籍记忆是只读数据，用于统一实体译名、人物关系、叙述声线和近期表达。',
+    '第一优先级是原意和情节准确：不能漏译、误译、添写、改变否定/时态/视角/指代/人物关系，不能替作者解释悬念或抹掉歧义。第二优先级是沿用已建立的实体译名。第三优先级是修正文学表达上的问题。',
+    '检查翻译腔、按英文语序硬译、别扭搭配、僵硬连接词、无来由的解释、同质化对白、情绪词不准、节奏被抹平等。允许适度调整语序、句长、停顿、语气和措辞，让译文自然并有美感；不能为追求华丽新增比喻、意象、情绪、信息或修辞。',
+    '尊重作品自身风格：简洁不必润饰成华丽，有意的重复不要随便删，冷峻不应煽情，粗粝不应文雅化，幽默与反讽不能磨平。不同人物要有不同声音。',
+    'finding category 只能为 accuracy（可核验的意义/事实错误）、terminology（实体规范译名错误）、style（具体的翻译腔、不自然搭配或语气/节奏/人物声音问题）。accuracy 与 terminology 的 priority 必须是 must_fix；style 的 priority 必须是 optional。style 必须指出具体文本问题，不能只是审校者个人偏好。',
+    'finalTranslation 必须是完整可阅读的修订译文。发现明确错误要纠正，发现有依据的文风问题应作适度修订；如果原稿已妥当则原样返回。保留初译可取之处，禁止添加原文不存在的内容。',
+    '只返回严格 JSON：{ "results": [{ "id": "...", "finalTranslation": "...", "findings": [{ "category": "accuracy|terminology|style", "priority": "must_fix|optional", "sourceExcerpt": "...", "draftExcerpt": "...", "reason": "...", "suggestion": "..." }] }] }。',
+  ].join('\\n');
   const prompt = [
     '目标语言：' + (body.target || 'zh'),
     '章节：' + (typeof body.chapterTitle === 'string' ? body.chapterTitle : ''),
@@ -126,10 +129,11 @@ export async function runLiteraryReview(body: any, requestId: string) {
     const candidateFindings: any[] = [];
     if (Array.isArray(raw.findings)) {
       for (const item of raw.findings.slice(0, 12)) {
-        // 只收明确错误；style（措辞/语气）已从审校范围移除，这里一并挡掉旧数据里的残留。
-        if (!item || !['accuracy', 'terminology'].includes(item.category)) continue;
+        // 准确性/实体错误必须修复；具体文风问题作为可选的受控修订依据。
+        if (!item || !['accuracy', 'terminology', 'style'].includes(item.category)) continue;
+        const priority = item.category === 'style' ? 'optional' : 'must_fix';
         const finding = {
-          id: raw.id, category: item.category, priority: 'must_fix',
+          id: raw.id, category: item.category, priority,
           sourceExcerpt: typeof item.sourceExcerpt === 'string' ? item.sourceExcerpt.slice(0, 240) : '',
           draftExcerpt: typeof item.draftExcerpt === 'string' ? item.draftExcerpt.slice(0, 240) : '',
           reason: typeof item.reason === 'string' ? item.reason.slice(0, 400) : '',
@@ -138,15 +142,15 @@ export async function runLiteraryReview(body: any, requestId: string) {
         if (finding.reason || finding.suggestion) candidateFindings.push(finding);
       }
     }
-    const hasMustFix = candidateFindings.length > 0;
-    if (hasMustFix && !candidateUsable) {
+    const hasActionableFinding = candidateFindings.length > 0;
+    if (hasActionableFinding && !candidateUsable) {
       for (const finding of candidateFindings) {
         finding.priority = 'optional';
         finding.reason = (finding.reason ? finding.reason + '；' : '') + '本机未返回长度合规的完整修正译文，因此没有自动覆盖初译';
       }
     }
     findings.push(...candidateFindings);
-    translations[raw.id] = hasMustFix && candidateUsable ? candidateText : original.draft;
+    translations[raw.id] = hasActionableFinding && candidateUsable ? candidateText : original.draft;
   }
   const expectedIds = segments.map((item) => item.id);
   return {
