@@ -59,7 +59,7 @@ export class WorkbuddySessionPool {
     schema?: Record<string, unknown>,
   ): Promise<number> {
     const schemaKey = schema ? JSON.stringify(schema) : '';
-    const requestedKey = [scopeKey, agent.model || '<runtime-default>', schemaKey].join('\\u0000');
+    const requestedKey = JSON.stringify([scopeKey, agent.model || '<runtime-default>', schemaKey]);
     for (;;) {
       // A scoped conversation has exactly one slot. Do not create a second copy while its
       // first copy is busy: parallel sends would split history and make turn order nondeterministic.
@@ -218,7 +218,7 @@ export class WorkbuddySessionPool {
       slot.busy = true;
       jobs.push((async () => {
         try {
-          const prewarmKey = ['shared-text-translation', agent.model || '<runtime-default>', ''].join('\\u0000');
+          const prewarmKey = JSON.stringify(['shared-text-translation', agent.model || '<runtime-default>', '']);
           await this.ensureSession(i, agent, prewarmKey);
           await slot.session?.connect?.();
         } catch {
