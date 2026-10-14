@@ -135,6 +135,48 @@ test('starts without LOCAL_AGENT_TOKEN, allows extension requests, and blocks we
   const history = await historyResponse.json();
   assert.equal(history.rows.length, 1, 'request history should be saved without malformed LIMIT/OFFSET settings');
 
+
+  // SQLite cache survives independent requests and is cleared by its dedicated endpoint.
+  const cacheKey = 'test-translation-cache-v1';
+  const cacheSet = await fetch(baseUrl + '/api/cache/translation/set', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ cacheKey, value: { b1: '你好', b2: '世界' }, ttlMs: 60000 }),
+  });
+  assert.equal(cacheSet.status, 200);
+  const cacheGet = await fetch(baseUrl + '/api/cache/translation/get', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ cacheKey }),
+  });
+  assert.deepEqual(await cacheGet.json(), { hit: true, value: { b1: '你好', b2: '世界' } });
+
+  const batchPlan = await fetch(baseUrl + '/api/documents/batches', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      budget: { maxChars: 5, maxSegments: 2, splitOnContextChange: true },
+      segments: [
+        { id: 'a', text: 'Hello', contextPath: 'chapter-1', page: 1 },
+        { id: 'b', text: 'World', contextPath: 'chapter-1', page: 1 },
+        { id: 'c', text: 'Next', contextPath: 'chapter-2', page: 2 },
+      ],
+    }),
+  });
+  assert.equal(batchPlan.status, 200);
+  assert.deepEqual((await batchPlan.json()).batches, [[{ id: 'a' }], [{ id: 'b' }], [{ id: 'c' }]]);
+
+  const sessionPayload = { translations: [['s1', '你好']], checkpoint: 3 };
+  const sessionSave = await fetch(baseUrl + '/api/documents/session/save', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ sessionId: 'book-test', title: '测试书', format: 'epub', payload: sessionPayload }),
+  });
+  assert.equal(sessionSave.status, 200);
+  const sessionGet = await fetch(baseUrl + '/api/documents/session/get', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ sessionId: 'book-test' }),
+  });
+  const sessionResult = await sessionGet.json();
+  assert.equal(sessionResult.found, true);
+  assert.deepEqual(sessionResult.session.payload, sessionPayload);
+
   const deniedOrigin = await fetch(baseUrl + '/v1/models', {
     method: 'OPTIONS',
     headers: {
