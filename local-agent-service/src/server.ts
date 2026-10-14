@@ -676,6 +676,16 @@ async function handleRequest(req: Request, res: Response): Promise<void> {
     sendJson(res, 200, { saved: true });
     return;
   }
+  if (req.method === 'POST' && url.pathname === '/api/cache/translation/delete') {
+    const cacheKey = typeof req.body?.cacheKey === 'string' ? req.body.cacheKey : '';
+    if (!cacheKey || cacheKey.length > 500) {
+      sendJson(res, 400, { error: 'cacheKey 必须是 1-500 字符' });
+      return;
+    }
+    db.prepare('DELETE FROM translation_cache WHERE cache_key = ?').run(cacheKey);
+    sendJson(res, 200, { deleted: true });
+    return;
+  }
   if (req.method === 'DELETE' && url.pathname === '/api/cache/translation') {
     db.prepare('DELETE FROM translation_cache').run();
     sendJson(res, 200, { cleared: true });
