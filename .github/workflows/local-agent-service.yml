@@ -25,6 +25,6 @@ jobs:
       - name: Run local service tests
         working-directory: local-agent-service
         run: npm test
-      - name: Check JavaScript syntax
+      - name: TypeScript typecheck
         working-directory: local-agent-service
-        run: node --check src/server.mjs
+        run: npm run typecheck
