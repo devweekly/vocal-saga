@@ -598,6 +598,75 @@ async function handleRequest(req: Request, res: Response): Promise<void> {
     sendJson(res, 200, { cleared: true });
     return;
   }
+
+  // These endpoints are local business/data operations; they do not invoke an LLM.
+  if (req.method === 'POST' && url.pathname === '/api/cache/translation/get') {
+    const cacheKey = typeof req.body?.cacheKey === 'string' ? req.body.cacheKey : '';
+    if (!cacheKey || cacheKey.length > 500) { sendJson(res, 400, { error: 'cacheKey 必须是 1-500 字符' }); return; }
+    const value = getTranslationCache(cacheKey);
+    sendJson(res, 200, { hit: value !== null, value });
+    return;
+  }
+  if (req.method === 'POST' && url.pathname === '/api/cache/translation/set') {
+    const cacheKey = typeof req.body?.cacheKey === 'string' ? req.body.cacheKey : '';
+    if (!cacheKey || cacheKey.length > 500 || !Object.prototype.hasOwnProperty.call(req.body || {}, 'value')) {
+      sendJson(res, 400, { error: 'cacheKey 与 value 为必填字段' }); return;
+    }
+    const ttlMs = Number.isFinite(req.body.ttlMs) ? req.body.ttlMs : 7 * 24 * 60 * 60 * 1000;
+    setTranslationCache(cacheKey, req.body.value, ttlMs);
+    sendJson(res, 200, { saved: true });
+    return;
+  }
+  if (req.method === 'DELETE' && url.pathname === '/api/cache/translation') {
+    db.prepare('DELETE FROM translation_cache').run();
+    sendJson(res, 200, { cleared: true });
+    return;
+  }
+  if (req.method === 'POST' && url.pathname === '/api/documents/session/get') {
+    const sessionId = typeof req.body?.sessionId === 'string' ? req.body.sessionId : '';
+    const row = db.prepare('SELECT session_id, title, format, updated_at, payload_json FROM document_sessions WHERE session_id = ?').get(sessionId) as any;
+    if (!row) { sendJson(res, 200, { found: false }); return; }
+    try { sendJson(res, 200, { found: true, session: { sessionId: row.session_id, title: row.title, format: row.format, updatedAt: row.updated_at, payload: JSON.parse(row.payload_json) } }); }
+    catch { db.prepare('DELETE FROM document_sessions WHERE session_id = ?').run(sessionId); sendJson(res, 200, { found: false }); }
+    return;
+  }
+  if (req.method === 'POST' && url.pathname === '/api/documents/session/save') {
+    const sessionId = typeof req.body?.sessionId === 'string' ? req.body.sessionId : '';
+    if (!Object.prototype.hasOwnProperty.call(req.body || {}, 'payload')) { sendJson(res, 400, { error: 'payload 为必填字段' }); return; }
+    saveDocumentSession(sessionId, typeof req.body.title === 'string' ? req.body.title : '未命名文档',
+      typeof req.body.format === 'string' ? req.body.format : 'txt', req.body.payload);
+    sendJson(res, 200, { saved: true, updatedAt: new Date().toISOString() });
+    return;
+  }
+  if (req.method === 'DELETE' && url.pathname.startsWith('/api/documents/session/')) {
+    const sessionId = decodeURIComponent(url.pathname.slice('/api/documents/session/'.length));
+    db.prepare('DELETE FROM document_sessions WHERE session_id = ?').run(sessionId);
+    sendJson(res, 200, { deleted: true });
+    return;
+  }
+  if (req.method === 'POST' && url.pathname === '/api/documents/batches') {
+    const segments = normalizeDocumentSegments(req.body?.segments);
+    const maxChars = Number.isFinite(req.body?.budget?.maxChars) ? Math.max(100, Math.min(50000, Math.floor(req.body.budget.maxChars))) : 3000;
+    const maxSegments = Number.isFinite(req.body?.budget?.maxSegments) ? Math.max(1, Math.min(500, Math.floor(req.body.budget.maxSegments))) : 24;
+    const splitOnContextChange = req.body?.budget?.splitOnContextChange === true;
+    const batches: Array<Array<{ id: string }>> = [];
+    let current: Array<{ id: string }> = [];
+    let chars = 0;
+    let currentGroup = '';
+    for (const segment of segments) {
+      const group = segment.contextPath + '|page:' + (segment.page ?? '');
+      if (current.length && (chars + segment.text.length > maxChars || current.length >= maxSegments ||
+          (splitOnContextChange && group !== currentGroup))) {
+        batches.push(current); current = []; chars = 0;
+      }
+      if (!current.length) currentGroup = group;
+      current.push({ id: segment.id }); chars += segment.text.length;
+    }
+    if (current.length) batches.push(current);
+    sendJson(res, 200, { batches, totalSegments: segments.length, totalChars: segments.reduce((n, item) => n + item.text.length, 0) });
+    return;
+  }
+
   const supported = new Set([
     'POST /v1/chat/completions',
     'POST /api/translate/document/literary/analyze',
