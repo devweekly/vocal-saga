@@ -111,12 +111,23 @@ async function queryWorkbuddyRaw(
   return { text: text.trim(), structuredOutput };
 }
 
-export async function runWorkbuddy(agent: WorkbuddyAgent, prompt: string, systemPrompt: string, requestId = 'unknown'): Promise<string> {
-  // 高频文本翻译走长驻会话池（CLI 进程复用，无每单启动开销）。
+export async function runWorkbuddy(
+  agent: WorkbuddyAgent,
+  prompt: string,
+  systemPrompt: string,
+  requestId = 'unknown',
+  sessionScope?: string,
+): Promise<string> {
+  // 普通文本沿用已有池；书籍任务必须传专属 scope，绝不与网页/其他书共用上下文。
   const pool = getTextPool();
-  const index = await pool.acquire(agent);
+  const index = await pool.acquire(agent, sessionScope || 'shared-text-translation');
   try {
-    const { text } = await pool.runPrompt(index, buildCombinedPrompt(prompt, systemPrompt), requestId);
+    // 对书籍会话只在新会话的首轮注入稳定 system prompt；后续轮次沿用会话上下文，
+    // 当前章名、实体记忆与译文样例仍由调用方放在当轮 user payload 中。
+    const firstMessage = !sessionScope || pool.isFresh(index)
+      ? buildCombinedPrompt(prompt, systemPrompt)
+      : prompt;
+    const { text } = await pool.runPrompt(index, firstMessage, requestId);
     if (!text) throw new Error('Workbuddy 已结束，但没有返回译文');
     return text;
   } finally {
@@ -152,8 +163,28 @@ export async function runWorkbuddyStructured(
   systemPrompt: string,
   schema: Record<string, unknown>,
   requestId = 'unknown',
+  sessionScope?: string,
 ): Promise<Record<string, any> | any[]> {
-  const { text, structuredOutput } = await queryWorkbuddyRaw(agent, prompt, systemPrompt, buildWorkbuddyOptions(agent, schema), requestId);
+  let text: string;
+  let structuredOutput: unknown;
+  if (sessionScope) {
+    // 文学分析与 Reviewer 也使用会话，但按职责隔离，并使用各自固定的 JSON schema。
+    const pool = getTextPool();
+    const index = await pool.acquire(agent, sessionScope, schema);
+    try {
+      const promptForTurn = pool.isFresh(index) ? buildCombinedPrompt(prompt, systemPrompt) : prompt;
+      const result = await pool.runPrompt(index, promptForTurn, requestId);
+      text = result.text;
+      structuredOutput = result.structuredOutput;
+    } finally {
+      pool.release(index);
+    }
+  } else {
+    // 普通 JSON 请求维持一次性 query，避免改变网页/通用调用原有语义。
+    const result = await queryWorkbuddyRaw(agent, prompt, systemPrompt, buildWorkbuddyOptions(agent, schema), requestId);
+    text = result.text;
+    structuredOutput = result.structuredOutput;
+  }
   const parsed = resolveWorkbuddyStructured(structuredOutput, text);
   // json-source 持续验证原生 structured output 是否生效：native 表示 --json-schema
   // 收口成功，text-parse 表示回退到文本解析（SDK 未透传或模型未调工具）。
@@ -168,8 +199,9 @@ export async function runWorkbuddyJson(
   systemPrompt: string,
   schema: Record<string, unknown>,
   requestId = 'unknown',
+  sessionScope?: string,
 ): Promise<Record<string, any>> {
-  const parsed = await runWorkbuddyStructured(agent, prompt, systemPrompt, schema, requestId);
+  const parsed = await runWorkbuddyStructured(agent, prompt, systemPrompt, schema, requestId, sessionScope);
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
     throw new Error('Workbuddy 返回内容不是预期 JSON 对象');
   }
