@@ -21,6 +21,33 @@ import path from 'node:path';
 // Keep the constant referenced so TypeScript does not drop the side-effect-free import in tests.
 void _MAX_BODY_BYTES;
 
+/**
+ * Document sessions are opt-in and strictly scoped to one stable document fingerprint,
+ * task role, model, language direction and prompt profile. Invalid/missing IDs retain the
+ * existing one-off/shared behavior instead of creating an unbounded set of arbitrary sessions.
+ */
+function buildDocumentSessionScope(
+  body: any,
+  agent: { provider: string; model: string },
+  role: 'translation' | 'analysis' | 'review',
+  metadata?: any,
+): string | undefined {
+  const source = metadata || body || {};
+  const documentSessionId = typeof source.documentSessionId === 'string' ? source.documentSessionId : '';
+  if (!/^[a-zA-Z0-9._:-]{1,100}$/.test(documentSessionId)) return undefined;
+  const parts = [
+    role,
+    agent.provider,
+    agent.model || '<runtime-default>',
+    String(source.sourceLang || body?.source || ''),
+    String(source.targetLang || body?.target || ''),
+    String(source.promptStyle || body?.promptStyle || 'default'),
+    String(source.translationMode || body?.translationMode || 'technical'),
+    String(source.contextVersion || 'book-session-v1'),
+  ];
+  return 'document:' + documentSessionId + ':' + parts.map((value) => value.slice(0, 80)).join(':');
+}
+
 export async function handleRequest(req: Request, res: Response): Promise<void> {
   const db = database!;
   const url = new URL(req.url || '/', 'http://127.0.0.1');
@@ -194,11 +221,15 @@ export async function handleRequest(req: Request, res: Response): Promise<void> 
         ' structured=' + String(!!jsonSchema) +
         ' storeContent=' + String(STORE_CONTENT),
       );
+      const sessionScope = buildDocumentSessionScope(body, agent, 'translation', body.metadata);
+      if (sessionScope) {
+        console.info('[local-agent][' + requestId + '] session-scope role=translation scope=document-task');
+      }
       if (jsonSchema) {
-        const structured = await runAgentStructured(agent, prompt, normalized.systemPrompt, jsonSchema, requestId);
+        const structured = await runAgentStructured(agent, prompt, normalized.systemPrompt, jsonSchema, requestId, sessionScope);
         output = JSON.stringify(structured);
       } else {
-        output = await runAgent(agent, prompt, normalized.systemPrompt, requestId);
+        output = await runAgent(agent, prompt, normalized.systemPrompt, requestId, sessionScope);
         if (jsonMode) {
           const parsedOutput = parseJsonValue(output);
           if (!parsedOutput) {
@@ -235,7 +266,8 @@ export async function handleRequest(req: Request, res: Response): Promise<void> 
         ' segments=' + (Array.isArray(body.segments) ? body.segments.length : 0) +
         ' storeContent=' + String(STORE_CONTENT),
       );
-      const result = await runLiteraryAnalysis(body, requestId);
+      const sessionScope = buildDocumentSessionScope(body, agent, 'analysis');
+      const result = await runLiteraryAnalysis(body, requestId, sessionScope);
       output = JSON.stringify(result);
       sendJson(res, 200, result);
     } else {
@@ -248,7 +280,8 @@ export async function handleRequest(req: Request, res: Response): Promise<void> 
         ' segments=' + (Array.isArray(body.segments) ? body.segments.length : 0) +
         ' storeContent=' + String(STORE_CONTENT),
       );
-      const result = await runLiteraryReview(body, requestId);
+      const sessionScope = buildDocumentSessionScope(body, agent, 'review');
+      const result = await runLiteraryReview(body, requestId, sessionScope);
       output = JSON.stringify(result);
       sendJson(res, 200, result);
     }
