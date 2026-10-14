@@ -218,7 +218,8 @@ export class WorkbuddySessionPool {
       slot.busy = true;
       jobs.push((async () => {
         try {
-          await this.ensureSession(i, agent);
+          const prewarmKey = ['shared-text-translation', agent.model || '<runtime-default>', ''].join('\\u0000');
+          await this.ensureSession(i, agent, prewarmKey);
           await slot.session?.connect?.();
         } catch {
           this.dropSession(i);
