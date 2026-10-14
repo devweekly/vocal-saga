@@ -92,7 +92,8 @@ export async function translateDocument(
   const reviewerErrors: string[] = [];
   const reviewFindings: LiteraryReviewFinding[] = [];
   let reviewedSegmentCount = 0;
-  let literaryMemory: LiteraryBookMemory | undefined = input.literaryReview
+  const shouldReviewLiterary = input.literaryReview ?? (input.translationMode === 'literary');
+  let literaryMemory: LiteraryBookMemory | undefined = shouldReviewLiterary
     ? sanitizeLiteraryMemory(input.literaryContext)
     : undefined;
   // 书籍翻译依赖前文积累的实体和声线记忆，不能让后续批次抢在前面执行。
@@ -185,7 +186,7 @@ export async function translateDocument(
       }
 
       // 独立 reviewer 是第二次模型调用；审校失败不抹掉已成功的初译。
-      if (literaryMemory && input.literaryReview) {
+      if (literaryMemory && shouldReviewLiterary) {
         const drafts = batch.flatMap((segment) => {
           const draft = translations.get(segment.id);
           return draft ? [{
