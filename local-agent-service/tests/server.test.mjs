@@ -161,6 +161,17 @@ test('starts without LOCAL_AGENT_TOKEN, allows extension requests, and blocks we
   });
   assert.deepEqual(await cacheGet.json(), { hit: true, value: { b1: '你好', b2: '世界' } });
 
+  const cacheDelete = await fetch(baseUrl + '/api/cache/translation/delete', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ cacheKey }),
+  });
+  assert.equal(cacheDelete.status, 200);
+  const deletedCacheGet = await fetch(baseUrl + '/api/cache/translation/get', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ cacheKey }),
+  });
+  assert.deepEqual(await deletedCacheGet.json(), { hit: false, value: null });
+
   const batchPlan = await fetch(baseUrl + '/api/documents/batches', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
