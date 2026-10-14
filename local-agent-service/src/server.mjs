@@ -23,8 +23,8 @@ const LOCAL_TOKEN = configuredToken && !/replace-with-a-long-random-token/i.test
   ? configuredToken
   : '';
 const DEFAULT_PROVIDER = (process.env.LOCAL_AGENT_PROVIDER || 'opencode').toLowerCase();
-const DEFAULT_WORKBUDDY_MODEL = process.env.LOCAL_WORKBUDDY_MODEL || process.env.WORKBUDDY_MODEL || process.env.CODEBUDDY_DEFAULT_MODEL || '';
-const DEFAULT_OPENCODE_MODEL = process.env.LOCAL_OPENCODE_MODEL || process.env.OPENCODE_MODEL || '';
+const DEFAULT_WORKBUDDY_MODEL = (process.env.LOCAL_WORKBUDDY_MODEL || process.env.WORKBUDDY_MODEL || process.env.CODEBUDDY_DEFAULT_MODEL || '').trim();
+const DEFAULT_OPENCODE_MODEL = (process.env.LOCAL_OPENCODE_MODEL || process.env.OPENCODE_MODEL || '').trim();
 const REQUEST_TIMEOUT_MS = Math.max(10_000, Number.parseInt(process.env.LOCAL_AGENT_TIMEOUT_MS || '180000', 10));
 const MAX_BODY_BYTES = 6 * 1024 * 1024;
 const MAX_HISTORY_ROWS = Math.max(50, Number.parseInt(process.env.LOCAL_AGENT_MAX_HISTORY || '500', 10));
@@ -164,7 +164,10 @@ export function parseAgentModel(modelValue, providerHint = '') {
   }
 
   if (provider !== 'workbuddy' && provider !== 'opencode') throw new Error('LOCAL_AGENT_PROVIDER 只支持 workbuddy 或 opencode');
-  if (!model || model.toLowerCase() === 'auto') model = provider === 'workbuddy' ? DEFAULT_WORKBUDDY_MODEL : DEFAULT_OPENCODE_MODEL;
+  if (!model || model.toLowerCase() === 'auto') {
+    model = provider === 'workbuddy' ? DEFAULT_WORKBUDDY_MODEL : DEFAULT_OPENCODE_MODEL;
+    if (model.toLowerCase() === 'auto') model = '';
+  }
   // 未显式配置模型时，交给已登录的 CLI/SDK 使用自身默认模型。
   // 只校验非空覆盖值，避免把“未设置模型”变成服务启动/路由故障。
   if (model && provider === 'opencode' && !model.includes('/')) {
