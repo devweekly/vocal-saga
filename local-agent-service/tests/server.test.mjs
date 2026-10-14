@@ -163,7 +163,7 @@ test('starts without LOCAL_AGENT_TOKEN, allows extension requests, and blocks we
   assert.equal(batchPlan.status, 200);
   assert.deepEqual((await batchPlan.json()).batches, [[{ id: 'a' }, { id: 'b' }], [{ id: 'c' }]]);
 
-  const sessionPayload = { translations: [['s1', '你好']], checkpoint: 3 };
+  const sessionPayload = { document: { id: 'doc-1' }, translations: [['s1', '你好']], checkpoint: 3 };
   const sessionSave = await fetch(baseUrl + '/api/documents/session/save', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ sessionId: 'book-test', title: '测试书', format: 'epub', payload: sessionPayload }),
@@ -191,7 +191,7 @@ test('starts without LOCAL_AGENT_TOKEN, allows extension requests, and blocks we
     body: JSON.stringify({ sessionId: 'book-test' }),
   });
   const checkpointReloaded = await checkpointReload.json();
-  assert.equal(checkpointReloaded.session.payload.document, undefined);
+  assert.deepEqual(checkpointReloaded.session.payload.document, { id: 'doc-1' });
   assert.deepEqual(checkpointReloaded.session.payload.snapshot.translations, [['s1', '你好'], ['s2', '世界']]);
 
   const deniedOrigin = await fetch(baseUrl + '/v1/models', {
