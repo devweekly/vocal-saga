@@ -168,7 +168,8 @@ function saveDocumentSession(sessionId: string, title: string, format: string, p
       try {
         const prior = JSON.parse(existing.payload_json) as Record<string, any>;
         const incoming = payload as Record<string, any>;
-        storedPayload = { ...prior, ...incoming };
+        const mergedPayload: Record<string, any> = { ...prior, ...incoming };
+        storedPayload = mergedPayload;
 
         // 文档快照是一个嵌套对象，不能只做顶层合并：
         // 后续检查点只发送变更译文，必须保留先前的译文与文档元数据。
@@ -189,14 +190,14 @@ function saveDocumentSession(sessionId: string, title: string, format: string, p
           mergeTranslations(priorSnapshot.translations);
           mergeTranslations(incomingSnapshot.translations);
           mergeTranslations(incoming.translationDelta);
-          storedPayload.snapshot = {
+          mergedPayload.snapshot = {
             ...priorSnapshot,
             ...incomingSnapshot,
             translations: Array.from(translations.entries()),
           };
         }
         // 增量仅用于本次写入，不要在数据库中累积它；完整译文位于 snapshot.translations。
-        delete storedPayload.translationDelta;
+        delete mergedPayload.translationDelta;
       } catch { /* corrupt prior session is replaced with the new valid snapshot */ }
     }
   }
