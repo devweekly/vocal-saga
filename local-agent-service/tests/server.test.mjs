@@ -177,6 +177,23 @@ test('starts without LOCAL_AGENT_TOKEN, allows extension requests, and blocks we
   assert.equal(sessionResult.found, true);
   assert.deepEqual(sessionResult.session.payload, sessionPayload);
 
+
+  const checkpointUpdate = await fetch(baseUrl + '/api/documents/session/save', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      sessionId: 'book-test', title: '测试书', format: 'epub', mergeExisting: true,
+      payload: { snapshot: { translations: [['s1', '你好'], ['s2', '世界']] } },
+    }),
+  });
+  assert.equal(checkpointUpdate.status, 200);
+  const checkpointReload = await fetch(baseUrl + '/api/documents/session/get', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ sessionId: 'book-test' }),
+  });
+  const checkpointReloaded = await checkpointReload.json();
+  assert.equal(checkpointReloaded.session.payload.document, undefined);
+  assert.deepEqual(checkpointReloaded.session.payload.snapshot.translations, [['s1', '你好'], ['s2', '世界']]);
+
   const deniedOrigin = await fetch(baseUrl + '/v1/models', {
     method: 'OPTIONS',
     headers: {
