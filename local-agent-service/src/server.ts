@@ -159,9 +159,19 @@ function normalizeDocumentSegments(input: unknown) {
 }
 
 /** Store resumable document state in SQLite; this is separate from short-lived request history. */
-function saveDocumentSession(sessionId: string, title: string, format: string, payload: unknown) {
+function saveDocumentSession(sessionId: string, title: string, format: string, payload: unknown, mergeExisting = false) {
   if (!sessionId || sessionId.length > 200) throw Object.assign(new Error('sessionId 必须是 1-200 字符'), { status: 400 });
-  const json = JSON.stringify(payload);
+  let storedPayload = payload;
+  if (mergeExisting && payload && typeof payload === 'object' && !Array.isArray(payload)) {
+    const existing = db.prepare('SELECT payload_json FROM document_sessions WHERE session_id = ?').get(sessionId) as { payload_json?: string } | undefined;
+    if (existing?.payload_json) {
+      try {
+        const prior = JSON.parse(existing.payload_json);
+        storedPayload = { ...prior, ...(payload as Record<string, unknown>) };
+      } catch { /* corrupt prior session is replaced with the new valid snapshot */ }
+    }
+  }
+  const json = JSON.stringify(storedPayload);
   if (Buffer.byteLength(json, 'utf8') > 5 * 1024 * 1024) throw Object.assign(new Error('文档快照超过 5 MiB'), { status: 413 });
   db.prepare(
     'INSERT INTO document_sessions(session_id, title, format, updated_at, payload_json) VALUES (?, ?, ?, ?, ?) ' +
@@ -634,7 +644,7 @@ async function handleRequest(req: Request, res: Response): Promise<void> {
     const sessionId = typeof req.body?.sessionId === 'string' ? req.body.sessionId : '';
     if (!Object.prototype.hasOwnProperty.call(req.body || {}, 'payload')) { sendJson(res, 400, { error: 'payload 为必填字段' }); return; }
     saveDocumentSession(sessionId, typeof req.body.title === 'string' ? req.body.title : '未命名文档',
-      typeof req.body.format === 'string' ? req.body.format : 'txt', req.body.payload);
+      typeof req.body.format === 'string' ? req.body.format : 'txt', req.body.payload, req.body.mergeExisting === true);
     sendJson(res, 200, { saved: true, updatedAt: new Date().toISOString() });
     return;
   }
