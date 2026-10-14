@@ -120,7 +120,7 @@ export class WorkbuddySessionPool {
   private async acquireSharedTextSlot(agent: WorkbuddyAgent): Promise<number> {
     for (;;) {
       const reusable = this.slots.findIndex((slot) =>
-        !slot.busy && !!slot.session && slot.schemaKey === '',
+        !slot.busy && !!slot.session && slot.schemaKey === '' && slot.scopeKey.startsWith('shared-slot:'),
       );
       if (reusable >= 0) {
         const slot = this.slots[reusable];
@@ -271,7 +271,7 @@ export class WorkbuddySessionPool {
       slot.busy = true;
       jobs.push((async () => {
         try {
-          const prewarmKey = JSON.stringify(['shared-text-translation', agent.model || '<runtime-default>', '']);
+          const prewarmKey = 'shared-slot:' + i + ':' + (agent.model || '<runtime-default>');
           await this.ensureSession(i, agent, prewarmKey);
           await slot.session?.connect?.();
         } catch {
