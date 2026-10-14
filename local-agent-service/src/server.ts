@@ -166,8 +166,37 @@ function saveDocumentSession(sessionId: string, title: string, format: string, p
     const existing = db.prepare('SELECT payload_json FROM document_sessions WHERE session_id = ?').get(sessionId) as { payload_json?: string } | undefined;
     if (existing?.payload_json) {
       try {
-        const prior = JSON.parse(existing.payload_json);
-        storedPayload = { ...prior, ...(payload as Record<string, unknown>) };
+        const prior = JSON.parse(existing.payload_json) as Record<string, any>;
+        const incoming = payload as Record<string, any>;
+        storedPayload = { ...prior, ...incoming };
+
+        // 文档快照是一个嵌套对象，不能只做顶层合并：
+        // 后续检查点只发送变更译文，必须保留先前的译文与文档元数据。
+        const priorSnapshot = prior.snapshot && typeof prior.snapshot === 'object' && !Array.isArray(prior.snapshot)
+          ? prior.snapshot : {};
+        const incomingSnapshot = incoming.snapshot && typeof incoming.snapshot === 'object' && !Array.isArray(incoming.snapshot)
+          ? incoming.snapshot : {};
+        if (prior.snapshot || incoming.snapshot) {
+          const translations = new Map<string, string>();
+          const mergeTranslations = (value: unknown) => {
+            if (!Array.isArray(value)) return;
+            for (const entry of value) {
+              if (Array.isArray(entry) && typeof entry[0] === 'string' && typeof entry[1] === 'string') {
+                translations.set(entry[0], entry[1]);
+              }
+            }
+          };
+          mergeTranslations(priorSnapshot.translations);
+          mergeTranslations(incomingSnapshot.translations);
+          mergeTranslations(incoming.translationDelta);
+          storedPayload.snapshot = {
+            ...priorSnapshot,
+            ...incomingSnapshot,
+            translations: Array.from(translations.entries()),
+          };
+        }
+        // 增量仅用于本次写入，不要在数据库中累积它；完整译文位于 snapshot.translations。
+        delete storedPayload.translationDelta;
       } catch { /* corrupt prior session is replaced with the new valid snapshot */ }
     }
   }
@@ -630,6 +659,17 @@ async function handleRequest(req: Request, res: Response): Promise<void> {
   if (req.method === 'DELETE' && url.pathname === '/api/cache/translation') {
     db.prepare('DELETE FROM translation_cache').run();
     sendJson(res, 200, { cleared: true });
+    return;
+  }
+  if (req.method === 'POST' && url.pathname === '/api/documents/session/summary') {
+    // 阅读器只需知道是否有恢复点及其标题；不要为渲染恢复卡片而返回整本书。
+    const sessionId = typeof req.body?.sessionId === 'string' ? req.body.sessionId : '';
+    const row = db.prepare('SELECT session_id, title, format, updated_at FROM document_sessions WHERE session_id = ?').get(sessionId) as any;
+    if (!row) { sendJson(res, 200, { found: false }); return; }
+    sendJson(res, 200, {
+      found: true,
+      session: { sessionId: row.session_id, title: row.title, format: row.format, updatedAt: row.updated_at },
+    });
     return;
   }
   if (req.method === 'POST' && url.pathname === '/api/documents/session/get') {
