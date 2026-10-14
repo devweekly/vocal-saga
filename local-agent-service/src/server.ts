@@ -193,7 +193,7 @@ export function buildAgentPrompt(messages: any, jsonMode = false) {
   return { systemPrompt: normalized.systemPrompt, prompt: normalized.userPrompt + formatRule };
 }
 
-export function parseJsonObject(text: unknown) {
+export function parseJsonObject(text: unknown): Record<string, any> | null {
   let value = String(text || '').trim();
   // Avoid brittle escaping for Markdown fences; model runtimes sometimes wrap valid JSON this way.
   const fence = String.fromCharCode(96).repeat(3);
@@ -204,14 +204,14 @@ export function parseJsonObject(text: unknown) {
   if (value.endsWith(fence)) value = value.slice(0, -fence.length).trimEnd();
   try {
     const parsed = JSON.parse(value);
-    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : null;
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed as Record<string, any> : null;
   } catch {
     const first = value.indexOf('{');
     const last = value.lastIndexOf('}');
     if (first < 0 || last <= first) return null;
     try {
       const parsed = JSON.parse(value.slice(first, last + 1));
-      return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : null;
+      return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed as Record<string, any> : null;
     } catch {
       return null;
     }
@@ -219,7 +219,7 @@ export function parseJsonObject(text: unknown) {
 }
 
 function buildOpenCodeConfig() {
-  let existing = {};
+  let existing: Record<string, any> = {};
   if (process.env.OPENCODE_CONFIG_CONTENT?.trim()) {
     try { existing = JSON.parse(process.env.OPENCODE_CONFIG_CONTENT); }
     catch { throw new Error('OPENCODE_CONFIG_CONTENT 不是合法 JSON'); }
@@ -241,7 +241,7 @@ function buildOpenCodeConfig() {
   });
 }
 
-function runOpenCode(agent, prompt, systemPrompt) {
+function runOpenCode(agent: { provider: string; model: string }, prompt: string, systemPrompt: string): Promise<string> {
   return new Promise((resolve, reject) => {
     const fullPrompt = [
       systemPrompt ? 'SYSTEM INSTRUCTIONS:\n' + systemPrompt : '',
@@ -316,7 +316,7 @@ function runOpenCode(agent, prompt, systemPrompt) {
   });
 }
 
-async function runWorkbuddy(agent, prompt, systemPrompt) {
+async function runWorkbuddy(agent: { provider: string; model: string }, prompt: string, systemPrompt: string): Promise<string> {
   const sdk = await import('@tencent-ai/agent-sdk');
   const combinedPrompt = [systemPrompt ? 'SYSTEM INSTRUCTIONS:\n' + systemPrompt : '', 'USER REQUEST:\n' + prompt]
     .filter(Boolean).join('\n\n');
@@ -345,7 +345,7 @@ async function runWorkbuddy(agent, prompt, systemPrompt) {
   timer.unref();
   try {
     for await (const message of query) {
-      const raw = message && typeof message === 'object' ? message : {};
+      const raw: any = message && typeof message === 'object' ? message : {};
       if (raw.type === 'assistant' && raw.message && Array.isArray(raw.message.content)) {
         for (const part of raw.message.content) {
           if (part?.type === 'text' && typeof part.text === 'string' && part.text.trim()) answer += (answer ? '\n' : '') + part.text;
@@ -366,7 +366,7 @@ async function runWorkbuddy(agent, prompt, systemPrompt) {
   return answer.trim();
 }
 
-async function runAgent(agent, prompt, systemPrompt) {
+async function runAgent(agent: { provider: string; model: string }, prompt: string, systemPrompt: string): Promise<string> {
   if (agent.provider === 'workbuddy') return runWorkbuddy(agent, prompt, systemPrompt);
   if (agent.provider === 'opencode') return runOpenCode(agent, prompt, systemPrompt);
   throw new Error('不支持的本机 Agent：' + agent.provider);
@@ -543,8 +543,8 @@ async function handleRequest(req: Request, res: Response): Promise<void> {
 
   const startedAt = Date.now();
   const requestId = randomUUID();
-  let body = {};
-  let agent = { provider: 'unknown', model: '' };
+  let body: any = {};
+  let agent: { provider: string; model: string } = { provider: 'unknown', model: '' };
   let output = '';
   try {
     body = req.body || {};
