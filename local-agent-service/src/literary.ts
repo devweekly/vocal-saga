@@ -58,7 +58,7 @@ export function validateSegments(input: any, max: number, type: string) {
   return segments;
 }
 
-export async function runLiteraryAnalysis(body: any, requestId: string) {
+export async function runLiteraryAnalysis(body: any, requestId: string, sessionScope?: string) {
   const chapterTitle = typeof body.chapterTitle === 'string' ? body.chapterTitle.slice(0, 160) : '未命名章节';
   const segments = validateSegments(body.segments, 24, 'analyze');
   const memory = body.memory && typeof body.memory === 'object' ? body.memory : {};
@@ -76,7 +76,7 @@ export async function runLiteraryAnalysis(body: any, requestId: string) {
     '本章原文片段：', JSON.stringify(segments),
   ].join('\n\n');
   const agent = parseAgentModel(body.model || 'auto', body.runtime || body.provider || '');
-  const parsed = await runAgentJson(agent, prompt, systemPrompt, LITERARY_ANALYSIS_SCHEMA, requestId);
+  const parsed = await runAgentJson(agent, prompt, systemPrompt, LITERARY_ANALYSIS_SCHEMA, requestId, sessionScope);
   if (!Array.isArray(parsed.entities) || !Array.isArray(parsed.relationships)) {
     throw new Error('本章分析结果不是预期 JSON；请重试分析');
   }
@@ -95,7 +95,7 @@ export async function runLiteraryAnalysis(body: any, requestId: string) {
   };
 }
 
-export async function runLiteraryReview(body: any, requestId: string) {
+export async function runLiteraryReview(body: any, requestId: string, sessionScope?: string) {
   const segments = validateSegments(body.segments, 32, 'review');
   const memory = body.memory && typeof body.memory === 'object' ? body.memory : {};
   const systemPrompt = [
@@ -115,7 +115,7 @@ export async function runLiteraryReview(body: any, requestId: string) {
     '待审校片段：', JSON.stringify(segments),
   ].join('\n\n');
   const agent = parseAgentModel(body.model || 'auto', body.runtime || body.provider || '');
-  const parsed = await runAgentJson(agent, prompt, systemPrompt, LITERARY_REVIEW_SCHEMA, requestId);
+  const parsed = await runAgentJson(agent, prompt, systemPrompt, LITERARY_REVIEW_SCHEMA, requestId, sessionScope);
   if (!Array.isArray(parsed.results)) throw new Error('Reviewer 返回格式异常；请重试，扩展端会保留初译');
   const byId = new Map(segments.map((item) => [item.id, item]));
   const translations: Record<string, string> = {};
