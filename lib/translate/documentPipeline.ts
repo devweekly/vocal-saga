@@ -205,7 +205,6 @@ export async function translateDocument(
             target: input.target,
             glossary: undefined,
             promptStyle: effectiveStyle,
-            translationMode: 'literary',
             provider: input.provider,
             model: input.model,
             apiKey: input.apiKey,
