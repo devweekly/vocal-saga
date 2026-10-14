@@ -84,8 +84,9 @@ test('workbuddy 文本模式禁用工具，JSON 模式开启原生 structured ou
   assert.deepEqual(text.allowedTools, []);
   assert.equal(text.maxTurns, 1);
   assert.equal(text.outputFormat, undefined);
-  assert.equal(text.extraArgs, undefined);
-  // thinking 字段已移除：实测开关无提速，且疑似与模型半截停有关，保持 CLI 默认。
+  // 翻译任务关思考、推理深度 floor 到 minimal（经 extraArgs 直传 --effort）。
+  assert.deepEqual(text.thinking, { type: 'disabled' });
+  assert.deepEqual(text.extraArgs, { effort: 'minimal' });
 
   const schema = { type: 'object', properties: { a: { type: 'string' } }, required: ['a'] };
   const json = buildWorkbuddyOptions({ provider: 'workbuddy', model: '' }, schema);
@@ -97,14 +98,25 @@ test('workbuddy 文本模式禁用工具，JSON 模式开启原生 structured ou
   assert.deepEqual(JSON.parse(json.extraArgs['json-schema']), schema);
 });
 
+test('resolveWorkbuddyStructured 接受对象与数组', async () => {
+  const { resolveWorkbuddyStructured } = await import('../src/agents/workbuddy.ts');
+  assert.deepEqual(resolveWorkbuddyStructured([{ id: 's0' }], 'not json'), [{ id: 's0' }]);
+  assert.deepEqual(resolveWorkbuddyStructured({ a: 1 }, 'not json'), { a: 1 });
+  assert.deepEqual(resolveWorkbuddyStructured(undefined, '[{"id":"s0","translated_text":"你好"}]'), [
+    { id: 's0', translated_text: '你好' },
+  ]);
+  assert.throws(() => resolveWorkbuddyStructured(undefined, 'not json'), /不是有效 JSON/);
+  assert.throws(() => resolveWorkbuddyStructured('plain string', 'not json'), /不是有效 JSON/);
+});
+
 test('resolveWorkbuddyJson 优先使用原生 structured_output', async () => {
   const { resolveWorkbuddyJson } = await import('../src/agents/workbuddy.ts');
   assert.deepEqual(resolveWorkbuddyJson({ a: 1 }, 'not json'), { a: 1 });
   assert.deepEqual(resolveWorkbuddyJson(undefined, '{"a":1}'), { a: 1 });
   const fence = String.fromCharCode(96).repeat(3);
   assert.deepEqual(resolveWorkbuddyJson(null, fence + 'json\n{"a":2}\n' + fence), { a: 2 });
-  assert.throws(() => resolveWorkbuddyJson(undefined, 'not json'), /不是预期 JSON/);
-  assert.throws(() => resolveWorkbuddyJson(undefined, '[1,2]'), /不是预期 JSON/);
+  assert.throws(() => resolveWorkbuddyJson(undefined, 'not json'), /不是有效 JSON/);
+  assert.throws(() => resolveWorkbuddyJson(undefined, '[1,2]'), /不是预期 JSON 对象/);
 });
 
 test('文学分析与审校的 schema 约束必填顶层字段', async () => {

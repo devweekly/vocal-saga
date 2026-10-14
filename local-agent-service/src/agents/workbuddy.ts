@@ -33,6 +33,11 @@ export function buildWorkbuddyOptions(agent: WorkbuddyAgent, schema?: Record<str
     permissionMode: 'default' as const,
     settingSources: [],
     persistSession: false,
+    // 翻译是机械任务：关思考（CLI alwaysThinkingEnabled=false），推理深度 floor 到 minimal。
+    // effort 经 extraArgs 直传 --effort（transport 只在 thinking 未关闭时才拼它）；
+    // CLI 若在思考关闭时忽略 effort 也无害——思考关本身已去掉 reasoning 开销。
+    thinking: { type: 'disabled' as const },
+    extraArgs: { effort: 'minimal' },
     canUseTool,
   };
   if (!schema) return { ...base, tools: [], allowedTools: [], maxTurns: 1 };
@@ -42,6 +47,7 @@ export function buildWorkbuddyOptions(agent: WorkbuddyAgent, schema?: Record<str
     allowedTools: [STRUCTURED_OUTPUT_TOOL],
     maxTurns: JSON_MODE_MAX_TURNS,
     outputFormat: { type: 'json_schema' as const, schema },
+    // JSON 模式（分析/审校需判断）保持 CLI 默认思考与 effort：这里只追加 json-schema。
     extraArgs: { 'json-schema': JSON.stringify(schema) },
   };
 }
@@ -118,15 +124,41 @@ export async function runWorkbuddy(agent: WorkbuddyAgent, prompt: string, system
   }
 }
 
-// 解析 structured output：优先使用原生的 result.structured_output；
+// 解析 structured 输出（对象或数组）：优先使用原生的 result.structured_output；
 // 当前 SDK 的 JS 层尚未透传 outputFormat 时回退到从文本提取 JSON。
-export function resolveWorkbuddyJson(structuredOutput: unknown, text: string): Record<string, any> {
-  if (structuredOutput && typeof structuredOutput === 'object' && !Array.isArray(structuredOutput)) {
-    return structuredOutput as Record<string, any>;
+export function resolveWorkbuddyStructured(structuredOutput: unknown, text: string): Record<string, any> | any[] {
+  if (structuredOutput && typeof structuredOutput === 'object') {
+    return structuredOutput as Record<string, any> | any[];
   }
   const parsed = parseJsonValue(text);
-  if (parsed && !Array.isArray(parsed)) return parsed as Record<string, any>;
+  if (parsed !== null) return parsed;
+  throw new Error('Workbuddy 返回内容不是有效 JSON');
+}
+
+// 对象专用版本（文学分析/审校）：数组视为形状错误。
+export function resolveWorkbuddyJson(structuredOutput: unknown, text: string): Record<string, any> {
+  const parsed = resolveWorkbuddyStructured(structuredOutput, text);
+  if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+    return parsed as Record<string, any>;
+  }
   throw new Error('Workbuddy 返回内容不是预期 JSON 对象');
+}
+
+// 需要严格 JSON（对象或数组）的调用走这里，返回解析好的值。
+// 用途：重试升级轮——--json-schema 把形状写死做约束解码，逼模型吐完整结构。
+export async function runWorkbuddyStructured(
+  agent: WorkbuddyAgent,
+  prompt: string,
+  systemPrompt: string,
+  schema: Record<string, unknown>,
+  requestId = 'unknown',
+): Promise<Record<string, any> | any[]> {
+  const { text, structuredOutput } = await queryWorkbuddyRaw(agent, prompt, systemPrompt, buildWorkbuddyOptions(agent, schema), requestId);
+  const parsed = resolveWorkbuddyStructured(structuredOutput, text);
+  // json-source 持续验证原生 structured output 是否生效：native 表示 --json-schema
+  // 收口成功，text-parse 表示回退到文本解析（SDK 未透传或模型未调工具）。
+  console.info('[local-agent][' + requestId + '] workbuddy-json json-source=' + ((structuredOutput && typeof structuredOutput === 'object') ? 'native' : 'text-parse'));
+  return parsed;
 }
 
 // 需要严格 JSON 对象的调用走这里，返回解析好的对象而不是文本。
@@ -137,10 +169,9 @@ export async function runWorkbuddyJson(
   schema: Record<string, unknown>,
   requestId = 'unknown',
 ): Promise<Record<string, any>> {
-  const { text, structuredOutput } = await queryWorkbuddyRaw(agent, prompt, systemPrompt, buildWorkbuddyOptions(agent, schema), requestId);
-  const parsed = resolveWorkbuddyJson(structuredOutput, text);
-  // json-source 持续验证原生 structured output 是否生效：native 表示 --json-schema
-  // 收口成功，text-parse 表示回退到文本解析（SDK 未透传或模型未调工具）。
-  console.info('[local-agent][' + requestId + '] workbuddy-json json-source=' + ((structuredOutput && typeof structuredOutput === 'object' && !Array.isArray(structuredOutput)) ? 'native' : 'text-parse'));
-  return parsed;
+  const parsed = await runWorkbuddyStructured(agent, prompt, systemPrompt, schema, requestId);
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new Error('Workbuddy 返回内容不是预期 JSON 对象');
+  }
+  return parsed as Record<string, any>;
 }

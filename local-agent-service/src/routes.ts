@@ -13,7 +13,7 @@ import {
 } from './db.ts';
 import { authorize, sendJson } from './middleware.ts';
 import { parseAgentModel, buildAgentPrompt, normalizeMessages, parseJsonValue } from './json.ts';
-import { runAgent } from './agents/runner.ts';
+import { runAgent, runAgentStructured } from './agents/runner.ts';
 import { validateSegments, runLiteraryAnalysis, runLiteraryReview } from './literary.ts';
 import { DATABASE_PATH } from './config.ts';
 import path from 'node:path';
@@ -171,6 +171,16 @@ export async function handleRequest(req: Request, res: Response): Promise<void> 
       const normalized = normalizeMessages(body.messages);
       agent = parseAgentModel(body.model);
       const jsonMode = body.response_format?.type === 'json_object';
+      // 严格 schema 模式：--json-schema 约束解码，逼模型吐完整结构。
+      // 用途是重试升级轮（普通 json_object 只保证"是 JSON"，不保证形状）。
+      const jsonSchema = body.response_format?.type === 'json_schema' &&
+        body.response_format.json_schema && typeof body.response_format.json_schema === 'object' &&
+        !Array.isArray(body.response_format.json_schema)
+        ? body.response_format.json_schema as Record<string, unknown>
+        : undefined;
+      if (body.response_format?.type === 'json_schema' && !jsonSchema) {
+        throw Object.assign(new Error('response_format.json_schema 必须是非空对象'), { status: 400 });
+      }
       const prompt = jsonMode
         ? normalized.userPrompt + '\n\n输出约束：只返回与系统指令和用户请求一致的严格合法 JSON 对象或数组，不要 Markdown、前言或后记。'
         : normalized.userPrompt;
@@ -181,27 +191,33 @@ export async function handleRequest(req: Request, res: Response): Promise<void> 
         ' model=' + (agent.model || '<runtime-default>') +
         ' inputChars=' + requestMeta.inputChars +
         ' jsonMode=' + String(jsonMode) +
+        ' structured=' + String(!!jsonSchema) +
         ' storeContent=' + String(STORE_CONTENT),
       );
-      output = await runAgent(agent, prompt, normalized.systemPrompt, requestId);
-      if (jsonMode) {
-        const parsedOutput = parseJsonValue(output);
-        if (!parsedOutput) {
-          const preview = LOG_RESPONSE_PREVIEW
-            ? ' preview=' + JSON.stringify(output.slice(0, 600))
-            : ' preview=<disabled>';
-          console.error(
-            '[local-agent][' + requestId + '] invalid-json endpoint=' + url.pathname +
-            ' provider=' + agent.provider +
-            ' model=' + (agent.model || '<runtime-default>') +
-            ' outputChars=' + output.length + preview,
-          );
-          throw new Error(
-            '本机 Agent 返回内容不是有效 JSON（输出 ' + output.length +
-            ' 字符）；详情见本机服务日志。请检查本机模型输出或重试该批次',
-          );
+      if (jsonSchema) {
+        const structured = await runAgentStructured(agent, prompt, normalized.systemPrompt, jsonSchema, requestId);
+        output = JSON.stringify(structured);
+      } else {
+        output = await runAgent(agent, prompt, normalized.systemPrompt, requestId);
+        if (jsonMode) {
+          const parsedOutput = parseJsonValue(output);
+          if (!parsedOutput) {
+            const preview = LOG_RESPONSE_PREVIEW
+              ? ' preview=' + JSON.stringify(output.slice(0, 600))
+              : ' preview=<disabled>';
+            console.error(
+              '[local-agent][' + requestId + '] invalid-json endpoint=' + url.pathname +
+              ' provider=' + agent.provider +
+              ' model=' + (agent.model || '<runtime-default>') +
+              ' outputChars=' + output.length + preview,
+            );
+            throw new Error(
+              '本机 Agent 返回内容不是有效 JSON（输出 ' + output.length +
+              ' 字符）；详情见本机服务日志。请检查本机模型输出或重试该批次',
+            );
+          }
+          output = JSON.stringify(parsedOutput);
         }
-        output = JSON.stringify(parsedOutput);
       }
       sendJson(res, 200, {
         id: 'chatcmpl-' + requestId, object: 'chat.completion',
