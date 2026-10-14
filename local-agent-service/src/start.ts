@@ -9,7 +9,9 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const serviceDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const envPath = path.join(serviceDir, '.env');
+const envPath = process.env.LOCAL_AGENT_ENV_FILE?.trim()
+  ? path.resolve(process.env.LOCAL_AGENT_ENV_FILE)
+  : path.join(serviceDir, '.env');
 
 if (existsSync(envPath)) {
   process.loadEnvFile(envPath);
