@@ -161,7 +161,7 @@ test('starts without LOCAL_AGENT_TOKEN, allows extension requests, and blocks we
     }),
   });
   assert.equal(batchPlan.status, 200);
-  assert.deepEqual((await batchPlan.json()).batches, [[{ id: 'a' }], [{ id: 'b' }], [{ id: 'c' }]]);
+  assert.deepEqual((await batchPlan.json()).batches, [[{ id: 'a' }, { id: 'b' }], [{ id: 'c' }]]);
 
   const sessionPayload = { translations: [['s1', '你好']], checkpoint: 3 };
   const sessionSave = await fetch(baseUrl + '/api/documents/session/save', {
