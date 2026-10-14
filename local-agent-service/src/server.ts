@@ -479,7 +479,7 @@ async function runAgent(agent: { provider: string; model: string }, prompt: stri
   throw new Error('不支持的本机 Agent：' + agent.provider);
 }
 
-function validateSegments(input: any, max: number, type: string) {
+export function validateSegments(input: any, max: number, type: string) {
   if (!Array.isArray(input) || input.length < 1 || input.length > max) {
     throw Object.assign(new Error('segments 必须是 1-' + max + ' 个片段的数组'), { status: 400 });
   }
