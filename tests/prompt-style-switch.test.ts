@@ -119,6 +119,31 @@ describe('glossary 注入', () => {
 
 });
 
+
+describe('translation profile', () => {
+  it('literary mode uses its own prompt and ignores extracted term candidates', () => {
+    const glossary = { document_terms: ['Erasmus', 'Blackthorne', 'Dutch', 'Spanish'] };
+    const literary = buildSystemContent(sourceLang, targetLang, glossary, 'default', 'literary');
+    expect(literary).toContain('<文学翻译目标>');
+    expect(literary).toContain('人物对白');
+    expect(literary).toContain('习语、隐喻、双关');
+    expect(literary).not.toContain('<术语表>');
+    expect(literary).not.toContain('Erasmus');
+    expect(literary).not.toContain('Blackthorne');
+    expect(literary).not.toContain('Dutch');
+    expect(literary).not.toContain('Spanish');
+  });
+
+  it('technical mode keeps the established glossary behavior', () => {
+    const glossary = { document_terms: ['React', 'OpenAPI'] };
+    const technical = buildSystemContent(sourceLang, targetLang, glossary, 'default', 'technical');
+    expect(technical).toContain('<术语表>');
+    expect(technical).toContain('React');
+    expect(technical).toContain('OpenAPI');
+    expect(technical).not.toContain('<文学翻译目标>');
+  });
+});
+
 describe('ja-source-natural 文风', () => {
   it('ja → zh 时生效，包含日语原文特点与判断强度清单', () => {
     const content = buildSystemContent('ja', targetLang, undefined, 'ja-source-natural');
