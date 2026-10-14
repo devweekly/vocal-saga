@@ -523,10 +523,42 @@ async function runWorkbuddy(agent: { provider: string; model: string }, prompt: 
   return answer.trim();
 }
 
-async function runAgent(agent: { provider: string; model: string }, prompt: string, systemPrompt: string): Promise<string> {
-  if (agent.provider === 'workbuddy') return runWorkbuddy(agent, prompt, systemPrompt);
-  if (agent.provider === 'opencode') return runOpenCode(agent, prompt, systemPrompt);
-  throw new Error('不支持的本机 Agent：' + agent.provider);
+async function runAgent(
+  agent: { provider: string; model: string },
+  prompt: string,
+  systemPrompt: string,
+  requestId = 'unknown',
+): Promise<string> {
+  const startedAt = Date.now();
+  console.info(
+    '[local-agent][' + requestId + '] provider-start provider=' + agent.provider +
+    ' model=' + (agent.model || '<runtime-default>') +
+    ' systemChars=' + systemPrompt.length +
+    ' promptChars=' + prompt.length,
+  );
+  try {
+    let output: string;
+    if (agent.provider === 'workbuddy') output = await runWorkbuddy(agent, prompt, systemPrompt);
+    else if (agent.provider === 'opencode') output = await runOpenCode(agent, prompt, systemPrompt);
+    else throw new Error('不支持的本机 Agent：' + agent.provider);
+    console.info(
+      '[local-agent][' + requestId + '] provider-success provider=' + agent.provider +
+      ' durationMs=' + (Date.now() - startedAt) +
+      ' outputChars=' + output.length,
+    );
+    return output;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(
+      '[local-agent][' + requestId + '] provider-failed provider=' + agent.provider +
+      ' durationMs=' + (Date.now() - startedAt) +
+      ' error=' + message,
+    );
+    if (error instanceof Error && error.stack) {
+      console.error('[local-agent][' + requestId + '] provider-stack=' + error.stack);
+    }
+    throw error;
+  }
 }
 
 export function validateSegments(input: any, max: number, type: string) {
@@ -567,7 +599,7 @@ export function validateSegments(input: any, max: number, type: string) {
   return segments;
 }
 
-async function runLiteraryAnalysis(body: any) {
+async function runLiteraryAnalysis(body: any, requestId: string) {
   const chapterTitle = typeof body.chapterTitle === 'string' ? body.chapterTitle.slice(0, 160) : '未命名章节';
   const segments = validateSegments(body.segments, 24, 'analyze');
   const memory = body.memory && typeof body.memory === 'object' ? body.memory : {};
@@ -585,7 +617,7 @@ async function runLiteraryAnalysis(body: any) {
     '本章原文片段：', JSON.stringify(segments),
   ].join('\n\n');
   const agent = parseAgentModel(body.model || 'auto', body.runtime || body.provider || '');
-  const output = await runAgent(agent, prompt, systemPrompt);
+  const output = await runAgent(agent, prompt, systemPrompt, requestId);
   const parsed = parseJsonObject(output);
   if (!parsed || !Array.isArray(parsed.entities) || !Array.isArray(parsed.relationships)) {
     throw new Error('本章分析结果不是预期 JSON；请重试分析');
@@ -605,7 +637,7 @@ async function runLiteraryAnalysis(body: any) {
   };
 }
 
-async function runLiteraryReview(body: any) {
+async function runLiteraryReview(body: any, requestId: string) {
   const segments = validateSegments(body.segments, 32, 'review');
   const memory = body.memory && typeof body.memory === 'object' ? body.memory : {};
   const systemPrompt = [
@@ -622,7 +654,7 @@ async function runLiteraryReview(body: any) {
     '待审校片段：', JSON.stringify(segments),
   ].join('\n\n');
   const agent = parseAgentModel(body.model || 'auto', body.runtime || body.provider || '');
-  const output = await runAgent(agent, prompt, systemPrompt);
+  const output = await runAgent(agent, prompt, systemPrompt, requestId);
   const parsed = parseJsonObject(output);
   if (!parsed || !Array.isArray(parsed.results)) throw new Error('Reviewer 返回格式异常；请重试，扩展端会保留初译');
   const byId = new Map(segments.map((item) => [item.id, item]));
@@ -834,11 +866,7 @@ async function handleRequest(req: Request, res: Response): Promise<void> {
         ' jsonMode=' + String(jsonMode) +
         ' storeContent=' + String(STORE_CONTENT),
       );
-      output = await runAgent(agent, prompt, normalized.systemPrompt);
-      console.info(
-        '[local-agent][' + requestId + '] provider-complete durationMs=' + (Date.now() - startedAt) +
-        ' outputChars=' + output.length,
-      );
+      output = await runAgent(agent, prompt, normalized.systemPrompt, requestId);
       if (jsonMode) {
         const parsedOutput = parseJsonValue(output);
         if (!parsedOutput) {
@@ -866,12 +894,28 @@ async function handleRequest(req: Request, res: Response): Promise<void> {
       });
     } else if (url.pathname.endsWith('/analyze')) {
       agent = parseAgentModel(body.model || 'auto', body.runtime || body.provider || '');
-      const result = await runLiteraryAnalysis(body);
+      console.info(
+        '[local-agent][' + requestId + '] start endpoint=' + url.pathname +
+        ' provider=' + agent.provider +
+        ' model=' + (agent.model || '<runtime-default>') +
+        ' inputChars=' + JSON.stringify(body.segments || []).length +
+        ' segments=' + (Array.isArray(body.segments) ? body.segments.length : 0) +
+        ' storeContent=' + String(STORE_CONTENT),
+      );
+      const result = await runLiteraryAnalysis(body, requestId);
       output = JSON.stringify(result);
       sendJson(res, 200, result);
     } else {
       agent = parseAgentModel(body.model || 'auto', body.runtime || body.provider || '');
-      const result = await runLiteraryReview(body);
+      console.info(
+        '[local-agent][' + requestId + '] start endpoint=' + url.pathname +
+        ' provider=' + agent.provider +
+        ' model=' + (agent.model || '<runtime-default>') +
+        ' inputChars=' + JSON.stringify(body.segments || []).length +
+        ' segments=' + (Array.isArray(body.segments) ? body.segments.length : 0) +
+        ' storeContent=' + String(STORE_CONTENT),
+      );
+      const result = await runLiteraryReview(body, requestId);
       output = JSON.stringify(result);
       sendJson(res, 200, result);
     }
