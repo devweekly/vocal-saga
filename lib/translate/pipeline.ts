@@ -212,6 +212,8 @@ export async function translateChunk(
         provider,
         promptStyle,
         glossary,
+        undefined,
+        translationMode,
       );
       await cacheTranslation(itemKey, new Map([[id, text]]));
     }));
