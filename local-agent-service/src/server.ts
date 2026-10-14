@@ -348,7 +348,7 @@ export function parseJsonValue(text: unknown): Record<string, any> | any[] | nul
       const char = value[index];
       if (inString) {
         if (escaped) escaped = false;
-        else if (char === '\\\\') escaped = true;
+        else if (char === '\\') escaped = true;
         else if (char === '"') inString = false;
         continue;
       }
