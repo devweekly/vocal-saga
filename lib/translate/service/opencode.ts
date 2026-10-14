@@ -151,7 +151,7 @@ export class OpencodeTranslationService implements TranslationService {
     glossary?: Glossary,
   ): AsyncGenerator<string, string, unknown> {
     const blocks = JSON.parse(jsonContent);
-    const body: any = buildOpencodeBody(blocks, sourceLang, targetLang, glossary, this.style);
+    const body: any = buildOpencodeBody(blocks, sourceLang, targetLang, glossary, this.style, this.translationMode);
     body.stream = true;
 
     const key = getOpencodeApiKey();
