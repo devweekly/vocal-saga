@@ -43,6 +43,7 @@ function buildDocumentSessionScope(
     String(source.targetLang || body?.target || ''),
     String(source.promptStyle || body?.promptStyle || 'default'),
     String(source.translationMode || body?.translationMode || 'technical'),
+    String(source.sessionLane || 'main'),
     String(source.contextVersion || 'book-session-v1'),
   ];
   return 'document:' + documentSessionId + ':' + parts.map((value) => value.slice(0, 80)).join(':');
