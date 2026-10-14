@@ -70,7 +70,7 @@ export interface DocumentTranslateResult {
   /** 成功经过独立文学 reviewer 的片段数；0 表示未启用或审校未成功。 */
   reviewedSegmentCount: number;
   reviewerErrors: string[];
-  /** Optional style ideas remain separate; they must never be auto-applied. */
+  /** Review findings, including optional literary-style findings that motivated a controlled revision. */
   reviewFindings: LiteraryReviewFinding[];
   duration_ms: number;
   /** exportAs 指定时才存在。 */
@@ -82,9 +82,10 @@ export async function translateDocument(
 ): Promise<DocumentTranslateResult> {
   const start = Date.now();
   const { doc } = input;
+  const shouldReviewLiterary = input.literaryReview ?? (input.translationMode === 'literary');
   const batches = buildSegmentBatches(doc.segments, {
     ...input.budget,
-    ...(input.literaryReview ? { splitOnContextChange: true } : {}),
+    ...(shouldReviewLiterary ? { splitOnContextChange: true } : {}),
   });
   const translations = new Map<string, string>();
   const failedBatches: number[] = [];
@@ -92,11 +93,10 @@ export async function translateDocument(
   const reviewerErrors: string[] = [];
   const reviewFindings: LiteraryReviewFinding[] = [];
   let reviewedSegmentCount = 0;
-  const shouldReviewLiterary = input.literaryReview ?? (input.translationMode === 'literary');
   let literaryMemory: LiteraryBookMemory | undefined = shouldReviewLiterary
     ? sanitizeLiteraryMemory(input.literaryContext)
     : undefined;
-  // 书籍翻译依赖前文积累的实体和声线记忆，不能让后续批次抢在前面执行。
+  // 文学 profile 的修订样例按顺序积累，不能让后续批次抢在前面执行。
   const concurrency = literaryMemory ? 1 : Math.max(1, input.concurrency ?? 4);
 
   // ── 文档级语言检测（整篇只做一次）──
@@ -107,7 +107,7 @@ export async function translateDocument(
   // 各批文风不一致。
   // 注：ParsedDocument 没有 lang 字段，故不传 htmlLang 辅助信号（假名证据已足够）。
   let languageSample = '';
-  const languageLimit = input.literaryReview ? 20_000 : Number.POSITIVE_INFINITY;
+  const languageLimit = shouldReviewLiterary ? 20_000 : Number.POSITIVE_INFINITY;
   for (const segment of doc.segments) {
     if (languageSample.length >= languageLimit) break;
     languageSample += segment.text.slice(0, languageLimit - languageSample.length) + '\n';
