@@ -11,6 +11,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import { buildSystemContent, type PromptStyle } from '../lib/translate/service/shared';
+import { buildLiteraryPageReviewInstructions } from '../lib/translate/service/prompt-style';
 
 const sourceLang = 'en';
 const targetLang = 'zh';
@@ -141,6 +142,19 @@ describe('translation profile', () => {
     expect(technical).toContain('React');
     expect(technical).toContain('OpenAPI');
     expect(technical).not.toContain('<文学翻译目标>');
+  });
+});
+
+
+describe('literary webpage reviewer prompt', () => {
+  it('asks for a restrained second-pass edit and structured findings', () => {
+    const prompt = buildLiteraryPageReviewInstructions();
+    expect(prompt).toContain('独立审校');
+    expect(prompt).toContain('翻译腔');
+    expect(prompt).toContain('finalTranslation');
+    expect(prompt).toContain('accuracy|terminology|style');
+    expect(prompt).toContain('不能增加原文没有的情节');
+    expect(prompt).toContain('style 必须是 optional');
   });
 });
 
