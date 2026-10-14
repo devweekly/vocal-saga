@@ -1,7 +1,7 @@
 import type { TranslationService } from './_service';
 import { parseSSEStream } from './streamParser';
 import { getDSApiKey } from '../../config';
-import { buildTranslationBody, stripThinkingTags, stripMarkdownCodeBlock, cleanJsonString, repairJson, type PromptStyle } from './shared';
+import { buildTranslationBody, stripThinkingTags, stripMarkdownCodeBlock, cleanJsonString, repairJson, type PromptStyle, type TranslationMode } from './shared';
 
 const API_URL = 'https://api.deepseek.com/v1/chat/completions';
 const MODEL = 'deepseek-v4-flash';
@@ -19,9 +19,10 @@ function buildDeepSeekBody(
   sourceLang: string,
   targetLang: string,
   glossary?: any,
-  style?: PromptStyle
+  style?: PromptStyle,
+  translationMode: TranslationMode = 'technical',
 ) {
-  const body = buildTranslationBody(blocks, sourceLang, targetLang, glossary, MODEL, style);
+  const body = buildTranslationBody(blocks, sourceLang, targetLang, glossary, MODEL, style, translationMode);
   return {
     ...body,
     response_format: { type: 'json_object' },
@@ -116,10 +117,12 @@ export class DeepSeekTranslationService implements TranslationService {
   private apiKey?: string;
   /** 翻译文风，默认 undefined 表示使用通用直译风格 */
   private style?: PromptStyle;
+  private translationMode: TranslationMode;
 
-  constructor(apiKey?: string, style?: PromptStyle) {
+  constructor(apiKey?: string, style?: PromptStyle, translationMode: TranslationMode = 'technical') {
     this.apiKey = apiKey;
     this.style = style;
+    this.translationMode = translationMode;
   }
 
   async translate(
@@ -129,7 +132,7 @@ export class DeepSeekTranslationService implements TranslationService {
     glossary?: any,
   ): Promise<string> {
     const blocks = JSON.parse(jsonContent);
-    const body = buildDeepSeekBody(blocks, sourceLang, targetLang, glossary, this.style);
+    const body = buildDeepSeekBody(blocks, sourceLang, targetLang, glossary, this.style, this.translationMode);
     const raw = await callApi(JSON.stringify(body), this.apiKey);
     return raw;
   }
