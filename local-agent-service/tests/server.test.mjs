@@ -40,6 +40,18 @@ test('parses a JSON object wrapped in explanation', () => {
   assert.deepEqual(parseJsonObject('result:\n{"ok":true}\nthanks'), { ok: true });
 });
 
+test('rejects reviewer input that would otherwise be silently truncated', async () => {
+  const { validateSegments } = await import('../src/server.ts');
+  assert.throws(
+    () => validateSegments([{ id: 'long-source', source: 's'.repeat(4001), draft: '译文' }], 32, 'review'),
+    /超过本机单片段限制/,
+  );
+  assert.throws(
+    () => validateSegments([{ id: 'long-draft', source: '原文', draft: '译'.repeat(5001) }], 32, 'review'),
+    /超过本机单片段限制/,
+  );
+});
+
 test('separates system prompt and preserves JSON-only request', () => {
   const result = buildAgentPrompt([
     { role: 'system', content: 'Translate faithfully.' },
