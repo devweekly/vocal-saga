@@ -882,6 +882,7 @@ export async function translateHtml(input: TranslateHtmlInput): Promise<Translat
     input.apiKey,
     input.promptStyle,
     input.skipCache ?? false,
+    input.translationMode,
   );
 
   return {
