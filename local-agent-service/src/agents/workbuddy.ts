@@ -1,5 +1,6 @@
 import { REQUEST_TIMEOUT_MS, WORK_DIR } from '../config.ts';
 import { parseJsonValue } from '../json.ts';
+import { getTextPool } from './workbuddyPool.ts';
 
 // 原生 structured output 的工具名（CLI 内置，见 SDK 的 StructuredOutputTool 说明）。
 const STRUCTURED_OUTPUT_TOOL = 'StructuredOutput';
@@ -9,6 +10,12 @@ const JSON_MODE_MAX_TURNS = 5;
 export interface WorkbuddyAgent {
   provider: string;
   model: string;
+}
+
+// prompt 组装：系统指令与用户请求拼成单轮文本（池复用与单次 query 共用）。
+export function buildCombinedPrompt(prompt: string, systemPrompt: string): string {
+  return [systemPrompt ? 'SYSTEM INSTRUCTIONS:\n' + systemPrompt : '', 'USER REQUEST:\n' + prompt]
+    .filter(Boolean).join('\n\n');
 }
 
 // 组装 query() 的 options：纯文本模式禁用全部工具；
@@ -28,9 +35,7 @@ export function buildWorkbuddyOptions(agent: WorkbuddyAgent, schema?: Record<str
     persistSession: false,
     canUseTool,
   };
-  // 纯文本翻译是机械任务，不需要推理过程：关闭思考省掉 reasoning 开销。
-  // JSON 模式（文学分析/审校需要判断）不带 thinking 字段，保持 CLI 默认思考开启。
-  if (!schema) return { ...base, thinking: { type: 'disabled' as const }, tools: [], allowedTools: [], maxTurns: 1 };
+  if (!schema) return { ...base, tools: [], allowedTools: [], maxTurns: 1 };
   return {
     ...base,
     tools: [STRUCTURED_OUTPUT_TOOL],
@@ -51,8 +56,7 @@ async function queryWorkbuddyRaw(
   requestId = 'unknown',
 ): Promise<{ text: string; structuredOutput: unknown }> {
   const sdk = await import('@tencent-ai/agent-sdk');
-  const combinedPrompt = [systemPrompt ? 'SYSTEM INSTRUCTIONS:\n' + systemPrompt : '', 'USER REQUEST:\n' + prompt]
-    .filter(Boolean).join('\n\n');
+  const combinedPrompt = buildCombinedPrompt(prompt, systemPrompt);
   const query = sdk.query({ prompt: combinedPrompt, options });
   const startedAt = Date.now();
   let text = '';
@@ -102,9 +106,16 @@ async function queryWorkbuddyRaw(
 }
 
 export async function runWorkbuddy(agent: WorkbuddyAgent, prompt: string, systemPrompt: string, requestId = 'unknown'): Promise<string> {
-  const { text } = await queryWorkbuddyRaw(agent, prompt, systemPrompt, buildWorkbuddyOptions(agent), requestId);
-  if (!text) throw new Error('Workbuddy 已结束，但没有返回译文');
-  return text;
+  // 高频文本翻译走长驻会话池（CLI 进程复用，无每单启动开销）。
+  const pool = getTextPool();
+  const index = await pool.acquire(agent);
+  try {
+    const { text } = await pool.runPrompt(index, buildCombinedPrompt(prompt, systemPrompt), requestId);
+    if (!text) throw new Error('Workbuddy 已结束，但没有返回译文');
+    return text;
+  } finally {
+    pool.release(index);
+  }
 }
 
 // 解析 structured output：优先使用原生的 result.structured_output；

@@ -85,9 +85,7 @@ test('workbuddy 文本模式禁用工具，JSON 模式开启原生 structured ou
   assert.equal(text.maxTurns, 1);
   assert.equal(text.outputFormat, undefined);
   assert.equal(text.extraArgs, undefined);
-  // 纯文本翻译关闭思考；JSON 模式（分析/审校需判断）保持默认开启。
-  assert.deepEqual(text.thinking, { type: 'disabled' });
-  assert.equal('thinking' in buildWorkbuddyOptions({ provider: 'workbuddy', model: '' }, { type: 'object' }), false);
+  // thinking 字段已移除：实测开关无提速，且疑似与模型半截停有关，保持 CLI 默认。
 
   const schema = { type: 'object', properties: { a: { type: 'string' } }, required: ['a'] };
   const json = buildWorkbuddyOptions({ provider: 'workbuddy', model: '' }, schema);
@@ -113,6 +111,128 @@ test('文学分析与审校的 schema 约束必填顶层字段', async () => {
   const { LITERARY_ANALYSIS_SCHEMA, LITERARY_REVIEW_SCHEMA } = await import('../src/literary.ts');
   assert.deepEqual(LITERARY_ANALYSIS_SCHEMA.required, ['entities', 'relationships']);
   assert.deepEqual(LITERARY_REVIEW_SCHEMA.required, ['results']);
+});
+
+test('会话池复用：空闲槽复用同一会话，全忙时排队', async () => {
+  const { WorkbuddySessionPool } = await import('../src/agents/workbuddyPool.ts');
+  const created = [];
+  const factory = (options) => {
+    const session = {
+      sent: [], closed: false, models: [], options,
+      async send(m) { this.sent.push(m); },
+      async *stream() {},
+      async interrupt() {},
+      close() { this.closed = true; },
+      async setModel(m) { this.models.push(m); },
+    };
+    created.push(session);
+    return session;
+  };
+  const pool = new WorkbuddySessionPool(2, 25, factory);
+  const a = await pool.acquire({ provider: 'workbuddy', model: '' });
+  const b = await pool.acquire({ provider: 'workbuddy', model: '' });
+  assert.notEqual(a, b);
+  assert.equal(created.length, 2);
+  pool.release(a);
+  const c = await pool.acquire({ provider: 'workbuddy', model: '' });
+  assert.equal(c, a);
+  assert.equal(created.length, 2);
+  pool.release(b);
+  pool.release(c);
+  pool.closeAll();
+});
+
+test('会话池全忙时后来者排队等待', async () => {
+  const { WorkbuddySessionPool } = await import('../src/agents/workbuddyPool.ts');
+  const factory = () => ({
+    async send() {}, async *stream() {}, async interrupt() {}, close() {}, async setModel() {},
+  });
+  const pool = new WorkbuddySessionPool(1, 25, factory);
+  const a = await pool.acquire({ provider: 'workbuddy', model: '' });
+  let resolved = false;
+  const pending = pool.acquire({ provider: 'workbuddy', model: '' }).then((i) => { resolved = true; return i; });
+  await new Promise((r) => setTimeout(r, 20));
+  assert.equal(resolved, false);
+  pool.release(a);
+  assert.equal(await pending, a);
+  pool.closeAll();
+});
+
+test('会话池按轮数轮换与失败丢弃', async () => {
+  const { WorkbuddySessionPool, buildTextSessionOptions } = await import('../src/agents/workbuddyPool.ts');
+  // 复用 options 去掉按进程计的 maxTurns。
+  assert.equal('maxTurns' in buildTextSessionOptions({ provider: 'workbuddy', model: 'm' }), false);
+  let creates = 0;
+  const sessions = [];
+  const okMessages = () => [
+    { type: 'assistant', message: { content: [{ type: 'text', text: '译文' }] } },
+    { type: 'result', subtype: 'success', structured_output: { a: 1 } },
+  ];
+  const factory = () => {
+    creates++;
+    const session = {
+      sent: [], closed: false,
+      async send(m) { this.sent.push(m); },
+      async *stream() { for (const m of okMessages()) yield m; },
+      async interrupt() {}, close() { this.closed = true; }, async setModel() {},
+    };
+    sessions.push(session);
+    return session;
+  };
+  const pool = new WorkbuddySessionPool(1, 2, factory);
+  const i = await pool.acquire({ provider: 'workbuddy', model: '' });
+  const first = await pool.runPrompt(i, 'p1', 'r1', 5000);
+  assert.equal(first.text, '译文');
+  assert.deepEqual(first.structuredOutput, { a: 1 });
+  pool.release(i);
+  const j = await pool.acquire({ provider: 'workbuddy', model: '' });
+  assert.equal(j, i);
+  await pool.runPrompt(j, 'p2', 'r1', 5000);
+  pool.release(j);
+  // 用满 2 轮即重建：旧会话已关闭，下次 acquire 新建。
+  assert.equal(sessions[0].closed, true);
+  await pool.acquire({ provider: 'workbuddy', model: '' });
+  assert.equal(creates, 2);
+  pool.closeAll();
+});
+
+test('会话池失败后丢弃会话并抛错', async () => {
+  const { WorkbuddySessionPool } = await import('../src/agents/workbuddyPool.ts');
+  const sessions = [];
+  const factory = () => {
+    const session = {
+      closed: false,
+      async send() {},
+      async *stream() { throw new Error('boom'); },
+      async interrupt() {}, close() { this.closed = true; }, async setModel() {},
+    };
+    sessions.push(session);
+    return session;
+  };
+  const pool = new WorkbuddySessionPool(1, 25, factory);
+  const i = await pool.acquire({ provider: 'workbuddy', model: '' });
+  await assert.rejects(pool.runPrompt(i, 'p', 'r', 5000), /Workbuddy Agent SDK 调用失败/);
+  assert.equal(sessions[0].closed, true);
+  pool.release(i);
+  pool.closeAll();
+});
+
+test('会话池模型不一致时热切换', async () => {
+  const { WorkbuddySessionPool } = await import('../src/agents/workbuddyPool.ts');
+  let session;
+  const factory = () => {
+    session = {
+      models: [],
+      async send() {}, async *stream() {}, async interrupt() {}, close() {}, async setModel(m) { this.models.push(m); },
+    };
+    return session;
+  };
+  const pool = new WorkbuddySessionPool(1, 25, factory);
+  const i = await pool.acquire({ provider: 'workbuddy', model: 'm1' });
+  pool.release(i);
+  await pool.acquire({ provider: 'workbuddy', model: 'm2' });
+  assert.deepEqual(session.models, ['m2']);
+  pool.closeAll();
 });
 
 test('separates system prompt and preserves JSON-only request', () => {
