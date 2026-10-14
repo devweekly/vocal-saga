@@ -1,6 +1,26 @@
-import { parseJsonObject } from './json.ts';
-import { runAgent } from './agents/runner.ts';
+import { runAgentJson } from './agents/runner.ts';
 import { parseAgentModel } from './json.ts';
+
+// 文学分析的 structured output schema，只约束顶层形状，不禁止扩展字段。
+export const LITERARY_ANALYSIS_SCHEMA: Record<string, unknown> = {
+  type: 'object',
+  properties: {
+    entities: { type: 'array' },
+    relationships: { type: 'array' },
+    styleGuide: { type: 'object' },
+    chapterSummary: { type: 'string' },
+  },
+  required: ['entities', 'relationships'],
+};
+
+// 审校的 structured output schema，只约束顶层形状，不禁止扩展字段。
+export const LITERARY_REVIEW_SCHEMA: Record<string, unknown> = {
+  type: 'object',
+  properties: {
+    results: { type: 'array' },
+  },
+  required: ['results'],
+};
 
 export function validateSegments(input: any, max: number, type: string) {
   if (!Array.isArray(input) || input.length < 1 || input.length > max) {
@@ -56,9 +76,8 @@ export async function runLiteraryAnalysis(body: any, requestId: string) {
     '本章原文片段：', JSON.stringify(segments),
   ].join('\n\n');
   const agent = parseAgentModel(body.model || 'auto', body.runtime || body.provider || '');
-  const output = await runAgent(agent, prompt, systemPrompt, requestId);
-  const parsed = parseJsonObject(output);
-  if (!parsed || !Array.isArray(parsed.entities) || !Array.isArray(parsed.relationships)) {
+  const parsed = await runAgentJson(agent, prompt, systemPrompt, LITERARY_ANALYSIS_SCHEMA, requestId);
+  if (!Array.isArray(parsed.entities) || !Array.isArray(parsed.relationships)) {
     throw new Error('本章分析结果不是预期 JSON；请重试分析');
   }
   const summary = typeof parsed.chapterSummary === 'string' ? parsed.chapterSummary.slice(0, 420) : '';
@@ -93,9 +112,8 @@ export async function runLiteraryReview(body: any, requestId: string) {
     '待审校片段：', JSON.stringify(segments),
   ].join('\n\n');
   const agent = parseAgentModel(body.model || 'auto', body.runtime || body.provider || '');
-  const output = await runAgent(agent, prompt, systemPrompt, requestId);
-  const parsed = parseJsonObject(output);
-  if (!parsed || !Array.isArray(parsed.results)) throw new Error('Reviewer 返回格式异常；请重试，扩展端会保留初译');
+  const parsed = await runAgentJson(agent, prompt, systemPrompt, LITERARY_REVIEW_SCHEMA, requestId);
+  if (!Array.isArray(parsed.results)) throw new Error('Reviewer 返回格式异常；请重试，扩展端会保留初译');
   const byId = new Map(segments.map((item) => [item.id, item]));
   const translations: Record<string, string> = {};
   const findings: any[] = [];

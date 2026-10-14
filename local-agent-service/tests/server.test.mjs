@@ -77,6 +77,44 @@ test('rejects reviewer input that would otherwise be silently truncated', async 
   );
 });
 
+test('workbuddy 文本模式禁用工具，JSON 模式开启原生 structured output', async () => {
+  const { buildWorkbuddyOptions } = await import('../src/agents/workbuddy.ts');
+  const text = buildWorkbuddyOptions({ provider: 'workbuddy', model: 'some-model' });
+  assert.deepEqual(text.tools, []);
+  assert.deepEqual(text.allowedTools, []);
+  assert.equal(text.maxTurns, 1);
+  assert.equal(text.outputFormat, undefined);
+  assert.equal(text.extraArgs, undefined);
+  // 纯文本翻译关闭思考；JSON 模式（分析/审校需判断）保持默认开启。
+  assert.deepEqual(text.thinking, { type: 'disabled' });
+  assert.equal('thinking' in buildWorkbuddyOptions({ provider: 'workbuddy', model: '' }, { type: 'object' }), false);
+
+  const schema = { type: 'object', properties: { a: { type: 'string' } }, required: ['a'] };
+  const json = buildWorkbuddyOptions({ provider: 'workbuddy', model: '' }, schema);
+  assert.equal('model' in json, false);
+  assert.deepEqual(json.tools, ['StructuredOutput']);
+  assert.deepEqual(json.allowedTools, ['StructuredOutput']);
+  assert.ok(json.maxTurns > 1);
+  assert.deepEqual(json.outputFormat, { type: 'json_schema', schema });
+  assert.deepEqual(JSON.parse(json.extraArgs['json-schema']), schema);
+});
+
+test('resolveWorkbuddyJson 优先使用原生 structured_output', async () => {
+  const { resolveWorkbuddyJson } = await import('../src/agents/workbuddy.ts');
+  assert.deepEqual(resolveWorkbuddyJson({ a: 1 }, 'not json'), { a: 1 });
+  assert.deepEqual(resolveWorkbuddyJson(undefined, '{"a":1}'), { a: 1 });
+  const fence = String.fromCharCode(96).repeat(3);
+  assert.deepEqual(resolveWorkbuddyJson(null, fence + 'json\n{"a":2}\n' + fence), { a: 2 });
+  assert.throws(() => resolveWorkbuddyJson(undefined, 'not json'), /不是预期 JSON/);
+  assert.throws(() => resolveWorkbuddyJson(undefined, '[1,2]'), /不是预期 JSON/);
+});
+
+test('文学分析与审校的 schema 约束必填顶层字段', async () => {
+  const { LITERARY_ANALYSIS_SCHEMA, LITERARY_REVIEW_SCHEMA } = await import('../src/literary.ts');
+  assert.deepEqual(LITERARY_ANALYSIS_SCHEMA.required, ['entities', 'relationships']);
+  assert.deepEqual(LITERARY_REVIEW_SCHEMA.required, ['results']);
+});
+
 test('separates system prompt and preserves JSON-only request', () => {
   const result = buildAgentPrompt([
     { role: 'system', content: 'Translate faithfully.' },

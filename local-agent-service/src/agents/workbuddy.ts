@@ -1,27 +1,64 @@
 import { REQUEST_TIMEOUT_MS, WORK_DIR } from '../config.ts';
+import { parseJsonValue } from '../json.ts';
 
-export async function runWorkbuddy(agent: { provider: string; model: string }, prompt: string, systemPrompt: string): Promise<string> {
+// 原生 structured output 的工具名（CLI 内置，见 SDK 的 StructuredOutputTool 说明）。
+const STRUCTURED_OUTPUT_TOOL = 'StructuredOutput';
+// JSON 模式需要模型先调用 StructuredOutput 工具再结束，轮数必须大于单轮文本模式。
+const JSON_MODE_MAX_TURNS = 5;
+
+export interface WorkbuddyAgent {
+  provider: string;
+  model: string;
+}
+
+// 组装 query() 的 options：纯文本模式禁用全部工具；
+// JSON 模式开启原生 structured output（outputFormat 等官方 SDK 修复透传后生效，
+// 当前实际生效的是 --json-schema 进程参数，由 transport 的 extraArgs 原样拼接）。
+export function buildWorkbuddyOptions(agent: WorkbuddyAgent, schema?: Record<string, unknown>) {
+  const canUseTool = async (toolName: string) => {
+    // StructuredOutput 是被动的数据收口工具，不需审批；其他工具一律拒绝。
+    if (schema && toolName === STRUCTURED_OUTPUT_TOOL) return { behavior: 'allow' as const };
+    return { behavior: 'deny' as const, message: '本机翻译 Provider 不允许执行工具：' + toolName };
+  };
+  const base = {
+    ...(agent.model ? { model: agent.model } : {}),
+    cwd: WORK_DIR,
+    permissionMode: 'default' as const,
+    settingSources: [],
+    persistSession: false,
+    canUseTool,
+  };
+  // 纯文本翻译是机械任务，不需要推理过程：关闭思考省掉 reasoning 开销。
+  // JSON 模式（文学分析/审校需要判断）不带 thinking 字段，保持 CLI 默认思考开启。
+  if (!schema) return { ...base, thinking: { type: 'disabled' as const }, tools: [], allowedTools: [], maxTurns: 1 };
+  return {
+    ...base,
+    tools: [STRUCTURED_OUTPUT_TOOL],
+    allowedTools: [STRUCTURED_OUTPUT_TOOL],
+    maxTurns: JSON_MODE_MAX_TURNS,
+    outputFormat: { type: 'json_schema' as const, schema },
+    extraArgs: { 'json-schema': JSON.stringify(schema) },
+  };
+}
+
+// 执行一次单轮 query，同时收集 assistant 文本与 result.structured_output。
+// structured_output 只有 CLI 真正启用 jsonSchema 时才有，文本始终收集，用作兼容解析。
+async function queryWorkbuddyRaw(
+  agent: WorkbuddyAgent,
+  prompt: string,
+  systemPrompt: string,
+  options: Record<string, any>,
+  requestId = 'unknown',
+): Promise<{ text: string; structuredOutput: unknown }> {
   const sdk = await import('@tencent-ai/agent-sdk');
   const combinedPrompt = [systemPrompt ? 'SYSTEM INSTRUCTIONS:\n' + systemPrompt : '', 'USER REQUEST:\n' + prompt]
     .filter(Boolean).join('\n\n');
-  const query = sdk.query({
-    prompt: combinedPrompt,
-    options: {
-      ...(agent.model ? { model: agent.model } : {}),
-      cwd: WORK_DIR,
-      permissionMode: 'default',
-      tools: [],
-      allowedTools: [],
-      settingSources: [],
-      persistSession: false,
-      maxTurns: 1,
-      canUseTool: async (toolName: string) => ({
-        behavior: 'deny',
-        message: '本机翻译 Provider 不允许执行工具：' + toolName,
-      }),
-    },
-  });
-  let answer = '';
+  const query = sdk.query({ prompt: combinedPrompt, options });
+  const startedAt = Date.now();
+  let text = '';
+  let structuredOutput: unknown;
+  // 首个正文 token 到达时间：区分 CLI 启动/初始化（ttft 之前）与模型生成（ttft 之后）。
+  let firstTextAt = 0;
   let timedOut = false;
   const timer = setTimeout(() => {
     timedOut = true;
@@ -33,11 +70,17 @@ export async function runWorkbuddy(agent: { provider: string; model: string }, p
       const raw: any = message && typeof message === 'object' ? message : {};
       if (raw.type === 'assistant' && raw.message && Array.isArray(raw.message.content)) {
         for (const part of raw.message.content) {
-          if (part?.type === 'text' && typeof part.text === 'string' && part.text.trim()) answer += (answer ? '\n' : '') + part.text;
+          if (part?.type === 'text' && typeof part.text === 'string' && part.text.trim()) {
+            if (!firstTextAt) firstTextAt = Date.now();
+            text += (text ? '\n' : '') + part.text;
+          }
         }
       }
-      if (raw.type === 'result' && raw.subtype && raw.subtype !== 'success') {
-        throw new Error('Workbuddy 执行失败：' + String(raw.error?.message || raw.error || raw.subtype));
+      if (raw.type === 'result') {
+        if (raw.subtype && raw.subtype !== 'success') {
+          throw new Error('Workbuddy 执行失败：' + String(raw.error?.message || raw.error || raw.subtype));
+        }
+        if (raw.structured_output !== undefined) structuredOutput = raw.structured_output;
       }
     }
   } catch (error) {
@@ -47,6 +90,46 @@ export async function runWorkbuddy(agent: { provider: string; model: string }, p
     clearTimeout(timer);
   }
   if (timedOut) throw new Error('Workbuddy 调用超时（' + REQUEST_TIMEOUT_MS + ' ms）');
-  if (!answer.trim()) throw new Error('Workbuddy 已结束，但没有返回译文');
-  return answer.trim();
+  // 分段耗时：ttft 前是 CLI 启动+初始化固定开销，ttft 后是模型生成。
+  // structured 标记原生 structured_output 是否到达，用于确认 --json-schema 生效。
+  console.info(
+    '[local-agent][' + requestId + '] workbuddy-timing ttftMs=' + (firstTextAt ? firstTextAt - startedAt : -1) +
+    ' totalMs=' + (Date.now() - startedAt) +
+    ' textChars=' + text.trim().length +
+    ' structured=' + (structuredOutput === undefined ? 'none' : 'native'),
+  );
+  return { text: text.trim(), structuredOutput };
+}
+
+export async function runWorkbuddy(agent: WorkbuddyAgent, prompt: string, systemPrompt: string, requestId = 'unknown'): Promise<string> {
+  const { text } = await queryWorkbuddyRaw(agent, prompt, systemPrompt, buildWorkbuddyOptions(agent), requestId);
+  if (!text) throw new Error('Workbuddy 已结束，但没有返回译文');
+  return text;
+}
+
+// 解析 structured output：优先使用原生的 result.structured_output；
+// 当前 SDK 的 JS 层尚未透传 outputFormat 时回退到从文本提取 JSON。
+export function resolveWorkbuddyJson(structuredOutput: unknown, text: string): Record<string, any> {
+  if (structuredOutput && typeof structuredOutput === 'object' && !Array.isArray(structuredOutput)) {
+    return structuredOutput as Record<string, any>;
+  }
+  const parsed = parseJsonValue(text);
+  if (parsed && !Array.isArray(parsed)) return parsed as Record<string, any>;
+  throw new Error('Workbuddy 返回内容不是预期 JSON 对象');
+}
+
+// 需要严格 JSON 对象的调用走这里，返回解析好的对象而不是文本。
+export async function runWorkbuddyJson(
+  agent: WorkbuddyAgent,
+  prompt: string,
+  systemPrompt: string,
+  schema: Record<string, unknown>,
+  requestId = 'unknown',
+): Promise<Record<string, any>> {
+  const { text, structuredOutput } = await queryWorkbuddyRaw(agent, prompt, systemPrompt, buildWorkbuddyOptions(agent, schema), requestId);
+  const parsed = resolveWorkbuddyJson(structuredOutput, text);
+  // json-source 持续验证原生 structured output 是否生效：native 表示 --json-schema
+  // 收口成功，text-parse 表示回退到文本解析（SDK 未透传或模型未调工具）。
+  console.info('[local-agent][' + requestId + '] workbuddy-json json-source=' + ((structuredOutput && typeof structuredOutput === 'object' && !Array.isArray(structuredOutput)) ? 'native' : 'text-parse'));
+  return parsed;
 }

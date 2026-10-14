@@ -35,7 +35,7 @@
 
 ## WorkBuddy/CodeBuddy 调用方式与性能说明
 
-网页和 EPUB/PDF 翻译属于单轮、无工具的结构化文本任务，不需要 Agent 检索仓库、调用 Shell、运行 MCP 或保存对话历史。当前 Workbuddy 路径使用官方 `@tencent-ai/agent-sdk` 的 `query()`，并显式禁用工具和配置加载（SDK 的单次 `query()` 模式会自动禁用后台任务）；同时设置 `persistSession: false`，避免把每个翻译 chunk 写成持久化会话记录（需要 CodeBuddy CLI >= 2.125.1）。本机服务自己的 SQLite 请求历史、译文缓存和文档断点仍独立保留，不依赖 SDK 的 Agent transcript。
+网页和 EPUB/PDF 翻译属于单轮、无工具的结构化文本任务，不需要 Agent 检索仓库、调用 Shell、运行 MCP 或保存对话历史。当前 Workbuddy 路径使用官方 `@tencent-ai/agent-sdk` 的 `query()`，并显式禁用工具和配置加载（SDK 的单次 `query()` 模式会自动禁用后台任务）；同时设置 `persistSession: false`，避免把每个翻译 chunk 写成持久化会话记录（需要 CodeBuddy CLI >= 2.125.1）。需要严格 JSON 对象时（文学分析、审校）走 `runAgentJson`：Workbuddy 侧通过 `--json-schema` 进程参数启用 CLI 原生 structured output（`StructuredOutput` 工具收口，`result.structured_output` 优先），同时保留 `outputFormat` 字段等官方 SDK 修复透传后生效。纯文本翻译另带 `thinking: { type: 'disabled' }` 关闭推理（CLI 默认开思考，机械翻译不需要；分析/审校需判断，保持默认开启）。默认模型为 `deepseek-v4.1-flash` 速度型模型（见 `~/.codebuddy/settings.json`），模型本身不是瓶颈。本机服务自己的 SQLite 请求历史、译文缓存和文档断点仍独立保留，不依赖 SDK 的 Agent transcript。
 
 已核对官方 `http-api.md`、`headless.md`、`sdk.md` 和 `sdk-typescript.md`：
 
