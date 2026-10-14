@@ -6,7 +6,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { buildAgentPrompt, parseAgentModel, parseJsonObject } from '../src/server.ts';
+import { buildAgentPrompt, parseAgentModel, parseJsonObject, parseJsonValue } from '../src/server.ts';
 
 test('uses the runtime default model when no override is configured', () => {
   const openCode = parseAgentModel('opencode');
@@ -38,6 +38,28 @@ test('parses JSON inside a Markdown code fence', () => {
 
 test('parses a JSON object wrapped in explanation', () => {
   assert.deepEqual(parseJsonObject('result:\n{"ok":true}\nthanks'), { ok: true });
+});
+
+test('accepts a valid JSON array as a translation response', () => {
+  assert.deepEqual(parseJsonValue('[{"id":"s0","translated_text":"你好"}]'), [
+    { id: 's0', translated_text: '你好' },
+  ]);
+  // Keep schema-specific parsing strict for literary-analysis and reviewer responses.
+  assert.equal(parseJsonObject('[{"id":"s0","translated_text":"你好"}]'), null);
+});
+
+test('parses a fenced JSON array', () => {
+  const fence = String.fromCharCode(96).repeat(3);
+  assert.deepEqual(parseJsonValue(fence + 'json\n[{"id":"s0","translated_text":"你好"}]\n' + fence), [
+    { id: 's0', translated_text: '你好' },
+  ]);
+});
+
+test('parses an array surrounded by model commentary without breaking escaped quotes', () => {
+  const raw = 'Result:\n[{"id":"s0","translated_text":"他说：\\\"你好\\\""}]\nDone';
+  assert.deepEqual(parseJsonValue(raw), [
+    { id: 's0', translated_text: '他说："你好"' },
+  ]);
 });
 
 test('rejects reviewer input that would otherwise be silently truncated', async () => {
