@@ -1,6 +1,6 @@
 # vocal-saga Local Agent Service
 
-这是 vocal-saga 中独立的本机 Express + TypeScript Provider，供 fanyi-extension 使用。它把 OpenAI-compatible Chat Completions 请求转交给本机 Workbuddy（@tencent-ai/agent-sdk）或 OpenCode CLI，并使用 Node 内置 SQLite 记录本机请求历史。扩展启用本机 Provider 后，网页翻译、文档翻译、侧栏对话以及 EPUB/PDF 的文学分析和 Reviewer 都走这个本机进程。
+这是 vocal-saga 中独立的本机 Express + TypeScript Provider，供 fanyi-extension 使用。 默认优先 Workbuddy/CodeBuddy SDK；OpenCode 保留为可选运行时。它把 OpenAI-compatible Chat Completions 请求转交给本机 Workbuddy（@tencent-ai/agent-sdk）或 OpenCode CLI，并使用 Node 内置 SQLite 记录本机请求历史。扩展启用本机 Provider 后，网页翻译、文档翻译、侧栏对话以及 EPUB/PDF 的文学分析和 Reviewer 都走这个本机进程。
 
 ## 环境要求
 
@@ -32,6 +32,18 @@
 在扩展 Popup 勾选“本机 Workbuddy/OpenCode Provider”，选择 Workbuddy 或 OpenCode；服务地址填 http://127.0.0.1:8789。默认无 Token 时扩展的 Token 字段留空；只有在服务端主动配置了 LOCAL_AGENT_TOKEN 时才需要同步填入。模型覆盖可以留空（使用 Workbuddy SDK / OpenCode 自身默认模型），或者填写 Workbuddy 的本机模型 ID / OpenCode 的 provider/model（例如 openai/gpt-5.4 或 ollama/qwen3-coder）。
 
 启用本机 Provider 后，扩展会优先走本机服务，不会发送到 s.sunxiunan.com。EPUB/PDF 文学模式的实体分析与 Reviewer 也使用相同的本机服务。取消勾选后，原来的 DeepSeek 和远程 vocal-saga 配置继续可用。
+
+## WorkBuddy/CodeBuddy 调用方式与性能说明
+
+网页和 EPUB/PDF 翻译属于单轮、无工具的结构化文本任务，不需要 Agent 检索仓库、调用 Shell、运行 MCP 或保存对话历史。当前 Workbuddy 路径使用官方 `@tencent-ai/agent-sdk` 的 `query()`，并显式禁用工具、配置加载和后台任务；同时设置 `persistSession: false`，避免把每个翻译 chunk 写成持久化会话记录（需要 CodeBuddy CLI >= 2.125.1）。本机服务自己的 SQLite 请求历史、译文缓存和文档断点仍独立保留，不依赖 SDK 的 Agent transcript。
+
+已核对官方 `http-api.md`、`headless.md`、`sdk.md` 和 `sdk-typescript.md`：
+
+- `query()` / TypeScript SDK 支持已有登录凭据、`CODEBUDDY_API_KEY` 或企业 OAuth token，但它仍是 Agent SDK，不是裸模型 Chat Completions 客户端。
+- `codebuddy --serve` 的 REST API 中，`POST /api/v1/runs` 创建的是 Agent run；ACP 也是有状态 Agent 会话协议。官方 HTTP API 文档没有提供通用的纯模型 `/v1/chat/completions` 端点。
+- 若要彻底移除 Agent/CLI 层，需要另行配置模型服务商的兼容 API endpoint 和对应 API key。不能假定 CodeBuddy 登录态或 `CODEBUDDY_API_KEY` 可直接用于任意模型供应商的兼容接口。
+
+因此当前优化选择是继续使用官方 Workbuddy SDK、将其限制为无工具的单轮调用，并关闭会话持久化；未来若有独立的模型 API 凭据，可增加显式 direct-model Provider，而不是把 Agent REST API 伪装成 Chat Completions。
 
 ## 本机业务能力与 SQLite
 
