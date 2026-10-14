@@ -78,6 +78,9 @@ test('starts without LOCAL_AGENT_TOKEN, allows extension requests, and blocks we
     LOCAL_AGENT_DATABASE: path.join(tempDir, 'test.sqlite'),
     LOCAL_AGENT_WORKDIR: path.join(tempDir, 'workspace'),
     LOCAL_AGENT_STORE_CONTENT: 'false',
+    // Malformed optional numeric settings must fall back to defaults rather than poisoning timers/SQLite.
+    LOCAL_AGENT_TIMEOUT_MS: 'not-a-number',
+    LOCAL_AGENT_MAX_HISTORY: 'not-a-number',
   };
   delete env.LOCAL_AGENT_TOKEN;
 
@@ -117,6 +120,19 @@ test('starts without LOCAL_AGENT_TOKEN, allows extension requests, and blocks we
 
   const models = await fetch(baseUrl + '/v1/models');
   assert.equal(models.status, 200, 'tokenless local API requests should work');
+
+  // A validation error should remain a 400 and still be recorded, even if optional
+  // integer settings in the local .env are malformed.
+  const invalidPayload = await fetch(baseUrl + '/api/translate/document/literary/analyze', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ segments: [] }),
+  });
+  assert.equal(invalidPayload.status, 400);
+  const historyResponse = await fetch(baseUrl + '/api/history?limit=10');
+  assert.equal(historyResponse.status, 200);
+  const history = await historyResponse.json();
+  assert.equal(history.rows.length, 1, 'request history should be saved without malformed LIMIT/OFFSET settings');
 
   const deniedOrigin = await fetch(baseUrl + '/v1/models', {
     method: 'OPTIONS',
