@@ -120,7 +120,7 @@ export class WorkbuddySessionPool {
   private async acquireSharedTextSlot(agent: WorkbuddyAgent): Promise<number> {
     for (;;) {
       const reusable = this.slots.findIndex((slot) =>
-        !slot.busy && !!slot.session && slot.schemaKey === '' && slot.model === (agent.model || ''),
+        !slot.busy && !!slot.session && slot.schemaKey === '',
       );
       if (reusable >= 0) {
         const slot = this.slots[reusable];
