@@ -33,6 +33,7 @@ import type { PromptStyle, TranslationMode } from './service/shared';
 import { detectLanguage, shouldUseJapaneseSource } from './languageDetector';
 import { fetchPage } from './urlFetcher';
 import { runWithConcurrency } from './concurrency';
+import { buildLiteraryReviewInstructions } from './document/literary';
 import { matchSiteRule } from './rules';
 import { parseHTML } from 'linkedom';
 import { inlineExternalStylesheets } from './cssInliner';
@@ -657,6 +658,62 @@ async function runTranslationPipeline(
   );
 
   // 回填：一次性 querySelectorAll 建 Map → O(1) 查找（原实现 O(blocks × N)）
+  // Literary web pages use a separate editorial pass after the first translation.
+  // The reviewer gets source/draft pairs, never a generic terminology glossary; a failed
+  // review leaves the initial translation intact rather than breaking page translation.
+  if (translationMode === 'literary' && translations.size > 0) {
+    const reviewBlocks = blocks.flatMap((block) => {
+      const draft = translations.get(block.id);
+      return draft?.trim()
+        ? [{
+            id: block.id,
+            text: JSON.stringify({ source: block.text, draft, kind: block.tag || 'paragraph' }),
+            kind: 'other' as const,
+          }]
+        : [];
+    });
+    if (reviewBlocks.length > 0) {
+      try {
+        const reviewed = await translateBlocks({
+          blocks: reviewBlocks,
+          source: sourceLang,
+          target: targetLang,
+          glossary: undefined,
+          promptStyle: effectiveStyle,
+          translationMode: 'literary',
+          provider,
+          model,
+          apiKey,
+          concurrency: 1,
+          taskInstructions: buildLiteraryReviewInstructions(title),
+        });
+        for (const block of reviewBlocks) {
+          const raw = reviewed.get(block.id);
+          if (typeof raw !== 'string' || !raw.trim()) continue;
+          let parsed: Record<string, unknown> | null = null;
+          try {
+            const candidate: unknown = JSON.parse(raw);
+            if (candidate && typeof candidate === 'object' && !Array.isArray(candidate)) {
+              parsed = candidate as Record<string, unknown>;
+            }
+          } catch {
+            // Do not treat a malformed reviewer response as a valid literary revision.
+          }
+          if (!parsed || typeof parsed.finalTranslation !== 'string' || !parsed.finalTranslation.trim()) continue;
+          const findings = Array.isArray(parsed.findings) ? parsed.findings : [];
+          const actionable = findings.some((finding) =>
+            !!finding && typeof finding === 'object' && !Array.isArray(finding) &&
+            ['accuracy', 'terminology', 'style'].includes(String((finding as Record<string, unknown>).category)),
+          );
+          if (actionable) translations.set(block.id, parsed.finalTranslation.trim().slice(0, 20_000));
+        }
+      } catch (reviewError) {
+        console.warn('[Pipeline] Literary reviewer failed; preserving first-pass translations:',
+          reviewError instanceof Error ? reviewError.message : String(reviewError));
+      }
+    }
+  }
+
   const tApply = performance.now();
   const { applyBlockTranslation, applyInlineTranslation } = await import('./translationDisplay');
   const blockMap = new Map<string, Element>();
