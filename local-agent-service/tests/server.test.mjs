@@ -154,6 +154,53 @@ test('会话池复用：空闲槽复用同一会话，全忙时排队', async ()
   pool.closeAll();
 });
 
+test('书籍 Session 按文档和任务角色隔离，同时复用同一 scope 的对话历史', async () => {
+  const { WorkbuddySessionPool } = await import('../src/agents/workbuddyPool.ts');
+  const created = [];
+  const factory = (options) => {
+    const session = {
+      sent: [], closed: false, options,
+      async send(message) { this.sent.push(message); },
+      async *stream() {
+        yield { type: 'assistant', message: { content: [{ type: 'text', text: 'ok' }] } };
+        yield { type: 'result', subtype: 'success' };
+      },
+      async interrupt() {},
+      close() { this.closed = true; },
+      async setModel() {},
+    };
+    created.push(session);
+    return session;
+  };
+  const pool = new WorkbuddySessionPool(3, 10, factory);
+  const agent = { provider: 'workbuddy', model: 'test-model' };
+
+  const firstBook = await pool.acquire(agent, 'book-a:translation');
+  await pool.runPrompt(firstBook, 'book A chapter 1', 'a1', 5000);
+  pool.release(firstBook);
+
+  const nextChapter = await pool.acquire(agent, 'book-a:translation');
+  assert.equal(nextChapter, firstBook, 'the same book/role should keep its Session');
+  await pool.runPrompt(nextChapter, 'book A chapter 2', 'a2', 5000);
+  pool.release(nextChapter);
+
+  const secondBook = await pool.acquire(agent, 'book-b:translation');
+  assert.notEqual(secondBook, firstBook, 'different books must have separate conversation history');
+  await pool.runPrompt(secondBook, 'book B chapter 1', 'b1', 5000);
+  pool.release(secondBook);
+
+  const reviewer = await pool.acquire(agent, 'book-a:review', { type: 'object' });
+  assert.notEqual(reviewer, firstBook, 'reviewer output must not share translation history');
+  assert.equal(created[2].options.allowedTools.includes('StructuredOutput'), true);
+  await pool.runPrompt(reviewer, 'review book A', 'review', 5000);
+  pool.release(reviewer);
+
+  assert.deepEqual(created[0].sent, ['book A chapter 1', 'book A chapter 2']);
+  assert.deepEqual(created[1].sent, ['book B chapter 1']);
+  assert.deepEqual(created[2].sent, ['review book A']);
+  pool.closeAll();
+});
+
 test('会话池全忙时后来者排队等待', async () => {
   const { WorkbuddySessionPool } = await import('../src/agents/workbuddyPool.ts');
   const factory = () => ({
