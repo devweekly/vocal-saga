@@ -34,7 +34,8 @@
 - `POST /api/cache/translation/get` / `POST /api/cache/translation/set`：SQLite 持久化翻译缓存。网页分块翻译可复用之前的译文，文档翻译通过相同 background 分块入口时也共享缓存。默认 7 天 TTL，最多保留 20,000 条；缓存不可用时按 cache miss 处理，不阻断翻译。
 - `DELETE /api/cache/translation`：清空本机翻译缓存；扩展的“清空缓存”会同时清理本机缓存。
 - `POST /api/documents/batches`：把结构化文档片段交给本机服务计算批次边界。支持字符数、片段数、章节/PDF 页边界约束，返回片段 ID 而不是重复传回全文；服务不可用时扩展才使用同一套确定性本地计算作为降级，不会调用远程服务。
-- `POST /api/documents/session/save` / `POST /api/documents/session/get`：SQLite 文档检查点，保存阅读位置、已完成译文、书籍记忆和任务状态；保留最近 30 个会话。扩展仍以 IndexedDB 为主要阅读状态存储，SQLite 是本机模式的额外恢复副本，IndexedDB 无可用会话时可尝试从 SQLite 恢复。
+- `POST /api/documents/session/save` / `POST /api/documents/session/get`：SQLite 文档检查点，保存阅读位置、已完成译文、书籍记忆和任务状态；保留最近 30 个会话。后续检查点只提交变化的译文，服务端合并回完整快照，避免每批重复上传整本书的译文。
+- `POST /api/documents/session/summary`：只返回恢复卡片所需的标题、格式与更新时间，不传回整份文档；即使扩展的 IndexedDB 不可用，阅读器也可以发现 SQLite 中的恢复副本。扩展仍以 IndexedDB 为主要阅读状态存储，SQLite 是本机模式的额外恢复副本。
 - EPUB/PDF 的文件选择与 PDF/EPUB 容器解析仍在扩展中执行，因为它们依赖浏览器文件权限、PDF.js 和浏览器阅读器环境；提取后的片段批次规划、文学实体分析、书籍记忆和 Reviewer 由本机服务优先处理。
 
 这些端点只供 loopback 本机扩展使用，沿用同一可选 Token 校验。缓存值、文档检查点与请求历史是独立表；`LOCAL_AGENT_STORE_CONTENT=false` 只控制请求历史是否记录完整 prompt/响应，不会关闭业务缓存和文档检查点。要彻底清除本机文档数据，应清空翻译缓存并删除 SQLite 数据库文件。
