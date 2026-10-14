@@ -69,7 +69,7 @@ test('starts without LOCAL_AGENT_TOKEN, allows extension requests, and blocks we
   const tempDir = await mkdtemp(path.join(os.tmpdir(), 'vocal-saga-local-agent-test-'));
   const port = await reserveLoopbackPort();
   const serviceDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-  const script = path.join(serviceDir, 'src', 'server.mjs');
+  const script = path.join(serviceDir, 'src', 'start.mjs');
   const env = {
     ...process.env,
     LOCAL_AGENT_HOST: '127.0.0.1',
@@ -82,7 +82,7 @@ test('starts without LOCAL_AGENT_TOKEN, allows extension requests, and blocks we
     LOCAL_AGENT_TIMEOUT_MS: 'not-a-number',
     LOCAL_AGENT_MAX_HISTORY: 'not-a-number',
   };
-  delete env.LOCAL_AGENT_TOKEN;
+  env.LOCAL_AGENT_TOKEN = '';
 
   const child = spawn(process.execPath, [script], {
     cwd: serviceDir,
