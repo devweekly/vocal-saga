@@ -78,6 +78,7 @@ test('starts without LOCAL_AGENT_TOKEN, allows extension requests, and blocks we
     LOCAL_AGENT_DATABASE: path.join(tempDir, 'test.sqlite'),
     LOCAL_AGENT_WORKDIR: path.join(tempDir, 'workspace'),
     LOCAL_AGENT_STORE_CONTENT: 'false',
+    LOCAL_AGENT_ENV_FILE: path.join(tempDir, 'nonexistent.env'),
     // Malformed optional numeric settings must fall back to defaults rather than poisoning timers/SQLite.
     LOCAL_AGENT_TIMEOUT_MS: 'not-a-number',
     LOCAL_AGENT_MAX_HISTORY: 'not-a-number',
