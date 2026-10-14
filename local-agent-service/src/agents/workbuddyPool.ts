@@ -58,6 +58,10 @@ export class WorkbuddySessionPool {
     scopeKey = 'shared-text-translation',
     schema?: Record<string, unknown>,
   ): Promise<number> {
+    // Legacy non-document translations retain a parallel pool: each in-flight chunk gets its
+    // own slot, while an idle slot can be reused later. Book/task sessions use the stricter path below.
+    if (scopeKey === 'shared-text-translation' && !schema) return this.acquireSharedTextSlot(agent);
+
     const schemaKey = schema ? JSON.stringify(schema) : '';
     const requestedKey = JSON.stringify([scopeKey, agent.model || '<runtime-default>', schemaKey]);
     for (;;) {
@@ -103,6 +107,55 @@ export class WorkbuddySessionPool {
       slot.schemaKey = schemaKey;
       try {
         await this.ensureSession(index, agent, requestedKey, schema);
+      } catch (error) {
+        slot.busy = false;
+        this.wakeNext();
+        throw error;
+      }
+      slot.lastUsedAt = Date.now();
+      return index;
+    }
+  }
+
+  private async acquireSharedTextSlot(agent: WorkbuddyAgent): Promise<number> {
+    for (;;) {
+      const reusable = this.slots.findIndex((slot) =>
+        !slot.busy && !!slot.session && slot.schemaKey === '' && slot.model === (agent.model || ''),
+      );
+      if (reusable >= 0) {
+        const slot = this.slots[reusable];
+        slot.busy = true;
+        try {
+          await this.ensureSession(reusable, agent, slot.scopeKey || ('shared-slot:' + reusable));
+        } catch (error) {
+          slot.busy = false;
+          this.wakeNext();
+          throw error;
+        }
+        slot.lastUsedAt = Date.now();
+        return reusable;
+      }
+
+      let index = this.slots.findIndex((slot) => !slot.busy && !slot.session);
+      if (index < 0) {
+        const idle = this.slots
+          .map((slot, slotIndex) => ({ slot, slotIndex }))
+          .filter(({ slot }) => !slot.busy)
+          .sort((a, b) => a.slot.lastUsedAt - b.slot.lastUsedAt)[0];
+        if (idle) index = idle.slotIndex;
+      }
+      if (index < 0) {
+        await new Promise<void>((resolve) => { this.waiters.push(resolve); });
+        continue;
+      }
+
+      const slot = this.slots[index];
+      slot.busy = true;
+      if (slot.session) this.dropSession(index);
+      const slotKey = 'shared-slot:' + index + ':' + (agent.model || '<runtime-default>');
+      slot.scopeKey = slotKey;
+      try {
+        await this.ensureSession(index, agent, slotKey);
       } catch (error) {
         slot.busy = false;
         this.wakeNext();
