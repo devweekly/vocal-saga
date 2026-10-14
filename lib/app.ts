@@ -1195,11 +1195,12 @@ ${pager}
         model: typeof model === 'string' ? model : undefined,
         apiKey: typeof apiKey === 'string' ? apiKey : undefined,
         // 只有电子书客户端显式开启文学模式时才使用独立记忆与审校流程。
-        literaryContext: (format === 'epub' || format === 'pdf') &&
-          literaryContext && typeof literaryContext === 'object' ? literaryContext : undefined,
+        // The profile may carry recent literary examples for non-book documents too;
+        // only EPUB/PDF trigger automatic entity analysis in the client workflow.
+        literaryContext: literaryContext && typeof literaryContext === 'object' ? literaryContext : undefined,
         // Literary profile invokes the editorial pass for any structured document; EPUB/PDF
         // additionally carry book-level entity and style memory when supplied.
-        literaryReview: translationMode === 'literary' || literaryReview === true,
+        literaryReview: literaryReview === true || (translationMode === 'literary' && literaryReview !== false),
         chapterTitle: typeof chapterTitle === 'string' ? chapterTitle.slice(0, 160) : undefined,
       });
       return c.json({
