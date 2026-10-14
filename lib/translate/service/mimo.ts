@@ -18,6 +18,7 @@ import {
   cleanJsonString,
   repairJson,
   type PromptStyle,
+  type TranslationMode,
 } from './shared';
 
 const BOOTSTRAP_URL = 'https://api.xiaomimimo.com/api/free-ai/bootstrap';
