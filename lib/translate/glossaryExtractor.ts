@@ -710,6 +710,14 @@ export function extractGlossaryLocal(
 }
 
 const GENERIC_NOISE = new Set([
+  // Demonyms, language names, and nationality adjectives are translatable
+  // vocabulary, not terms that should be kept in English.
+  'english', 'dutch', 'spanish', 'portuguese', 'french', 'german', 'italian',
+  'russian', 'japanese', 'chinese', 'korean', 'greek', 'latin', 'arabic',
+  'turkish', 'polish', 'swedish', 'norwegian', 'danish', 'finnish', 'irish',
+  'scottish', 'welsh', 'british', 'american', 'canadian', 'australian',
+  'european', 'asian', 'african', 'indian', 'brazilian', 'mexican', 'persian',
+  'ottoman',
   'services', 'service', 'systems', 'system', 'traces', 'trace',
   'tools', 'tool', 'logs', 'log', 'metrics', 'metric', 'data',
   'engineers', 'engineer', 'teams', 'team', 'users', 'user',
