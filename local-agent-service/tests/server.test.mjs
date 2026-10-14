@@ -177,6 +177,17 @@ test('starts without LOCAL_AGENT_TOKEN, allows extension requests, and blocks we
   assert.equal(sessionResult.found, true);
   assert.deepEqual(sessionResult.session.payload, sessionPayload);
 
+  const sessionSummaryResponse = await fetch(baseUrl + '/api/documents/session/summary', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ sessionId: 'book-test' }),
+  });
+  assert.equal(sessionSummaryResponse.status, 200);
+  const sessionSummary = await sessionSummaryResponse.json();
+  assert.equal(sessionSummary.found, true);
+  assert.equal(sessionSummary.session.title, '测试书');
+  assert.equal(sessionSummary.session.format, 'epub');
+  assert.equal(Object.hasOwn(sessionSummary.session, 'payload'), false, 'summary must not return the full document');
+
 
   const checkpointUpdate = await fetch(baseUrl + '/api/documents/session/save', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -193,6 +204,30 @@ test('starts without LOCAL_AGENT_TOKEN, allows extension requests, and blocks we
   const checkpointReloaded = await checkpointReload.json();
   assert.deepEqual(checkpointReloaded.session.payload.document, { id: 'doc-1' });
   assert.deepEqual(checkpointReloaded.session.payload.snapshot.translations, [['s1', '你好'], ['s2', '世界']]);
+
+  // Later saves may omit the full translations array and send only the changed pairs.
+  const deltaCheckpoint = await fetch(baseUrl + '/api/documents/session/save', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      sessionId: 'book-test', title: '测试书', format: 'epub', mergeExisting: true,
+      payload: {
+        snapshot: { total: 4, done: 2 },
+        translationDelta: [['s2', '更新后的译文'], ['s3', '再见']],
+      },
+    }),
+  });
+  assert.equal(deltaCheckpoint.status, 200);
+  const deltaReloadResponse = await fetch(baseUrl + '/api/documents/session/get', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ sessionId: 'book-test' }),
+  });
+  const deltaReload = await deltaReloadResponse.json();
+  assert.deepEqual(deltaReload.session.payload.snapshot.translations, [
+    ['s1', '你好'], ['s2', '更新后的译文'], ['s3', '再见'],
+  ]);
+  assert.equal(deltaReload.session.payload.snapshot.total, 4);
+  assert.equal(deltaReload.session.payload.snapshot.done, 2);
+  assert.equal(Object.hasOwn(deltaReload.session.payload, 'translationDelta'), false);
 
   const deniedOrigin = await fetch(baseUrl + '/v1/models', {
     method: 'OPTIONS',
