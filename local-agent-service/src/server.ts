@@ -6,16 +6,6 @@
 import express, { type Request, type Response, type NextFunction } from 'express';
 import { DatabaseSync } from 'node:sqlite';
 import { randomUUID, timingSafeEqual } from 'node:crypto';
-import { spawn } from 'node:child_process';
-import { mkdirSync } from 'node:fs';
-import { homedir } from 'node:os';
-import path from 'node:path';
-import { randomUUID, timingSafeEqual } from 'node:crypto';
-import { DatabaseSync } from 'node:sqlite';
-import { spawn } from 'node:child_process';
-import { mkdirSync } from 'node:fs';
-import { homedir } from 'node:os';
-import path from 'node:path';
 
 const HOST = (process.env.LOCAL_AGENT_HOST || '127.0.0.1').trim();
 const PORT = Number.parseInt(process.env.LOCAL_AGENT_PORT || '8789', 10);
@@ -48,7 +38,7 @@ const MAX_BODY_BYTES = 6 * 1024 * 1024;
 const MAX_HISTORY_ROWS = positiveIntegerEnv('LOCAL_AGENT_MAX_HISTORY', 500, 50);
 const STORE_CONTENT = (process.env.LOCAL_AGENT_STORE_CONTENT || 'true').toLowerCase() !== 'false';
 
-let db;
+let db: DatabaseSync | undefined;
 const app = express();
 app.disable('x-powered-by');
 
