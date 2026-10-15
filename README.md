@@ -42,6 +42,102 @@ npm run deploy:cf
 - **Cloudflare KV** — 缓存存储
 - **Cloudflare D1** — 翻译结果持久化
 
+## Architecture and request flows
+
+### C4 — system context
+
+```mermaid
+C4Context
+    title Vocal Saga system context
+    Person(reader, "Reader", "Reads and translates pages or EPUB/PDF documents")
+    System(extension, "fanyi-extension", "Browser extension and document reader")
+    System(cloud, "Vocal Saga Cloud API", "Hono on Cloudflare Workers; remote web translation and LLM proxy")
+    System(local, "Local Agent Service", "Optional loopback-only Express service on the user's Mac")
+    System_Ext(remoteModels, "Remote LLM Providers", "DeepSeek, OpenRouter, NVIDIA and other configured providers")
+    System_Ext(localRuntime, "Local model runtime", "Workbuddy/CodeBuddy SDK or OpenCode CLI")
+    Rel(reader, extension, "Uses")
+    Rel(extension, cloud, "HTTPS; remote translation mode")
+    Rel(extension, local, "HTTP on 127.0.0.1; Local Agent mode only")
+    Rel(cloud, remoteModels, "Provider API calls")
+    Rel(local, localRuntime, "Local SDK / CLI requests")
+```
+
+### C4 — containers and persistence
+
+```mermaid
+C4Container
+    title Vocal Saga deployment containers
+    System_Boundary(remote, "Vocal Saga cloud deployment") {
+        Container(worker, "Translation API", "Hono / Cloudflare Workers", "URL translation, page translation API and OpenAI-compatible proxy")
+        Container(kv, "KV cache", "Cloudflare KV", "Cached HTML and runtime state")
+        ContainerDb(d1, "Translation store", "Cloudflare D1", "Persistent translation/cache records")
+    }
+    System_Boundary(localBoundary, "Optional local service — not deployed to Workers") {
+        Container(localApi, "Local Agent HTTP API", "Express / TypeScript / Node.js", "Web requests and project-based EPUB/PDF translation workflow")
+        ContainerDb(sqlite, "Local SQLite", "node:sqlite", "Request history, translation cache, projects, runs, candidates, findings and events")
+    }
+    System_Ext(extension, "fanyi-extension", "WXT browser extension")
+    System_Ext(remoteModels, "Remote model providers", "HTTP APIs")
+    System_Ext(localRuntime, "Workbuddy/CodeBuddy or OpenCode", "Local SDK / CLI runtime")
+    Rel(extension, worker, "HTTPS requests")
+    Rel(extension, localApi, "Loopback HTTP when Local Agent is enabled")
+    Rel(worker, kv, "Read/write cache")
+    Rel(worker, d1, "Read/write translation records")
+    Rel(worker, remoteModels, "Model API calls")
+    Rel(localApi, sqlite, "Persist and recover workflow state")
+    Rel(localApi, localRuntime, "Bounded model requests")
+```
+
+### Sequence — remote URL translation
+
+```mermaid
+sequenceDiagram
+    actor Reader
+    participant API as Cloudflare Worker / Hono
+    participant Fetcher as URL fetch and guard
+    participant Extract as Extraction + chunk builder
+    participant Model as Remote model provider
+    participant Cache as KV / D1
+    Reader->>API: GET /translate/{url}
+    API->>Cache: Check reusable cached result
+    alt Cache hit
+        Cache-->>API: Cached translated HTML
+    else Cache miss or forced refresh
+        API->>Fetcher: Fetch and validate target URL
+        Fetcher-->>API: Source HTML
+        API->>Extract: Prepare document and build chunks
+        loop Chunks / missing-ID retries
+            Extract->>Model: Translate chunk
+            Model-->>Extract: Structured translations
+        end
+        Extract-->>API: Validated block translations + bilingual HTML
+        API->>Cache: Persist cache / translation record
+    end
+    API-->>Reader: HTML response
+```
+
+### Flow — local EPUB/PDF Agent run
+
+```mermaid
+flowchart TD
+    A[Extension parses EPUB/PDF into stable segments] --> B[Create or select project and translation run]
+    B --> C[Load source revision, Prompt and run scope]
+    C --> D[Bounded translation workers: default up to 3]
+    D --> E[Translate batch with independent Session scope]
+    E --> F[Persist candidates and emit batch.translation.completed]
+    F --> G{Literary review enabled?}
+    G -- No --> K[Wait for workers and compute final run state]
+    G -- Yes --> H[Queue bounded Reviewer: default up to 1]
+    H --> I[Save findings and only actual revised candidates]
+    I --> J[Emit batch.completed after review settles]
+    J --> K
+    K --> L[Persist run terminal status; extension refreshes events and segments]
+    D -. Pause/cancel stops new allocation .-> M[Discard late results on cancellation]
+    H -. Cancellation .-> M
+```
+
+> The Cloudflare API and Local Agent are separate routes. Enabling Local Agent mode does not fall back to remote providers on local model failure.
+
 ## Configuration
 
 ```bash
