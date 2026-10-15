@@ -52,6 +52,9 @@ export interface LiteraryReviewFinding {
   draftExcerpt: string;
   reason: string;
   suggestion: string;
+  /** Complete alternative translation for user-controlled style review. */
+  proposedTranslation?: string;
+  applicationStatus?: 'pending' | 'applied' | 'dismissed';
 }
 
 function extractJsonObject(input: string): Record<string, unknown> | null {
@@ -217,14 +220,24 @@ export async function reviewLiteraryBatch(input: LiteraryWorkflowOptions & {
           draftExcerpt: typeof item.draftExcerpt === 'string' ? item.draftExcerpt.slice(0, 240) : '',
           reason: typeof item.reason === 'string' ? item.reason.slice(0, 400) : '',
           suggestion: typeof item.suggestion === 'string' ? item.suggestion.slice(0, 400) : '',
+          ...(category === 'style' ? {
+            proposedTranslation: parsed.finalTranslation.trim().slice(0, 5_000),
+            applicationStatus: 'pending' as const,
+          } : { applicationStatus: 'applied' as const }),
         };
         if (finding.reason || finding.suggestion) segmentFindings.push(finding);
       }
     }
+    const hasMustFixFinding = segmentFindings.some((finding) => finding.priority === 'must_fix');
+    if (hasMustFixFinding) {
+      for (const finding of segmentFindings) {
+        if (finding.category === 'style') finding.applicationStatus = 'applied';
+      }
+    }
     findings.push(...segmentFindings);
-    const hasActionableFinding = segmentFindings.length > 0;
-    // 有明确事实错误或具体文风问题时采纳受控修订版；无问题时保留初译，避免无意义重写。
-    translations[segment.id] = hasActionableFinding
+    // Facts/terminology are automatically corrected. Pure style preferences remain only a candidate
+    // and do not overwrite a valid draft until the user chooses to apply them in the reader.
+    translations[segment.id] = hasMustFixFinding
       ? parsed.finalTranslation.trim().slice(0, 5_000)
       : segment.draft.trim().slice(0, 5_000);
   }
