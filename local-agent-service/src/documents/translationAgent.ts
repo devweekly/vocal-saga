@@ -94,12 +94,20 @@ export async function runWithConcurrency<T>(
   if (!items.length) return;
   const limit = Math.max(1, Math.min(items.length, Math.floor(concurrency) || 1));
   let cursor = 0;
+  let stopAfterFailure = false;
   const worker = async (): Promise<void> => {
     while (true) {
-      if (shouldStop?.()) return;
+      if (stopAfterFailure || shouldStop?.()) return;
       const index = cursor++;
       if (index >= items.length) return;
-      await task(items[index]!, index);
+      try {
+        await task(items[index]!, index);
+      } catch (error) {
+        // Let sibling work already in flight settle, but do not allocate more batches after
+        // a fatal scheduler/persistence error.
+        stopAfterFailure = true;
+        throw error;
+      }
     }
   };
   const results = await Promise.allSettled(Array.from({ length: limit }, () => worker()));
