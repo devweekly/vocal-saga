@@ -36,6 +36,8 @@ export interface ProjectPrompt {
   translationMode?: 'technical' | 'literary';
   literaryReview?: boolean;
   glossary?: unknown;
+  /** Confirmed book entities/style memory included as read-only Agent context. */
+  literaryMemory?: unknown;
 }
 
 export interface ProjectSummary {
@@ -182,7 +184,7 @@ export class DocumentProjectStore {
       'CREATE TABLE IF NOT EXISTS translation_results (' +
       'result_id TEXT PRIMARY KEY, run_id TEXT, source_revision_id TEXT NOT NULL, prompt_revision_id TEXT, segment_id TEXT NOT NULL, ' +
       'source_hash TEXT NOT NULL, run_fingerprint TEXT NOT NULL, translation_text TEXT NOT NULL, origin TEXT NOT NULL, ' +
-      'accepted INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL);' +
+      'accepted INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL, accepted_at TEXT);' +
       'CREATE INDEX IF NOT EXISTS idx_translation_results_segment ON translation_results(segment_id, accepted, created_at DESC);' +
       'CREATE INDEX IF NOT EXISTS idx_translation_results_run ON translation_results(run_id, created_at DESC);' +
       'CREATE TABLE IF NOT EXISTS review_findings (' +
@@ -193,6 +195,14 @@ export class DocumentProjectStore {
       'event_id INTEGER PRIMARY KEY AUTOINCREMENT, run_id TEXT, event_type TEXT NOT NULL, payload_json TEXT NOT NULL, created_at TEXT NOT NULL);' +
       'CREATE INDEX IF NOT EXISTS idx_project_events_run ON project_events(run_id, event_id);'
     );
+    // Add columns safely for project DBs created by earlier iterations of this feature.
+    const translationColumns = new Set(
+      (db.prepare('PRAGMA table_info(translation_results)').all() as Array<{ name: string }>).map((column) => column.name),
+    );
+    if (!translationColumns.has('accepted_at')) {
+      db.exec('ALTER TABLE translation_results ADD COLUMN accepted_at TEXT');
+      db.exec('UPDATE translation_results SET accepted_at = created_at WHERE accepted = 1 AND accepted_at IS NULL');
+    }
   }
 
   private openProjectDb(projectId: string, create = false): DatabaseSync {
@@ -339,6 +349,7 @@ export class DocumentProjectStore {
       translationMode: prompt.translationMode === 'literary' ? 'literary' : 'technical',
       literaryReview: Boolean(prompt.literaryReview),
       glossary: prompt.glossary ?? null,
+      literaryMemory: prompt.literaryMemory ?? null,
     };
     const systemPrompt = String(prompt.systemPrompt || DEFAULT_SYSTEM_PROMPT).slice(0, 50000);
     const userPromptTemplate = String(prompt.userPromptTemplate || '').slice(0, 30000);
@@ -394,7 +405,7 @@ export class DocumentProjectStore {
       throw Object.assign(new Error('不支持的运行范围：' + scopeType), { status: 400 });
     }
     const currentSegments = db.prepare('SELECT * FROM source_segments WHERE source_revision_id = ? ORDER BY ordinal').all(sourceRevisionId) as any[];
-    const acceptedRows = db.prepare('SELECT * FROM translation_results WHERE accepted = 1 ORDER BY created_at DESC').all() as any[];
+    const acceptedRows = db.prepare('SELECT * FROM translation_results WHERE accepted = 1 ORDER BY COALESCE(accepted_at, created_at) DESC, created_at DESC').all() as any[];
     const latestAccepted = new Map<string, any>();
     for (const row of acceptedRows) if (!latestAccepted.has(row.segment_id)) latestAccepted.set(row.segment_id, row);
     const failedRows = db.prepare("SELECT segment_id FROM run_segments WHERE status = 'failed' ORDER BY updated_at DESC").all() as Array<{ segment_id: string }>;
@@ -417,7 +428,7 @@ export class DocumentProjectStore {
       if (scopeType === 'chapter') return !!chapter && (segment.context_path === chapter || segment.context_path.startsWith(chapter + ' >'));
       if (scopeType === 'failed') return failedIds.has(segment.segment_id);
       const accepted = latestAccepted.get(segment.segment_id);
-      return !accepted || accepted.source_hash !== segment.source_hash || accepted.run_fingerprint !== runFingerprint;
+      return !accepted || accepted.source_hash !== segment.source_hash || (accepted.origin !== 'manual' && accepted.run_fingerprint !== runFingerprint);
     });
     const runId = randomUUID();
     const createdAt = isoNow();
@@ -500,7 +511,7 @@ export class DocumentProjectStore {
     const offset = Math.max(0, Math.floor(options.offset || 0));
     const rows = db.prepare(
       'SELECT s.segment_id, s.ordinal, s.text, s.kind, s.context_path, s.page, s.level, s.marker, s.source_hash, ' +
-      '(SELECT r.translation_text FROM translation_results r WHERE r.segment_id = s.segment_id AND r.accepted = 1 ORDER BY r.created_at DESC LIMIT 1) AS accepted_translation, ' +
+      '(SELECT r.translation_text FROM translation_results r WHERE r.segment_id = s.segment_id AND r.accepted = 1 ORDER BY COALESCE(r.accepted_at, r.created_at) DESC, r.created_at DESC LIMIT 1) AS accepted_translation, ' +
       '(SELECT r.translation_text FROM translation_results r WHERE r.segment_id = s.segment_id AND r.run_id = ? ORDER BY r.created_at DESC LIMIT 1) AS candidate_translation ' +
       'FROM source_segments s WHERE s.source_revision_id = ? ORDER BY s.ordinal LIMIT ? OFFSET ?'
     ).all(options.runId || '', currentSourceRevisionId, limit, offset) as any[];
@@ -617,7 +628,7 @@ export class DocumentProjectStore {
     ).get(runId, segmentId) as any;
     if (!run || !row) throw Object.assign(new Error('运行不包含片段：' + segmentId), { status: 400 });
     const resultId = randomUUID();
-    db.prepare('INSERT INTO translation_results(result_id, run_id, source_revision_id, prompt_revision_id, segment_id, source_hash, run_fingerprint, translation_text, origin, accepted, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, \'agent\', 0, ?)')
+    db.prepare('INSERT INTO translation_results(result_id, run_id, source_revision_id, prompt_revision_id, segment_id, source_hash, run_fingerprint, translation_text, origin, accepted, created_at, accepted_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, \'agent\', 0, ?, NULL)')
       .run(resultId, runId, run.source_revision_id, run.prompt_revision_id, segmentId, row.source_hash, run.run_fingerprint, text, isoNow());
     db.prepare('UPDATE run_segments SET status = \'candidate\', candidate_result_id = ?, error = NULL, updated_at = ? WHERE run_id = ? AND segment_id = ?')
       .run(resultId, isoNow(), runId, segmentId);
@@ -655,7 +666,7 @@ export class DocumentProjectStore {
     try {
       for (const row of rows) {
         if (only && !only.has(row.segment_id)) continue;
-        db.prepare('UPDATE translation_results SET accepted = 1 WHERE result_id = ?').run(row.candidate_result_id);
+        db.prepare('UPDATE translation_results SET accepted = 1, accepted_at = ? WHERE result_id = ?').run(now, row.candidate_result_id);
         db.prepare('UPDATE run_segments SET status = \'accepted\', updated_at = ? WHERE run_id = ? AND segment_id = ?').run(now, runId, row.segment_id);
         accepted++;
       }
@@ -679,8 +690,8 @@ export class DocumentProjectStore {
     const meta = new Map((db.prepare('SELECT key, value FROM project_meta').all() as Array<{ key: string; value: string }>).map((row) => [row.key, row.value]));
     const latestPrompt = db.prepare('SELECT prompt_revision_id FROM prompt_revisions ORDER BY created_at DESC LIMIT 1').get() as any;
     const resultId = randomUUID();
-    db.prepare('INSERT INTO translation_results(result_id, run_id, source_revision_id, prompt_revision_id, segment_id, source_hash, run_fingerprint, translation_text, origin, accepted, created_at) VALUES (?, NULL, ?, ?, ?, ?, \'manual\', ?, \'manual\', 1, ?)')
-      .run(resultId, currentSourceRevisionId, latestPrompt?.prompt_revision_id || null, segmentId, source.source_hash, text, isoNow());
+    db.prepare('INSERT INTO translation_results(result_id, run_id, source_revision_id, prompt_revision_id, segment_id, source_hash, run_fingerprint, translation_text, origin, accepted, created_at, accepted_at) VALUES (?, NULL, ?, ?, ?, ?, \'manual\', ?, \'manual\', 1, ?, ?)' )
+      .run(resultId, currentSourceRevisionId, latestPrompt?.prompt_revision_id || null, segmentId, source.source_hash, text, isoNow(), isoNow());
     this.addEvent(projectId, null, 'translation.manually-edited', { segmentId, resultId });
     this.catalogDb().prepare('UPDATE document_projects SET updated_at = ? WHERE project_id = ?').run(isoNow(), projectId);
     return { resultId, segmentId, text, origin: 'manual', accepted: true };
@@ -692,7 +703,7 @@ export class DocumentProjectStore {
     const { db, currentSourceRevisionId } = this.getProjectContext(projectId);
     const segments = db.prepare('SELECT segment_id, source_hash FROM source_segments WHERE source_revision_id = ?').all(currentSourceRevisionId) as any[];
     const latestAccepted = new Map<string, any>();
-    for (const row of db.prepare('SELECT * FROM translation_results WHERE accepted = 1 ORDER BY created_at DESC').all() as any[]) {
+    for (const row of db.prepare('SELECT * FROM translation_results WHERE accepted = 1 ORDER BY COALESCE(accepted_at, created_at) DESC, created_at DESC').all() as any[]) {
       if (!latestAccepted.has(row.segment_id)) latestAccepted.set(row.segment_id, row);
     }
     const missing: string[] = [];
