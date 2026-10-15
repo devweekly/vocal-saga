@@ -203,13 +203,11 @@ function normalizedEntityName(value: string): string {
 function dedupeEntities(entities: LiteraryEntity[]): LiteraryEntity[] {
   const merged: LiteraryEntity[] = [];
   for (const entity of entities) {
-    const sourceKey = normalizedEntityName(entity.source);
+    const incomingNames = new Set([entity.source, ...(entity.aliases ?? [])].map(normalizedEntityName).filter(Boolean));
     const index = merged.findIndex((prior) => {
-      if (normalizedEntityName(prior.source) === sourceKey) return true;
       if (prior.kind !== entity.kind && prior.kind !== 'other' && entity.kind !== 'other') return false;
-      const priorAliases = (prior.aliases ?? []).map(normalizedEntityName);
-      const entityAliases = (entity.aliases ?? []).map(normalizedEntityName);
-      return priorAliases.includes(sourceKey) || entityAliases.includes(normalizedEntityName(prior.source));
+      const priorNames = new Set([prior.source, ...(prior.aliases ?? [])].map(normalizedEntityName).filter(Boolean));
+      return Array.from(incomingNames).some((name) => priorNames.has(name));
     });
     if (index < 0) {
       merged.push(entity);
