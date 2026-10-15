@@ -8,7 +8,7 @@ import express, { type Request, type Response, type NextFunction } from 'express
 import path from 'node:path';
 
 import {
-  DEFAULT_PROVIDER, HOST, PORT, MAX_BODY_BYTES, DATABASE_PATH, STORE_CONTENT,
+  DEFAULT_PROVIDER, HOST, PORT, MAX_BODY_BYTES, MAX_DOCUMENT_BODY_BYTES, DATABASE_PATH, STORE_CONTENT,
 } from './config.ts';
 import { initDatabase } from './db.ts';
 import { sendJson, addCors, isLoopbackHost } from './middleware.ts';
@@ -53,6 +53,10 @@ export function startLocalAgentServer() {
     next();
   });
 
+  // 文档项目创建会把整本书的片段正文塞进一个 JSON 请求，其余接口没有这种体量。
+  // body-parser 2.x 靠 onFinished.isFinished(req) 判断流已读完，先跑的解析器会消费掉请求流，
+  // 后面的全局解析器因此直接 next() 跳过，所以放宽的那个必须挂在前面。
+  app.use('/api/documents', express.json({ limit: MAX_DOCUMENT_BODY_BYTES, strict: true }));
   app.use(express.json({ limit: MAX_BODY_BYTES, strict: true }));
   app.use((req: Request, res: Response) => {
     void handleRequest(req, res).catch((error) => {
@@ -60,11 +64,14 @@ export function startLocalAgentServer() {
       else res.end();
     });
   });
-  app.use((error: any, _req: Request, res: Response, _next: NextFunction) => {
+  app.use((error: any, req: Request, res: Response, _next: NextFunction) => {
     const status = error?.status === 413 ? 413 : error?.status === 400 ? 400 : 500;
+    const limitMb = Math.round(
+      (req.originalUrl.split('?')[0]!.startsWith('/api/documents') ? MAX_DOCUMENT_BODY_BYTES : MAX_BODY_BYTES) / 1024 / 1024,
+    );
     sendJson(res, status, {
       error: status === 413
-        ? '请求体超过 6 MiB 上限'
+        ? '请求体超过 ' + limitMb + ' MiB 上限'
         : status === 400
           ? '请求体不是有效的 JSON'
           : '本机服务内部错误',

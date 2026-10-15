@@ -83,7 +83,23 @@ const DEFAULT_SYSTEM_PROMPT = [
   'Return only a JSON object with a translations array. Each item must contain the original id and translated_text. Return each requested id exactly once. Never return HTML or Markdown around the JSON.',
 ].join('\n');
 
-function isoNow(): string { return new Date().toISOString(); }
+/**
+ * 进程内单调递增的时间戳。
+ *
+ * 所有「哪一条更新」的判断都比 created_at / accepted_at，而这些列是毫秒精度的。
+ * 同一毫秒内写入的两条记录会打平，比较时旧记录可能压过新记录
+ * （典型场景：Agent 候选与人工修订在同一个 tick 内落库）。
+ * 这里保证同一进程内不会产生相同的时间戳。
+ *
+ * 跨进程仍可能打平（本机服务与 CLI 可能同时打开同一个项目库），
+ * 因此 acceptCandidates 另用插入顺序（rowid）作为判据。
+ */
+let lastStampMs = 0;
+function isoNow(): string {
+  const now = Math.max(Date.now(), lastStampMs + 1);
+  lastStampMs = now;
+  return new Date(now).toISOString();
+}
 function hash(value: string): string { return createHash('sha256').update(value, 'utf8').digest('hex'); }
 function parseJson<T>(value: unknown, fallback: T): T {
   if (typeof value !== 'string') return fallback;
@@ -99,7 +115,6 @@ function validateSegments(input: unknown): ProjectSegment[] {
     throw Object.assign(new Error('segments 必须是 1-20000 个片段的数组'), { status: 400 });
   }
   const seen = new Set<string>();
-  let totalChars = 0;
   const result: ProjectSegment[] = [];
   for (const raw of input) {
     if (!raw || typeof raw !== 'object' || Array.isArray(raw)) continue;
@@ -108,8 +123,6 @@ function validateSegments(input: unknown): ProjectSegment[] {
     const id = item.id.trim().slice(0, 200);
     if (seen.has(id)) throw Object.assign(new Error('segments 包含重复 ID：' + id), { status: 400 });
     seen.add(id);
-    totalChars += item.text.length;
-    if (totalChars > 1_500_000) throw Object.assign(new Error('文档片段总文本超过 1,500,000 字符上限'), { status: 413 });
     result.push({
       id,
       text: item.text,
@@ -470,7 +483,7 @@ export class DocumentProjectStore {
     const latestAccepted = new Map<string, { translation: string; sourceHash: string }>();
     const acceptedRows = db.prepare(
       'SELECT segment_id, translation_text, source_hash FROM translation_results WHERE accepted = 1 ' +
-      'ORDER BY COALESCE(accepted_at, created_at) DESC, created_at DESC'
+      'ORDER BY COALESCE(accepted_at, created_at) DESC, created_at DESC, rowid DESC'
     ).all() as Array<{ segment_id: string; translation_text: string; source_hash: string }>;
     for (const row of acceptedRows) {
       if (!latestAccepted.has(row.segment_id)) {
@@ -647,7 +660,7 @@ export class DocumentProjectStore {
       throw Object.assign(new Error('不支持的运行范围：' + scopeType), { status: 400 });
     }
     const currentSegments = db.prepare('SELECT * FROM source_segments WHERE source_revision_id = ? ORDER BY ordinal').all(sourceRevisionId) as any[];
-    const acceptedRows = db.prepare('SELECT * FROM translation_results WHERE accepted = 1 ORDER BY COALESCE(accepted_at, created_at) DESC, created_at DESC').all() as any[];
+    const acceptedRows = db.prepare('SELECT * FROM translation_results WHERE accepted = 1 ORDER BY COALESCE(accepted_at, created_at) DESC, created_at DESC, rowid DESC').all() as any[];
     const currentHashById = new Map<string, string>(currentSegments.map((segment) => [segment.segment_id, segment.source_hash]));
     const latestAccepted = new Map<string, any>();
     // Source revision 变更后保留旧译文供追溯，但新旧来源的同 ID 片段不可混用。
@@ -757,8 +770,8 @@ export class DocumentProjectStore {
     const offset = Math.max(0, Math.floor(options.offset || 0));
     const rows = db.prepare(
       'SELECT s.segment_id, s.ordinal, s.text, s.kind, s.context_path, s.page, s.level, s.marker, s.path, s.start_time, s.end_time, s.source_hash, ' +
-      '(SELECT r.translation_text FROM translation_results r WHERE r.segment_id = s.segment_id AND r.source_hash = s.source_hash AND r.accepted = 1 ORDER BY COALESCE(r.accepted_at, r.created_at) DESC, r.created_at DESC LIMIT 1) AS accepted_translation, ' +
-      '(SELECT r.translation_text FROM translation_results r WHERE r.segment_id = s.segment_id AND r.run_id = ? ORDER BY r.created_at DESC LIMIT 1) AS candidate_translation ' +
+      '(SELECT r.translation_text FROM translation_results r WHERE r.segment_id = s.segment_id AND r.source_hash = s.source_hash AND r.accepted = 1 ORDER BY COALESCE(r.accepted_at, r.created_at) DESC, r.created_at DESC, r.rowid DESC LIMIT 1) AS accepted_translation, ' +
+      '(SELECT r.translation_text FROM translation_results r WHERE r.segment_id = s.segment_id AND r.run_id = ? ORDER BY r.created_at DESC, r.rowid DESC LIMIT 1) AS candidate_translation ' +
       'FROM source_segments s WHERE s.source_revision_id = ? ORDER BY s.ordinal LIMIT ? OFFSET ?'
     ).all(options.runId || '', currentSourceRevisionId, limit, offset) as any[];
     return rows.map((row) => ({
@@ -965,12 +978,14 @@ export class DocumentProjectStore {
     try {
       for (const row of rows) {
         if (only && !only.has(row.segment_id)) continue;
-        const candidate = db.prepare('SELECT created_at FROM translation_results WHERE result_id = ?').get(row.candidate_result_id) as { created_at?: string } | undefined;
-        const newerManual = candidate?.created_at
-          ? db.prepare("SELECT result_id FROM translation_results WHERE segment_id = ? AND accepted = 1 AND origin = 'manual' AND created_at > ? ORDER BY created_at DESC LIMIT 1")
-            .get(row.segment_id, candidate.created_at)
-          : undefined;
         // 翻译正在运行时，用户可能在另一 Tab 修订了相同片段；旧候选不得覆盖新人工版本。
+        // 用插入顺序（rowid）而不是时间戳判断新旧：时间戳在毫秒上可能打平（跨进程也会），
+        // 打平就会把「更晚插入的人工修订」误判成更旧，让旧候选覆盖掉它。
+        const candidate = db.prepare('SELECT rowid AS seq FROM translation_results WHERE result_id = ?').get(row.candidate_result_id) as { seq?: number } | undefined;
+        const newerManual = candidate
+          ? db.prepare("SELECT result_id FROM translation_results WHERE segment_id = ? AND accepted = 1 AND origin = 'manual' AND rowid > ? ORDER BY rowid DESC LIMIT 1")
+            .get(row.segment_id, candidate.seq)
+          : undefined;
         if (newerManual) {
           preservedManual.push(row.segment_id);
           continue;
@@ -1069,7 +1084,7 @@ export class DocumentProjectStore {
     const latestAccepted = new Map<string, any>();
     const anyAcceptedIds = new Set<string>();
     const currentHashById = new Map<string, string>(segments.map((segment) => [segment.segment_id, segment.source_hash]));
-    for (const row of db.prepare('SELECT * FROM translation_results WHERE accepted = 1 ORDER BY COALESCE(accepted_at, created_at) DESC, created_at DESC').all() as any[]) {
+    for (const row of db.prepare('SELECT * FROM translation_results WHERE accepted = 1 ORDER BY COALESCE(accepted_at, created_at) DESC, created_at DESC, rowid DESC').all() as any[]) {
       anyAcceptedIds.add(row.segment_id);
       if (row.source_hash === currentHashById.get(row.segment_id) && !latestAccepted.has(row.segment_id)) {
         latestAccepted.set(row.segment_id, row);

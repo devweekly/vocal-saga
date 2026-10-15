@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, rm, readFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
 import { DocumentProjectStore } from '../src/documents/projectStore.ts';
 
 async function withStore(run) {
@@ -144,6 +145,62 @@ test('manual acceptance is newer than an older candidate and is not auto-staled 
     const noAutomaticOverwrite = store.createRun(project.projectId, { prompt: nextPrompt, scope: { type: 'stale' } });
     assert.equal(noAutomaticOverwrite.counts.total, 1, 'only the segment not yet accepted should remain stale');
     assert.equal(store.getSegments(project.projectId, { limit: 10 }).find((item) => item.id === 'ch1-p1')?.acceptedTranslation, '再次人工修订。');
+  });
+});
+
+// 回归：毫秒时间戳打平不得让旧候选覆盖新人工修订。
+// 原实现用 `created_at > 候选.created_at` 判断「是否存在更新的人工修订」。created_at 是
+// 毫秒精度，同一毫秒内写入的候选与修订会打平，严格大于为假 → 旧候选获胜。上面那个用例
+// 因此会间歇性失败（实测 6 次跑 4 次红）。现在改由插入顺序（rowid）裁决；
+// 这里直接把两条记录的 created_at 改成完全相同，把打平路径固定下来。
+test('a manual edit inserted after a candidate wins even when both share one created_at millisecond', async () => {
+  await withStore(async (store) => {
+    const project = store.createProject({ title: 'Tie Break', format: 'epub', segments });
+    const run = store.createRun(project.projectId, { scope: { type: 'all' } });
+    store.saveCandidate(project.projectId, run.runId, 'ch1-p1', '模型候选。');
+    store.finishRun(project.projectId, run.runId);
+    store.saveManualEdit(project.projectId, 'ch1-p1', '用户修订。');
+
+    const db = new DatabaseSync(path.join(store.rootDir, project.projectId, 'project.sqlite'));
+    try {
+      const candidate = db.prepare("SELECT rowid, created_at FROM translation_results WHERE origin = 'agent' AND segment_id = 'ch1-p1'").get();
+      const manual = db.prepare("SELECT rowid, created_at FROM translation_results WHERE origin = 'manual' AND segment_id = 'ch1-p1'").get();
+      assert.ok(manual.rowid > candidate.rowid, 'the manual edit must be inserted after the candidate');
+      // 打平时间戳：此后时间戳再也无法区分新旧，只有插入顺序可以。
+      db.prepare('UPDATE translation_results SET created_at = ?, accepted_at = ? WHERE rowid = ?')
+        .run(candidate.created_at, candidate.created_at, manual.rowid);
+    } finally {
+      db.close();
+    }
+
+    store.acceptCandidates(project.projectId, run.runId, ['ch1-p1']);
+    assert.equal(
+      store.getSegments(project.projectId, { limit: 10 }).find((item) => item.id === 'ch1-p1')?.acceptedTranslation,
+      '用户修订。',
+      'a tied timestamp must not let the stale Agent candidate overwrite the newer manual edit',
+    );
+  });
+});
+
+// 回归：created_at 必须在进程内严格递增。所有「哪一条更新」的判断都比时间戳，
+// 毫秒精度下背靠背落库很容易打平（Agent 连续写候选时尤其明显），打平即失去顺序。
+test('created_at is strictly increasing across back-to-back writes', async () => {
+  await withStore(async (store) => {
+    const project = store.createProject({ title: 'Monotonic Clock', format: 'epub', segments });
+    const run = store.createRun(project.projectId, { scope: { type: 'all' } });
+    const db = new DatabaseSync(path.join(store.rootDir, project.projectId, 'project.sqlite'));
+    try {
+      for (let i = 0; i < 60; i++) store.saveCandidate(project.projectId, run.runId, 'ch1-p1', '候选 ' + i);
+      for (let i = 0; i < 60; i++) store.saveManualEdit(project.projectId, 'ch1-p1', '修订 ' + i);
+      const stamps = db.prepare('SELECT created_at FROM translation_results ORDER BY rowid').all().map((row) => row.created_at);
+      assert.equal(stamps.length, 120);
+      // ISO-8601 UTC 字符串的字典序就是时间序。
+      for (let i = 1; i < stamps.length; i++) {
+        assert.ok(stamps[i] > stamps[i - 1], `created_at must strictly increase, got ${stamps[i - 1]} then ${stamps[i]}`);
+      }
+    } finally {
+      db.close();
+    }
   });
 });
 
@@ -313,6 +370,29 @@ test('literary Agent retrieves only bounded source context before the current se
     assert.deepEqual(preceding.map((item) => item.id), ['p3', 'p4', 'p5', 'p6']);
     assert.ok(preceding.every((item) => item.text.length <= 900));
     assert.ok(preceding.every((item) => item.contextPath === 'Chapter A'));
+  });
+});
+
+// 整本书的正文必须能作为单个项目导入。此前 validateSegments 有一道 1,500,000 字符的
+// 总量上限，会在创建 workspace 时把大文档挡在门外（"无法准备文档 workspace：..."）。
+// 这个上限已移除；容量由 /api/documents 的请求体上限和片段条数上限约束，不由正文总长约束。
+test('a document whose segments exceed 1,500,000 characters is imported in full', async () => {
+  await withStore((store) => {
+    const longSegments = Array.from({ length: 200 }, (_, index) => ({
+      id: 'big-' + index,
+      text: '长'.repeat(8000),
+      kind: 'paragraph',
+      contextPath: '第一章',
+    }));
+    const totalChars = longSegments.reduce((sum, item) => sum + item.text.length, 0);
+    assert.ok(totalChars > 1_500_000, 'fixture must actually cross the removed limit');
+
+    const project = store.createProject({ title: 'Long Book', format: 'epub', segments: longSegments });
+    assert.equal(project.segmentCount, 200);
+
+    const page = store.getSegments(project.projectId, { limit: 1000, offset: 0 });
+    assert.equal(page.length, 200);
+    assert.equal(page[199].text.length, 8000);
   });
 });
 

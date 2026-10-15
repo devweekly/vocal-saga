@@ -40,7 +40,11 @@ export const REQUEST_TIMEOUT_MS = positiveIntegerEnv('LOCAL_AGENT_TIMEOUT_MS', 1
 // 按当前 chunk 体量（输入 6k+字符）估算：10 轮约 8 万字符上下文，仍在安全窗口内。
 export const WORKBUDDY_POOL_SIZE = positiveIntegerEnv('LOCAL_AGENT_POOL_SIZE', 4, 1);
 export const WORKBUDDY_POOL_MAX_USES = positiveIntegerEnv('LOCAL_AGENT_POOL_MAX_USES', 10, 1);
-export const MAX_BODY_BYTES = 6 * 1024 * 1024;
+export const MAX_BODY_BYTES = 24 * 1024 * 1024;
+// 文档项目创建会把整本书的片段正文放进一个 JSON 请求。20 MiB 源文件解析出的正文按 UTF-8
+// 最坏情况（中文 3 字节/字符 + JSON 转义）约为源文件的三倍，远超其余接口的 6 MiB。
+// 只对 /api/documents 这一族路由放宽，其他接口仍受 MAX_BODY_BYTES 约束。
+export const MAX_DOCUMENT_BODY_BYTES = 100 * 1024 * 1024;
 export const MAX_HISTORY_ROWS = positiveIntegerEnv('LOCAL_AGENT_MAX_HISTORY', 500, 50);
 export const STORE_CONTENT = (process.env.LOCAL_AGENT_STORE_CONTENT || 'true').toLowerCase() !== 'false';
 // Only a failed JSON response is previewed in local terminal logs; set false to suppress text previews.
