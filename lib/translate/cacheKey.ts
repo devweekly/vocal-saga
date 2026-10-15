@@ -35,6 +35,12 @@ export function generateTranslationCacheKey(
     (glossary?.site_instructions?.length
       ? `|s${simpleHash(JSON.stringify(glossary.site_instructions))}`
       : '') +
+    (glossary?.document_system_prompt_override?.trim()
+      ? `|sys${simpleHash(glossary.document_system_prompt_override)}`
+      : '') +
+    (glossary?.document_user_prompt_template?.trim()
+      ? `|usr${simpleHash(glossary.document_user_prompt_template)}`
+      : '') +
     (sitePrompt?.trim() ? `|r${simpleHash(sitePrompt)}` : '') +
     (translationMode ? `|m${translationMode}` : '');
   const contentHash = simpleHash(jsonContent + extra);
