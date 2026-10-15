@@ -35,6 +35,16 @@ function buildDocumentSessionScope(
   const source = metadata || body || {};
   const documentSessionId = typeof source.documentSessionId === 'string' ? source.documentSessionId : '';
   if (!/^[a-zA-Z0-9._:-]{1,100}$/.test(documentSessionId)) return undefined;
+  // Prompt edits must create a new Session. Reusing a previous conversation after the user
+  // changes the system/user template would continue using the old system instructions.
+  const promptSignature = [
+    typeof source.systemPromptOverride === 'string' ? source.systemPromptOverride : '',
+    typeof source.userPromptTemplate === 'string' ? source.userPromptTemplate : '',
+  ].join('\u0000');
+  let promptHash = 0x811c9dc5;
+  for (let index = 0; index < promptSignature.length; index++) {
+    promptHash = Math.imul(promptHash ^ promptSignature.charCodeAt(index), 0x01000193);
+  }
   const parts = [
     role,
     agent.provider,
@@ -44,7 +54,8 @@ function buildDocumentSessionScope(
     String(source.promptStyle || body?.promptStyle || 'default'),
     String(source.translationMode || body?.translationMode || 'technical'),
     String(source.sessionLane || 'main'),
-    String(source.contextVersion || 'book-session-v2'),
+    String(source.contextVersion || 'book-session-v3'),
+    'prompt-' + (promptHash >>> 0).toString(16),
   ];
   return 'document:' + documentSessionId + ':' + parts.map((value) => value.slice(0, 80)).join(':');
 }
