@@ -120,20 +120,25 @@ sequenceDiagram
 
 ```mermaid
 flowchart TD
-    A[Extension parses EPUB/PDF into stable segments] --> B[Create or select project and translation run]
+    A[Extension parses EPUB/PDF into stable segments] --> B[Create/select project and run]
     B --> C[Load source revision, Prompt and run scope]
-    C --> D[Bounded translation workers: default up to 3]
-    D --> E[Translate batch with independent Session scope]
-    E --> F[Persist candidates and emit batch.translation.completed]
+    C --> D[Bounded translation worker pool: up to 3]
+    D --> E[Translate next batch with independent Session scope]
+    E --> F[Persist candidate + emit batch.translation.completed]
     F --> G{Literary review enabled?}
-    G -- No --> K[Wait for workers and compute final run state]
-    G -- Yes --> H[Queue bounded Reviewer: default up to 1]
-    H --> I[Save findings and only actual revised candidates]
-    I --> J[Emit batch.completed after review settles]
-    J --> K
-    K --> L[Persist run terminal status; extension refreshes events and segments]
-    D -. Pause/cancel stops new allocation .-> M[Discard late results on cancellation]
-    H -. Cancellation .-> M
+    G -- No --> H[Emit batch.completed]
+    G -- Yes --> I[Enqueue detached Reviewer: up to 1]
+    I --> J[Reviewer saves findings and actual revisions]
+    J --> K[Emit batch.completed after review settles]
+    F -. Worker freed; continue next queued batch .-> E
+    D --> L[All translation workers settled]
+    H --> M[All review tasks drained]
+    K --> M
+    L --> N{Translations and reviews settled?}
+    M --> N
+    N --> O[Compute final run status and expose events/segments]
+    D -. Pause/cancel stops new allocation .-> P[Discard late results on cancellation]
+    I -. Cancellation .-> P
 ```
 
 > The Cloudflare API and Local Agent are separate routes. Enabling Local Agent mode does not fall back to remote providers on local model failure.
