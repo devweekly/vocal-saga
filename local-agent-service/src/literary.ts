@@ -155,10 +155,11 @@ export function stabilizeVoiceAnalysis(
     ? parsed.openQuestions.filter((value: unknown) => typeof value === 'string').slice(0, 40).map((value: string) => value.slice(0, 200))
     : [];
   for (const profile of profiles) {
-    const conflicts = existing.characterVoices.find((prior: any) =>
+    const conflicts = profile.analysisConflictWithConfirmed || existing.characterVoices.some((prior: any) =>
       prior.characterId === profile.characterId && prior.status === 'confirmed' &&
       JSON.stringify(prior.voiceCore) !== JSON.stringify(profile.voiceCore));
     if (conflicts) openQuestions.push(profile.canonicalSourceName + '：新章节观察与已确认声音画像存在差异，需要复核，不自动覆盖。');
+    delete profile.analysisConflictWithConfirmed;
     profile.contrastRules = Array.isArray(profile.contrastRules) ? profile.contrastRules.slice(0, 6).flatMap((rule: any) => {
       const otherCharacterId = oldToStable.get(rule.otherCharacterId) || rule.otherCharacterId;
       const evidenceSegmentIds = Array.isArray(rule.evidenceSegmentIds) ? rule.evidenceSegmentIds.filter((id: unknown) => typeof id === 'string' && validSegments.has(id)).slice(0, 6) : [];
