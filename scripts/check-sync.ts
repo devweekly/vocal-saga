@@ -7,16 +7,26 @@
 import { execSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const VOCAL_SAGA = '/Users/saga/code-repos/vocal-saga';
-const FANYI_EXTENSION = '/Users/saga/code-repos/fanyi-extension';
+const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
+const VOCAL_SAGA = path.resolve(process.env.VOCAL_SAGA_PATH || path.join(SCRIPT_DIR, '..'));
+const FANYI_EXTENSION = path.resolve(process.env.FANYI_EXTENSION_PATH || path.join(VOCAL_SAGA, '..', 'fanyi-extension'));
 
-// "完全一致"模块对照表(来自 CROSS_PROJECT_SYNC.md §一)
+if (!fs.existsSync(path.join(VOCAL_SAGA, 'package.json'))) {
+  console.error(`找不到 vocal-saga 仓库：${VOCAL_SAGA}；可用 VOCAL_SAGA_PATH 指定路径。`);
+  process.exit(2);
+}
+if (!fs.existsSync(path.join(FANYI_EXTENSION, 'package.json'))) {
+  console.error(`找不到 fanyi-extension 仓库：${FANYI_EXTENSION}；请将两个仓库放在同一父目录，或设置 FANYI_EXTENSION_PATH。`);
+  process.exit(2);
+}
+
+// 字节级同步模块对照表（来自 CROSS_PROJECT_SYNC.md §一）。cacheKey 与 service/_service
+// 有意保留平台扩展字段，按文档中的语义契约维护，不纳入字节级比较。
 const SYNC_PAIRS: Array<{ name: string; server: string; extension: string }> = [
-  { name: 'cacheKey', server: 'lib/translate/cacheKey.ts', extension: 'src/entrypoints/utils/cacheKey.ts' },
   { name: 'chunkRetry', server: 'lib/translate/chunkRetry.ts', extension: 'src/entrypoints/utils/chunkRetry.ts' },
   { name: 'translationQueue', server: 'lib/translate/translationQueue.ts', extension: 'src/entrypoints/utils/translationQueue.ts' },
-  { name: 'service/_service', server: 'lib/translate/service/_service.ts', extension: 'src/entrypoints/service/_service.ts' },
   { name: 'service/streamParser', server: 'lib/translate/service/streamParser.ts', extension: 'src/entrypoints/service/streamParser.ts' },
   { name: 'service/glossaryTerms', server: 'lib/translate/service/glossaryTerms.ts', extension: 'src/entrypoints/service/glossaryTerms.ts' },
   { name: 'service/prompt-contract', server: 'lib/translate/service/prompt-contract.ts', extension: 'src/entrypoints/service/prompt-contract.ts' },
