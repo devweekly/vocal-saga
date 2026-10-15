@@ -365,8 +365,8 @@ export class DocumentProjectStore {
     const { db, currentSourceRevisionId } = this.getProjectContext(projectId);
     const revision = db.prepare('SELECT format FROM source_revisions WHERE revision_id = ?').get(currentSourceRevisionId) as { format?: string } | undefined;
     if (!revision?.format) throw Object.assign(new Error('找不到当前来源版本'), { status: 404 });
-    const cleanName = path.basename(String(fileName || '')).replace(/[\\x00-\\x1f]/g, '').slice(0, 240) || ('source.' + revision.format);
-    const extension = path.extname(cleanName).replace(/^\\./, '').toLowerCase();
+    const cleanName = path.basename(String(fileName || '')).replace(/[\x00-\x1f]/g, '').slice(0, 240) || ('source.' + revision.format);
+    const extension = path.extname(cleanName).replace(/^\./, '').toLowerCase();
     if (extension && extension !== revision.format.toLowerCase()) {
       throw Object.assign(new Error('原始文件扩展名与项目格式不匹配'), { status: 400 });
     }
