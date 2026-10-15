@@ -86,7 +86,7 @@ export async function runDocumentCli(argv = process.argv.slice(2)): Promise<void
     const next = current.status === 'awaiting_acceptance'
       ? '请检查候选译文，再运行 accept'
       : current.status === 'paused'
-        ? '任务已暂停；可从扩展工作区恢复中断任务'
+        ? '任务已暂停；可从扩展工作区恢复中断任务，或检查运行状态后重新执行失败范围'
         : current.status === 'cancelled'
           ? '任务已停止；已经保存的候选仍保留'
           : current.status === 'failed' || current.status === 'partial'
@@ -109,7 +109,9 @@ export async function runDocumentCli(argv = process.argv.slice(2)): Promise<void
     const ids = new Set(run.segments.map((segment: any) => segment.id));
     const all: any[] = [];
     const limit = 1000;
-    for (let offset = 0; offset < run.segments.length; offset += limit) {
+    const project = store.getProject(args[0]);
+    const totalSegments = project?.segmentCount ?? run.segments.length;
+    for (let offset = 0; offset < totalSegments; offset += limit) {
       all.push(...store.getSegments(args[0], { limit, offset, runId: args[1] }));
     }
     print({
