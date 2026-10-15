@@ -37,39 +37,46 @@ function normalizeEntityName(value: string): string {
  * Keep the first canonical source and translation; later chapters may add aliases/evidence,
  * but may not silently introduce a competing translation for the same person or object.
  */
+function mergeProjectEntityRecord(prior: Record<string, any>, candidate: Record<string, any>): Record<string, any> {
+  const canonicalName = normalizeEntityName(prior.source);
+  const aliases = new Map<string, string>();
+  for (const alias of [...(prior.aliases ?? []), prior.source, ...(candidate.aliases ?? []), candidate.source]) {
+    const key = normalizeEntityName(alias);
+    if (key && key !== canonicalName && !aliases.has(key)) aliases.set(key, alias);
+  }
+  return {
+    ...prior,
+    aliases: Array.from(aliases.values()).slice(0, 8),
+    ...(prior.reviewStatus !== 'confirmed' && candidate.reviewStatus === 'confirmed' &&
+        normalizeEntityName(prior.target) === normalizeEntityName(candidate.target)
+      ? { reviewStatus: 'confirmed' }
+      : {}),
+    description: prior.description || candidate.description,
+    evidence: prior.evidence || candidate.evidence,
+  };
+}
+
+/** Collapse every explicit alias group, including cases where a new row bridges two old rows. */
 function dedupeProjectEntities(entities: Array<Record<string, any>>): Array<Record<string, any>> {
   const merged: Array<Record<string, any>> = [];
   for (const entity of entities) {
-    const names = [entity.source, ...(entity.aliases ?? [])]
-      .map(normalizeEntityName).filter(Boolean);
-    const index = merged.findIndex((prior) => {
-      if (prior.kind !== entity.kind && prior.kind !== 'other' && entity.kind !== 'other') return false;
-      const priorNames = new Set([prior.source, ...(prior.aliases ?? [])]
-        .map(normalizeEntityName).filter(Boolean));
-      return names.some((name) => priorNames.has(name));
+    const names = new Set([entity.source, ...(entity.aliases ?? [])].map(normalizeEntityName).filter(Boolean));
+    const matchingIndices: number[] = [];
+    merged.forEach((prior, index) => {
+      if (prior.kind !== entity.kind && prior.kind !== 'other' && entity.kind !== 'other') return;
+      const priorNames = new Set([prior.source, ...(prior.aliases ?? [])].map(normalizeEntityName).filter(Boolean));
+      if (Array.from(names).some((name) => priorNames.has(name))) matchingIndices.push(index);
     });
-    if (index < 0) {
+    if (!matchingIndices.length) {
       merged.push(entity);
       continue;
     }
-
-    const prior = merged[index]!;
-    const canonicalName = normalizeEntityName(prior.source);
-    const aliases = new Map<string, string>();
-    for (const alias of [...(prior.aliases ?? []), prior.source, ...(entity.aliases ?? []), entity.source]) {
-      const key = normalizeEntityName(alias);
-      if (key && key !== canonicalName && !aliases.has(key)) aliases.set(key, alias);
-    }
-    merged[index] = {
-      ...prior,
-      aliases: Array.from(aliases.values()).slice(0, 8),
-      ...(prior.reviewStatus !== 'confirmed' && entity.reviewStatus === 'confirmed' &&
-          normalizeEntityName(prior.target) === normalizeEntityName(entity.target)
-        ? { reviewStatus: 'confirmed' }
-        : {}),
-      description: prior.description || entity.description,
-      evidence: prior.evidence || entity.evidence,
-    };
+    const canonicalIndex = matchingIndices[0]!;
+    let canonical = merged[canonicalIndex]!;
+    for (const index of matchingIndices.slice(1)) canonical = mergeProjectEntityRecord(canonical, merged[index]!);
+    canonical = mergeProjectEntityRecord(canonical, entity);
+    for (const index of matchingIndices.slice(1).reverse()) merged.splice(index, 1);
+    merged[canonicalIndex] = canonical;
   }
   return merged;
 }
