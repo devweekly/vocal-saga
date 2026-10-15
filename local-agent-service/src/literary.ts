@@ -67,8 +67,7 @@ function buildAnalysisMemoryContext(input: unknown): Record<string, unknown> {
   return result;
 }
 
-function stabilizeVoiceAnalysis(
-  input: unknown,
+export function stabilizeVoiceAnalysis(
   memoryInput: unknown,
   parsed: Record<string, any>,
   segments: Array<{ id: string; text: string }>,
@@ -224,7 +223,7 @@ export async function runLiteraryAnalysis(body: any, requestId: string, sessionS
     throw new Error('本章分析结果不是预期 JSON；请重试分析');
   }
   const summary = typeof parsed.chapterSummary === 'string' ? parsed.chapterSummary.slice(0, 420) : '';
-  const voiceMemory = stabilizeVoiceAnalysis(memory, memory, parsed, segments);
+  const voiceMemory = stabilizeVoiceAnalysis(memory, parsed, segments);
   return {
     analyzed: true,
     chapterTitle,
