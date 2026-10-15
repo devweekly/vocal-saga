@@ -39,6 +39,43 @@ describe('literary book memory', () => {
     expect(merged.chapterSummaries).toHaveLength(2);
   });
 
+  it('merges explicit person aliases and preserves one canonical translation', () => {
+    const first = sanitizeLiteraryMemory({
+      entities: [{ source: 'Kiri', target: '吉莉', kind: 'person', aliases: ['Kiri'], reviewStatus: 'confirmed' }],
+    });
+    const next = sanitizeLiteraryMemory({
+      entities: [{ source: 'Kiritsubo', target: '吉罗', kind: 'person', aliases: ['Kiri'], reviewStatus: 'suggested' }],
+    });
+    const merged = mergeLiteraryMemory(first, next);
+    expect(merged.entities).toHaveLength(1);
+    expect(merged.entities[0]?.source).toBe('Kiri');
+    expect(merged.entities[0]?.target).toBe('吉莉');
+    expect(merged.entities[0]?.aliases).toContain('Kiritsubo');
+
+    const context = JSON.parse(buildLiteraryContextForText(merged, 'Kiritsubo-san asked where Kiri was.'));
+    expect(context.entities).toHaveLength(1);
+    expect(context.entities[0].target).toBe('吉莉');
+  });
+
+  it('never truncates the serialized memory into invalid JSON', () => {
+    const memory = sanitizeLiteraryMemory({
+      entities: [{ source: 'Kiri', target: '吉莉', kind: 'person', aliases: ['Kiritsubo'] }],
+      styleGuide: {
+        narrativeVoice: 'n'.repeat(500),
+        register: 'r'.repeat(500),
+        rhythm: 'h'.repeat(500),
+        dialogue: 'd'.repeat(500),
+        diction: 'c'.repeat(500),
+        avoid: Array.from({ length: 12 }, (_, i) => 'avoid-' + i + '-'.repeat(80)),
+      },
+      recentExamples: Array.from({ length: 8 }, (_, i) => ({ source: 'source-' + i + '-'.repeat(100), target: 'target-' + i + '-'.repeat(100) })),
+    });
+    const json = buildLiteraryContextForText(memory, 'Kiri spoke.');
+    expect(json.length).toBeLessThanOrEqual(1_200);
+    expect(() => JSON.parse(json)).not.toThrow();
+    expect(JSON.parse(json).entities[0].target).toBe('吉莉');
+  });
+
   it('keeps a small named-entity window for passages that use pronouns', () => {
     const memory = sanitizeLiteraryMemory({
       entities: [{ source: 'Alice', target: '艾丽丝', kind: 'person' }],
@@ -61,5 +98,6 @@ describe('literary book memory', () => {
     expect(memory.entities[0]?.target).not.toContain('\n');
     expect(buildLiteraryTranslationInstructions(memory, 'Chapter 1')).toContain('规范译名');
     expect(buildLiteraryReviewInstructions(memory, 'Chapter 1')).toContain('独立文学编辑');
+    expect(buildLiteraryTranslationInstructions('Chapter 1')).toContain('不得默认译成“大人”');
   });
 });
