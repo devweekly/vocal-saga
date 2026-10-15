@@ -738,8 +738,19 @@ export class DocumentProjectStore {
     let accepted = 0;
     db.exec('BEGIN IMMEDIATE');
     try {
+      const preservedManual: string[] = [];
       for (const row of rows) {
         if (only && !only.has(row.segment_id)) continue;
+        const candidate = db.prepare('SELECT created_at FROM translation_results WHERE result_id = ?').get(row.candidate_result_id) as { created_at?: string } | undefined;
+        const newerManual = candidate?.created_at
+          ? db.prepare("SELECT result_id FROM translation_results WHERE segment_id = ? AND accepted = 1 AND origin = 'manual' AND created_at > ? ORDER BY created_at DESC LIMIT 1")
+            .get(row.segment_id, candidate.created_at)
+          : undefined;
+        // 翻译正在运行时，用户可能在另一 Tab 修订了相同片段；旧候选不得覆盖新人工版本。
+        if (newerManual) {
+          preservedManual.push(row.segment_id);
+          continue;
+        }
         db.prepare('UPDATE translation_results SET accepted = 1, accepted_at = ? WHERE result_id = ?').run(now, row.candidate_result_id);
         db.prepare('UPDATE run_segments SET status = \'accepted\', updated_at = ? WHERE run_id = ? AND segment_id = ?').run(now, runId, row.segment_id);
         accepted++;
@@ -752,7 +763,7 @@ export class DocumentProjectStore {
     const remaining = db.prepare("SELECT COUNT(*) AS count FROM run_segments WHERE run_id = ? AND status IN ('candidate','pending','running','failed')").get(runId) as any;
     const failed = db.prepare("SELECT COUNT(*) AS count FROM run_segments WHERE run_id = ? AND status = 'failed'").get(runId) as any;
     this.setRunStatus(projectId, runId, Number(remaining?.count || 0) > 0 ? (accepted > 0 && Number(failed?.count || 0) > 0 ? 'partial' : 'awaiting_acceptance') : 'completed');
-    this.addEvent(projectId, runId, 'translations.accepted', { count: accepted, segmentIds: only ? Array.from(only) : undefined });
+    this.addEvent(projectId, runId, 'translations.accepted', { count: accepted, preservedManualSegmentIds: preservedManual, segmentIds: only ? Array.from(only) : undefined });
     return this.getRun(projectId, runId);
   }
 
