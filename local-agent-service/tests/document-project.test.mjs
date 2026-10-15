@@ -147,3 +147,32 @@ test('manual acceptance is newer than an older candidate and is not auto-staled 
   });
 });
 
+
+test('imports existing reader translations into workspace without overwriting accepted results', async () => {
+  await withStore((store) => {
+    const project = store.createProject({
+      title: 'Reader Shared State',
+      format: 'epub',
+      sourceFileName: 'reader.epub',
+      segments,
+      prompt: { systemPrompt: 'Shared prompt v1', sourceLang: 'en', targetLang: 'zh', provider: 'workbuddy', model: 'auto' },
+    });
+    const imported = store.importAcceptedTranslations(project.projectId, [
+      { id: 'ch1-p1', text: '阅读页早先的译文。' },
+      { id: 'ch1-p2', text: '另一段译文。' },
+      { id: 'unknown', text: '不应导入。' },
+    ]);
+    assert.deepEqual(imported, { imported: 2, skipped: 1 });
+    assert.equal(store.getSegments(project.projectId, { limit: 10 })[0].acceptedTranslation, '阅读页早先的译文。');
+
+    const duplicate = store.importAcceptedTranslations(project.projectId, [
+      { id: 'ch1-p1', text: '旧浏览器缓存不应覆盖 Agent 的当前版本。' },
+    ]);
+    assert.deepEqual(duplicate, { imported: 0, skipped: 1 });
+    assert.equal(store.getSegments(project.projectId, { limit: 10 })[0].acceptedTranslation, '阅读页早先的译文。');
+
+    const noWork = store.createRun(project.projectId, { scope: { type: 'stale' } });
+    assert.equal(noWork.counts.total, 0, 'imported text should be seeded against the current Prompt fingerprint');
+  });
+});
+
