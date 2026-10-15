@@ -142,3 +142,51 @@ npm run deploy:cf
 - 无 `.` 域名补 `.com`：`towardsdatascience` → `towardsdatascience.com`
 - 保留 `www.`：`www.example.com` ≠ `example.com`（暂时视为不同）
 - 剥离 scheme：`https://example.com` → `example.com`
+
+
+## Runtime Boundary: Cloud API vs Local Agent Service
+
+This repository contains two distinct execution environments. They are separate products with different runtime budgets and user expectations; do not treat them as interchangeable implementations of one generic translation pipeline.
+
+### Cloud service — Cloudflare Workers
+
+The root service (`lib/`, `src/worker.ts`) is an edge API running on Cloudflare Workers. It has constrained CPU, memory, request duration, and request/response budgets. It is intended for short, direct, request/response operations, especially web-page and selected-text translation.
+
+- Keep request handlers and translation pipelines bounded. Avoid long-running multi-stage Agent workflows, long chains of model API calls, broad multi-candidate generation, and document-wide review loops inside a Worker request.
+- Optimize for useful translation quality within a bounded request: concise Prompt, only necessary context, sensible chunk size, strict output validation, bounded concurrency/retries, and cache reuse when the complete cache key is valid.
+- Cloud document translation support is intentionally limited. Do not expand the Worker into a full long-document project orchestrator. If a task requires durable project state, long-running translation, chapter memory, multiple review passes, character voice consistency, or extensive selective rewriting, use `local-agent-service`.
+- Distinguish Cloud API tasks from Local Agent tasks in API contracts, docs, UI-facing errors, and tests. Do not imply that the Worker supports the full document workflow merely because it accepts text or chunks.
+- Do not add Node-only dependencies or assume persistent in-process memory. Use supported Worker APIs and the existing storage abstractions.
+- Keep provider calls bounded by configured timeouts and ensure partial/provider failures become explicit, validated outcomes rather than false successful translations.
+
+### Local Agent Service — macOS / Node.js
+
+`local-agent-service/` is a separate local Node.js service, normally on the user's Mac and reachable from the extension over loopback HTTP. It is designed for long-running AI/Agent work and full document translation.
+
+- Prioritize translation quality over response speed for document and literary tasks; use persistent projects, checkpoints, resumable batches, relevant long-context memory, review, candidate comparison, and selective rework where justified.
+- Support local AI Runtime/Agent calls and durable workflow state; do not move these workflows into the Worker.
+- Keep its own instructions in `local-agent-service/AGENTS.md`. Changes to the local service must respect its Node.js runtime, SQLite persistence, project/run lifecycle, event protocol, and cancellation/recovery behavior.
+- The extension remains responsible for UI, browser APIs, DOM/file-container handling, and presenting progress. The local service is responsible for model/Agent execution, document workflow, quality checks, and durable task state.
+
+### Task-specific Pipelines and Prompts
+
+Do not apply one pipeline, Prompt, or tuning policy to every translation task. Route by task intent, content type, quality requirement, context needs, and runtime constraints.
+
+| Task type | Cloud Worker strategy | Local Agent strategy |
+|---|---|---|
+| Selected text / short paragraph | Single bounded translation request; concise/direct output; lightweight validation | Optional; usually no long workflow unless explicitly requested |
+| Ordinary web page | Extract/segment, bounded chunk translation, preserve markup, bounded retry, cache | Optional deeper processing when the user selects local mode |
+| Technical article | Terminology and identifier preservation, structure/format validation | Document-aware translation and targeted review for long/complex material |
+| EPUB/PDF or long document | Limited support only; do not promise complete document-project workflows | Full project-based translation, stable segments, persisted batches, checkpoints, recovery and export/sync |
+| Novel/literary work | Not the target for multi-chapter literary governance in a Worker request | Quality-first pipeline with book/scene memory, character voice, relationship/register constraints, consistency review and selective rework |
+| Multi-step translation research/editing | Avoid long-running Agent plans in Worker request path | Bounded Agent/tool workflow with durable events, evidence/candidate tracking and validation |
+
+Prompt and tuning decisions must be task-specific. Short cloud requests should not incur unnecessary multi-pass review; literary document tasks may spend more time and calls on context, review, comparison, and targeted correction. Additional calls must be justified by likely quality gain and constrained by explicit limits.
+
+### Cross-boundary Rules
+
+1. The browser extension is the UI/browser layer and performs simple deterministic work. Complex AI computation belongs in the appropriate Vocal Saga backend.
+2. Cloud and local service results must carry truthful execution/provider metadata. Never silently switch execution environments or mislabel remote output as a local Agent result.
+3. Share API contracts and reusable domain concepts where useful, but keep runtime-specific orchestration, prompts, resource controls, persistence, and tests separate.
+4. A change to task routing, Prompt versions, context assembly, caching, output validation, cancellation, or recovery requires regression tests appropriate to the affected runtime.
+5. Keep documentation synchronized. Root `AGENTS.md` describes the Cloud/Local boundary; `local-agent-service/AGENTS.md` governs implementation inside the local service; `fanyi-extension/AGENTS.md` governs browser UI and delegation.
