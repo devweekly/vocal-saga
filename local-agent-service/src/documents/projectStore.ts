@@ -455,6 +455,19 @@ export class DocumentProjectStore {
     return (db.prepare('SELECT * FROM prompt_revisions ORDER BY created_at DESC').all() as any[]).map((row) => this.publicPrompt(row));
   }
 
+  private makeRunFingerprint(promptRow: any, config: any): string {
+    return hash(JSON.stringify({
+      promptFingerprint: promptRow.fingerprint,
+      sourceLang: config.sourceLang || 'auto',
+      targetLang: config.targetLang || 'zh',
+      provider: config.provider || 'workbuddy',
+      model: config.model || 'auto',
+      translationMode: config.translationMode || 'technical',
+      literaryReview: Boolean(config.literaryReview),
+      pipelineVersion: 'document-agent-v1',
+    }));
+  }
+
   createRun(projectId: string, input: CreateRunInput = {}): any {
     const db = this.openProjectDb(projectId);
     const project = this.getProject(projectId)!;
@@ -480,16 +493,7 @@ export class DocumentProjectStore {
     const failedIds = new Set(failedRows.map((row) => row.segment_id));
     const idSet = new Set((scope.ids || []).map(String));
     const chapter = (scope.chapter || '').trim();
-    const runFingerprint = hash(JSON.stringify({
-      promptFingerprint: promptRow.fingerprint,
-      sourceLang: config.sourceLang || 'auto',
-      targetLang: config.targetLang || 'zh',
-      provider: config.provider || 'workbuddy',
-      model: config.model || 'auto',
-      translationMode: config.translationMode || 'technical',
-      literaryReview: Boolean(config.literaryReview),
-      pipelineVersion: 'document-agent-v1',
-    }));
+    const runFingerprint = this.makeRunFingerprint(promptRow, config);
     const selected = currentSegments.filter((segment) => {
       if (scopeType === 'all') return true;
       if (scopeType === 'ids') return idSet.has(segment.segment_id);
@@ -750,6 +754,60 @@ export class DocumentProjectStore {
     this.setRunStatus(projectId, runId, Number(remaining?.count || 0) > 0 ? (accepted > 0 && Number(failed?.count || 0) > 0 ? 'partial' : 'awaiting_acceptance') : 'completed');
     this.addEvent(projectId, runId, 'translations.accepted', { count: accepted, segmentIds: only ? Array.from(only) : undefined });
     return this.getRun(projectId, runId);
+  }
+
+  /**
+   * 将旧阅读器/IndexedDB 已有的译文一次性纳入项目版本库。只填充当前来源中尚无
+   * accepted 译文的片段，不覆盖本机 workspace 已经版本化的人工修订或 Agent 结果。
+   * 当前 Prompt 指纹作为导入基线，避免第一次切换到 workspace 后把整本旧译文全部判过期。
+   */
+  importAcceptedTranslations(projectId: string, items: unknown): { imported: number; skipped: number } {
+    if (!Array.isArray(items) || items.length > 1000) {
+      throw Object.assign(new Error('译文导入必须是最多 1000 条记录的数组'), { status: 400 });
+    }
+    const { db, currentSourceRevisionId } = this.getProjectContext(projectId);
+    const currentSegments = new Map(
+      (db.prepare('SELECT segment_id, source_hash FROM source_segments WHERE source_revision_id = ?').all(currentSourceRevisionId) as Array<{ segment_id: string; source_hash: string }>)
+        .map((row) => [row.segment_id, row]),
+    );
+    const promptRow = db.prepare('SELECT * FROM prompt_revisions ORDER BY created_at DESC LIMIT 1').get() as any;
+    if (!promptRow) throw new Error('导入译文前必须先保存当前 Prompt');
+    const config = parseJson<any>(promptRow.config_json, {});
+    const runFingerprint = this.makeRunFingerprint(promptRow, config);
+    const now = isoNow();
+    let imported = 0;
+    let skipped = 0;
+    const insert = db.prepare(
+      'INSERT INTO translation_results(result_id, run_id, source_revision_id, prompt_revision_id, segment_id, source_hash, run_fingerprint, translation_text, origin, accepted, created_at, accepted_at) ' +
+      "VALUES (?, NULL, ?, ?, ?, ?, ?, ?, 'imported', 1, ?, ?)",
+    );
+    db.exec('BEGIN IMMEDIATE');
+    try {
+      for (const raw of items) {
+        if (!raw || typeof raw !== 'object' || Array.isArray(raw)) { skipped++; continue; }
+        const item = raw as Record<string, unknown>;
+        const id = typeof item.id === 'string' ? item.id : '';
+        const text = typeof item.text === 'string' ? item.text.trim() : '';
+        const source = currentSegments.get(id);
+        if (!id || !source || !text || text.length > 20000) { skipped++; continue; }
+        const existing = db.prepare(
+          'SELECT result_id FROM translation_results WHERE segment_id = ? AND source_hash = ? AND accepted = 1 LIMIT 1',
+        ).get(id, source.source_hash);
+        if (existing) { skipped++; continue; }
+        insert.run(randomUUID(), currentSourceRevisionId, promptRow.prompt_revision_id, id,
+          source.source_hash, runFingerprint, text, now, now);
+        imported++;
+      }
+      db.exec('COMMIT');
+    } catch (error) {
+      db.exec('ROLLBACK');
+      throw error;
+    }
+    if (imported) {
+      this.addEvent(projectId, null, 'translations.imported', { imported, skipped, sourceRevisionId: currentSourceRevisionId });
+      this.catalogDb().prepare('UPDATE document_projects SET updated_at = ? WHERE project_id = ?').run(now, projectId);
+    }
+    return { imported, skipped };
   }
 
   saveManualEdit(projectId: string, segmentId: string, text: string): any {
