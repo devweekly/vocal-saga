@@ -122,12 +122,12 @@ sequenceDiagram
 flowchart TD
     A[Extension parses EPUB/PDF into stable segments] --> B[Create/select project and run]
     B --> C[Load source revision, Prompt and run scope]
-    C --> D[Bounded translation worker pool: up to 2 while review runs]
+    C --> D[Translation workers: 2 with review, up to 4 without review]
     D --> E[Translate next batch with independent Session scope]
     E --> F[Persist candidate + emit batch.translation.completed]
     F --> G{Literary review enabled?}
     G -- No --> H[Emit batch.completed]
-    G -- Yes --> I[Enqueue detached Reviewer: up to 1]
+    G -- Yes --> I[Enqueue detached Reviewer: up to 2]
     I --> J[Reviewer saves findings and actual revisions]
     J --> K[Emit batch.completed after review settles]
     F -. Worker freed; continue next queued batch .-> E
