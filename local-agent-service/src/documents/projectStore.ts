@@ -26,6 +26,10 @@ export interface ProjectSegment {
   page?: number | null;
   level?: number;
   marker?: string;
+  /** EPUB spine href / original document part used to reconstruct the source layout. */
+  path?: string;
+  start?: string;
+  end?: string;
 }
 
 export interface ProjectPrompt {
@@ -113,6 +117,9 @@ function validateSegments(input: unknown): ProjectSegment[] {
       page: Number.isFinite(item.page) ? Number(item.page) : null,
       ...(Number.isFinite(item.level) ? { level: Number(item.level) } : {}),
       ...(typeof item.marker === 'string' ? { marker: item.marker.slice(0, 80) } : {}),
+      ...(typeof item.path === 'string' ? { path: item.path.slice(0, 1000) } : {}),
+      ...(typeof item.start === 'string' ? { start: item.start.slice(0, 40) } : {}),
+      ...(typeof item.end === 'string' ? { end: item.end.slice(0, 40) } : {}),
     });
   }
   if (!result.length) throw Object.assign(new Error('没有可持久化的文档片段'), { status: 400 });
@@ -120,7 +127,7 @@ function validateSegments(input: unknown): ProjectSegment[] {
 }
 
 function segmentHash(segment: ProjectSegment): string {
-  return hash(JSON.stringify([segment.text, segment.kind || 'paragraph', segment.contextPath || '', segment.page ?? null, segment.level ?? null, segment.marker ?? '']));
+  return hash(JSON.stringify([segment.text, segment.kind || 'paragraph', segment.contextPath || '', segment.page ?? null, segment.level ?? null, segment.marker ?? '', segment.path ?? '', segment.start ?? '', segment.end ?? '']));
 }
 function sourceFingerprint(segments: ProjectSegment[]): string {
   return hash(JSON.stringify(segments.map((segment) => [segment.id, segmentHash(segment)])));
@@ -169,7 +176,7 @@ export class DocumentProjectStore {
       'parser_version TEXT NOT NULL, segment_count INTEGER NOT NULL, created_at TEXT NOT NULL, source_file_path TEXT, source_file_hash TEXT, source_file_size INTEGER);' +
       'CREATE TABLE IF NOT EXISTS source_segments (' +
       'source_revision_id TEXT NOT NULL, segment_id TEXT NOT NULL, ordinal INTEGER NOT NULL, text TEXT NOT NULL, ' +
-      'kind TEXT NOT NULL, context_path TEXT NOT NULL, page INTEGER, level INTEGER, marker TEXT, source_hash TEXT NOT NULL, ' +
+      'kind TEXT NOT NULL, context_path TEXT NOT NULL, page INTEGER, level INTEGER, marker TEXT, path TEXT, start_time TEXT, end_time TEXT, source_hash TEXT NOT NULL, ' +
       'PRIMARY KEY(source_revision_id, segment_id));' +
       'CREATE INDEX IF NOT EXISTS idx_source_segments_order ON source_segments(source_revision_id, ordinal);' +
       'CREATE TABLE IF NOT EXISTS prompt_revisions (' +
@@ -214,6 +221,12 @@ export class DocumentProjectStore {
     if (!sourceColumns.has('source_file_path')) db.exec('ALTER TABLE source_revisions ADD COLUMN source_file_path TEXT');
     if (!sourceColumns.has('source_file_hash')) db.exec('ALTER TABLE source_revisions ADD COLUMN source_file_hash TEXT');
     if (!sourceColumns.has('source_file_size')) db.exec('ALTER TABLE source_revisions ADD COLUMN source_file_size INTEGER');
+    const segmentColumns = new Set(
+      (db.prepare('PRAGMA table_info(source_segments)').all() as Array<{ name: string }>).map((column) => column.name),
+    );
+    if (!segmentColumns.has('path')) db.exec('ALTER TABLE source_segments ADD COLUMN path TEXT');
+    if (!segmentColumns.has('start_time')) db.exec('ALTER TABLE source_segments ADD COLUMN start_time TEXT');
+    if (!segmentColumns.has('end_time')) db.exec('ALTER TABLE source_segments ADD COLUMN end_time TEXT');
   }
 
   private openProjectDb(projectId: string, create = false): DatabaseSync {
@@ -284,7 +297,7 @@ export class DocumentProjectStore {
     const createdAt = isoNow();
     db.prepare('INSERT INTO source_revisions(revision_id, file_name, format, source_fingerprint, parser_version, segment_count, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
       .run(revisionId, fileName, format, fingerprint, 'segment-contract-v1', segments.length, createdAt);
-    const insert = db.prepare('INSERT INTO source_segments(source_revision_id, segment_id, ordinal, text, kind, context_path, page, level, marker, source_hash) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+    const insert = db.prepare('INSERT INTO source_segments(source_revision_id, segment_id, ordinal, text, kind, context_path, page, level, marker, path, start_time, end_time, source_hash) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
     segments.forEach((segment, index) => insert.run(revisionId, segment.id, index, segment.text, segment.kind || 'paragraph',
       segment.contextPath || '', segment.page ?? null, segment.level ?? null, segment.marker ?? null, segmentHash(segment)));
     this.projectMeta(db, 'project_id', projectId);
@@ -566,14 +579,14 @@ export class DocumentProjectStore {
     const limit = Math.max(1, Math.min(1000, Math.floor(options.limit || 250)));
     const offset = Math.max(0, Math.floor(options.offset || 0));
     const rows = db.prepare(
-      'SELECT s.segment_id, s.ordinal, s.text, s.kind, s.context_path, s.page, s.level, s.marker, s.source_hash, ' +
+      'SELECT s.segment_id, s.ordinal, s.text, s.kind, s.context_path, s.page, s.level, s.marker, s.path, s.start_time, s.end_time, s.source_hash, ' +
       '(SELECT r.translation_text FROM translation_results r WHERE r.segment_id = s.segment_id AND r.accepted = 1 ORDER BY COALESCE(r.accepted_at, r.created_at) DESC, r.created_at DESC LIMIT 1) AS accepted_translation, ' +
       '(SELECT r.translation_text FROM translation_results r WHERE r.segment_id = s.segment_id AND r.run_id = ? ORDER BY r.created_at DESC LIMIT 1) AS candidate_translation ' +
       'FROM source_segments s WHERE s.source_revision_id = ? ORDER BY s.ordinal LIMIT ? OFFSET ?'
     ).all(options.runId || '', currentSourceRevisionId, limit, offset) as any[];
     return rows.map((row) => ({
       id: row.segment_id, ordinal: row.ordinal, text: row.text, kind: row.kind, contextPath: row.context_path,
-      page: row.page, level: row.level, marker: row.marker, sourceHash: row.source_hash,
+      page: row.page, level: row.level, marker: row.marker, path: row.path, start: row.start_time, end: row.end_time, sourceHash: row.source_hash,
       acceptedTranslation: row.accepted_translation ?? null, candidateTranslation: row.candidate_translation ?? null,
     }));
   }
@@ -581,7 +594,7 @@ export class DocumentProjectStore {
   getRunSegmentsForExecution(projectId: string, runId: string): any[] {
     const { db } = this.getProjectContext(projectId);
     return db.prepare(
-      'SELECT rs.segment_id AS id, rs.status, rs.source_hash, rs.attempts, ss.ordinal, ss.text, ss.kind, ss.context_path, ss.page, ss.level, ss.marker ' +
+      'SELECT rs.segment_id AS id, rs.status, rs.source_hash, rs.attempts, ss.ordinal, ss.text, ss.kind, ss.context_path, ss.page, ss.level, ss.marker, ss.path, ss.start_time AS start, ss.end_time AS end ' +
       'FROM run_segments rs JOIN translation_runs tr ON tr.run_id = rs.run_id ' +
       'JOIN source_segments ss ON ss.source_revision_id = tr.source_revision_id AND ss.segment_id = rs.segment_id ' +
       'WHERE rs.run_id = ? AND rs.status IN (\'pending\', \'failed\') ORDER BY ss.ordinal'
