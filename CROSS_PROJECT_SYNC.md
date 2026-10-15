@@ -11,7 +11,7 @@
 | 项目 | 定位 | DOM 环境 |
 |------|------|----------|
 | **fanyi-extension** | 浏览器扩展（WXT + Vue 3） | 真实浏览器 DOM（Chrome / Firefox） |
-| **vocal-saga** | 服务端翻译（Cloudflare Workers / Netlify Functions） | linkedom / jsdom 解析的 HTML 字符串 |
+| **vocal-saga** | 服务端翻译（Cloudflare Workers） | linkedom 解析的 HTML 字符串 |
 
 ## 文件路径对照
 
@@ -43,7 +43,7 @@
 | service/japanese-natural-zh-prompt | `src/entrypoints/service/japanese-natural-zh-prompt.ts` | `lib/translate/service/japanese-natural-zh-prompt.ts` |
 | rules/ | `src/rules/` | `lib/translate/rules/` |
 | **文档解析** | `src/entrypoints/utils/document/` | `lib/translate/document/` |
-| 文档翻译编排 | `src/entrypoints/document/useDocumentTranslation.ts` | `lib/translate/documentPipeline.ts` |
+| 文档翻译责任边界 | 扩展负责解析、批次调度、状态与导出；本机 Agent 负责长文档工作流 | Worker 仅暴露无状态 `/api/translate/document/segments` 单次翻译 |
 | 测试 | `src/__tests__/*.test.ts` | `tests/*.test.ts` |
 
 > **文档解析模块（2026-09-09 新增）**
@@ -52,7 +52,7 @@
 > 差异仅两处：
 > - `document/index.ts`：扩展版支持 PDF/DOCX/EPUB（`parsers/pdf.ts` 走 pdfjs-dist、
 >   `parsers/office.ts` 走 jszip，均动态 import）；服务端版**不支持**这三种，直接抛
->   `UnsupportedDocumentError`，因为二进制解析依赖 Worker/canvas，在 Netlify/Workers 上不可行。
+>   `UnsupportedDocumentError`，因为二进制解析依赖 Worker/canvas；Worker 不解析原始文档。
 > - 编排层：扩展版是 Vue composable（逐批提交到 UI），服务端版是纯函数
 >   `translateDocument()`（调用 `translateBlocks`）。分批策略一致，都按
 >   `buildSegmentBatches` 的预算切。
@@ -95,7 +95,7 @@
 ### 3. `translationQueue.ts`
 - `TranslationQueue` 类 — 并发控制 + 重试队列(含 `addAllWithWarmup` 方法)
 - **check-sync: ✅ 完全一致**（2026-09-11 验证）— 2026-09-11 re-sync：以扩展端为准统一（去掉 server 端多余的 JSDoc 与注释差异）
-- `globalQueue` 单例:vocal-saga 中未使用(pipeline.ts 用 Promise.all 直接并行),fanyi-extension 中用于串行执行;保留导出用于代码同步
+- `globalQueue` 单例：网页服务端不使用它；服务端翻译通过 `runWithConcurrency` 做有界并发，扩展侧队列负责浏览器任务调度；保留跨仓库共享契约
 
 ### 4. `service/_service.ts`（核心契约同步，平台字段允许不同）
 - `Glossary`、`GlossaryEntry`、`TranslationService` 接口
@@ -148,7 +148,7 @@
   - `htmlLang` 仅作辅助证据，不单独定案。
   - **用户手工选择的风格永远优先**：仅当配置为 `default`/未设置、检测为 `ja`、且目标语言非日语时才升级。
 - **检测粒度：每页/每文档一次**（不是每 chunk）。保持 DeepSeek prompt 前缀稳定以命中 KV 缓存，并避免同页内文风割裂。
-- **接线**：服务端 `pipeline.ts` / `documentPipeline.ts`；扩展端 `content/translation.ts`、`content/pdfjs/index.ts`、`document/useDocumentTranslation.ts`。解析出的风格经 `TranslateChunkMessage.promptStyle` 传到 background，`handleTranslateChunk` / `handleTranslateChunkStream` 用 `message.promptStyle ?? config.promptStyle`，**同一值同时喂给缓存 key 与 service**（否则 ja-source-natural 产物会落进 default 缓存桶）。
+- **接线**：网页翻译使用服务端 `pipeline.ts`；结构化文档由扩展 `document/useDocumentTranslation.ts` 管理解析、分批、进度、重试和导出，云端只用 `lib/app.ts` 的 `/api/translate/document/segments` 对单次请求做无状态翻译；长文档项目、书籍记忆与独立审校只走 `local-agent-service`。解析出的风格经 `TranslateChunkMessage.promptStyle` 传到 background，`handleTranslateChunk` / `handleTranslateChunkStream` 用 `message.promptStyle ?? config.promptStyle`，**同一值同时喂给缓存 key 与 service**（否则 ja-source-natural 产物会落进 default 缓存桶）。
 - **check-sync: ✅ 完全一致**（2026-09-11 验证）
 - **测试**：两端各有 `languageDetector` 测试（各 36 用例，互为镜像）：服务端 `tests/languageDetector.test.ts`、扩展端 `src/__tests__/languageDetector.test.ts`。含 `shouldUseJapaneseSource` 15 例真值表。
 
@@ -414,7 +414,7 @@ prepareHtmlForServer 时在 clone 上把 `link[rel=stylesheet]` 替换为
 - **一致**：`CacheEntry<T>` 接口、`CacheManager` 类公共 API（`get` / `set` / `remove` / `clear` / `getStats`）、TTL 逻辑
 - **差异**：
   - fanyi-extension 用 `@wxt-dev/storage`（所有 key 存在同一个大对象下，O(N) 序列化）
-  - vocal-saga 用跨平台 storage（Netlify Blobs / Cloudflare KV / 内存，每个 key 独立存储，O(1) 读写）
+  - vocal-saga 使用 Cloudflare KV（生产）和 MapStorage（测试）；每个 key 独立存储，O(1) 读写
 - **同步建议**：公共 API 和 TTL 策略必须同步；存储层实现不需要同步
 
 ### 7. `service/deepseek.ts`
@@ -484,9 +484,8 @@ prepareHtmlForServer 时在 clone 上把 `link[rel=stylesheet]` 替换为
 
 ### vocal-saga 特有
 - `src/worker.ts` — Cloudflare Workers 入口
-- `netlify/functions/api.mjs` — Netlify Functions 入口
 - `lib/app.ts`、`auth.ts`、`config.ts`、`modelResolver.ts`、`redirectGuard.ts`、`urlUtils.ts` — 服务端路由 / 鉴权
-- `lib/storage/` — 跨平台存储适配（cloudflare / netlify / memory）
+- `lib/storage/` — Worker KV 与测试内存存储适配（cloudflare / memory）
 - `lib/translate/service/cloudflare.ts`、`mimo.ts`、`nvidia.ts`、`openrouter.ts`、`gemini.ts`、`opencode.ts`、`shared.ts` — 其他翻译服务
 - `lib/translate/service/shared.ts` — `buildTranslationBody`、`repairJson`、`cleanJsonString`
 - `lib/translate/pipeline.ts` — 翻译流水线
@@ -578,7 +577,7 @@ prepareHtmlForServer 时在 clone 上把 `link[rel=stylesheet]` 替换为
 ### A. 立即修复:文档与代码对齐
 
 - [x] **D1**:`translationQueue.ts` 改归"逻辑一致但实现有差异"(fanyi-extension 多了 `addAllWithWarmup` 方法,vocal-saga 没有) ✅ 已完成:addAllWithWarmup 方法已添加到 vocal-saga 的 translationQueue.ts
-- [x] **D2**:决定 vocal-saga 的 `globalQueue` 是启用还是删除(`pipeline.ts` 当前用 `Promise.all` 直接并行,从不调用 `globalQueue`,属死代码) ✅ 已完成:globalQueue 保留用于代码同步,已添加注释说明在 vocal-saga 中未使用(pipeline.ts 用 Promise.all)
+- [x] **D2**：`globalQueue` 不由 vocal-saga 网页翻译调用；当前服务端由 `runWithConcurrency` 限制在途 chunk，扩展队列与服务端翻译并发各自独立。早期 `Promise.all` 全并发结论已被后续实现取代。
 - [x] **D3**：`TextBlock.renderHint?: { inlineCandidate?: boolean }` 已在两端类型中声明；变更该字段时仍需同步并补充测试。
 - [x] **D4**:`extractBlocks` 签名统一(vocal-saga 传 `pageUrl`,fanyi-extension 不传) ✅ 已完成:设计性差异已文档化 — vocal-saga 传 pageUrl 用于服务端日志,fanyi-extension 不需要
 
@@ -661,7 +660,7 @@ prepareHtmlForServer 时在 clone 上把 `link[rel=stylesheet]` 替换为
 ---
 ### PDF/EPUB 结构化翻译（2026-10）
 
-- 浏览器扩展负责 PDF.js 文本层解析，服务端只接收结构化 segments，不接收 PDF 二进制；接口为 `/api/translate/document/segments`。
+- 浏览器扩展负责 PDF.js 文本层解析、批次调度、断点恢复和导出；Worker 只接收结构化 segments 并通过 `/api/translate/document/segments` 进行单次有界翻译。小说/长文档的持久化项目、跨章节记忆与审校必须使用 `local-agent-service`，Worker 不再提供重复的文档解析/全文翻译/文学分析/审校 endpoints。
 - 片段的 `id`、`kind`、`level`、`marker`、`page`、`contextPath` 在客户端和服务端保持一致。章节路径、列表标记及页码作为只读元数据使用，不进入译文正文。
 - 只有所有预期 ID 都有非空译文时 `complete` 才为 true。服务端会重试一次缺失片段；仍缺失时返回 `missingSegmentIds`，扩展保留已完成结果并允许只重试缺失片段。
 - 当前 PDF parser 会告警扫描件/低文本页；本次没有接入 OCR 引擎，不能把无文本层的页面报告成已识别。

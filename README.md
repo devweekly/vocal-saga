@@ -9,13 +9,13 @@ OpenAI-compatible LLM proxy + translation API，部署在 **Cloudflare Workers**
 npm install
 
 # 本地开发
-npm run dev:cf
+npm run dev
 
 # 测试
 npm test
 
 # 部署
-npm run deploy:cf
+npm run deploy
 ```
 
 ## Endpoints

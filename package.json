@@ -1,12 +1,10 @@
 {
   "name": "translation-api",
   "version": "0.6.2",
-  "description": "OpenAI-compatible LLM proxy + translation service on Netlify Functions",
+  "description": "OpenAI-compatible LLM proxy + translation API on Cloudflare Workers",
   "type": "module",
   "scripts": {
-    "dev": "netlify dev",
-    "dev:cf": "npm run build:lib && wrangler dev",
-    "deploy:cf": "npm run build:lib && wrangler deploy",
+    "dev": "npm run build:lib && wrangler dev",
     "kv:create": "wrangler kv namespace create VOCAL_SAGA_KV",
     "build": "npm run build:lib",
     "build:lib": "tsc -p tsconfig.lib.json",
@@ -17,12 +15,12 @@
     "unlock": "sh scripts/rm-git-lock.sh",
     "local-agent:install": "npm --prefix local-agent-service install",
     "local-agent:start": "npm --prefix local-agent-service start",
-    "local-agent:test": "npm --prefix local-agent-service test"
+    "local-agent:test": "npm --prefix local-agent-service test",
+    "deploy": "npm run build:lib && wrangler deploy"
   },
   "dependencies": {
     "@google/genai": "^2.21.0",
     "@mozilla/readability": "^0.6.0",
-    "@netlify/blobs": "^10.7.9",
     "cheerio": "^1.2.0",
     "compromise": "^14.16.0",
     "hono": "^4.13.7",
@@ -34,7 +32,6 @@
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^5.20260908.1",
-    "@netlify/functions": "^5.3.0",
     "@types/jsdom": "^30.0.0",
     "@types/node": "^25.9.3",
     "@types/supertest": "^7.2.0",

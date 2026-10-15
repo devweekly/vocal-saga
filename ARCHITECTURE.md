@@ -45,7 +45,7 @@ vocal-saga 是一个运行在 Cloudflare Workers 上的翻译代理服务，提�
 | HTTP 框架 | Hono | Cloudflare Workers 原生运行，零 Node 依赖 |
 | DOM 解析 | linkedom | 纯 JS DOM，Workers / Node 都能跑，替代 jsdom |
 | Readability | @mozilla/readability | 文章正文抽取兜底策略 |
-| 存储 | Cloudflare KV / D1 / Netlify Blobs | 跨平台 StorageAdapter 抽象 |
+| 存储 | Cloudflare KV / D1 | StorageAdapter 抽象，MapStorage 仅用于测试 |
 | 部署 | Cloudflare Workers | wrangler.toml 配置 |
 | 测试 | Vitest | 1000+ 测试用例 |
 | LLM SDK | @google/genai | Gemini 原生 API |
@@ -547,7 +547,7 @@ interface StorageAdapter {
 **实现**：
 - `CloudflareKVStorage` — Cloudflare KV
 - `MapStorage` — 内存（tests / local dev）
-- （Netlify Blobs 实现见 lib/index.ts）
+- 生产存储由 Cloudflare KV / D1 提供；MapStorage 只用于测试。
 
 `setDefaultStorage(storage)` 注入全局默认 adapter。
 
@@ -661,9 +661,9 @@ npm run deploy:cf     # 部署到 CF Workers
 - 选择 confidence 最高的候选
 - 低 confidence 时仍返回，由上层根据 blocks 数量做 fallback
 
-### 3. 全并行翻译
+### 3. 有界并发翻译
 
-Server 端 KV cache 不跨请求，chunk 直接 `Promise.all` 全并行。CF Workers 限制同时最多 6 个 fetch 等待 response headers。
+服务端通过 `runWithConcurrency` 限制同时在途的 chunk 数，避免长文请求瞬间打满上游并触发 429。并发度由翻译管线显式控制。
 
 ### 4. nodeType 判别
 

@@ -3,42 +3,43 @@
     "target": "ES2022",
     "module": "ESNext",
     "moduleResolution": "Bundler",
-    "lib": ["ES2022", "DOM"],
-    "types": ["node", "@cloudflare/workers-types"],
-
+    "lib": [
+      "ES2022",
+      "DOM"
+    ],
+    "types": [
+      "node",
+      "@cloudflare/workers-types"
+    ],
     "strict": true,
     "noImplicitAny": true,
     "strictNullChecks": true,
     "noImplicitOverride": true,
     "noFallthroughCasesInSwitch": true,
     "exactOptionalPropertyTypes": false,
-
     "esModuleInterop": true,
     "allowSyntheticDefaultImports": true,
     "resolveJsonModule": true,
     "isolatedModules": true,
     "verbatimModuleSyntax": false,
     "skipLibCheck": true,
-
     "noEmit": true,
     "allowJs": false,
     "checkJs": false,
-
     "forceConsistentCasingInFileNames": true,
-
     "paths": {
-      "@/*": ["./lib/*"]
+      "@/*": [
+        "./lib/*"
+      ]
     }
   },
   "include": [
     "lib/**/*.ts",
     "lib/**/*.d.ts",
-    "netlify/functions/**/*.ts",
     "functions/**/*.ts"
   ],
   "exclude": [
     "node_modules",
-    "netlify/functions/api.mjs",
     "fanyi-extension"
   ]
 }

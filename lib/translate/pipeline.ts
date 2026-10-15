@@ -4,7 +4,7 @@
  * 三个对外入口：
  *   - translateText   纯文本批量翻译（不抽 DOM）
  *   - translateDoc    已有 Document（service-side 用 urlFetcher.ts）
- *   - translateUrl    完整 URL → 翻译后 HTML（jsdom + cheerio 回填）
+ *   - translateUrl    完整 URL → 翻译后 HTML（linkedom 回填）
  *
  * Server 端策略：
  *   - chunk 内 missing 自动 retry 一次

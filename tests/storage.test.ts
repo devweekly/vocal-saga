@@ -7,7 +7,7 @@
  *   - JSON 解析坏数据时 getJSON 返回 null（fail-soft）
  *   - 全局注册表 setDefaultStorage / getDefaultStorage / clearDefaultStorage
  *
- * 故意不测 NetlifyBlobsStorage / CloudflareKVStorage：它们要真实 SDK / binding，
+ * 故意不测 CloudflareKVStorage：它需要真实 Worker binding，
  * 单测里用 mock 反而把单测变成 mock 测试，价值低。集成覆盖留给 e2e。
  */
 import { describe, it, expect, beforeEach } from 'vitest';

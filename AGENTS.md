@@ -26,7 +26,7 @@ OpenAI-compatible LLM proxy + translation API，部署在 **Cloudflare Workers**
 │   │   ├── memory.ts               #   MapStorage (tests / local dev)
 │   │   └── index.ts                #   setDefaultStorage / getDefaultStorage
 │   └── translate/                  # LLM + 翻译业务逻辑
-│       ├── pipeline.ts             # 翻译主流程（全并行）
+│       ├── pipeline.ts             # 翻译主流程（有界并发）
 │       ├── contentHelper.ts        # 文章容器识别（Layer 1/2/3）
 │       ├── contentDetector.ts      # 智能评分（Layer 2 兜底）
 │       ├── blockExtractor/         # DOM 文本提取
@@ -50,8 +50,9 @@ OpenAI-compatible LLM proxy + translation API，部署在 **Cloudflare Workers**
 - **Storage 抽象** — `StorageAdapter` 接口，CloudflareKV 实现
 - **linkedom** — 纯 JS DOM，CF / Node 都能跑，替代 jsdom
 - **nodeType 判别** — walker / rules 全部用 `nodeType === N` 而非 `instanceof`
-- **全并行翻译** — Server 端 KV cache 不跨请求，chunk 直接 Promise.all
+- **有界并发翻译** — `runWithConcurrency` 限制同时在途的 chunk 数，防止上游 429
 - **超时保护** — DeepSeek 45s / OpenRouter 60s / NVIDIA 60s
+- **文档边界** — Worker `/api/translate/document/segments` 只做一次有界结构化片段翻译；解析、批次调度、书籍记忆、审校、导出和恢复由扩展与本机 Agent 负责
 - **URL 标准化** — 无 `.` 域名补 `.com`，保留 www
 
 ## Routes
@@ -86,7 +87,7 @@ blockExtractor (DFS 提取 TextBlock)
   ↓
 chunkBuilder (TARGET_TOKENS=1000)
   ↓
-Promise.all (全并行翻译)
+runWithConcurrency (有界并发翻译)
   ↓
 applyBlockTranslation (回填 HTML)
 ```

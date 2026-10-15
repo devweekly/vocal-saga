@@ -4,8 +4,8 @@
  * 与 fanyi-extension 的 `document/index.ts` 保持同步，差异只有一处：
  * **服务端不支持 PDF / DOCX / EPUB**。
  *
- * 原因：这三个是二进制格式，需要 pdfjs-dist（依赖 Worker + canvas，在
- * Netlify Functions / Cloudflare Workers 上要么跑不动要么体积爆炸）
+ * 原因：这三个是二进制格式，需要 pdfjs-dist（依赖 Worker + canvas，
+ * 不适合在 Cloudflare Worker 内解析，且扩展中已持有原始文件）
  * 和 jszip。服务端定位是"轻量 API + 网页翻译"，二进制文档交给浏览器扩展
  * 解析更合理 —— 扩展里文件本来就在用户手上，不需要上传。
  * 所以这里直接抛明确错误，而不是静默返回空结果。

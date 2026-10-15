@@ -54,20 +54,15 @@ export function injectTranslationCss(html: string): string {
 /**
  * 平台无关的 Hono 应用工厂。
  *
- * 入口（Netlify Functions / Cloudflare Pages）在启动时构造一个 StorageAdapter
- * （NetlifyBlobsStorage / CloudflareKVStorage / MapStorage），调本工厂拿到 Hono app。
- *
- * Hono 在 Workers 上零开销直接跑，在 Node 端通过 hono/aws-lambda 适配。
+ * Cloudflare Worker 入口注入 Cloudflare KV StorageAdapter；单元测试可以注入 MapStorage。
  */
 
 import { Hono } from 'hono';
 import { Instapaper, OAuth } from 'instapaper-api';
 import { cors } from 'hono/cors';
-import { translateText, translateUrl, translateHtml } from './translate/pipeline';
-import { createStructuredDocument, parseDocument, SERVER_SUPPORTED_FORMATS } from './translate/document';
-import { translateDocument } from './translate/documentPipeline';
-import { analyzeLiteraryChapter, reviewLiteraryBatch } from './translate/document/literaryWorkflow';
-import type { LiterarySourceSegment, ReviewLiterarySegment } from './translate/document/literaryWorkflow';
+import { translateText, translateUrl, translateHtml, translateBlocks } from './translate/pipeline';
+import { createStructuredDocument } from './translate/document';
+import type { ParsedDocument } from './translate/document';
 import { hasDocumentRoot, validateTranslationCompleteness } from './translate/translationValidator';
 import { simpleHash } from './translate/cacheKey';
 import { buildPageCacheFingerprint } from './translate/pageCacheKey';
@@ -1094,325 +1089,119 @@ ${pager}
   });
 
   /**
-   * POST /api/translate/document/parse —— 只解析，不翻译。
+   * POST /api/translate/document/segments
    *
-   * 拆出这一步是为了让调用方先看到"会翻多少段 / 多少字"再决定要不要花钱，
-   * 也便于前端做"预检 + 二次确认"。不消耗任何 token。
-   */
-  app.post('/api/translate/document/parse', async (c) => {
-    const body = await c.req.json().catch(() => ({} as any));
-    const { fileName, content, contentBase64, maxSegmentChars } = body || {};
-    if (!fileName || typeof fileName !== 'string') {
-      return c.json({ error: 'fileName is required' }, 400);
-    }
-    try {
-      const text = typeof content === 'string'
-        ? content
-        : typeof contentBase64 === 'string'
-          ? Buffer.from(contentBase64, 'base64').toString('utf-8')
-          : undefined;
-      if (text === undefined) {
-        return c.json({ error: 'content or contentBase64 is required' }, 400);
-      }
-      const doc = await parseDocument({ fileName, text }, { maxSegmentChars });
-      return c.json({
-        title: doc.title,
-        format: doc.format,
-        segments: doc.segments,
-        charCount: doc.meta.charCount,
-        segmentCount: doc.meta.segmentCount,
-        warnings: doc.meta.warnings,
-      });
-    } catch (err) {
-      const message = (err as Error).message;
-      // 不支持的格式是用户输入问题，不是服务故障 → 415 而不是 500
-      const status = message.includes('不支持') || message.includes('上限') ? 415 : 400;
-      return c.json({ error: message, supported: SERVER_SUPPORTED_FORMATS }, status);
-    }
-  });
-
-  /**
-   * POST /api/translate/document/segments —— 翻译客户端已经解析完成的结构化片段。
-   *
-   * 典型用途是 PDF：浏览器端用 PDF.js 完成文本重建、栏顺序与章节识别后，只传片段及语境；
-   * 服务端复用同一分批翻译、术语、文风、缺失重试和导出管线，不接收/解析 PDF 二进制。
+   * 只接受扩展已解析好的结构化片段，并对本次请求做一次有界翻译。
+   * Worker 不负责文档解析、跨章节记忆、审校循环、全文导出或断点恢复；
+   * 这些长任务由扩展和本机 local-agent-service 管理。
    */
   app.post('/api/translate/document/segments', async (c) => {
     const body = await c.req.json().catch(() => ({} as any));
-    const { fileName, title, format, segments, warnings, source, target, glossary,
-      promptStyle, translationMode, exportAs, exportMode, translate, concurrency, budget, provider, model, apiKey,
-      literaryContext, literaryReview, chapterTitle, forceRefresh,
-      documentSystemPromptOverride, documentUserPromptTemplate } = body || {};
+    const {
+      fileName, title, format, segments, warnings, source, target, glossary,
+      promptStyle, translationMode, translate, provider, model, apiKey, forceRefresh,
+      documentSystemPromptOverride, documentUserPromptTemplate,
+    } = body || {};
+
     if (typeof fileName !== 'string' || !fileName.trim()) {
       return c.json({ error: 'fileName is required' }, 400);
     }
 
     const startedAt = Date.now();
-    try {
-      // Netlify/边缘函数对请求体有实际大小限制。用 UTF-8 预算提前给出可操作错误，
-      // 不让大 PDF 的结构化 JSON 在平台层被截断成含糊的 413/502。
-      const payloadBytes = new TextEncoder().encode(JSON.stringify(body)).byteLength;
-      const MAX_STRUCTURED_REQUEST_BYTES = 5 * 1024 * 1024;
-      if (payloadBytes > MAX_STRUCTURED_REQUEST_BYTES) {
-        return c.json({
-          error: '结构化文档请求体超过 5 MiB。请在扩展端拆分 PDF 或只提交待翻译的章节后重试。',
-          payloadBytes,
-          maxBytes: MAX_STRUCTURED_REQUEST_BYTES,
-        }, 413);
-      }
-      const doc = createStructuredDocument({ fileName, title, format, segments, warnings });
-      if (translate === false) {
-        return c.json({
-          fileName,
-          title: doc.title,
-          format: doc.format,
-          segments: doc.segments,
-          charCount: doc.meta.charCount,
-          segmentCount: doc.segments.length,
-          warnings: doc.meta.warnings,
-          translated: false,
-        });
-      }
-      if (!doc.segments.length) {
-        return c.json({ error: '没有可翻译片段', warnings: doc.meta.warnings }, 400);
-      }
-
-      const supportedProviders = ['deepseek', 'openrouter', 'nvidia', 'cloudflare', 'mimo', 'gemini', 'opencode'];
-      if (provider !== undefined && !supportedProviders.includes(provider)) {
-        return c.json({ error: 'provider is not supported', supportedProviders }, 400);
-      }
-      const result = await translateDocument({
-        doc,
-        source,
-        target,
-        glossary,
-        promptStyle: promptStyle as PromptStyle | undefined,
-        translationMode: translationMode === 'literary' || (literaryReview === true && (format === 'epub' || format === 'pdf')) ? 'literary' : 'technical',
-        exportAs,
-        exportMode,
-        concurrency: typeof concurrency === 'number' ? concurrency : undefined,
-        budget: budget && typeof budget === 'object' ? budget : undefined,
-        provider,
-        model: typeof model === 'string' ? model : undefined,
-        apiKey: typeof apiKey === 'string' ? apiKey : undefined,
-        // 只有电子书客户端显式开启文学模式时才使用独立记忆与审校流程。
-        // The profile may carry recent literary examples for non-book documents too;
-        // only EPUB/PDF trigger automatic entity analysis in the client workflow.
-        literaryContext: literaryContext && typeof literaryContext === 'object' ? literaryContext : undefined,
-        // Literary profile invokes the editorial pass for any structured document; EPUB/PDF
-        // additionally carry book-level entity and style memory when supplied.
-        literaryReview: literaryReview === true || (translationMode === 'literary' && literaryReview !== false),
-        forceRefresh: forceRefresh === true,
-        documentSystemPromptOverride: typeof documentSystemPromptOverride === 'string' ? documentSystemPromptOverride : undefined,
-        documentUserPromptTemplate: typeof documentUserPromptTemplate === 'string' ? documentUserPromptTemplate : undefined,
-        chapterTitle: typeof chapterTitle === 'string' ? chapterTitle.slice(0, 160) : undefined,
-      });
+    const payloadBytes = new TextEncoder().encode(JSON.stringify(body)).byteLength;
+    const maxRequestBytes = 5 * 1024 * 1024;
+    if (payloadBytes > maxRequestBytes) {
       return c.json({
-        ...result,
+        error: '结构化文档请求体超过 5 MiB。请缩小批次后重试。',
+        payloadBytes,
+        maxBytes: maxRequestBytes,
+      }, 413);
+    }
+
+    let doc: ParsedDocument;
+    try {
+      doc = createStructuredDocument({ fileName, title, format, segments, warnings });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      const status = message.includes('不支持') ? 415 : message.includes('超过') ? 413 : 400;
+      return c.json({ error: message }, status);
+    }
+
+    if (translate === false) {
+      return c.json({
         fileName,
+        title: doc.title,
+        format: doc.format,
+        segments: doc.segments,
+        charCount: doc.meta.charCount,
+        segmentCount: doc.segments.length,
         warnings: doc.meta.warnings,
-        total_ms: Date.now() - startedAt,
+        translated: false,
       });
-    } catch (err) {
-      const message = (err as Error).message;
-      const status = message.includes('不支持') ? 415 : 400;
-      return c.json({
-        error: message,
-        supported: ['pdf', ...SERVER_SUPPORTED_FORMATS],
-      }, status);
     }
-  });
+    if (!doc.segments.length) {
+      return c.json({ error: '没有可翻译片段', warnings: doc.meta.warnings }, 400);
+    }
 
-  /**
-   * POST /api/translate/document/literary/analyze
-   *
-   * 电子书专用的逐章分析接口。每章只发送一个有界片段窗口，更新书籍实体词典、
-   * 人物/事物关系和统一声线。这个端点与普通网页翻译隔离，不写网页翻译缓存。
-   */
-  app.post('/api/translate/document/literary/analyze', async (c) => {
-    const body = await c.req.json().catch(() => ({} as any));
-    const {
-      chapterTitle, segments, memory, source, target, glossary, promptStyle,
-      provider, model, apiKey,
-    } = body || {};
-    if (typeof chapterTitle !== 'string' || !chapterTitle.trim()) {
-      return c.json({ error: 'chapterTitle is required' }, 400);
-    }
-    if (!Array.isArray(segments) || segments.length === 0 || segments.length > 24) {
-      return c.json({ error: 'segments must contain 1-24 chapter excerpts' }, 400);
-    }
-    const payloadBytes = new TextEncoder().encode(JSON.stringify(body)).byteLength;
-    if (payloadBytes > 128 * 1024) {
-      return c.json({ error: '章节分析输入超过 128 KiB；请只发送当前章节的代表性片段' }, 413);
-    }
     const supportedProviders = ['deepseek', 'openrouter', 'nvidia', 'cloudflare', 'mimo', 'gemini', 'opencode'];
     if (provider !== undefined && !supportedProviders.includes(provider)) {
       return c.json({ error: 'provider is not supported', supportedProviders }, 400);
     }
 
-    const sourceSegments: LiterarySourceSegment[] = [];
-    for (const raw of segments) {
-      if (!raw || typeof raw !== 'object' || typeof raw.id !== 'string' ||
-        typeof raw.text !== 'string' || !raw.text.trim()) continue;
-      sourceSegments.push({
-        id: raw.id.slice(0, 160),
-        text: raw.text.slice(0, 900),
-        kind: typeof raw.kind === 'string' ? raw.kind.slice(0, 30) : 'paragraph',
-        contextPath: typeof raw.contextPath === 'string' ? raw.contextPath.slice(0, 160) : chapterTitle,
-      });
-    }
-    if (sourceSegments.length === 0) return c.json({ error: '没有有效的章节文本可供分析' }, 400);
-
     try {
-      const result = await analyzeLiteraryChapter({
-        chapterTitle,
-        segments: sourceSegments,
-        memory,
+      // 一个请求仅调用一次 translateBlocks；底层负责单次请求内必要的 chunk 切分、
+      // 有界并发、缓存和缺失 ID 重试，不执行文档级多阶段编排。
+      const result = await translateBlocks({
+        blocks: doc.segments.map((segment) => ({
+          id: segment.id,
+          text: segment.text,
+          contextPath: segment.contextPath,
+          kind: segment.kind,
+          level: segment.level,
+          marker: segment.marker,
+        })),
         source: typeof source === 'string' ? source : 'auto',
         target: typeof target === 'string' ? target : 'zh',
-        glossary,
-        promptStyle: promptStyle as PromptStyle | undefined,
-        provider,
-        model: typeof model === 'string' ? model : undefined,
-        apiKey: typeof apiKey === 'string' ? apiKey : undefined,
-      });
-      return c.json(result);
-    } catch (error) {
-      console.error('[document/literary/analyze] failed:', error);
-      return c.json({
-        error: error instanceof Error ? error.message : String(error),
-        fallback: '保留已有书籍记忆并继续当前章节翻译',
-      }, 502);
-    }
-  });
-
-  /**
-   * POST /api/translate/document/literary/review
-   *
-   * 电子书专用独立审校接口，接收原文与初译，不接受或执行原文里的指令。
-   * 返回每个 id 的最终译文；缺失 ID 由调用方回退到初译，不能丢失已翻译片段。
-   */
-  app.post('/api/translate/document/literary/review', async (c) => {
-    const body = await c.req.json().catch(() => ({} as any));
-    const {
-      chapterTitle, segments, memory, source, target, glossary, promptStyle,
-      provider, model, apiKey,
-    } = body || {};
-    if (!Array.isArray(segments) || segments.length === 0 || segments.length > 32) {
-      return c.json({ error: 'segments must contain 1-32 source/draft pairs' }, 400);
-    }
-    const payloadBytes = new TextEncoder().encode(JSON.stringify(body)).byteLength;
-    if (payloadBytes > 256 * 1024) return c.json({ error: '审校请求超过 256 KiB' }, 413);
-    const supportedProviders = ['deepseek', 'openrouter', 'nvidia', 'cloudflare', 'mimo', 'gemini', 'opencode'];
-    if (provider !== undefined && !supportedProviders.includes(provider)) {
-      return c.json({ error: 'provider is not supported', supportedProviders }, 400);
-    }
-
-    const reviewSegments: ReviewLiterarySegment[] = [];
-    for (const raw of segments) {
-      if (!raw || typeof raw !== 'object' || typeof raw.id !== 'string' ||
-        typeof raw.source !== 'string' || !raw.source.trim() ||
-        typeof raw.draft !== 'string' || !raw.draft.trim()) continue;
-      reviewSegments.push({
-        id: raw.id.slice(0, 160),
-        source: raw.source.slice(0, 4_000),
-        draft: raw.draft.slice(0, 5_000),
-        kind: typeof raw.kind === 'string' ? raw.kind.slice(0, 30) : 'paragraph',
-        contextPath: typeof raw.contextPath === 'string' ? raw.contextPath.slice(0, 160) : chapterTitle,
-      });
-    }
-    if (reviewSegments.length === 0) return c.json({ error: '没有有效的原文与初译对' }, 400);
-
-    try {
-      const result = await reviewLiteraryBatch({
-        segments: reviewSegments,
-        memory,
-        chapterTitle: typeof chapterTitle === 'string' ? chapterTitle.slice(0, 160) : '',
-        source: typeof source === 'string' ? source : 'auto',
-        target: typeof target === 'string' ? target : 'zh',
-        glossary,
-        promptStyle: promptStyle as PromptStyle | undefined,
-        provider,
-        model: typeof model === 'string' ? model : undefined,
-        apiKey: typeof apiKey === 'string' ? apiKey : undefined,
-      });
-      return c.json(result);
-    } catch (error) {
-      console.error('[document/literary/review] failed:', error);
-      return c.json({ error: error instanceof Error ? error.message : String(error) }, 502);
-    }
-  });
-
-  /**
-   * POST /api/translate/document —— 解析 + 全文翻译（一步到位）。
-   *
-   * 只有 `translate: false` 时退化为预检（等价于 parse 接口）。
-   * 返回逐段译文 + 失败批次，调用方可以只重跑 failedBatches 对应的段。
-   */
-  app.post('/api/translate/document', async (c) => {
-    const body = await c.req.json().catch(() => ({} as any));
-    const {
-      fileName, content, contentBase64, source, target, glossary,
-      promptStyle, translationMode, exportAs, exportMode, maxSegmentChars, translate,
-    } = body || {};
-    if (!fileName || typeof fileName !== 'string') {
-      return c.json({ error: 'fileName is required' }, 400);
-    }
-
-    const start = Date.now();
-    try {
-      const text = typeof content === 'string'
-        ? content
-        : typeof contentBase64 === 'string'
-          ? Buffer.from(contentBase64, 'base64').toString('utf-8')
-          : undefined;
-      if (text === undefined) {
-        return c.json({ error: 'content or contentBase64 is required' }, 400);
-      }
-
-      const doc = await parseDocument({ fileName, text }, { maxSegmentChars });
-
-      // translate=false → 只解析，省 token
-      if (translate === false) {
-        return c.json({
-          title: doc.title,
-          format: doc.format,
-          segments: doc.segments,
-          charCount: doc.meta.charCount,
-          segmentCount: doc.meta.segmentCount,
-          warnings: doc.meta.warnings,
-        });
-      }
-
-      if (!doc.segments.length) {
-        return c.json({ error: '文档中没有可翻译内容', warnings: doc.meta.warnings }, 400);
-      }
-
-      console.log(
-        `[translate/document] file=${fileName} segs=${doc.segments.length} chars=${doc.meta.charCount} src=${source || 'auto'} tgt=${target || 'zh'}`,
-      );
-
-      const result = await translateDocument({
-        doc,
-        source,
-        target,
         glossary,
         promptStyle: promptStyle as PromptStyle | undefined,
         translationMode: translationMode === 'literary' ? 'literary' : 'technical',
-        exportAs,
-        exportMode,
+        concurrency: 4,
+        provider,
+        model: typeof model === 'string' ? model : undefined,
+        apiKey: typeof apiKey === 'string' ? apiKey : undefined,
+        skipCache: forceRefresh === true,
+        systemPromptOverride: typeof documentSystemPromptOverride === 'string'
+          ? documentSystemPromptOverride.slice(0, 30_000)
+          : undefined,
+        userPromptTemplate: typeof documentUserPromptTemplate === 'string'
+          ? documentUserPromptTemplate.slice(0, 30_000)
+          : undefined,
       });
 
-      console.log(
-        `[translate/document] batches=${result.batchCount} failed=${result.failedBatches.length} duration=${result.duration_ms}ms`,
-      );
-
-      return c.json({ ...result, total_ms: Date.now() - start });
-    } catch (err) {
-      console.error('[translate/document] error:', err);
-      const message = (err as Error).message;
-      const status = message.includes('不支持') || message.includes('上限') ? 415 : 500;
-      return c.json({ error: message, supported: SERVER_SUPPORTED_FORMATS }, status);
+      const translations = Object.fromEntries(result);
+      const missingSegmentIds = doc.segments
+        .filter((segment) => typeof translations[segment.id] !== 'string' || !translations[segment.id]!.trim())
+        .map((segment) => segment.id);
+      return c.json({
+        fileName,
+        title: doc.title,
+        format: doc.format,
+        translations,
+        segmentCount: doc.segments.length,
+        charCount: doc.meta.charCount,
+        completedSegmentCount: doc.segments.length - missingSegmentIds.length,
+        missingSegmentIds,
+        complete: missingSegmentIds.length === 0,
+        errors: missingSegmentIds.length
+          ? ['未返回有效译文的片段：' + missingSegmentIds.slice(0, 20).join(', ')]
+          : [],
+        warnings: doc.meta.warnings,
+        total_ms: Date.now() - startedAt,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.error('[document/segments] translation failed:', error);
+      return c.json({ error: message }, 502);
     }
   });
 

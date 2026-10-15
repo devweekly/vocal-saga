@@ -24,8 +24,7 @@ export function getDefaultStorage(): StorageAdapter {
   if (!s) {
     throw new Error(
       'Default storage not configured. Call setDefaultStorage() at startup ' +
-      '(netlify/functions/api.mjs on Netlify, functions/api/[[path]].ts on Cloudflare, ' +
-      'or tests/setup.ts in unit tests).'
+      '(src/worker.ts on Cloudflare Workers or tests/setup.ts in unit tests).'
     );
   }
   return s;
@@ -36,7 +35,6 @@ export function clearDefaultStorage(): void {
   delete (globalThis as unknown as GlobalWithStorage)[KEY];
 }
 
-export { NetlifyBlobsStorage } from './netlify';
 export { CloudflareKVStorage } from './cloudflare';
 export { MapStorage } from './memory';
 export type { StorageAdapter } from './types';

@@ -1,13 +1,11 @@
 /**
  * Vocal Saga 共享 lib 入口。
  *
- * 平台入口（Netlify Functions / Cloudflare Pages Function）从这里 import
- * `createApp` 和 storage adapters。
+ * Cloudflare Worker 入口和测试从这里 import `createApp` 与存储适配器。
  */
 export { createApp } from './app';
 export { requireAuth, factory } from './auth';
 export {
-  NetlifyBlobsStorage,
   CloudflareKVStorage,
   MapStorage,
   setDefaultStorage,

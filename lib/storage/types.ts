@@ -1,9 +1,7 @@
 /**
- * 跨平台存储抽象。
+ * 最小 KV 存储接口。
  *
- * 设计目标：让上层（cacheManager 等）只看到一个最小的 KV 接口，
- * 由入口在启动时注入具体实现。生产支持 Netlify Blobs（strong consistency）
- * 和 Cloudflare Workers KV（最终一致，单 key 写后立即读自己写的一致）。
+ * 生产实现使用 Cloudflare Workers KV；MapStorage 仅供测试使用。
  *
  * 一律把多个 namespace 折叠到同一个 adapter 上，用 key 前缀（`cache:analysis:`
  * 等）区隔；这样跨平台移植时不需要在两边都建 N 个 binding / store。
