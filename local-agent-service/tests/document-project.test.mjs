@@ -185,7 +185,7 @@ test('literary memory has immutable revisions and each run keeps its original sn
       characterVoices: [{
         characterId: 'char-alice', canonicalSourceName: 'Alice', targetName: '艾丽丝', aliases: [],
         status: 'confirmed', confidence: 0.9, voiceCore: { syntaxRhythm: ['短反问'] },
-        contrastRules: [], evidence: [{ segmentId: 'ch1-p1', sourceQuote: 'Really?', dimension: 'syntax_rhythm', observation: '短反问', confidence: 0.9 }],
+        contrastRules: [], evidence: [{ segmentId: 'ch1-p1', sourceQuote: 'The door was open.', dimension: 'register', observation: '用简短陈述表达信息', confidence: 0.9 }],
         openQuestions: [],
       }],
       relationshipVoiceRules: [], voiceAnchors: [],
