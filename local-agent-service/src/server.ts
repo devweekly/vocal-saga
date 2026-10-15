@@ -77,7 +77,7 @@ export function startLocalAgentServer() {
     });
   });
 
-  const server = app.listen(PORT, HOST, () => {
+  app.listen(PORT, HOST, () => {
     console.log('[local-agent] listening on http://' + HOST + ':' + PORT);
     console.log('[local-agent] provider default: ' + DEFAULT_PROVIDER);
     console.log('[local-agent] SQLite: ' + DATABASE_PATH);
@@ -88,5 +88,4 @@ export function startLocalAgentServer() {
       void getTextPool().prewarm({ provider: 'workbuddy', model: '' }).catch(() => {});
     }
   });
-  void server;
 }
