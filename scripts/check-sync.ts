@@ -22,10 +22,18 @@ if (!fs.existsSync(path.join(FANYI_EXTENSION, 'package.json'))) {
 }
 
 // 字节级同步模块对照表（来自 CROSS_PROJECT_SYNC.md §一）。cacheKey 与 service/_service
-// 有意保留平台扩展字段，按文档中的语义契约维护，不纳入字节级比较。
+// 有意保留平台扩展字段，按文档中的语义契约维护，不纳入字节级比较；纯函数 document 模块纳入逐字节校验。
 const SYNC_PAIRS: Array<{ name: string; server: string; extension: string }> = [
   { name: 'chunkRetry', server: 'lib/translate/chunkRetry.ts', extension: 'src/entrypoints/utils/chunkRetry.ts' },
   { name: 'translationQueue', server: 'lib/translate/translationQueue.ts', extension: 'src/entrypoints/utils/translationQueue.ts' },
+  { name: 'document/types', server: 'lib/translate/document/types.ts', extension: 'src/entrypoints/utils/document/types.ts' },
+  { name: 'document/detect', server: 'lib/translate/document/detect.ts', extension: 'src/entrypoints/utils/document/detect.ts' },
+  { name: 'document/batcher', server: 'lib/translate/document/batcher.ts', extension: 'src/entrypoints/utils/document/batcher.ts' },
+  { name: 'document/export', server: 'lib/translate/document/export.ts', extension: 'src/entrypoints/utils/document/export.ts' },
+  { name: 'document/parser-text', server: 'lib/translate/document/parsers/text.ts', extension: 'src/entrypoints/utils/document/parsers/text.ts' },
+  { name: 'document/parser-subtitle', server: 'lib/translate/document/parsers/subtitle.ts', extension: 'src/entrypoints/utils/document/parsers/subtitle.ts' },
+  { name: 'document/parser-html', server: 'lib/translate/document/parsers/html.ts', extension: 'src/entrypoints/utils/document/parsers/html.ts' },
+  { name: 'document/parser-json', server: 'lib/translate/document/parsers/json.ts', extension: 'src/entrypoints/utils/document/parsers/json.ts' },
   { name: 'service/streamParser', server: 'lib/translate/service/streamParser.ts', extension: 'src/entrypoints/service/streamParser.ts' },
   { name: 'service/glossaryTerms', server: 'lib/translate/service/glossaryTerms.ts', extension: 'src/entrypoints/service/glossaryTerms.ts' },
   { name: 'service/prompt-contract', server: 'lib/translate/service/prompt-contract.ts', extension: 'src/entrypoints/service/prompt-contract.ts' },
