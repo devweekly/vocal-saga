@@ -138,6 +138,10 @@ export async function runLiteraryReview(body: any, requestId: string, sessionSco
           draftExcerpt: typeof item.draftExcerpt === 'string' ? item.draftExcerpt.slice(0, 240) : '',
           reason: typeof item.reason === 'string' ? item.reason.slice(0, 400) : '',
           suggestion: typeof item.suggestion === 'string' ? item.suggestion.slice(0, 400) : '',
+          ...(item.category === 'style' && candidateUsable ? {
+            proposedTranslation: candidateText,
+            applicationStatus: 'pending' as const,
+          } : {}),
         };
         if (finding.reason || finding.suggestion) candidateFindings.push(finding);
       }
@@ -149,8 +153,15 @@ export async function runLiteraryReview(body: any, requestId: string, sessionSco
         finding.reason = (finding.reason ? finding.reason + '；' : '') + '本机未返回长度合规的完整修正译文，因此没有自动覆盖初译';
       }
     }
+    const hasMustFixFinding = candidateFindings.some((finding) => finding.priority === 'must_fix');
+    if (hasMustFixFinding) {
+      for (const finding of candidateFindings) {
+        if (finding.category === 'style') finding.applicationStatus = 'applied';
+      }
+    }
     findings.push(...candidateFindings);
-    translations[raw.id] = hasActionableFinding && candidateUsable ? candidateText : original.draft;
+    // Facts/terminology must be fixed, but style-only suggestions must not silently replace the draft.
+    translations[raw.id] = hasMustFixFinding && candidateUsable ? candidateText : original.draft;
   }
   const expectedIds = segments.map((item) => item.id);
   return {
