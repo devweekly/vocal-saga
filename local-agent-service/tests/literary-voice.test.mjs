@@ -186,6 +186,9 @@ test('explicit entity aliases retain a single canonical translation in local-age
   const memory = sanitizeProjectLiteraryMemory({
     entities: [
       { source: 'Kiri', target: '吉莉', kind: 'person', aliases: ['Kiri'], reviewStatus: 'confirmed' },
+      // Old memory may already have a competing full-name row with no known alias.
+      { source: 'Kiritsubo', target: '吉罗', kind: 'person', aliases: [], reviewStatus: 'suggested' },
+      // A newer analysis can bridge the two rows by supplying the alias.
       { source: 'Kiritsubo', target: '吉罗', kind: 'person', aliases: ['Kiri'], reviewStatus: 'suggested' },
     ],
     relationships: [], styleGuide: {}, chapterSummaries: [], recentExamples: [],
