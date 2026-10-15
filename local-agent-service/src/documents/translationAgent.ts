@@ -65,13 +65,15 @@ function buildBatches(items: TranslationItem[]): TranslationItem[][] {
   return batches;
 }
 
-function buildUserPrompt(template: string, items: TranslationItem[], context: any): string {
+function buildUserPrompt(template: string, items: TranslationItem[], context: any, precedingSegments: TranslationItem[] = []): string {
   const payload = JSON.stringify({
     document: context.project.title,
     format: context.project.format,
     sourceLang: context.run.sourceLang,
     targetLang: context.run.targetLang,
     translationMode: context.run.translationMode,
+    // 前文只用于指代/对白轮次解析，不属于本次输出范围；不得重新翻译或输出其 ID。
+    precedingSegments: precedingSegments.slice(-4).map((item) => ({ id: item.id, text: item.text, contextPath: item.contextPath || '' })),
     segments: items.map((item) => ({
       id: item.id,
       text: item.text,
@@ -83,7 +85,9 @@ function buildUserPrompt(template: string, items: TranslationItem[], context: an
     })),
     glossary: context.prompt.config?.glossary ?? null,
     // 当前批次只注入相关人物声音、关系规则和 approved 锚点，不把整本书的记忆全部塞进上下文。
-    voiceContext: context.run.translationMode === 'literary' ? buildProjectVoiceContext(context.memory, items, items[0]?.contextPath || context.project.title) : null,
+    voiceContext: context.run.translationMode === 'literary'
+      ? buildProjectVoiceContext(context.memory, items, items[0]?.contextPath || context.project.title, precedingSegments)
+      : null,
   });
   if (template.includes('{{CONTENT}}')) return template.replaceAll('{{CONTENT}}', payload);
   if (template.includes('{{CONTENT_JSON}}')) return template.replaceAll('{{CONTENT_JSON}}', payload);
@@ -118,9 +122,9 @@ function parseTranslations(value: unknown, expectedIds: Set<string>): Map<string
   return result;
 }
 
-async function translateBatch(context: any, items: TranslationItem[], requestId: string): Promise<Map<string, string>> {
+async function translateBatch(context: any, items: TranslationItem[], requestId: string, precedingSegments: TranslationItem[] = []): Promise<Map<string, string>> {
   const agent = parseAgentModel(context.run.model || 'auto', context.run.provider || 'workbuddy');
-  const userPrompt = buildUserPrompt(context.prompt.userPromptTemplate || '', items, context);
+  const userPrompt = buildUserPrompt(context.prompt.userPromptTemplate || '', items, context, precedingSegments);
   const systemPrompt = [
     context.prompt.systemPrompt || '',
     MANDATORY_TRANSLATION_CONTRACT,
@@ -156,8 +160,11 @@ async function executeRun(projectId: string, runId: string): Promise<void> {
       if (status === 'cancelled' || status === 'paused') return;
       batchIndex++;
       const batchIds = batch.map((item) => item.id);
+      const precedingSegments = context.run.translationMode === 'literary' && batch[0]
+        ? store.getPrecedingSegments(projectId, runId, batch[0].id, 4) as TranslationItem[]
+        : [];
       store.markRunSegments(projectId, runId, batchIds, 'running');
-      store.appendEvent(projectId, runId, 'batch.started', { batchIndex, batchCount: batches.length, segmentIds: batchIds });
+      store.appendEvent(projectId, runId, 'batch.started', { batchIndex, batchCount: batches.length, segmentIds: batchIds, precedingContextCount: precedingSegments.length });
       const pending = new Map(batch.map((item) => [item.id, item]));
       const translations = new Map<string, string>();
       let lastError = '模型未返回完整的片段集合';
@@ -166,7 +173,7 @@ async function executeRun(projectId: string, runId: string): Promise<void> {
       for (let attempt = 0; attempt < 2 && pending.size > 0; attempt++) {
         try {
           const current = Array.from(pending.values());
-          const output = await translateBatch(context, current, runId + '-b' + batchIndex + '-a' + attempt);
+          const output = await translateBatch(context, current, runId + '-b' + batchIndex + '-a' + attempt, precedingSegments);
           // Cancellation may arrive while an SDK/CLI call is in flight. The result is discarded
           // after the await; a stopped run must never commit a late candidate behind the user's back.
           if (store.getRunStatus(projectId, runId) === 'cancelled') {
@@ -196,9 +203,15 @@ async function executeRun(projectId: string, runId: string): Promise<void> {
             provider: context.run.provider,
             model: context.run.model,
             memory: context.memory,
-            voiceContext: buildProjectVoiceContext(context.memory, batch.filter((item) => translations.has(item.id)).map((item) => ({
-              id: item.id, text: item.text, contextPath: item.contextPath,
-            })), batch[0]?.contextPath || context.project.title),
+            precedingSegments,
+            voiceContext: buildProjectVoiceContext(
+              context.memory,
+              batch.filter((item) => translations.has(item.id)).map((item) => ({
+                id: item.id, text: item.text, contextPath: item.contextPath,
+              })),
+              batch[0]?.contextPath || context.project.title,
+              precedingSegments,
+            ),
             segments: batch.filter((item) => translations.has(item.id)).map((item) => ({
               id: item.id, source: item.text, draft: translations.get(item.id)!,
               kind: item.kind, contextPath: item.contextPath,
