@@ -73,6 +73,8 @@ export function buildSystemContent(
   style?: PromptStyle,
   translationMode: TranslationMode = 'technical',
 ): string {
+  const override = glossary?.document_system_prompt_override?.trim();
+  if (override) return override;
   const base = buildStyledSystemContent(sourceLang, targetLang, glossary, style, translationMode);
   const instructions = (glossary?.site_instructions ?? [])
     .map((instruction) => instruction.trim())
@@ -107,6 +109,15 @@ export function buildTranslationBody(
   );
 
   const systemContent = buildSystemContent(sourceLang, targetLang, glossary, style, translationMode);
+  const userTemplate = glossary?.document_user_prompt_template?.trim();
+  const defaultUserContent = hasContext
+    ? `下面的 JSON 包含待翻译片段。只翻译每个对象的 text 字段。contextPath 是只读章节语境；kind、level 和 marker 是只读文档结构元数据，用于区分标题、正文和列表并保留原始编号。不要翻译或改写这些元数据，也不要将它们混入译文；保持原有 id 与翻译响应协议不变。\n\nJSON:\n\n${blocksJson}`
+    : `JSON:\n\n${blocksJson}`;
+  const userContent = userTemplate
+    ? (userTemplate.includes('{{CONTENT}}')
+        ? userTemplate.replaceAll('{{CONTENT}}', blocksJson)
+        : userTemplate + '\n\nJSON content (IDs and structure must be preserved):\n' + blocksJson)
+    : defaultUserContent;
 
   return {
     model: model || 'deepseek-v4-flash',
@@ -117,9 +128,7 @@ export function buildTranslationBody(
       },
       {
         role: 'user' as const,
-        content: hasContext
-          ? `下面的 JSON 包含待翻译片段。只翻译每个对象的 text 字段。contextPath 是只读章节语境；kind、level 和 marker 是只读文档结构元数据，用于区分标题、正文和列表并保留原始编号。不要翻译或改写这些元数据，也不要将它们混入译文；保持原有 id 与翻译响应协议不变。\n\nJSON:\n\n${blocksJson}`
-          : `JSON:\n\n${blocksJson}`,
+content: userContent,
       },
     ],
     temperature: 0.5,
