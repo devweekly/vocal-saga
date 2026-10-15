@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, rm, readFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { DocumentProjectStore } from '../src/documents/projectStore.ts';
@@ -95,3 +95,52 @@ test('manual correction becomes an accepted version but remains traceable', asyn
     assert.equal(store.getEvents(project.projectId).some((event) => event.type === 'translation.manually-edited'), true);
   });
 });
+
+test('stores each original source file in its document revision directory', async () => {
+  await withStore(async (store) => {
+    const project = store.createProject({
+      title: 'Original File',
+      format: 'epub',
+      sourceFileName: 'original.epub',
+      segments,
+    });
+    const bytes = Buffer.from('PK fake EPUB source bytes');
+    const saved = await store.storeSourceFile(project.projectId, 'original.epub', bytes);
+    assert.equal(saved.saved, true);
+    assert.equal(saved.size, bytes.byteLength);
+    assert.equal(saved.sourceRevisionId, project.currentSourceRevisionId);
+    assert.equal(store.getProject(project.projectId)?.sourceFileSaved, true);
+    const actual = await readFile(path.join(store.rootDir, project.projectId, 'sources', project.currentSourceRevisionId + '.epub'));
+    assert.deepEqual(actual, bytes);
+
+    await assert.rejects(
+      store.storeSourceFile(project.projectId, 'original.epub', Buffer.from('different bytes')),
+      /此来源版本已有不同的原始文件/,
+    );
+  });
+});
+
+test('manual acceptance is newer than an older candidate and is not auto-staled by Prompt changes', async () => {
+  await withStore((store) => {
+    const project = store.createProject({ title: 'Manual Priority', format: 'epub', segments });
+    const run = store.createRun(project.projectId, { scope: { type: 'all' } });
+    store.saveCandidate(project.projectId, run.runId, 'ch1-p1', '模型候选。');
+    store.finishRun(project.projectId, run.runId);
+    store.saveManualEdit(project.projectId, 'ch1-p1', '用户修订。');
+    store.acceptCandidates(project.projectId, run.runId, ['ch1-p1']);
+
+    const current = store.getSegments(project.projectId, { limit: 10 });
+    assert.equal(current.find((item: any) => item.id === 'ch1-p1')?.acceptedTranslation, '模型候选。');
+
+    const nextPrompt = {
+      systemPrompt: 'Changed prompt; use short natural Chinese.',
+      sourceLang: 'en',
+      targetLang: 'zh',
+      provider: 'workbuddy',
+      model: 'auto',
+    };
+    const noAutomaticOverwrite = store.createRun(project.projectId, { prompt: nextPrompt, scope: { type: 'stale' } });
+    assert.equal(noAutomaticOverwrite.counts.total, 1, 'only the segment not yet accepted should remain stale');
+  });
+});
+
