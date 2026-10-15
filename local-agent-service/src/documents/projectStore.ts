@@ -487,8 +487,14 @@ export class DocumentProjectStore {
     }
     const currentSegments = db.prepare('SELECT * FROM source_segments WHERE source_revision_id = ? ORDER BY ordinal').all(sourceRevisionId) as any[];
     const acceptedRows = db.prepare('SELECT * FROM translation_results WHERE accepted = 1 ORDER BY COALESCE(accepted_at, created_at) DESC, created_at DESC').all() as any[];
+    const currentHashById = new Map<string, string>(currentSegments.map((segment) => [segment.segment_id, segment.source_hash]));
     const latestAccepted = new Map<string, any>();
-    for (const row of acceptedRows) if (!latestAccepted.has(row.segment_id)) latestAccepted.set(row.segment_id, row);
+    // Source revision 变更后保留旧译文供追溯，但新旧来源的同 ID 片段不可混用。
+    for (const row of acceptedRows) {
+      if (row.source_hash === currentHashById.get(row.segment_id) && !latestAccepted.has(row.segment_id)) {
+        latestAccepted.set(row.segment_id, row);
+      }
+    }
     const failedRows = db.prepare("SELECT segment_id FROM run_segments WHERE status = 'failed' ORDER BY updated_at DESC").all() as Array<{ segment_id: string }>;
     const failedIds = new Set(failedRows.map((row) => row.segment_id));
     const idSet = new Set((scope.ids || []).map(String));
@@ -842,15 +848,20 @@ export class DocumentProjectStore {
     const { db, currentSourceRevisionId } = this.getProjectContext(projectId);
     const segments = db.prepare('SELECT segment_id, source_hash FROM source_segments WHERE source_revision_id = ?').all(currentSourceRevisionId) as any[];
     const latestAccepted = new Map<string, any>();
+    const anyAcceptedIds = new Set<string>();
+    const currentHashById = new Map<string, string>(segments.map((segment) => [segment.segment_id, segment.source_hash]));
     for (const row of db.prepare('SELECT * FROM translation_results WHERE accepted = 1 ORDER BY COALESCE(accepted_at, created_at) DESC, created_at DESC').all() as any[]) {
-      if (!latestAccepted.has(row.segment_id)) latestAccepted.set(row.segment_id, row);
+      anyAcceptedIds.add(row.segment_id);
+      if (row.source_hash === currentHashById.get(row.segment_id) && !latestAccepted.has(row.segment_id)) {
+        latestAccepted.set(row.segment_id, row);
+      }
     }
     const missing: string[] = [];
     const stale: string[] = [];
     for (const segment of segments) {
-      const result = latestAccepted.get(segment.segment_id);
-      if (!result) missing.push(segment.segment_id);
-      else if (result.source_hash !== segment.source_hash) stale.push(segment.segment_id);
+      if (latestAccepted.has(segment.segment_id)) continue;
+      if (anyAcceptedIds.has(segment.segment_id)) stale.push(segment.segment_id);
+      else missing.push(segment.segment_id);
     }
     const activeRuns = db.prepare("SELECT run_id, status FROM translation_runs WHERE status IN ('queued','running','paused','awaiting_acceptance','partial') ORDER BY created_at DESC").all();
     return { project, totalSegments: segments.length, acceptedSegments: segments.length - missing.length - stale.length, missingSegmentIds: missing, staleSourceIds: stale, activeRuns };
