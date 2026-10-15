@@ -111,7 +111,7 @@ export async function handleDocumentProjectRequest(req: Request, res: Response, 
       sendJson(res, 201, { project });
       return true;
     }
-    if (pathParts.length === 5 && pathParts[4] === 'translations' && method === 'POST') {
+    if (pathParts.length === 6 && pathParts[4] === 'translations' && pathParts[5] === 'import' && method === 'POST') {
       const body = bodyObject(req.body);
       const result = store.importAcceptedTranslations(projectId, body.items);
       sendJson(res, 200, result);
