@@ -177,6 +177,44 @@ test('imports existing reader translations into workspace without overwriting ac
 });
 
 
+test('literary memory has immutable revisions and each run keeps its original snapshot', async () => {
+  await withStore((store) => {
+    const memoryA = {
+      version: 2, entities: [], relationships: [], styleGuide: { narrativeVoice: '克制' },
+      chapterSummaries: [], recentExamples: [],
+      characterVoices: [{
+        characterId: 'char-alice', canonicalSourceName: 'Alice', targetName: '艾丽丝', aliases: [],
+        status: 'confirmed', confidence: 0.9, voiceCore: { syntaxRhythm: ['短反问'] },
+        contrastRules: [], evidence: [{ segmentId: 'ch1-p1', sourceQuote: 'Really?', dimension: 'syntax_rhythm', observation: '短反问', confidence: 0.9 }],
+        openQuestions: [],
+      }],
+      relationshipVoiceRules: [], voiceAnchors: [],
+    };
+    const project = store.createProject({
+      title: 'Voice Versions', format: 'epub', segments,
+      prompt: { systemPrompt: 'same prompt', userPromptTemplate: '{{CONTENT}}', sourceLang: 'en', targetLang: 'zh', provider: 'workbuddy', model: 'auto', translationMode: 'literary', literaryMemory: memoryA },
+    });
+    const first = store.createRun(project.projectId, { scope: { type: 'ids', ids: ['ch1-p1'] } });
+    const firstContext = store.getRunContext(project.projectId, first.runId);
+    assert.equal(firstContext.memory.characterVoices[0].voiceCore.syntaxRhythm[0], '短反问');
+    assert.ok(firstContext.memoryRevisionId);
+
+    store.setRunStatus(project.projectId, first.runId, 'paused');
+    const memoryB = structuredClone(memoryA);
+    memoryB.characterVoices[0].voiceCore.syntaxRhythm = ['先给结论，再用完整句解释'];
+    const secondMemory = store.saveLiteraryMemory(project.projectId, memoryB);
+    const second = store.createRun(project.projectId, { scope: { type: 'ids', ids: ['ch1-p2'] } });
+    const secondContext = store.getRunContext(project.projectId, second.runId);
+
+    assert.notEqual(secondMemory.memoryRevisionId, firstContext.memoryRevisionId);
+    assert.equal(secondContext.memory.characterVoices[0].voiceCore.syntaxRhythm[0], '先给结论，再用完整句解释');
+    assert.equal(firstContext.memory.characterVoices[0].voiceCore.syntaxRhythm[0], '短反问', 'earlier run must retain its immutable memory snapshot');
+    assert.equal(second.promptRevisionId, first.promptRevisionId, 'memory updates must not create prompt revisions');
+    assert.notEqual(second.literaryMemoryRevisionId, first.literaryMemoryRevisionId);
+    assert.equal(store.listLiteraryMemoryRevisions(project.projectId).length, 2);
+  });
+});
+
 test('one workspace cannot run two translation jobs concurrently', async () => {
   await withStore((store) => {
     const project = store.createProject({ title: 'Single Run', format: 'epub', segments });
