@@ -132,6 +132,8 @@ test('manual acceptance is newer than an older candidate and is not auto-staled 
     const current = store.getSegments(project.projectId, { limit: 10 });
     assert.equal(current.find((item: any) => item.id === 'ch1-p1')?.acceptedTranslation, '模型候选。');
 
+    // A correction made after that explicit acceptance is newest and must survive Prompt changes.
+    store.saveManualEdit(project.projectId, 'ch1-p1', '再次人工修订。');
     const nextPrompt = {
       systemPrompt: 'Changed prompt; use short natural Chinese.',
       sourceLang: 'en',
@@ -141,6 +143,7 @@ test('manual acceptance is newer than an older candidate and is not auto-staled 
     };
     const noAutomaticOverwrite = store.createRun(project.projectId, { prompt: nextPrompt, scope: { type: 'stale' } });
     assert.equal(noAutomaticOverwrite.counts.total, 1, 'only the segment not yet accepted should remain stale');
+    assert.equal(store.getSegments(project.projectId, { limit: 10 }).find((item: any) => item.id === 'ch1-p1')?.acceptedTranslation, '再次人工修订。');
   });
 });
 
