@@ -133,7 +133,7 @@ test('auto-applying a rerun preserves an existing manual translation for the sam
 
     const finished = store.acceptCandidates(project.projectId, run.runId);
     assert.equal(finished.status, 'completed');
-    assert.equal(finished.counts.candidate, 0, 'preserved manual text must resolve the run item instead of leaving it awaiting acceptance');
+    assert.equal(finished.counts.candidate || 0, 0, 'preserved manual text must resolve the run item instead of leaving it awaiting acceptance');
 
     const current = store.getSegments(project.projectId, { limit: 10 });
     assert.equal(current.find((item) => item.id === 'ch1-p1')?.acceptedTranslation, '用户已经确认的译文。');
