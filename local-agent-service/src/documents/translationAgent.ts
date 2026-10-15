@@ -457,19 +457,27 @@ async function executeRun(projectId: string, runId: string): Promise<void> {
       }
     };
 
-    await runWithConcurrency(
-      batches,
-      translationConcurrency,
-      processBatch,
-      () => {
-        const status = store.getRunStatus(projectId, runId);
-        return status === 'cancelled' || status === 'paused';
-      },
-    );
+    let translationSchedulerError: unknown;
+    try {
+      await runWithConcurrency(
+        batches,
+        translationConcurrency,
+        processBatch,
+        () => {
+          const status = store.getRunStatus(projectId, runId);
+          return status === 'cancelled' || status === 'paused';
+        },
+      );
+    } catch (error) {
+      // runWithConcurrency waits for all translation workers before surfacing an error.
+      // Still drain already-scheduled reviews before marking the overall run failed.
+      translationSchedulerError = error;
+    }
 
     // Wait for all detached reviews before computing the terminal run status. Translation and
     // review overlap, but a run cannot be accepted as complete while its reviewers are pending.
     const reviewResults = await Promise.allSettled(reviewTasks);
+    if (translationSchedulerError) throw translationSchedulerError;
     const failedReviewTask = reviewResults.find((result): result is PromiseRejectedResult => result.status === 'rejected');
     if (failedReviewTask) {
       store.appendEvent(projectId, runId, 'stage.warning', {
