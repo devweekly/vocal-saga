@@ -55,6 +55,12 @@ export async function handleDocumentProjectRequest(req: Request, res: Response, 
     }
     const projectId = pathParts[3]!;
     const store = getDocumentProjectStore();
+    // Every nested route, including run resume/accept/cancel, must reject archived projects.
+    // The per-process SQLite connection cache must not turn an archived project into a live one.
+    if (!store.getProject(projectId)) {
+      sendJson(res, 404, { error: '找不到文档项目或项目已归档' });
+      return true;
+    }
 
     if (pathParts.length === 4 && method === 'GET') {
       const project = store.getProject(projectId);
