@@ -138,6 +138,49 @@ test('voice analysis assigns stable character IDs and rejects unsupported eviden
   assert.equal(normalized.voiceAnchors[0].approvedBy, 'reviewer');
 });
 
+test('preceding context can select a speaker and retrieve approved anchors from another chapter', () => {
+  const memory = sanitizeProjectLiteraryMemory({
+    entities: [
+      { source: 'Alice', target: '艾丽丝', kind: 'person', aliases: [], reviewStatus: 'confirmed' },
+      { source: 'Bob', target: '鲍勃', kind: 'person', aliases: [], reviewStatus: 'confirmed' },
+    ],
+    relationships: [],
+    styleGuide: { narrativeVoice: '克制' },
+    chapterSummaries: [], recentExamples: [],
+    characterVoices: [
+      {
+        characterId: 'char-alice', canonicalSourceName: 'Alice', aliases: [], status: 'confirmed',
+        voiceCore: { syntaxRhythm: ['短反问'] }, contrastRules: [],
+        evidence: [{ segmentId: 'ch1-a1', sourceQuote: 'Alice said', dimension: 'discourse', observation: '有明确说话标记', confidence: 0.95 }],
+      },
+      {
+        characterId: 'char-bob', canonicalSourceName: 'Bob', aliases: [], status: 'confirmed',
+        voiceCore: { register: '简短回应' }, contrastRules: [],
+        evidence: [{ segmentId: 'ch1-b1', sourceQuote: 'Bob answered', dimension: 'register', observation: '简短回答', confidence: 0.8 }],
+      },
+    ],
+    relationshipVoiceRules: [{
+      speakerId: 'char-alice', addresseeId: 'char-bob', status: 'confirmed',
+      baselineRegister: '直接但克制', addressTerms: ['Bob'], evidenceSegmentIds: ['ch1-a1'],
+    }],
+    voiceAnchors: [{
+      anchorId: 'alice-cross-chapter', speakerId: 'char-alice', addresseeId: 'char-bob',
+      source: 'You never listen to me.', target: '你从来不听我说话。',
+      chapter: 'Chapter 1', segmentId: 'ch1-a1', status: 'approved', approvedBy: 'user',
+      attributionEvidence: 'Alice said', attributionConfidence: 0.95, tags: ['reproach'],
+    }],
+  });
+  const context = buildProjectVoiceContext(
+    memory,
+    [{ id: 'ch4-p10', text: 'He looked away.', contextPath: 'Chapter 4' }],
+    'Chapter 4',
+    [{ id: 'ch4-p9', text: 'Alice said, “You always do this, Bob.”', contextPath: 'Chapter 4' }],
+  );
+  assert.deepEqual(context.characterVoices.map((profile) => profile.characterId), ['char-alice', 'char-bob']);
+  assert.deepEqual(context.voiceAnchors.map((anchor) => anchor.anchorId), ['alice-cross-chapter']);
+  assert.deepEqual(context.scene.segmentIds, ['ch4-p10']);
+});
+
 test('project voice context includes confirmed profiles and approved anchors only', () => {
   const memory = sanitizeProjectLiteraryMemory({
     version: 2,
