@@ -185,7 +185,12 @@ export function stabilizeVoiceAnalysis(
     const conflicts = profile.analysisConflictWithConfirmed || existing.characterVoices.some((prior: any) =>
       prior.characterId === profile.characterId && prior.status === 'confirmed' &&
       JSON.stringify(prior.voiceCore) !== JSON.stringify(profile.voiceCore));
-    if (conflicts) openQuestions.push(profile.canonicalSourceName + '：新章节观察与已确认声音画像存在差异，需要复核，不自动覆盖。');
+    if (conflicts) {
+      const question = profile.canonicalSourceName + '：新章节观察与已确认声音画像存在差异，需要复核，不自动覆盖。';
+      openQuestions.push(question);
+      // 同时挂到具体人物画像，保证 extension 的 Voice Bible 能展示并在后续章节合并时保留。
+      profile.openQuestions = Array.from(new Set([...(profile.openQuestions || []), question])).slice(0, 8);
+    }
     delete profile.analysisConflictWithConfirmed;
     profile.contrastRules = Array.isArray(profile.contrastRules) ? profile.contrastRules.slice(0, 6).flatMap((rule: any) => {
       const otherCharacterId = oldToStable.get(rule.otherCharacterId) || rule.otherCharacterId;
