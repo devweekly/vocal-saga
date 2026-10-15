@@ -25,7 +25,8 @@ interface Slot {
   lastUsedAt: number;
 }
 
-// 长驻 Workbuddy 会话池：CLI 进程一次启动、多次复用，摊掉每单约 4s 的启动+初始化开销。
+// 有界 Workbuddy Session 池。普通网页文本使用可复用的 shared-slot 会话来摊薄启动开销；
+// project Agent 为隔离每批对话历史使用独立 scope，不同批次可能重建 Session 并产生初始化成本。
 //
 // 为什么不用 daemon（--serve）：daemon 是交互式 Agent 服务，走 Gateway Protocol
 // 的 /api/v1/runs（有状态 Agent run），给按 chunk 计量的无头翻译用是重协议+多一层
