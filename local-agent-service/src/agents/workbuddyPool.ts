@@ -17,7 +17,7 @@ export type SessionFactory = (options: Record<string, any>) => PooledSession | P
 interface Slot {
   session: PooledSession | null;
   model: string;
-  /** Scope is document+task-role; different books/roles must never share conversational history. */
+  /** Complete scope key; document batches add run, role, prompt revision, lane and batch index to isolate history. */
   scopeKey: string;
   schemaKey: string;
   uses: number;
@@ -35,7 +35,7 @@ interface Slot {
 // 约束：
 // - 一个会话同时只能跑一轮（串行），池大小对齐扩展侧扇出（默认 4）。
 // - 每 send 一次历史就变长（输入 token 与耗时 creep），用满 maxUses 轮即重建。
-// - 书籍翻译/分析/审校使用独立 scopeKey；只在同一本书的同一种任务内延续上下文。
+// - 书籍任务的调用方负责构造稳定 scopeKey；project Agent 把 run/role/prompt revision/lane/batch 编入 key，因此只有同一批重试会复用上下文。
 // - 同一个 scopeKey 同时只允许一个请求运行，避免并发请求把轮次交错写入同一对话。
 // - 达到 maxUses 后销毁会话；新会话首轮会重新注入稳定 prompt，动态书籍记忆由调用方重传。
 export class WorkbuddySessionPool {
