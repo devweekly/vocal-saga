@@ -139,7 +139,7 @@ export function sanitizeProjectLiteraryMemory(input: unknown): Record<string, an
 }
 
 /** 根据本批原文，构造小而相关的只读语音档案，不把整本记忆塞进每次模型调用。 */
-export function buildProjectVoiceContext(memoryInput: unknown, segments: ProjectVoiceContextSegment[]): Record<string, unknown> {
+export function buildProjectVoiceContext(memoryInput: unknown, segments: ProjectVoiceContextSegment[], chapterTitle?: string): Record<string, unknown> {
   const memory = sanitizeProjectLiteraryMemory(memoryInput);
   const source = segments.map((item) => item.text).join('\n').toLocaleLowerCase();
   const profiles = memory.characterVoices.filter((profile: any) => profile.status === 'confirmed');
@@ -162,6 +162,11 @@ export function buildProjectVoiceContext(memoryInput: unknown, segments: Project
   const result = {
     version: 1, policyVersion: 'character-voice-v1',
     styleGuide: memory.styleGuide,
+    scene: {
+      ...(chapterTitle ? { chapterTitle: text(chapterTitle, 160) } : {}),
+      contextPaths: Array.from(new Set(segments.map((segment) => text(segment.contextPath, 160)).filter(Boolean))).slice(0, 6),
+      segmentIds: segments.map((segment) => text(segment.id, 160)).filter(Boolean).slice(0, 24),
+    },
     entities: entities.map(({ source, target, kind, aliases, reviewStatus }: any) => ({ source, target, kind, aliases, reviewStatus })),
     relationships,
     characterVoices: chosen.map((profile: any) => ({
