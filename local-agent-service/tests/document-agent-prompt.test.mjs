@@ -60,3 +60,81 @@ test('literary Project Agent separates preceding context from translatable segme
   assert.deepEqual(payload.voiceContext.characterVoices.map((profile) => profile.characterId), ['char-alice', 'char-bob']);
   assert.deepEqual(payload.voiceContext.voiceAnchors.map((anchor) => anchor.anchorId), ['alice-cross-chapter']);
 });
+
+test('document batch sessions isolate runs, roles, and batch indices while remaining stable across retries', async () => {
+  const { buildDocumentBatchSessionScope } = await import('../src/documents/translationAgent.ts');
+  const base = {
+    projectId: 'project-a',
+    runId: 'run-a',
+    promptRevisionId: 'prompt-7',
+    role: 'translation',
+    translationMode: 'literary',
+    batchIndex: 1,
+  };
+  const firstAttempt = buildDocumentBatchSessionScope(base);
+  const retryAttempt = buildDocumentBatchSessionScope(base);
+  assert.equal(firstAttempt, retryAttempt, 'a retry of the same batch should reuse its own session');
+  assert.notEqual(
+    firstAttempt,
+    buildDocumentBatchSessionScope({ ...base, batchIndex: 2 }),
+    'different batches must not serialize behind one shared session',
+  );
+  assert.notEqual(
+    firstAttempt,
+    buildDocumentBatchSessionScope({ ...base, runId: 'run-b' }),
+    'different runs must not share implicit conversation history',
+  );
+  assert.notEqual(
+    firstAttempt,
+    buildDocumentBatchSessionScope({ ...base, role: 'review', memoryRevisionId: 'memory-3' }),
+    'translation and review must use separate session scopes',
+  );
+});
+
+test('document batch scheduler enforces the configured concurrency ceiling', async () => {
+  const { runWithConcurrency } = await import('../src/documents/translationAgent.ts');
+  let active = 0;
+  let maxActive = 0;
+  const finished = [];
+  await runWithConcurrency(Array.from({ length: 12 }, (_, index) => index), 3, async (item) => {
+    active++;
+    maxActive = Math.max(maxActive, active);
+    await new Promise((resolve) => setTimeout(resolve, 5 + (item % 3)));
+    finished.push(item);
+    active--;
+  });
+  assert.equal(maxActive, 3);
+  assert.equal(finished.length, 12);
+  assert.deepEqual([...finished].sort((a, b) => a - b), Array.from({ length: 12 }, (_, index) => index));
+});
+
+test('document batch scheduler stops allocating pending batches after pause or cancellation', async () => {
+  const { runWithConcurrency } = await import('../src/documents/translationAgent.ts');
+  let stopped = false;
+  const started = [];
+  await runWithConcurrency([0, 1, 2, 3, 4, 5], 2, async (item) => {
+    started.push(item);
+    if (item === 0) {
+      await new Promise((resolve) => setTimeout(resolve, 2));
+      stopped = true;
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }, () => stopped);
+  assert.deepEqual(started.sort((a, b) => a - b), [0, 1]);
+});
+
+test('detached reviewer limiter never exceeds its own concurrency budget', async () => {
+  const { createConcurrencyLimiter } = await import('../src/documents/translationAgent.ts');
+  const limit = createConcurrencyLimiter(2);
+  let active = 0;
+  let maxActive = 0;
+  await Promise.all(Array.from({ length: 7 }, (_, index) => limit(async () => {
+    active++;
+    maxActive = Math.max(maxActive, active);
+    await new Promise((resolve) => setTimeout(resolve, 5 + (index % 2)));
+    active--;
+  })));
+  assert.equal(maxActive, 2);
+});
+
