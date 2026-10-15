@@ -28,6 +28,52 @@ function safeHash(value: string): string {
   return createHash('sha256').update(value, 'utf8').digest('hex');
 }
 
+function normalizeEntityName(value: string): string {
+  return value.normalize('NFKC').toLocaleLowerCase().replace(/[\s._'’\-]+/g, ' ').trim();
+}
+
+/**
+ * Merge entities only when their source/alias sets explicitly overlap.
+ * Keep the first canonical source and translation; later chapters may add aliases/evidence,
+ * but may not silently introduce a competing translation for the same person or object.
+ */
+function dedupeProjectEntities(entities: Array<Record<string, any>>): Array<Record<string, any>> {
+  const merged: Array<Record<string, any>> = [];
+  for (const entity of entities) {
+    const names = [entity.source, ...(entity.aliases ?? [])]
+      .map(normalizeEntityName).filter(Boolean);
+    const index = merged.findIndex((prior) => {
+      if (prior.kind !== entity.kind && prior.kind !== 'other' && entity.kind !== 'other') return false;
+      const priorNames = new Set([prior.source, ...(prior.aliases ?? [])]
+        .map(normalizeEntityName).filter(Boolean));
+      return names.some((name) => priorNames.has(name));
+    });
+    if (index < 0) {
+      merged.push(entity);
+      continue;
+    }
+
+    const prior = merged[index]!;
+    const canonicalName = normalizeEntityName(prior.source);
+    const aliases = new Map<string, string>();
+    for (const alias of [...(prior.aliases ?? []), prior.source, ...(entity.aliases ?? []), entity.source]) {
+      const key = normalizeEntityName(alias);
+      if (key && key !== canonicalName && !aliases.has(key)) aliases.set(key, alias);
+    }
+    merged[index] = {
+      ...prior,
+      aliases: Array.from(aliases.values()).slice(0, 8),
+      ...(prior.reviewStatus !== 'confirmed' && entity.reviewStatus === 'confirmed' &&
+          normalizeEntityName(prior.target) === normalizeEntityName(entity.target)
+        ? { reviewStatus: 'confirmed' }
+        : {}),
+      description: prior.description || entity.description,
+      evidence: prior.evidence || entity.evidence,
+    };
+  }
+  return merged;
+}
+
 export interface ProjectVoiceContextSegment {
   id: string;
   text: string;
@@ -44,7 +90,7 @@ export function sanitizeProjectLiteraryMemory(input: unknown): Record<string, an
     throw Object.assign(new Error('文学记忆超过 120 KiB 上限；请只保存结构化角色记忆，不要附带整本原文'), { status: 413 });
   }
   const raw = input as Record<string, any>;
-  const entities = Array.isArray(raw.entities) ? raw.entities.slice(0, 120).flatMap((item: any) => {
+  const entities = dedupeProjectEntities(Array.isArray(raw.entities) ? raw.entities.slice(0, 120).flatMap((item: any) => {
     if (!item || typeof item !== 'object' || Array.isArray(item)) return [];
     const source = text(item.source, 120); const target = text(item.target, 120);
     if (!source || !target) return [];
@@ -53,8 +99,7 @@ export function sanitizeProjectLiteraryMemory(input: unknown): Record<string, an
       description: text(item.description, 200), evidence: text(item.evidence, 180),
       reviewStatus: item.reviewStatus === 'confirmed' ? 'confirmed' : 'suggested',
     }];
-  }) : [];
-  const relationships = Array.isArray(raw.relationships) ? raw.relationships.slice(0, 160).flatMap((item: any) => {
+  }) : []);  const relationships = Array.isArray(raw.relationships) ? raw.relationships.slice(0, 160).flatMap((item: any) => {
     if (!item || typeof item !== 'object' || Array.isArray(item)) return [];
     const subject = text(item.subject, 120); const predicate = text(item.predicate, 100); const object = text(item.object, 120);
     if (!subject || !predicate || !object) return [];
