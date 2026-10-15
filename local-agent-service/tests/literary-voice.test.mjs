@@ -123,6 +123,7 @@ test('voice analysis assigns stable character IDs and rejects unsupported eviden
   assert.equal(alice.status, 'confirmed', 'new analysis cannot silently demote a confirmed profile');
   assert.equal(alice.voiceCore.syntaxRhythm[0], '短反问', 'new chapters cannot silently overwrite a confirmed voice core');
   assert.ok(normalized.openQuestions.some((question) => question.includes('Alice') && question.includes('差异')));
+  assert.ok(alice.openQuestions.some((question) => question.includes('差异')), 'the conflict must be visible on the character profile');
   assert.equal(normalized.characterVoices.some((profile) => profile.canonicalSourceName === 'Unknown'), false);
 
   const bob = normalized.characterVoices.find((profile) => profile.canonicalSourceName === 'Bob');
