@@ -122,7 +122,7 @@ sequenceDiagram
 flowchart TD
     A[Extension parses EPUB/PDF into stable segments] --> B[Create/select project and run]
     B --> C[Load source revision, Prompt and run scope]
-    C --> D[Bounded translation worker pool: up to 3]
+    C --> D[Bounded translation worker pool: up to 2 while review runs]
     D --> E[Translate next batch with independent Session scope]
     E --> F[Persist candidate + emit batch.translation.completed]
     F --> G{Literary review enabled?}
