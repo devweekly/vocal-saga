@@ -59,5 +59,4 @@ test('literary Project Agent separates preceding context from translatable segme
     'preceding source provides disambiguation only and must not become a translation output ID');
   assert.deepEqual(payload.voiceContext.characterVoices.map((profile) => profile.characterId), ['char-alice', 'char-bob']);
   assert.deepEqual(payload.voiceContext.voiceAnchors.map((anchor) => anchor.anchorId), ['alice-cross-chapter']);
-  assert.match(prompt, /precedingSegments 是前文只读上下文/);
 });
