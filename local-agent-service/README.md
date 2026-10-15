@@ -57,7 +57,7 @@
 - `POST /api/documents/session/summary`：只返回恢复卡片所需的标题、格式与更新时间，不传回整份文档；即使扩展的 IndexedDB 不可用，阅读器也可以发现 SQLite 中的恢复副本。扩展仍以 IndexedDB 为主要阅读状态存储，SQLite 是本机模式的额外恢复副本。
 - EPUB/PDF 的文件选择与 PDF/EPUB 容器解析仍在扩展中执行，因为它们依赖浏览器文件权限、PDF.js 和浏览器阅读器环境；提取后的片段批次规划、文学实体分析、书籍记忆和 Reviewer 由本机服务优先处理。
 
-这些端点只供 loopback 本机扩展使用，沿用同一可选 Token 校验。缓存值、文档检查点与请求历史是独立表；`LOCAL_AGENT_STORE_CONTENT=false` 只控制请求历史是否记录完整 prompt/响应，不会关闭业务缓存和文档检查点。扩展当前将单个文档检查点限制在序列化 JSON 5 MiB 以内，HTTP 请求体上限为 6 MiB；由于快照同时保存解析后的文档和部分原始文本，某些接近 20 MiB 文件上限的 EPUB/PDF 无法完整写入 SQLite。扩展会停止重试这个过大的 SQLite 快照，但仍会继续使用 IndexedDB 主存储；如果 IndexedDB 也不可用，这类大文档就没有 SQLite 恢复副本。清空翻译缓存不会删除文档快照或请求历史。要彻底清除本机保存的内容，应在停止服务后删除整个 SQLite 数据库文件。
+这些端点只供 loopback 本机扩展使用，沿用同一可选 Token 校验。缓存值、文档检查点与请求历史是独立表；`LOCAL_AGENT_STORE_CONTENT=false` 只控制请求历史是否记录完整 prompt/响应，不会关闭业务缓存和文档检查点。扩展当前将单个文档检查点限制在序列化 JSON 5 MiB 以内；这是 SQLite 恢复副本的大小限制，不是 project API 的 HTTP 请求体限制。`/api/documents/*` 的 JSON 请求体上限为 100 MiB，其他 Local Agent JSON API 为 24 MiB，原始 `source-file` 二进制上传上限为 20 MiB。由于快照同时保存解析后的文档和部分原始文本，某些接近 20 MiB 文件上限的 EPUB/PDF 无法完整写入 SQLite。扩展会停止重试这个过大的 SQLite 快照，但仍会继续使用 IndexedDB 主存储；如果 IndexedDB 也不可用，这类大文档就没有 SQLite 恢复副本。清空翻译缓存不会删除文档快照或请求历史。要彻底清除本机保存的内容，应在停止服务后删除整个 SQLite 数据库文件。
 
 ## PDF/EPUB 的 CodeBuddy Session 策略
 
@@ -123,7 +123,7 @@ npm run doc -- verify <documentId>
 npm run doc -- export <documentId> ./accepted-translations.json
 ~~~
 
-The import JSON contains title, format, an optional sourceFileName, a segments array and an optional prompt. It uses the normalized segment contract produced by the extension's EPUB/PDF parser; the CLI does not claim to independently parse original EPUB/PDF layout. The extension workspace uploads the selected original file separately (up to 20 MiB); normalized segment JSON continues to use the service's 6 MiB JSON-body limit. Prompt changes create a new fingerprinted revision. Manual edits remain the current accepted version across Prompt changes until the user explicitly runs and accepts a replacement; source text changes still mark them stale.
+The import JSON contains title, format, an optional sourceFileName, a segments array and an optional prompt. It uses the normalized segment contract produced by the extension's EPUB/PDF parser; the CLI does not claim to independently parse original EPUB/PDF layout. The extension workspace uploads the selected original file separately (up to 20 MiB); normalized segment JSON is sent through the `/api/documents/*` route family, whose JSON-body limit is 100 MiB; the separate raw source-file upload limit is 20 MiB. Prompt changes create a new fingerprinted revision. Manual edits remain the current accepted version across Prompt changes until the user explicitly runs and accepts a replacement; source text changes still mark them stale.
 
 ### Literary translation and character voice memory v2
 
