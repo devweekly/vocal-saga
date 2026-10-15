@@ -79,6 +79,8 @@ function buildUserPrompt(template: string, items: TranslationItem[], context: an
       ...(item.level != null ? { level: item.level } : {}),
       ...(item.marker ? { marker: item.marker } : {}),
     })),
+    glossary: context.prompt.config?.glossary ?? null,
+    literaryMemory: context.prompt.config?.literaryMemory ?? null,
   });
   if (template.includes('{{CONTENT}}')) return template.replaceAll('{{CONTENT}}', payload);
   if (template.includes('{{CONTENT_JSON}}')) return template.replaceAll('{{CONTENT_JSON}}', payload);
@@ -190,6 +192,7 @@ async function executeRun(projectId: string, runId: string): Promise<void> {
             target: context.run.targetLang,
             provider: context.run.provider,
             model: context.run.model,
+            memory: context.prompt.config?.literaryMemory ?? {},
             segments: batch.filter((item) => translations.has(item.id)).map((item) => ({
               id: item.id, source: item.text, draft: translations.get(item.id)!,
               kind: item.kind, contextPath: item.contextPath,
