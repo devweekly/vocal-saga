@@ -40,5 +40,5 @@ export function buildPageCacheFingerprint(
     translationMode: translationMode || 'technical',
     rule: ruleContext,
   });
-  return `page-v2:${clientContentHash}:${simpleHash(context).toString(36)}`;
+  return `page-v3:${clientContentHash}:${simpleHash(context).toString(36)}`;
 }
