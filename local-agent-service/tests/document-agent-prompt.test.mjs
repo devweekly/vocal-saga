@@ -91,6 +91,23 @@ test('document batch sessions isolate runs, roles, and batch indices while remai
   );
 });
 
+test('document Agent worker budgets fit the Workbuddy pool and prioritize review throughput', async () => {
+  const { resolveDocumentRunConcurrencyBudget } = await import('../src/documents/translationAgent.ts');
+
+  assert.deepEqual(resolveDocumentRunConcurrencyBudget(4, true, 4, 2), {
+    poolSize: 4, translationConcurrency: 2, reviewConcurrency: 2, detachReviews: true,
+  });
+  assert.deepEqual(resolveDocumentRunConcurrencyBudget(4, false, 4, 2), {
+    poolSize: 4, translationConcurrency: 4, reviewConcurrency: 0, detachReviews: false,
+  });
+  assert.deepEqual(resolveDocumentRunConcurrencyBudget(2, true, 4, 2), {
+    poolSize: 2, translationConcurrency: 1, reviewConcurrency: 1, detachReviews: true,
+  });
+  assert.deepEqual(resolveDocumentRunConcurrencyBudget(1, true, 4, 2), {
+    poolSize: 1, translationConcurrency: 1, reviewConcurrency: 1, detachReviews: false,
+  });
+});
+
 test('document batch scheduler enforces the configured concurrency ceiling', async () => {
   const { runWithConcurrency } = await import('../src/documents/translationAgent.ts');
   let active = 0;
