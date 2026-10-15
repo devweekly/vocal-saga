@@ -231,3 +231,80 @@ test('one workspace cannot run two translation jobs concurrently', async () => {
   });
 });
 
+
+test('literary memory confirms only current-source evidence and accepted translation anchors', async () => {
+  await withStore((store) => {
+    const source = [
+      { id: 'ch1-p1', text: 'Alice asked Bob, “Really?”', kind: 'dialogue', contextPath: 'Chapter 1' },
+      { id: 'ch1-p2', text: 'Bob said no.', kind: 'dialogue', contextPath: 'Chapter 1' },
+    ];
+    const project = store.createProject({ title: 'Voice Evidence', format: 'epub', segments: source,
+      prompt: { translationMode: 'literary', literaryReview: true, sourceLang: 'en', targetLang: 'zh', provider: 'workbuddy', model: 'auto' } });
+    const run = store.createRun(project.projectId, { scope: { type: 'all' } });
+    store.saveCandidate(project.projectId, run.runId, 'ch1-p1', '艾丽丝问鲍勃：“真的？”');
+    store.saveCandidate(project.projectId, run.runId, 'ch1-p2', '鲍勃说不。');
+    store.finishRun(project.projectId, run.runId);
+    store.acceptCandidates(project.projectId, run.runId);
+
+    const memory = {
+      version: 2, entities: [], relationships: [], styleGuide: { narrativeVoice: '克制' },
+      chapterSummaries: [], recentExamples: [],
+      characterVoices: [
+        {
+          characterId: 'char-alice', canonicalSourceName: 'Alice', aliases: [], status: 'confirmed', confidence: 0.9,
+          voiceCore: { syntaxRhythm: ['用简短反问'] }, contrastRules: [],
+          evidence: [{ segmentId: 'ch1-p1', sourceQuote: 'Alice asked Bob', dimension: 'discourse', observation: '对白有明确的提问标记', confidence: 0.9 }],
+          openQuestions: [],
+        },
+        {
+          characterId: 'char-bob', canonicalSourceName: 'Bob', aliases: [], status: 'confirmed', confidence: 0.8,
+          voiceCore: { register: '简短回答' }, contrastRules: [],
+          evidence: [{ segmentId: 'ch1-p2', sourceQuote: 'This quote is not in this paragraph', dimension: 'register', observation: 'invalid source quote', confidence: 0.8 }],
+          openQuestions: [],
+        },
+      ],
+      relationshipVoiceRules: [{
+        speakerId: 'char-alice', addresseeId: 'char-bob', status: 'confirmed',
+        baselineRegister: '直接但平静', addressTerms: ['Bob'], evidenceSegmentIds: ['ch1-p1', 'missing-id'],
+      }],
+      voiceAnchors: [
+        {
+          anchorId: 'anchor-valid', speakerId: 'char-alice', addresseeId: 'char-bob', source: 'Really?',
+          target: '真的？', chapter: 'Chapter 1', segmentId: 'ch1-p1', status: 'approved', approvedBy: 'user',
+          attributionEvidence: 'Alice asked Bob', attributionConfidence: 0.95, tags: ['short-question'],
+        },
+        {
+          anchorId: 'anchor-wrong-target', speakerId: 'char-alice', source: 'Really?',
+          target: '我爱你。', chapter: 'Chapter 1', segmentId: 'ch1-p1', status: 'approved', approvedBy: 'user',
+          attributionEvidence: 'Alice asked Bob', attributionConfidence: 0.95, tags: [],
+        },
+      ],
+    };
+    store.saveLiteraryMemory(project.projectId, memory);
+    const saved = store.getCurrentLiteraryMemory(project.projectId).memory;
+    assert.equal(saved.characterVoices.find((item) => item.characterId === 'char-alice').status, 'confirmed');
+    assert.equal(saved.characterVoices.find((item) => item.characterId === 'char-bob').status, 'candidate',
+      'a quote that is not in the current source must not uphold a confirmed profile');
+    assert.equal(saved.relationshipVoiceRules[0].status, 'candidate',
+      'relationship voice rules cannot be confirmed while one party is only a candidate');
+    assert.deepEqual(saved.relationshipVoiceRules[0].evidenceSegmentIds, ['ch1-p1']);
+    assert.equal(saved.voiceAnchors.find((item) => item.anchorId === 'anchor-valid').status, 'approved');
+    assert.equal(saved.voiceAnchors.find((item) => item.anchorId === 'anchor-wrong-target').status, 'candidate',
+      'an anchor target must exist in the accepted translation for the referenced segment');
+  });
+});
+
+test('literary Agent retrieves only bounded source context before the current segment', async () => {
+  await withStore((store) => {
+    const source = Array.from({ length: 8 }, (_, index) => ({
+      id: 'p' + index, text: 'Source segment ' + index, kind: 'paragraph', contextPath: 'Chapter A',
+    }));
+    const project = store.createProject({ title: 'Previous Context', format: 'epub', segments: source });
+    const run = store.createRun(project.projectId, { scope: { type: 'all' } });
+    const preceding = store.getPrecedingSegments(project.projectId, run.runId, 'p7', 4);
+    assert.deepEqual(preceding.map((item) => item.id), ['p3', 'p4', 'p5', 'p6']);
+    assert.ok(preceding.every((item) => item.text.length <= 900));
+    assert.ok(preceding.every((item) => item.contextPath === 'Chapter A'));
+  });
+});
+
