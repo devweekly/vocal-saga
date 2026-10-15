@@ -273,6 +273,7 @@ async function executeRun(projectId: string, runId: string): Promise<void> {
       batch: TranslationItem[],
       translations: Map<string, string>,
       precedingSegments: TranslationItem[],
+      failedIds: string[],
     ): Promise<void> => {
       if (store.getRunStatus(projectId, runId) === 'cancelled') {
         store.appendEvent(projectId, runId, 'review.discarded', {
@@ -355,6 +356,17 @@ async function executeRun(projectId: string, runId: string): Promise<void> {
           console.error('[document-agent] failed to persist review warning', persistError);
         }
       }
+
+      // batch.completed remains a terminal batch event, emitted only after review settles.
+      if (store.getRunStatus(projectId, runId) !== 'cancelled') {
+        store.appendEvent(projectId, runId, 'batch.completed', {
+          batchIndex,
+          batchCount: batches.length,
+          candidateCount: translations.size,
+          failedIds,
+          reviewCompleted: true,
+        });
+      }
     };
 
     const processBatch = async (batch: TranslationItem[], zeroBasedIndex: number): Promise<void> => {
@@ -436,19 +448,26 @@ async function executeRun(projectId: string, runId: string): Promise<void> {
         store.markRunSegments(projectId, runId, Array.from(pending.keys()), 'failed', lastError);
       }
 
+      const failedIds = Array.from(pending.keys());
       const shouldReview = translations.size > 0 &&
         context.run.translationMode === 'literary' &&
         context.run.reviewEnabled;
-      store.appendEvent(projectId, runId, 'batch.completed', {
+      store.appendEvent(projectId, runId, 'batch.translation.completed', {
         batchIndex,
         batchCount: batches.length,
         candidateCount: translations.size,
-        failedIds: Array.from(pending.keys()),
+        failedIds,
         reviewScheduled: shouldReview,
       });
 
-      if (!shouldReview) return;
-      const job = () => reviewBatch(batchIndex, batch, translations, precedingSegments);
+      if (!shouldReview) {
+        store.appendEvent(projectId, runId, 'batch.completed', {
+          batchIndex, batchCount: batches.length, candidateCount: translations.size,
+          failedIds, reviewCompleted: false,
+        });
+        return;
+      }
+      const job = () => reviewBatch(batchIndex, batch, translations, precedingSegments, failedIds);
       if (detachReviews) {
         // Do not await here: another translation batch can start while this review is in flight.
         reviewTasks.push(reviewLimiter(job));
