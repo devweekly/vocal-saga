@@ -91,11 +91,24 @@ export class GeminiTranslationService implements TranslationService {
 
     // 构造请求参数：contents 为用户输入，config.systemInstruction 为系统提示
     const blocksJson = JSON.stringify(
-      blocks.map((b: { id: string; text: string }) => ({ id: b.id, text: b.text })),
+      blocks.map((b: any) => ({
+        id: b.id,
+        text: b.text,
+        ...(b.contextPath?.trim() ? { contextPath: b.contextPath.trim() } : {}),
+        ...(b.kind ? { kind: b.kind } : {}),
+        ...(Number.isInteger(b.level) ? { level: b.level } : {}),
+        ...(b.marker ? { marker: b.marker } : {}),
+      })),
       null,
       2,
     );
     const systemContent = buildSystemContent(sourceLang, targetLang, glossary, this.style, this.translationMode);
+    const userTemplate = glossary?.document_user_prompt_template?.trim();
+    const userContent = userTemplate
+      ? (userTemplate.includes('{{CONTENT}}')
+          ? userTemplate.replaceAll('{{CONTENT}}', blocksJson)
+          : userTemplate + '\n\nJSON content (IDs and structure must be preserved):\n' + blocksJson)
+      : 'JSON:\n\n' + blocksJson;
 
     // 超时保护：60s（与其他服务一致）
     const controller = new AbortController();
@@ -105,7 +118,7 @@ export class GeminiTranslationService implements TranslationService {
     try {
       response = await ai.models.generateContent({
         model: this.model,
-        contents: `JSON:\n\n${blocksJson}`,
+        contents: userContent,
         config: {
           systemInstruction: systemContent,
           temperature: 0.5,
@@ -161,11 +174,24 @@ export class GeminiTranslationService implements TranslationService {
     const ai = getClient();
 
     const blocksJson = JSON.stringify(
-      blocks.map((b: { id: string; text: string }) => ({ id: b.id, text: b.text })),
+      blocks.map((b: any) => ({
+        id: b.id,
+        text: b.text,
+        ...(b.contextPath?.trim() ? { contextPath: b.contextPath.trim() } : {}),
+        ...(b.kind ? { kind: b.kind } : {}),
+        ...(Number.isInteger(b.level) ? { level: b.level } : {}),
+        ...(b.marker ? { marker: b.marker } : {}),
+      })),
       null,
       2,
     );
     const systemContent = buildSystemContent(sourceLang, targetLang, glossary, this.style);
+    const userTemplate = glossary?.document_user_prompt_template?.trim();
+    const userContent = userTemplate
+      ? (userTemplate.includes('{{CONTENT}}')
+          ? userTemplate.replaceAll('{{CONTENT}}', blocksJson)
+          : userTemplate + '\n\nJSON content (IDs and structure must be preserved):\n' + blocksJson)
+      : 'JSON:\n\n' + blocksJson;
 
     // 超时保护：60s
     const controller = new AbortController();
@@ -175,7 +201,7 @@ export class GeminiTranslationService implements TranslationService {
     try {
       stream = await ai.models.generateContentStream({
         model: this.model,
-        contents: `JSON:\n\n${blocksJson}`,
+        contents: userContent,
         config: {
           systemInstruction: systemContent,
           temperature: 0.1,
