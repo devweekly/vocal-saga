@@ -74,7 +74,7 @@ function buildBatches(items: TranslationItem[]): TranslationItem[][] {
   return batches;
 }
 
-function buildUserPrompt(template: string, items: TranslationItem[], context: any, precedingSegments: TranslationItem[] = []): string {
+export function buildUserPrompt(template: string, items: TranslationItem[], context: any, precedingSegments: TranslationItem[] = []): string {
   const payload = JSON.stringify({
     document: context.project.title,
     format: context.project.format,
