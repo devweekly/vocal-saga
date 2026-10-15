@@ -63,7 +63,7 @@
 
 修改这些文件时，**核心逻辑**必须同步到另一个项目，但**实现细节**可根据两端差异保留。
 
-> **同步校验**：在 `vocal-saga` 根目录运行 `npx tsx scripts/check-sync.ts`；默认查找同级 `../fanyi-extension`，也可通过 `VOCAL_SAGA_PATH` 与 `FANYI_EXTENSION_PATH` 指定仓库路径。该脚本只逐字节检查本节明确列出的 18 组同步对；`cacheKey.ts` 和 `service/_service.ts` 的平台扩展字段不属于字节级同步。
+ > **同步校验**：在 `vocal-saga` 根目录运行 `npx tsx scripts/check-sync.ts`；默认查找同级 `../fanyi-extension`，也可通过 `VOCAL_SAGA_PATH` 与 `FANYI_EXTENSION_PATH` 指定仓库路径。该脚本在 `scripts/check-sync.ts` 中维护静态 `SYNC_PAIRS` 清单，并逐字节检查文档标注的 18 组同步对；增加、删除或移动同步对时必须同时更新脚本和本节。`cacheKey.ts` 和 `service/_service.ts` 的平台扩展字段不属于字节级同步。
 >
 > **最新结果（2026-10-15）**：18/18 字节级同步对通过。两个仓库的 GitHub Actions 也会运行该检查。历史记录：2026-09-11 的检查曾覆盖 20 组文件，当时的结果不代表当前代码。
 >
@@ -84,7 +84,7 @@
 
 ### 1. `cacheKey.ts`（语义同步，不要求字节相同）
 - `simpleHash(str)` — 字符串哈希函数
-- `generateTranslationCacheKey(jsonContent, sourceLang, targetLang, provider?, promptStyle?, glossary?, sitePrompt?)` — 缓存 key 生成,支持 provider/promptStyle/glossary/sitePrompt 维度(2026-07-16 新增 provider/promptStyle;2026-09-09 新增 glossary/sitePrompt,分析报告 P0:改术语表/站点规则后命中脏缓存)
+- `generateTranslationCacheKey(jsonContent, sourceLang, targetLang, provider?, promptStyle?, glossary?, sitePrompt?, translationMode?)` — 两端都区分 Provider、文风、术语/站点上下文和翻译模式。扩展端 `Glossary` 目前只包含 `document_terms`；服务端还会哈希 `site_instructions`、文档 system/user Prompt override 等服务端字段，因此不要求结果 key 完全相同，必须确保每个会改变译文的输入都能使对应缓存失效。
 - **check-sync: ✅ 完全一致**（2026-09-09 验证）
 - **注意**:glossary/sitePrompt 仅在显式传入且非空时才追加到 extra,旧 key 不变(向后兼容);fanyi-extension 与 vocal-saga 已对齐
 
