@@ -395,6 +395,11 @@ export interface TranslateBlocksInput {
    * 因而会参与 cache key；不传时网页翻译 prompt 与缓存行为保持不变。
    */
   taskInstructions?: string;
+  /** Document-reader-only full prompt overrides; omitted for normal webpage translation. */
+  systemPromptOverride?: string;
+  userPromptTemplate?: string;
+  /** Bypass cached block/chunk reads; newly generated results still replace the cache. */
+  skipCache?: boolean;
 }
 
 /**
@@ -427,11 +432,16 @@ export async function translateBlocks(
   const translationMode: TranslationMode = input.translationMode === 'literary' ? 'literary' : 'technical';
   // Literary mode has no generic terminology glossary. Keep only explicit site/task instructions
   // because those are workflow constraints, not terms that force words to remain untranslated.
+  const promptOverrides = {
+    ...(input.systemPromptOverride?.trim() ? { document_system_prompt_override: input.systemPromptOverride.trim() } : {}),
+    ...(input.userPromptTemplate?.trim() ? { document_user_prompt_template: input.userPromptTemplate.trim() } : {}),
+  };
   const baseGlossary: Glossary | undefined = translationMode === 'literary'
-    ? (input.glossary?.site_instructions?.length
-        ? { site_instructions: input.glossary.site_instructions }
-        : undefined)
-    : input.glossary;
+    ? {
+        ...(input.glossary?.site_instructions?.length ? { site_instructions: input.glossary.site_instructions } : {}),
+        ...promptOverrides,
+      }
+    : { ...(input.glossary ?? {}), ...promptOverrides };
   const requestGlossary: Glossary | undefined = taskInstruction
     ? {
         ...(baseGlossary ?? {}),
@@ -475,7 +485,7 @@ export async function translateBlocks(
     input.concurrency ?? 4,
     provider,
     input.promptStyle,
-    false,
+    input.skipCache ?? false,
     translationMode,
   );
 }
