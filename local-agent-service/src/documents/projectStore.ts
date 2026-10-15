@@ -467,13 +467,15 @@ export class DocumentProjectStore {
     ).all(currentSourceRevisionId) as Array<{ segment_id: string; text: string; source_hash: string }>;
     const sources = new Map(sourceRows.map((row) => [row.segment_id, row]));
     const normalize = (value: string) => value.normalize('NFKC').replace(/\s+/g, ' ').trim().toLocaleLowerCase();
-    const latestAccepted = new Map<string, string>();
+    const latestAccepted = new Map<string, { translation: string; sourceHash: string }>();
     const acceptedRows = db.prepare(
-      'SELECT segment_id, translation_text FROM translation_results WHERE accepted = 1 ' +
+      'SELECT segment_id, translation_text, source_hash FROM translation_results WHERE accepted = 1 ' +
       'ORDER BY COALESCE(accepted_at, created_at) DESC, created_at DESC'
-    ).all() as Array<{ segment_id: string; translation_text: string }>;
+    ).all() as Array<{ segment_id: string; translation_text: string; source_hash: string }>;
     for (const row of acceptedRows) {
-      if (!latestAccepted.has(row.segment_id)) latestAccepted.set(row.segment_id, row.translation_text);
+      if (!latestAccepted.has(row.segment_id)) {
+        latestAccepted.set(row.segment_id, { translation: row.translation_text, sourceHash: row.source_hash });
+      }
     }
     const validEvidence = (segmentId: unknown, quote: unknown): boolean => {
       if (typeof segmentId !== 'string' || typeof quote !== 'string' || !quote.trim()) return false;
@@ -517,9 +519,14 @@ export class DocumentProjectStore {
         Number.isFinite(Number(anchor.attributionConfidence)) && Number(anchor.attributionConfidence) >= 0.7;
       const speakerConfirmed = memory.characterVoices.some((profile: any) =>
         profile.characterId === anchor.speakerId && profile.status === 'confirmed');
-      const acceptedTranslation = latestAccepted.get(anchor.segmentId) || '';
-      const targetValid = !!acceptedTranslation.trim() &&
-        normalize(acceptedTranslation).includes(normalize(anchor.target));
+      const accepted = latestAccepted.get(anchor.segmentId);
+      const currentSource = sources.get(anchor.segmentId);
+      // A translation from an older source revision is not a valid target for a new anchor,
+      // even if a substring happens to match after the original text was edited.
+      const targetValid = !!accepted && !!currentSource &&
+        accepted.sourceHash === currentSource.source_hash &&
+        !!accepted.translation.trim() &&
+        normalize(accepted.translation).includes(normalize(anchor.target));
       const approved = anchor.status === 'approved' && sourceValid && attributionValid && speakerConfirmed && targetValid;
       return {
         ...anchor,
