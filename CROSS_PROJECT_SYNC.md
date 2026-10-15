@@ -4,7 +4,7 @@
 >
 > **范围**：共享网页翻译核心逻辑（DOM 提取、分块、缓存、Prompt、站点规则、内容检测）按下面的同步分类维护。扩展入口、云端路由和本机 Agent 的调度/SQLite 状态机属于各自项目，不复制成同一份实现；但文档翻译请求字段、事件语义、取消/恢复和候选译文规则必须保持契约一致。
 >
-> **更新日期**：2026-10-15。自动同步检查清单已扩展为 **26 组**：18 组网页翻译共享模块 + 8 组纯函数文档解析模块。`cacheKey.ts` 和 `service/_service.ts` 存在有意的平台扩展差异，按语义契约校验，不纳入字节级比较。
+> **更新日期**：2026-10-16。自动同步检查清单已扩展为 **26 组**：18 组网页翻译共享模块 + 8 组纯函数文档解析模块。`cacheKey.ts` 和 `service/_service.ts` 存在有意的平台扩展差异，按语义契约校验，不纳入字节级比较。
 
 ## 项目定位
 
@@ -623,7 +623,7 @@ prepareHtmlForServer 时在 clone 上把 `link[rel=stylesheet]` 替换为
 > - `S1-S9`:应同步的设计点
 
 
-## 七、本机文档 Agent 的跨项目接口契约（2026-10-15）
+## 七、本机文档 Agent 的跨项目接口契约（2026-10-16）
 
 本节记录的是**接口和业务语义同步**，不是要求把服务端代码复制到扩展仓库。Web page translation 与 project-based EPUB/PDF Agent 是两条不同路径，不能用一个“并行度”或一组缓存配置概括。
 
@@ -633,6 +633,15 @@ prepareHtmlForServer 时在 clone 上把 `link[rel=stylesheet]` 替换为
 - `vocal-saga/local-agent-service/src/documents/translationAgent.ts` 是 project-based Agent 的服务端编排入口，拥有批次调度、Session scope、候选译文/审校 finding 的持久化、运行状态与事件。它是本机 Express 服务的一部分，不部署在 Cloudflare Worker 上，也不应被加入纯网页翻译模块的字节级同步清单。
 - `fanyi-extension` 的 `DocumentAgentWorkspace.vue` / `documentWorkspaceClient.ts` 通过 `/api/documents/projects/...` 使用该服务端 workflow。修改路由、JSON 字段或事件名时，客户端消费逻辑和 `local-agent-service` 的路由/测试必须一起更新。
 
+### 请求体、源文件与恢复副本大小契约（2026-10-16）
+
+不要把以下限制混为一谈；它们对应不同的接口与持久化路径：
+
+- `/api/documents/*` 的 JSON 请求体上限由 `MAX_DOCUMENT_BODY_BYTES` 控制，当前为 **100 MiB**。
+- 其他 Local Agent JSON API 的请求体上限由 `MAX_BODY_BYTES` 控制，当前为 **24 MiB**。
+- `POST /api/documents/projects/:id/source-file` 上传原始 EPUB/PDF/DOCX 文件时走二进制流，单文件上限为 **20 MiB**（`MAX_DOCUMENT_SOURCE_BYTES`），源文件保存在项目目录，不放入 SQLite。
+- 旧阅读器的 SQLite 检查点是额外恢复副本，扩展端将单个序列化快照控制在 **5 MiB** 以内；该限制不是上述 HTTP 请求体上限。IndexedDB 仍是阅读器的主要状态存储。
+- `documentWorkspaceClient.ts` 每次导入最多发送 200 条已采纳译文，是分批写入策略，不是为了满足旧的“6 MiB HTTP 上限”。README、服务配置和接口实现均应以当前实际限制为准。
 ### 当前调度与状态契约
 
 1. 默认配置上限为 4 个翻译 worker + 2 个 Reviewer worker；四槽位且启用审校时，实际预算为 2 个翻译 + 2 个 Reviewer；关闭审校时翻译可占用最多 4 个槽位。两项上限按 `LOCAL_AGENT_POOL_SIZE` 收敛。由于每批使用独立 Session，初始化开销必须纳入真实压测；CI 不测量实际耗时。
