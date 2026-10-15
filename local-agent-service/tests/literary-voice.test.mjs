@@ -182,6 +182,29 @@ test('preceding context can select a speaker and retrieve approved anchors from 
   assert.deepEqual(context.scene.segmentIds, ['ch4-p10']);
 });
 
+test('explicit entity aliases retain a single canonical translation in local-agent memory', () => {
+  const memory = sanitizeProjectLiteraryMemory({
+    entities: [
+      { source: 'Kiri', target: '吉莉', kind: 'person', aliases: ['Kiri'], reviewStatus: 'confirmed' },
+      { source: 'Kiritsubo', target: '吉罗', kind: 'person', aliases: ['Kiri'], reviewStatus: 'suggested' },
+    ],
+    relationships: [], styleGuide: {}, chapterSummaries: [], recentExamples: [],
+    characterVoices: [], relationshipVoiceRules: [], voiceAnchors: [],
+  });
+  assert.equal(memory.entities.length, 1);
+  assert.equal(memory.entities[0].source, 'Kiri');
+  assert.equal(memory.entities[0].target, '吉莉');
+  assert.ok(memory.entities[0].aliases.includes('Kiritsubo'));
+
+  const context = buildProjectVoiceContext(
+    memory,
+    [{ id: 'kiri-1', text: 'Kiritsubo-san asked where Kiri was.' }],
+    'Chapter 1',
+  );
+  assert.equal(context.entities.length, 1);
+  assert.equal(context.entities[0].target, '吉莉');
+});
+
 test('project voice context includes confirmed profiles and approved anchors only', () => {
   const memory = sanitizeProjectLiteraryMemory({
     version: 2,
