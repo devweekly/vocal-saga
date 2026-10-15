@@ -200,41 +200,56 @@ function normalizedEntityName(value: string): string {
  * 保留先出现的规范译名；后续批次只能补充别名和证据，不能因另一个别名重新音译。
  * 不根据字符串包含关系猜测人物身份，避免把不同角色误合并。
  */
+function mergeEntityRecord(prior: LiteraryEntity, candidate: LiteraryEntity): LiteraryEntity {
+  const canonicalKey = normalizedEntityName(prior.source);
+  const aliasMap = new Map<string, string>();
+  for (const alias of [...(prior.aliases ?? []), prior.source, ...(candidate.aliases ?? []), candidate.source]) {
+    const key = normalizedEntityName(alias);
+    if (key && key !== canonicalKey && !aliasMap.has(key)) aliasMap.set(key, alias);
+  }
+  const sameTarget = normalizedEntityName(prior.target) === normalizedEntityName(candidate.target);
+  return {
+    ...prior,
+    // Earlier canonical translation wins. A conflicting later target is never silently adopted.
+    aliases: Array.from(aliasMap.values()).slice(0, 8),
+    ...(sameTarget && prior.reviewStatus !== 'confirmed' && candidate.reviewStatus === 'confirmed'
+      ? { reviewStatus: 'confirmed' as const }
+      : {}),
+    description: prior.description || candidate.description,
+    evidence: prior.evidence || candidate.evidence,
+  };
+}
+
+/**
+ * Collapse transitive alias groups, not just the first matching pair. This matters when older
+ * book memory already contains two conflicting rows (Kiri / Kiritsubo) and a new analysis
+ * finally supplies the alias that connects them.
+ */
 function dedupeEntities(entities: LiteraryEntity[]): LiteraryEntity[] {
   const merged: LiteraryEntity[] = [];
   for (const entity of entities) {
     const incomingNames = new Set([entity.source, ...(entity.aliases ?? [])].map(normalizedEntityName).filter(Boolean));
-    const index = merged.findIndex((prior) => {
-      if (prior.kind !== entity.kind && prior.kind !== 'other' && entity.kind !== 'other') return false;
+    const matchingIndices: number[] = [];
+    merged.forEach((prior, index) => {
+      if (prior.kind !== entity.kind && prior.kind !== 'other' && entity.kind !== 'other') return;
       const priorNames = new Set([prior.source, ...(prior.aliases ?? [])].map(normalizedEntityName).filter(Boolean));
-      return Array.from(incomingNames).some((name) => priorNames.has(name));
+      if (Array.from(incomingNames).some((name) => priorNames.has(name))) matchingIndices.push(index);
     });
-    if (index < 0) {
+    if (!matchingIndices.length) {
       merged.push(entity);
       continue;
     }
 
-    const prior = merged[index]!;
-    const canonicalKey = normalizedEntityName(prior.source);
-    const aliasMap = new Map<string, string>();
-    for (const alias of [...(prior.aliases ?? []), prior.source, ...(entity.aliases ?? []), entity.source]) {
-      const key = normalizedEntityName(alias);
-      if (key && key !== canonicalKey && !aliasMap.has(key)) aliasMap.set(key, alias);
-    }
-    const sameTarget = normalizedEntityName(prior.target) === normalizedEntityName(entity.target);
-    merged[index] = {
-      ...prior,
-      aliases: Array.from(aliasMap.values()).slice(0, 8),
-      ...(sameTarget && prior.reviewStatus !== 'confirmed' && entity.reviewStatus === 'confirmed'
-        ? { reviewStatus: 'confirmed' as const }
-        : {}),
-      description: prior.description || entity.description,
-      evidence: prior.evidence || entity.evidence,
-    };
+    // Keep the earliest record as canonical, merge every record bridged by this alias set.
+    const canonicalIndex = matchingIndices[0]!;
+    let canonical = merged[canonicalIndex]!;
+    for (const index of matchingIndices.slice(1)) canonical = mergeEntityRecord(canonical, merged[index]!);
+    canonical = mergeEntityRecord(canonical, entity);
+    for (const index of matchingIndices.slice(1).reverse()) merged.splice(index, 1);
+    merged[canonicalIndex] = canonical;
   }
   return merged;
 }
-
 function dedupeRelationships(relationships: LiteraryRelationship[]): LiteraryRelationship[] {
   const seen = new Set<string>();
   return relationships.filter((rel) => {
