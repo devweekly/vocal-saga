@@ -1,6 +1,6 @@
 import { runAgentJson } from './agents/runner.ts';
 import { parseAgentModel } from './json.ts';
-import { sanitizeProjectLiteraryMemory } from './documents/voiceContext.ts';
+import { buildProjectVoiceContext, sanitizeProjectLiteraryMemory } from './documents/voiceContext.ts';
 
 // 文学分析的 structured output schema，只约束顶层形状，不禁止扩展字段。
 export const LITERARY_ANALYSIS_SCHEMA: Record<string, unknown> = {
@@ -253,8 +253,11 @@ export async function runLiteraryAnalysis(body: any, requestId: string, sessionS
 export async function runLiteraryReview(body: any, requestId: string, sessionScope?: string) {
   const segments = validateSegments(body.segments, 32, 'review');
   const memory = body.memory && typeof body.memory === 'object' ? body.memory : {};
-  // 优先使用调用方按当前批次筛选的声音上下文；旧版调用仍兼容 memory 字段。
-  const voiceContext = body.voiceContext && typeof body.voiceContext === 'object' ? body.voiceContext : memory;
+  // 服务端按当前审校批次重新检索并限额，不能信任客户端传入的任意大 JSON，也不截断序列化结果。
+  const voiceContext = buildProjectVoiceContext(
+    memory,
+    segments.map((segment) => ({ id: segment.id, text: segment.source, contextPath: segment.contextPath })),
+  );
   const systemPrompt = [
     '你是文学翻译的第二道工序：独立文学编辑。请对照原文，将 draft 修订为准确、自然、有质感、适合目标语言阅读的文学译文；不要只做校对，也不要改写成你自己的作品。',
     '每个片段包含 source（原文）、draft（初译）和 kind；随请求提供的书籍记忆是只读数据。优先使用有原文证据且 status=confirmed 的 characterVoices、relationshipVoiceRules 和 approved voiceAnchors。candidate 规则只能作为弱参考。',
@@ -269,7 +272,7 @@ export async function runLiteraryReview(body: any, requestId: string, sessionSco
   const prompt = [
     '目标语言：' + (body.target || 'zh'),
     '章节：' + (typeof body.chapterTitle === 'string' ? body.chapterTitle : ''),
-    '当前批次 voiceContext（只读参考，按角色/关系筛选）：', JSON.stringify(voiceContext).slice(0, 12000),
+    '当前批次 voiceContext（只读参考，按角色/关系筛选）：', JSON.stringify(voiceContext),
     '待审校片段：', JSON.stringify(segments),
   ].join('\n\n');
   const agent = parseAgentModel(body.model || 'auto', body.runtime || body.provider || '');
