@@ -755,6 +755,44 @@ export class DocumentProjectStore {
     ).all(runId);
   }
 
+  /**
+   * Fetch a few preceding source segments for dialogue/reference resolution.
+   * The rows always belong to the same immutable source revision as this run.
+   * They are context only: callers must never create run_segments or output ids for them.
+   */
+  getPrecedingSegments(projectId: string, runId: string, firstSegmentId: string, limit = 4): any[] {
+    const { db } = this.getProjectContext(projectId);
+    const run = db.prepare('SELECT source_revision_id FROM translation_runs WHERE run_id = ?').get(runId) as { source_revision_id?: string } | undefined;
+    if (!run?.source_revision_id) throw Object.assign(new Error('找不到翻译运行：' + runId), { status: 404 });
+    const current = db.prepare(
+      'SELECT ordinal, context_path FROM source_segments WHERE source_revision_id = ? AND segment_id = ?'
+    ).get(run.source_revision_id, firstSegmentId) as { ordinal?: number; context_path?: string } | undefined;
+    if (typeof current?.ordinal !== 'number') return [];
+    const bounded = Math.max(0, Math.min(4, Math.floor(limit)));
+    if (!bounded) return [];
+    const sameChapter = current.context_path
+      ? db.prepare(
+          'SELECT segment_id, ordinal, text, kind, context_path, page, level, marker FROM source_segments ' +
+          'WHERE source_revision_id = ? AND ordinal < ? AND context_path = ? ORDER BY ordinal DESC LIMIT ?'
+        ).all(run.source_revision_id, current.ordinal, current.context_path, bounded) as any[]
+      : [];
+    const rows = sameChapter.length
+      ? sameChapter
+      : db.prepare(
+          'SELECT segment_id, ordinal, text, kind, context_path, page, level, marker FROM source_segments ' +
+          'WHERE source_revision_id = ? AND ordinal < ? ORDER BY ordinal DESC LIMIT ?'
+        ).all(run.source_revision_id, current.ordinal, bounded) as any[];
+    return rows.reverse().map((row) => ({
+      id: row.segment_id,
+      text: String(row.text).slice(0, 900),
+      kind: row.kind,
+      contextPath: row.context_path,
+      page: row.page,
+      level: row.level,
+      marker: row.marker,
+    }));
+  }
+
   getRunContext(projectId: string, runId: string): any {
     const { db, project } = this.getProjectContext(projectId);
     const run = db.prepare('SELECT * FROM translation_runs WHERE run_id = ?').get(runId) as any;
