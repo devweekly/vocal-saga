@@ -65,7 +65,7 @@
 
 > **同步校验**：在 `vocal-saga` 根目录运行 `npx tsx scripts/check-sync.ts`；默认查找同级 `../fanyi-extension`，也可通过 `VOCAL_SAGA_PATH` 与 `FANYI_EXTENSION_PATH` 指定仓库路径。该脚本维护静态 `SYNC_PAIRS` 清单，并逐字节检查本节中的 26 组同步对；新增、删除或移动同步对时必须同时更新脚本和本节。`cacheKey.ts` 与 `service/_service.ts` 按语义契约维护，不参与字节级比较。
 >
-> **最新结果（2026-10-15）**：原 18 组网页翻译同步对已通过；本次再将 8 组文档解析模块纳入检查，两个仓库的 GitHub Actions 会对 26 组执行完整校验。2026-09-11 的 20 组结果仅是历史记录。
+> **最新结果（2026-10-15）**：26/26 组逐字节同步检查已在两个仓库的 CI 中通过。2026-09-11 的 20 组结果仅是历史记录。
 >
 > **2026-09-11 第二轮（prompt 全量中文化 + 骨架抽取）**：所有 prompt 改为中文，并抽成
 > 「共用骨架 + 各自文风段落」，`jinyong` / `acheng` / `wangxiaobo` 三个文风文件
@@ -635,7 +635,7 @@ prepareHtmlForServer 时在 clone 上把 `link[rel=stylesheet]` 替换为
 
 ### 当前调度与状态契约
 
-1. 默认配置上限为 4 个翻译 worker + 2 个 Reviewer worker；四槽位且启用审校时，实际预算为 2 个翻译 + 2 个 Reviewer；关闭审校时翻译可占用最多 4 个槽位。两项上限按 `LOCAL_AGENT_POOL_SIZE` 收敛。
+1. 默认配置上限为 4 个翻译 worker + 2 个 Reviewer worker；四槽位且启用审校时，实际预算为 2 个翻译 + 2 个 Reviewer；关闭审校时翻译可占用最多 4 个槽位。两项上限按 `LOCAL_AGENT_POOL_SIZE` 收敛。由于每批使用独立 Session，初始化开销必须纳入真实压测；CI 不测量实际耗时。
 2. 每个翻译批次使用独立 scope，scope 包含 run、角色、Prompt revision、lane 和 batch index。缺失 ID 的重试复用**同一批** scope；不同批次或 Reviewer 不共享对话历史。
 3. Reviewer 作为独立有界任务与后续初译重叠。初译候选落库后发出 `batch.translation.completed`；只有该批 Reviewer 结算后才发出 `batch.completed`。run 结束前必须 drain 所有已排队的 Reviewer。
 4. 每个批次仍必须显式携带原文前文 `precedingSegments`、Prompt/glossary 和只读 `voiceContext`；不得用共享对话历史代替这些输入。
