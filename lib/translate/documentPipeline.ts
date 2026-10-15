@@ -161,7 +161,9 @@ export async function translateDocument(
         skipCache: input.forceRefresh ?? false,
         systemPromptOverride: input.documentSystemPromptOverride,
         userPromptTemplate: input.documentUserPromptTemplate,
-        ...(literaryMemory ? {
+        // If the reader supplied the complete editable System Prompt, it already contains the
+        // static literary instructions shown in the settings UI; do not append a hidden duplicate.
+        ...((literaryMemory && !input.documentSystemPromptOverride?.trim()) ? {
           taskInstructions: buildLiteraryTranslationInstructions(
             input.chapterTitle || batch[0]?.contextPath || '',
           ),
