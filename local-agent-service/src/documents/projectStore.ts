@@ -8,11 +8,14 @@
  */
 import { createHash, randomUUID } from 'node:crypto';
 import { readdirSync, mkdirSync } from 'node:fs';
+import { writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { DATA_DIR } from '../config.ts';
 
 export type DocumentFormat = 'epub' | 'pdf' | 'txt' | 'md' | 'html' | 'docx' | 'srt' | 'vtt' | 'json';
+export const MAX_DOCUMENT_SOURCE_BYTES = 20 * 1024 * 1024;
+
 export type RunStatus = 'queued' | 'running' | 'paused' | 'awaiting_acceptance' | 'partial' | 'completed' | 'failed' | 'cancelled';
 
 export interface ProjectSegment {
@@ -51,6 +54,8 @@ export interface ProjectSummary {
   createdAt: string;
   updatedAt: string;
   archived: boolean;
+  sourceFileSaved: boolean;
+  sourceFileSize: number | null;
 }
 
 export interface CreateProjectInput {
@@ -161,7 +166,7 @@ export class DocumentProjectStore {
       'CREATE TABLE IF NOT EXISTS project_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);' +
       'CREATE TABLE IF NOT EXISTS source_revisions (' +
       'revision_id TEXT PRIMARY KEY, file_name TEXT NOT NULL, format TEXT NOT NULL, source_fingerprint TEXT NOT NULL, ' +
-      'parser_version TEXT NOT NULL, segment_count INTEGER NOT NULL, created_at TEXT NOT NULL);' +
+      'parser_version TEXT NOT NULL, segment_count INTEGER NOT NULL, created_at TEXT NOT NULL, source_file_path TEXT, source_file_hash TEXT, source_file_size INTEGER);' +
       'CREATE TABLE IF NOT EXISTS source_segments (' +
       'source_revision_id TEXT NOT NULL, segment_id TEXT NOT NULL, ordinal INTEGER NOT NULL, text TEXT NOT NULL, ' +
       'kind TEXT NOT NULL, context_path TEXT NOT NULL, page INTEGER, level INTEGER, marker TEXT, source_hash TEXT NOT NULL, ' +
@@ -203,6 +208,12 @@ export class DocumentProjectStore {
       db.exec('ALTER TABLE translation_results ADD COLUMN accepted_at TEXT');
       db.exec('UPDATE translation_results SET accepted_at = created_at WHERE accepted = 1 AND accepted_at IS NULL');
     }
+    const sourceColumns = new Set(
+      (db.prepare('PRAGMA table_info(source_revisions)').all() as Array<{ name: string }>).map((column) => column.name),
+    );
+    if (!sourceColumns.has('source_file_path')) db.exec('ALTER TABLE source_revisions ADD COLUMN source_file_path TEXT');
+    if (!sourceColumns.has('source_file_hash')) db.exec('ALTER TABLE source_revisions ADD COLUMN source_file_hash TEXT');
+    if (!sourceColumns.has('source_file_size')) db.exec('ALTER TABLE source_revisions ADD COLUMN source_file_size INTEGER');
   }
 
   private openProjectDb(projectId: string, create = false): DatabaseSync {
@@ -337,6 +348,49 @@ export class DocumentProjectStore {
       throw error;
     }
     return this.getProject(projectId)!;
+  }
+
+  /**
+   * Keep the original source outside SQLite but inside the document project's own directory.
+   * The content itself is not stored as a giant blob in either SQLite database. A revision gets
+   * an immutable file name based on its revision UUID; re-importing never overwrites an older file.
+   */
+  async storeSourceFile(projectId: string, fileName: string, bytes: Uint8Array): Promise<{ saved: true; size: number; sha256: string; sourceRevisionId: string }> {
+    if (!(bytes instanceof Uint8Array) || bytes.byteLength < 1) {
+      throw Object.assign(new Error('原始文件内容为空'), { status: 400 });
+    }
+    if (bytes.byteLength > MAX_DOCUMENT_SOURCE_BYTES) {
+      throw Object.assign(new Error('原始文件超过 20 MiB 上限'), { status: 413 });
+    }
+    const { db, currentSourceRevisionId } = this.getProjectContext(projectId);
+    const revision = db.prepare('SELECT format FROM source_revisions WHERE revision_id = ?').get(currentSourceRevisionId) as { format?: string } | undefined;
+    if (!revision?.format) throw Object.assign(new Error('找不到当前来源版本'), { status: 404 });
+    const cleanName = path.basename(String(fileName || '')).replace(/[\\x00-\\x1f]/g, '').slice(0, 240) || ('source.' + revision.format);
+    const extension = path.extname(cleanName).replace(/^\\./, '').toLowerCase();
+    if (extension && extension !== revision.format.toLowerCase()) {
+      throw Object.assign(new Error('原始文件扩展名与项目格式不匹配'), { status: 400 });
+    }
+    const revisionDir = path.dirname(this.projectPath(projectId));
+    const relativePath = path.join('sources', currentSourceRevisionId + '.' + revision.format);
+    const targetPath = path.resolve(revisionDir, relativePath);
+    if (!targetPath.startsWith(revisionDir + path.sep)) throw new Error('原始文件路径不安全');
+    mkdirSync(path.dirname(targetPath), { recursive: true });
+    const copied = Buffer.from(bytes);
+    const sourceHash = createHash('sha256').update(copied).digest('hex');
+    await writeFile(targetPath, copied, { flag: 'wx' }).catch(async (error: any) => {
+      // A retry after network timeout may find the immutable file already written. Reuse it only
+      // when its bytes are exactly the same; never replace an existing source revision silently.
+      if (error?.code !== 'EEXIST') throw error;
+      const { readFile } = await import('node:fs/promises');
+      const existing = await readFile(targetPath);
+      if (createHash('sha256').update(existing).digest('hex') !== sourceHash) {
+        throw Object.assign(new Error('此来源版本已有不同的原始文件，拒绝覆盖'), { status: 409 });
+      }
+    });
+    db.prepare('UPDATE source_revisions SET source_file_path = ?, source_file_hash = ?, source_file_size = ? WHERE revision_id = ?')
+      .run(relativePath, sourceHash, copied.byteLength, currentSourceRevisionId);
+    this.addEvent(projectId, null, 'source.file-saved', { sourceRevisionId: currentSourceRevisionId, fileName: cleanName, size: copied.byteLength, sha256: sourceHash });
+    return { saved: true, size: copied.byteLength, sha256: sourceHash, sourceRevisionId: currentSourceRevisionId };
   }
 
   private savePromptRevision(projectId: string, prompt: ProjectPrompt & { name?: string }): any {
@@ -491,6 +545,8 @@ export class DocumentProjectStore {
       sourceFingerprint: row.source_fingerprint,
       currentSourceRevisionId: meta.get('current_source_revision_id') || '',
       segmentCount: Number(revision?.segment_count || 0),
+      sourceFileSaved: Boolean(revision?.source_file_path),
+      sourceFileSize: Number.isFinite(revision?.source_file_size) ? Number(revision.source_file_size) : null,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
       archived: Boolean(row.archived),
