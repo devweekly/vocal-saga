@@ -12,7 +12,19 @@ export const LITERARY_ANALYSIS_SCHEMA: Record<string, unknown> = {
     chapterSummary: { type: 'string' },
     characterVoices: { type: 'array' },
     relationshipVoiceRules: { type: 'array' },
-    voiceAnchors: { type: 'array' },
+    voiceAnchors: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          anchorId: { type: 'string' }, speakerId: { type: 'string' }, addresseeId: { type: 'string' },
+          source: { type: 'string' }, target: { type: 'string' }, chapter: { type: 'string' }, segmentId: { type: 'string' },
+          attributionEvidence: { type: 'string' }, attributionConfidence: { type: 'number' },
+          status: { type: 'string', enum: ['candidate'] }, tags: { type: 'array', items: { type: 'string' } },
+        },
+        required: ['speakerId', 'source', 'target', 'segmentId', 'attributionEvidence', 'attributionConfidence'],
+      },
+    },
     openQuestions: { type: 'array' },
   },
   required: ['entities', 'relationships'],
@@ -149,9 +161,21 @@ export function stabilizeVoiceAnalysis(
       const source = typeof raw.source === 'string' ? raw.source.trim() : '';
       const target = typeof raw.target === 'string' ? raw.target.trim() : '';
       const segmentId = typeof raw.segmentId === 'string' ? raw.segmentId : '';
+      const attributionEvidence = typeof raw.attributionEvidence === 'string' ? raw.attributionEvidence.trim() : '';
+      const attributionConfidence = Number(raw.attributionConfidence);
       if (!characterIds.has(speakerId) || !source || !target || !normalizeQuote(segmentId, source)) return [];
+      // 说话人证据必须在原文同一片段中可定位；不以模型声称的 confidence 单独作为事实。
+      if (!attributionEvidence || !normalizeQuote(segmentId, attributionEvidence) ||
+        !Number.isFinite(attributionConfidence) || attributionConfidence < 0.7) {
+        return [];
+      }
       const anchorId = 'anchor_' + stableCharacterId(segmentId + '\\u0000' + speakerId + '\\u0000' + source).slice(5);
-      return [{ ...raw, anchorId, speakerId, segmentId, source: source.slice(0, 400), target: target.slice(0, 500), status: 'candidate', approvedBy: 'reviewer' }];
+      return [{
+        ...raw, anchorId, speakerId, segmentId, source: source.slice(0, 400), target: target.slice(0, 500),
+        attributionEvidence: attributionEvidence.slice(0, 240),
+        attributionConfidence: Math.max(0, Math.min(1, attributionConfidence)),
+        status: 'candidate', approvedBy: 'reviewer',
+      }];
     })
     : [];
   const openQuestions = Array.isArray(parsed.openQuestions)
@@ -223,7 +247,7 @@ export async function runLiteraryAnalysis(body: any, requestId: string, sessionS
     '关系字段只记录剧情事实：subject、predicate、object、evidence、reviewStatus；人物之间如何说话必须另放 relationshipVoiceRules。',
     '人物声音不是性格形容词。对本章有充分证据的主要人物，输出 characterVoices：characterId（优先沿用已有记忆 ID；否则用 char_ + 同一规范原文名的稳定 ID）、canonicalSourceName、targetName、aliases、status=candidate、confidence、voiceCore、contrastRules、evidence、openQuestions。只挑 3–6 个可以在语言中观察到的特征，涉及语域/句法节奏/词汇/对话策略/情态立场/幽默反讽/口语特征；不能凭性别、年龄、职业或刻板印象推断，不强加口头禅或方言。每条 evidence 必须包含输入中的 segmentId、短原文 sourceQuote、dimension、observation 和 0–1 confidence。',
     'relationshipVoiceRules 是有方向的 speakerId → addresseeId，描述 baselineRegister、addressTerms、directness、emotionalDistance、sceneDependentShift 和 evidenceSegmentIds。关系事实与关系语言规则不能混用。',
-    'voiceAnchors 只能取有充分归属证据的短对白，包含 anchorId、speakerId、可选 addresseeId、source、target、chapter、segmentId、tags，status 必须为 candidate；不能把说话人猜测写成事实。已存在的 confirmed 画像不能被本次分析静默覆盖，冲突写入 openQuestions。',
+    'voiceAnchors 只能取有充分归属证据的短对白，包含 anchorId、speakerId、可选 addresseeId、source、target、chapter、segmentId、attributionEvidence、attributionConfidence、tags，status 必须为 candidate。attributionEvidence 必须是同一个 segmentId 内能逐字定位的原文证据（例如“X said/asked”等明确归属文本），attributionConfidence 必须在 0–1；低于 0.7 或没有明确归属证据时不生成锚点，而写入 openQuestions。不能把说话人猜测写成事实。已存在的 confirmed 画像不能被本次分析静默覆盖，冲突写入 openQuestions。'
     '新人物声音、关系语言规则、声音锚点全部输出 candidate，不能伪称人工审核。只返回 JSON 对象：{ "entities": [], "relationships": [], "styleGuide": {}, "chapterSummary": "", "characterVoices": [], "relationshipVoiceRules": [], "voiceAnchors": [], "openQuestions": [] }。styleGuide 可包含 narrativeVoice、register、rhythm、dialogue、diction、avoid。',
   ].join('\n');
   const prompt = [
