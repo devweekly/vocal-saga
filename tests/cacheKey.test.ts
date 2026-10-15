@@ -43,6 +43,7 @@ describe('generateTranslationCacheKey', () => {
     const hash = 'v2:3:abc:def';
     const url = 'https://2026.stateofdevs.com/en-US/worldview/';
     const base = buildPageCacheFingerprint(hash, url, 'deepseek', 'default');
+    expect(base).toMatch(/^page-v3:/);
     expect(buildPageCacheFingerprint(hash, url, 'openrouter', 'default')).not.toBe(base);
     expect(buildPageCacheFingerprint(hash, url, 'deepseek', 'formal')).not.toBe(base);
     expect(buildPageCacheFingerprint(hash, 'https://2026.stateofdevs.com/en-US/', 'deepseek', 'default')).not.toBe(base);
