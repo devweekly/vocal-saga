@@ -455,6 +455,19 @@ export class DocumentProjectStore {
     return (db.prepare('SELECT * FROM prompt_revisions ORDER BY created_at DESC').all() as any[]).map((row) => this.publicPrompt(row));
   }
 
+  private makeRunFingerprint(promptRow: any, config: any): string {
+    return hash(JSON.stringify({
+      promptFingerprint: promptRow.fingerprint,
+      sourceLang: config.sourceLang || 'auto',
+      targetLang: config.targetLang || 'zh',
+      provider: config.provider || 'workbuddy',
+      model: config.model || 'auto',
+      translationMode: config.translationMode || 'technical',
+      literaryReview: Boolean(config.literaryReview),
+      pipelineVersion: 'document-agent-v1',
+    }));
+  }
+
   createRun(projectId: string, input: CreateRunInput = {}): any {
     const db = this.openProjectDb(projectId);
     const project = this.getProject(projectId)!;
@@ -474,22 +487,19 @@ export class DocumentProjectStore {
     }
     const currentSegments = db.prepare('SELECT * FROM source_segments WHERE source_revision_id = ? ORDER BY ordinal').all(sourceRevisionId) as any[];
     const acceptedRows = db.prepare('SELECT * FROM translation_results WHERE accepted = 1 ORDER BY COALESCE(accepted_at, created_at) DESC, created_at DESC').all() as any[];
+    const currentHashById = new Map<string, string>(currentSegments.map((segment) => [segment.segment_id, segment.source_hash]));
     const latestAccepted = new Map<string, any>();
-    for (const row of acceptedRows) if (!latestAccepted.has(row.segment_id)) latestAccepted.set(row.segment_id, row);
+    // Source revision 变更后保留旧译文供追溯，但新旧来源的同 ID 片段不可混用。
+    for (const row of acceptedRows) {
+      if (row.source_hash === currentHashById.get(row.segment_id) && !latestAccepted.has(row.segment_id)) {
+        latestAccepted.set(row.segment_id, row);
+      }
+    }
     const failedRows = db.prepare("SELECT segment_id FROM run_segments WHERE status = 'failed' ORDER BY updated_at DESC").all() as Array<{ segment_id: string }>;
     const failedIds = new Set(failedRows.map((row) => row.segment_id));
     const idSet = new Set((scope.ids || []).map(String));
     const chapter = (scope.chapter || '').trim();
-    const runFingerprint = hash(JSON.stringify({
-      promptFingerprint: promptRow.fingerprint,
-      sourceLang: config.sourceLang || 'auto',
-      targetLang: config.targetLang || 'zh',
-      provider: config.provider || 'workbuddy',
-      model: config.model || 'auto',
-      translationMode: config.translationMode || 'technical',
-      literaryReview: Boolean(config.literaryReview),
-      pipelineVersion: 'document-agent-v1',
-    }));
+    const runFingerprint = this.makeRunFingerprint(promptRow, config);
     const selected = currentSegments.filter((segment) => {
       if (scopeType === 'all') return true;
       if (scopeType === 'ids') return idSet.has(segment.segment_id);
@@ -581,7 +591,7 @@ export class DocumentProjectStore {
     const offset = Math.max(0, Math.floor(options.offset || 0));
     const rows = db.prepare(
       'SELECT s.segment_id, s.ordinal, s.text, s.kind, s.context_path, s.page, s.level, s.marker, s.path, s.start_time, s.end_time, s.source_hash, ' +
-      '(SELECT r.translation_text FROM translation_results r WHERE r.segment_id = s.segment_id AND r.accepted = 1 ORDER BY COALESCE(r.accepted_at, r.created_at) DESC, r.created_at DESC LIMIT 1) AS accepted_translation, ' +
+      '(SELECT r.translation_text FROM translation_results r WHERE r.segment_id = s.segment_id AND r.source_hash = s.source_hash AND r.accepted = 1 ORDER BY COALESCE(r.accepted_at, r.created_at) DESC, r.created_at DESC LIMIT 1) AS accepted_translation, ' +
       '(SELECT r.translation_text FROM translation_results r WHERE r.segment_id = s.segment_id AND r.run_id = ? ORDER BY r.created_at DESC LIMIT 1) AS candidate_translation ' +
       'FROM source_segments s WHERE s.source_revision_id = ? ORDER BY s.ordinal LIMIT ? OFFSET ?'
     ).all(options.runId || '', currentSourceRevisionId, limit, offset) as any[];
@@ -732,10 +742,21 @@ export class DocumentProjectStore {
     const rows = db.prepare('SELECT rs.segment_id, rs.candidate_result_id FROM run_segments rs WHERE rs.run_id = ? AND rs.status = \'candidate\' AND rs.candidate_result_id IS NOT NULL').all(runId) as any[];
     const now = isoNow();
     let accepted = 0;
+    const preservedManual: string[] = [];
     db.exec('BEGIN IMMEDIATE');
     try {
       for (const row of rows) {
         if (only && !only.has(row.segment_id)) continue;
+        const candidate = db.prepare('SELECT created_at FROM translation_results WHERE result_id = ?').get(row.candidate_result_id) as { created_at?: string } | undefined;
+        const newerManual = candidate?.created_at
+          ? db.prepare("SELECT result_id FROM translation_results WHERE segment_id = ? AND accepted = 1 AND origin = 'manual' AND created_at > ? ORDER BY created_at DESC LIMIT 1")
+            .get(row.segment_id, candidate.created_at)
+          : undefined;
+        // 翻译正在运行时，用户可能在另一 Tab 修订了相同片段；旧候选不得覆盖新人工版本。
+        if (newerManual) {
+          preservedManual.push(row.segment_id);
+          continue;
+        }
         db.prepare('UPDATE translation_results SET accepted = 1, accepted_at = ? WHERE result_id = ?').run(now, row.candidate_result_id);
         db.prepare('UPDATE run_segments SET status = \'accepted\', updated_at = ? WHERE run_id = ? AND segment_id = ?').run(now, runId, row.segment_id);
         accepted++;
@@ -748,8 +769,62 @@ export class DocumentProjectStore {
     const remaining = db.prepare("SELECT COUNT(*) AS count FROM run_segments WHERE run_id = ? AND status IN ('candidate','pending','running','failed')").get(runId) as any;
     const failed = db.prepare("SELECT COUNT(*) AS count FROM run_segments WHERE run_id = ? AND status = 'failed'").get(runId) as any;
     this.setRunStatus(projectId, runId, Number(remaining?.count || 0) > 0 ? (accepted > 0 && Number(failed?.count || 0) > 0 ? 'partial' : 'awaiting_acceptance') : 'completed');
-    this.addEvent(projectId, runId, 'translations.accepted', { count: accepted, segmentIds: only ? Array.from(only) : undefined });
+    this.addEvent(projectId, runId, 'translations.accepted', { count: accepted, preservedManualSegmentIds: preservedManual, segmentIds: only ? Array.from(only) : undefined });
     return this.getRun(projectId, runId);
+  }
+
+  /**
+   * 将旧阅读器/IndexedDB 已有的译文一次性纳入项目版本库。只填充当前来源中尚无
+   * accepted 译文的片段，不覆盖本机 workspace 已经版本化的人工修订或 Agent 结果。
+   * 当前 Prompt 指纹作为导入基线，避免第一次切换到 workspace 后把整本旧译文全部判过期。
+   */
+  importAcceptedTranslations(projectId: string, items: unknown): { imported: number; skipped: number } {
+    if (!Array.isArray(items) || items.length > 1000) {
+      throw Object.assign(new Error('译文导入必须是最多 1000 条记录的数组'), { status: 400 });
+    }
+    const { db, currentSourceRevisionId } = this.getProjectContext(projectId);
+    const currentSegments = new Map(
+      (db.prepare('SELECT segment_id, source_hash FROM source_segments WHERE source_revision_id = ?').all(currentSourceRevisionId) as Array<{ segment_id: string; source_hash: string }>)
+        .map((row) => [row.segment_id, row]),
+    );
+    const promptRow = db.prepare('SELECT * FROM prompt_revisions ORDER BY created_at DESC LIMIT 1').get() as any;
+    if (!promptRow) throw new Error('导入译文前必须先保存当前 Prompt');
+    const config = parseJson<any>(promptRow.config_json, {});
+    const runFingerprint = this.makeRunFingerprint(promptRow, config);
+    const now = isoNow();
+    let imported = 0;
+    let skipped = 0;
+    const insert = db.prepare(
+      'INSERT INTO translation_results(result_id, run_id, source_revision_id, prompt_revision_id, segment_id, source_hash, run_fingerprint, translation_text, origin, accepted, created_at, accepted_at) ' +
+      "VALUES (?, NULL, ?, ?, ?, ?, ?, ?, 'imported', 1, ?, ?)",
+    );
+    db.exec('BEGIN IMMEDIATE');
+    try {
+      for (const raw of items) {
+        if (!raw || typeof raw !== 'object' || Array.isArray(raw)) { skipped++; continue; }
+        const item = raw as Record<string, unknown>;
+        const id = typeof item.id === 'string' ? item.id : '';
+        const text = typeof item.text === 'string' ? item.text.trim() : '';
+        const source = currentSegments.get(id);
+        if (!id || !source || !text || text.length > 20000) { skipped++; continue; }
+        const existing = db.prepare(
+          'SELECT result_id FROM translation_results WHERE segment_id = ? AND source_hash = ? AND accepted = 1 LIMIT 1',
+        ).get(id, source.source_hash);
+        if (existing) { skipped++; continue; }
+        insert.run(randomUUID(), currentSourceRevisionId, promptRow.prompt_revision_id, id,
+          source.source_hash, runFingerprint, text, now, now);
+        imported++;
+      }
+      db.exec('COMMIT');
+    } catch (error) {
+      db.exec('ROLLBACK');
+      throw error;
+    }
+    if (imported) {
+      this.addEvent(projectId, null, 'translations.imported', { imported, skipped, sourceRevisionId: currentSourceRevisionId });
+      this.catalogDb().prepare('UPDATE document_projects SET updated_at = ? WHERE project_id = ?').run(now, projectId);
+    }
+    return { imported, skipped };
   }
 
   saveManualEdit(projectId: string, segmentId: string, text: string): any {
@@ -773,18 +848,23 @@ export class DocumentProjectStore {
     const { db, currentSourceRevisionId } = this.getProjectContext(projectId);
     const segments = db.prepare('SELECT segment_id, source_hash FROM source_segments WHERE source_revision_id = ?').all(currentSourceRevisionId) as any[];
     const latestAccepted = new Map<string, any>();
+    const anyAcceptedIds = new Set<string>();
+    const currentHashById = new Map<string, string>(segments.map((segment) => [segment.segment_id, segment.source_hash]));
     for (const row of db.prepare('SELECT * FROM translation_results WHERE accepted = 1 ORDER BY COALESCE(accepted_at, created_at) DESC, created_at DESC').all() as any[]) {
-      if (!latestAccepted.has(row.segment_id)) latestAccepted.set(row.segment_id, row);
+      anyAcceptedIds.add(row.segment_id);
+      if (row.source_hash === currentHashById.get(row.segment_id) && !latestAccepted.has(row.segment_id)) {
+        latestAccepted.set(row.segment_id, row);
+      }
     }
     const missing: string[] = [];
     const stale: string[] = [];
     for (const segment of segments) {
-      const result = latestAccepted.get(segment.segment_id);
-      if (!result) missing.push(segment.segment_id);
-      else if (result.source_hash !== segment.source_hash) stale.push(segment.segment_id);
+      if (latestAccepted.has(segment.segment_id)) continue;
+      if (anyAcceptedIds.has(segment.segment_id)) stale.push(segment.segment_id);
+      else missing.push(segment.segment_id);
     }
     const activeRuns = db.prepare("SELECT run_id, status FROM translation_runs WHERE status IN ('queued','running','paused','awaiting_acceptance','partial') ORDER BY created_at DESC").all();
-    return { project, totalSegments: segments.length, acceptedSegments: segments.length - missing.length, missingSegmentIds: missing, staleSourceIds: stale, activeRuns };
+    return { project, totalSegments: segments.length, acceptedSegments: segments.length - missing.length - stale.length, missingSegmentIds: missing, staleSourceIds: stale, activeRuns };
   }
 
   archiveProject(projectId: string): void {
