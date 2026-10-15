@@ -453,9 +453,84 @@ export class DocumentProjectStore {
    * 文学记忆是独立的不可变业务资产，不应混进 Prompt fingerprint。
    * 角色画像按证据与状态维护；每个 Run 固定引用一个 memory revision，方便复现。
    */
+  /**
+   * The Project Store is the trust boundary for persistent literary memory.
+   * Do not trust a client-side "confirmed"/"approved" flag: its evidence must still match
+   * this project's current source revision and an anchor's target must exist in an accepted translation.
+   */
+  private validateLiteraryMemoryAgainstProject(projectId: string, input: unknown): Record<string, any> {
+    const memory = sanitizeProjectLiteraryMemory(input);
+    const { db, currentSourceRevisionId } = this.getProjectContext(projectId);
+    const sourceRows = db.prepare(
+      'SELECT segment_id, text, source_hash FROM source_segments WHERE source_revision_id = ?'
+    ).all(currentSourceRevisionId) as Array<{ segment_id: string; text: string; source_hash: string }>;
+    const sources = new Map(sourceRows.map((row) => [row.segment_id, row]));
+    const normalize = (value: string) => value.normalize('NFKC').replace(/\s+/g, ' ').trim().toLocaleLowerCase();
+    const latestAccepted = new Map<string, string>();
+    const acceptedRows = db.prepare(
+      'SELECT segment_id, translation_text FROM translation_results WHERE accepted = 1 ' +
+      'ORDER BY COALESCE(accepted_at, created_at) DESC, created_at DESC'
+    ).all() as Array<{ segment_id: string; translation_text: string }>;
+    for (const row of acceptedRows) {
+      if (!latestAccepted.has(row.segment_id)) latestAccepted.set(row.segment_id, row.translation_text);
+    }
+    const validEvidence = (segmentId: unknown, quote: unknown): boolean => {
+      if (typeof segmentId !== 'string' || typeof quote !== 'string' || !quote.trim()) return false;
+      const source = sources.get(segmentId);
+      return !!source && normalize(source.text).includes(normalize(quote));
+    };
+
+    memory.characterVoices = memory.characterVoices.map((profile: any) => {
+      const evidence = profile.evidence.filter((item: any) => validEvidence(item.segmentId, item.sourceQuote));
+      const status = profile.status === 'rejected'
+        ? 'rejected'
+        : profile.status === 'confirmed' && evidence.length
+          ? 'confirmed'
+          : 'candidate';
+      const questions = Array.isArray(profile.openQuestions) ? [...profile.openQuestions] : [];
+      if (profile.status === 'confirmed' && status !== 'confirmed') {
+        questions.push('已确认画像的原文证据在当前来源版本中无法核验，已降级为候选。');
+      }
+      return { ...profile, evidence, status, openQuestions: Array.from(new Set(questions)).slice(0, 8) };
+    });
+    const characterIds = new Set(memory.characterVoices.map((profile: any) => profile.characterId));
+    memory.characterVoices = memory.characterVoices.map((profile: any) => ({
+      ...profile,
+      contrastRules: profile.contrastRules.flatMap((rule: any) => {
+        const evidenceSegmentIds = rule.evidenceSegmentIds.filter((id: string) => sources.has(id));
+        return characterIds.has(rule.otherCharacterId) && evidenceSegmentIds.length
+          ? [{ ...rule, evidenceSegmentIds }] : [];
+      }),
+    }));
+    memory.relationshipVoiceRules = memory.relationshipVoiceRules.flatMap((rule: any) => {
+      const evidenceSegmentIds = rule.evidenceSegmentIds.filter((id: string) => sources.has(id));
+      const status = rule.status === 'rejected' ? 'rejected'
+        : rule.status === 'confirmed' && evidenceSegmentIds.length ? 'confirmed' : 'candidate';
+      return characterIds.has(rule.speakerId) && characterIds.has(rule.addresseeId) && evidenceSegmentIds.length
+        ? [{ ...rule, evidenceSegmentIds, status }] : [];
+    });
+    memory.voiceAnchors = memory.voiceAnchors.map((anchor: any) => {
+      const sourceValid = validEvidence(anchor.segmentId, anchor.source);
+      const attributionValid = validEvidence(anchor.segmentId, anchor.attributionEvidence) &&
+        Number.isFinite(Number(anchor.attributionConfidence)) && Number(anchor.attributionConfidence) >= 0.7;
+      const speakerConfirmed = memory.characterVoices.some((profile: any) =>
+        profile.characterId === anchor.speakerId && profile.status === 'confirmed');
+      const acceptedTranslation = latestAccepted.get(anchor.segmentId) || '';
+      const targetValid = !!acceptedTranslation.trim() &&
+        normalize(acceptedTranslation).includes(normalize(anchor.target));
+      const approved = anchor.status === 'approved' && sourceValid && attributionValid && speakerConfirmed && targetValid;
+      return {
+        ...anchor,
+        status: anchor.status === 'rejected' ? 'rejected' : approved ? 'approved' : 'candidate',
+      };
+    });
+    memory.contrastRules = undefined;
+    return memory;
+  }
+
   saveLiteraryMemory(projectId: string, input: unknown): any {
     const db = this.openProjectDb(projectId);
-    const memory = sanitizeProjectLiteraryMemory(input);
+    const memory = this.validateLiteraryMemoryAgainstProject(projectId, input);
     const memoryJson = JSON.stringify(memory);
     const fingerprint = hash(memoryJson);
     const existing = db.prepare('SELECT * FROM literary_memory_revisions WHERE fingerprint = ? ORDER BY created_at DESC LIMIT 1').get(fingerprint) as any;
