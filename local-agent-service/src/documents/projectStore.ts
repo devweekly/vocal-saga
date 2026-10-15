@@ -276,6 +276,9 @@ export class DocumentProjectStore {
   }
 
   createProject(input: CreateProjectInput): ProjectSummary {
+    // Initialize the catalog before creating the project directory; otherwise startup repair
+    // could discover this new directory and insert the catalog row before createProject does.
+    this.catalogDb();
     const segments = validateSegments(input.segments);
     const title = (input.title || input.sourceFileName || '未命名文档').trim().slice(0, 500) || '未命名文档';
     const format = normalizeFormat(input.format);
