@@ -130,7 +130,7 @@ test('manual acceptance is newer than an older candidate and is not auto-staled 
     store.acceptCandidates(project.projectId, run.runId, ['ch1-p1']);
 
     const current = store.getSegments(project.projectId, { limit: 10 });
-    assert.equal(current.find((item: any) => item.id === 'ch1-p1')?.acceptedTranslation, '模型候选。');
+    assert.equal(current.find((item) => item.id === 'ch1-p1')?.acceptedTranslation, '模型候选。');
 
     // A correction made after that explicit acceptance is newest and must survive Prompt changes.
     store.saveManualEdit(project.projectId, 'ch1-p1', '再次人工修订。');
