@@ -92,7 +92,8 @@ All project endpoints live below /api/documents/projects and use the existing Lo
 
 - GET/POST /api/documents/projects: list/create projects; creation accepts normalized segments.
 - GET /api/documents/projects/:id: project summary, verification and recent runs.
-- POST /api/documents/projects/:id/source: import a new source revision without deleting run history.
+- POST /api/documents/projects/:id/source: import a new normalized source revision without deleting run history. Segment identity metadata includes EPUB part path / page / time markers where supplied, so the project retains enough mapping information for future reader/export adapters.
+- POST /api/documents/projects/:id/source-file: upload the original file as a binary request with X-Source-File-Name. Files up to 20 MiB are stored outside SQLite at documents/<documentId>/sources/<sourceRevisionId>.<format>; SHA-256 and byte size are recorded in the project database. Re-importing creates a new source revision and never overwrites an earlier revision's source file.
 - GET /api/documents/projects/:id/segments?limit=250&offset=0&runId=...: page through source, accepted translations and one run's candidates.
 - GET/POST /api/documents/projects/:id/prompts: list/save Prompt revisions.
 - GET/POST /api/documents/projects/:id/runs: list/create runs. Create returns HTTP 202 while model work continues in the background.
@@ -119,7 +120,7 @@ npm run doc -- verify <documentId>
 npm run doc -- export <documentId> ./accepted-translations.json
 ~~~
 
-The import JSON contains title, format, an optional sourceFileName, a segments array and an optional prompt. It uses the normalized segment contract produced by the extension's EPUB/PDF parser; the CLI does not claim to independently parse original EPUB/PDF layout.
+The import JSON contains title, format, an optional sourceFileName, a segments array and an optional prompt. It uses the normalized segment contract produced by the extension's EPUB/PDF parser; the CLI does not claim to independently parse original EPUB/PDF layout. The extension workspace uploads the selected original file separately (up to 20 MiB); normalized segment JSON continues to use the service's 6 MiB JSON-body limit. Prompt changes create a new fingerprinted revision. Manual edits remain the current accepted version across Prompt changes until the user explicitly runs and accepts a replacement; source text changes still mark them stale.
 
 ### Agent boundary
 
