@@ -191,7 +191,7 @@ describe('POST /api/translate/document/literary/analyze', () => {
 });
 
 describe('POST /api/translate/document/literary/review', () => {
-  it('applies required corrections and drops style findings entirely', async () => {
+  it('applies required corrections and keeps optional style proposals for approval', async () => {
     const { translateBlocks } = await import('../lib/translate/pipeline');
     (translateBlocks as any).mockResolvedValueOnce(new Map([['s0', JSON.stringify({
       finalTranslation: '她推开了那扇旧门。',
@@ -220,10 +220,13 @@ describe('POST /api/translate/document/literary/review', () => {
     expect(json.translations.s0).toBe('她推开了那扇旧门。');
     expect(json.reviewedIds).toEqual(['s0']);
     expect(json.missingIds).toEqual([]);
-    // style 不在审校范围：即便模型自称 must_fix 也不采纳、不展示。
-    expect(json.findings).toHaveLength(1);
-    expect(json.findings[0].priority).toBe('must_fix');
-    expect(json.findings[0].category).toBe('accuracy');
+    // 准确性修订必须应用；文风建议必须保留为待用户确认的候选。
+    expect(json.findings).toHaveLength(2);
+    expect(json.findings.find((finding: any) => finding.category === 'accuracy')?.priority).toBe('must_fix');
+    const style = json.findings.find((finding: any) => finding.category === 'style');
+    expect(style?.priority).toBe('optional');
+    expect(style?.applicationStatus).toBe('pending');
+    expect(style?.proposedTranslation).toBe('她推开了那扇旧门。');
   });
 });
 
@@ -250,8 +253,12 @@ describe('POST /api/translate/document/literary/review — style is out of scope
     expect(res.status).toBe(200);
     const json: any = await res.json();
     expect(json.translations.s0).toBe(draft);
-    // 全部是 style 时视同没有可报告问题：既不改译文，也不产出任何建议。
-    expect(json.findings).toEqual([]);
+    // 纯文风问题不改写当前译文，但必须保留可供用户比较的完整候选稿。
+    expect(json.findings).toHaveLength(1);
+    expect(json.findings[0].category).toBe('style');
+    expect(json.findings[0].priority).toBe('optional');
+    expect(json.findings[0].applicationStatus).toBe('pending');
+    expect(json.findings[0].proposedTranslation).toBe('她轻轻地推开那扇古老的门。');
   });
 });
 
