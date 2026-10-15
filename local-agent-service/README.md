@@ -61,15 +61,15 @@
 
 ## PDF/EPUB 的 CodeBuddy Session 策略
 
-本机 Workbuddy Provider 对文档翻译采用按任务隔离的 SDK Session；扩展发送一个稳定的、不含原文的文档指纹，服务按“文档指纹 + 任务角色 + Provider/模型 + 语言方向 + 文风/模式版本”分配会话：
+本机 Workbuddy Provider 存在两种 Session scope，不能混为一谈：legacy `/v1/chat/completions` 适配器按扩展传入的文档元数据构造会话键；project-based EPUB/PDF Agent 则在 `translationAgent.ts` 里按 `projectId + runId + role + promptRevisionId + lane + batchIndex` 构造 scope。后者让每个批次及 Reviewer 使用独立会话；同一批次的缺失 ID 重试复用该批 scope：
 
-- `translation`、`analysis`、`review` 三种角色互不共享历史；不同运行也不会复用同一段对话。文档 Agent 每个批次使用独立 Session scope（同一批的缺失 ID 重试复用该批 scope），不再因为整本书共用一个 scope 而把多个批次串行排队。每批都携带显式的原文前文、Prompt、glossary 与 `voiceContext`，不依赖隐式历史维持人物译名或声音。相同文档、相同角色/通道且配置一致时，后续批次继续使用已有 Session。
+- `translation`、`analysis`、`review` 三种角色互不共享历史；不同运行、不同批次不会复用同一段对话。每批都携带显式的原文前文、Prompt、glossary 与 `voiceContext`，不依赖隐式历史维持人物译名或声音。只有同一批次的定向缺失 ID 重试才复用当前 batch scope。
 - 每个 Session 同一时间只处理一轮。默认会话池最多 4 个槽位、每个 Session 最多复用 10 轮；槽位不足时只淘汰空闲会话中最近最少使用的一条。达到轮数上限或遇到失败后会丢弃会话，下次请求重新创建并注入稳定提示词。
 - 文档翻译默认最多 3 个 batch worker；文学审校默认最多 1 个独立 worker，并以 detached 方式与后续初译重叠。默认 4 槽位下目标预算为 3 翻译 + 1 审校；`LOCAL_AGENT_DOCUMENT_TRANSLATION_CONCURRENCY` 和 `LOCAL_AGENT_DOCUMENT_REVIEW_CONCURRENCY` 可调整，实际并发按 `LOCAL_AGENT_POOL_SIZE` 收敛。
 - 章节名、当前原文、相关实体映射和近期译文样例作为每轮数据发送；扩展/SQLite 中已保存的书籍记忆才是可恢复的正式状态。服务重启后不会依赖旧的对话 transcript，而是用当前请求携带的记忆重新建立 Session。
 - 初译一批后先持久化候选并立即调度下一批；审校独立读取原文、初译、`voiceContext` 与原文 `precedingSegments`，仅在发现 must-fix 问题时生成替换候选。run 结束前会等待所有已调度审校落定；取消后仍在飞的翻译/审校响应会被丢弃，不得迟到覆盖运行状态。
 - SDK Session 当前不启用会话 transcript 持久化（`persistSession: false`），避免隐式保留完整原文、译文和历史提示词。普通网页翻译仍使用原有共享文本池，不加入文档专属会话。
-- 该实现复用 CLI/SDK 进程、避免每轮重复注入整个系统指令，并为同一本书保留有限的局部上下文；它不等于模型供应方的 Prompt Cache，也不保证缓存命中或费用下降。应结合 `ttftMs`、整批耗时及模型服务可提供的缓存统计评估。
+- project-based Agent 的每批独立 scope 优先保证历史隔离和可复现的显式输入，不承诺跨批次复用同一个 SDK Session 或隐式上下文。Workbuddy 会话池限制同时活动的 Session 槽位；跨批次重新建 scope 可能增加初始化成本。它也不等于模型供应方的 Prompt Cache，不保证缓存命中或费用下降；应结合 `ttftMs`、整批耗时及模型服务可提供的缓存统计评估。
 - OpenCode 当前仍使用一次性 CLI 调用，没有接入 CodeBuddy SDK Session 池；其请求仍会携带显式书籍记忆与任务提示词。因此，上述长驻 Session 优化目前适用于 Workbuddy/CodeBuddy SDK。
 
 ## SQLite 与隐私
