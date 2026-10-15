@@ -1,5 +1,6 @@
 import { runAgentJson } from './agents/runner.ts';
 import { parseAgentModel } from './json.ts';
+import { sanitizeProjectLiteraryMemory } from './documents/voiceContext.ts';
 
 // 文学分析的 structured output schema，只约束顶层形状，不禁止扩展字段。
 export const LITERARY_ANALYSIS_SCHEMA: Record<string, unknown> = {
@@ -25,6 +26,141 @@ export const LITERARY_REVIEW_SCHEMA: Record<string, unknown> = {
   },
   required: ['results'],
 };
+
+function stableCharacterId(name: string): string {
+  let value = 0x811c9dc5;
+  const normalized = name.normalize('NFKC').toLocaleLowerCase();
+  for (let i = 0; i < normalized.length; i++) value = Math.imul(value ^ normalized.charCodeAt(i), 0x01000193);
+  return 'char_' + (value >>> 0).toString(16).padStart(8, '0');
+}
+function normalizeEvidenceText(value: string): string {
+  return value.normalize('NFKC').replace(/\s+/g, ' ').trim().toLocaleLowerCase();
+}
+function buildAnalysisMemoryContext(input: unknown): Record<string, unknown> {
+  const memory = sanitizeProjectLiteraryMemory(input);
+  const result: Record<string, any> = {
+    version: 2,
+    entities: memory.entities.slice(0, 60),
+    relationships: memory.relationships.slice(0, 40),
+    styleGuide: memory.styleGuide,
+    chapterSummaries: memory.chapterSummaries.slice(-4),
+    recentExamples: memory.recentExamples.slice(-2),
+    characterVoices: memory.characterVoices.slice(0, 20).map((profile: any) => ({
+      characterId: profile.characterId, canonicalSourceName: profile.canonicalSourceName,
+      targetName: profile.targetName, aliases: profile.aliases, status: profile.status,
+      voiceCore: profile.voiceCore, evidence: profile.evidence.slice(0, 2),
+      contrastRules: profile.contrastRules.slice(0, 3),
+    })),
+    relationshipVoiceRules: memory.relationshipVoiceRules.filter((rule: any) => rule.status === 'confirmed').slice(0, 24),
+    voiceAnchors: memory.voiceAnchors.filter((anchor: any) => anchor.status === 'approved').slice(-16),
+  };
+  // Keep valid JSON by dropping whole lower-priority records rather than slicing a serialized string.
+  while (JSON.stringify(result).length > 24000 && result.characterVoices.some((profile: any) => profile.evidence.length > 1)) {
+    result.characterVoices.forEach((profile: any) => { profile.evidence = profile.evidence.slice(0, 1); });
+  }
+  while (JSON.stringify(result).length > 24000 && result.voiceAnchors.length) result.voiceAnchors.shift();
+  while (JSON.stringify(result).length > 24000 && result.relationshipVoiceRules.length) result.relationshipVoiceRules.pop();
+  while (JSON.stringify(result).length > 24000 && result.characterVoices.length) result.characterVoices.pop();
+  while (JSON.stringify(result).length > 24000 && result.entities.length) result.entities.pop();
+  while (JSON.stringify(result).length > 24000 && result.relationships.length) result.relationships.pop();
+  while (JSON.stringify(result).length > 24000 && result.chapterSummaries.length) result.chapterSummaries.shift();
+  return result;
+}
+
+function stabilizeVoiceAnalysis(
+  input: unknown,
+  memoryInput: unknown,
+  parsed: Record<string, any>,
+  segments: Array<{ id: string; text: string }>,
+): { characterVoices: any[]; relationshipVoiceRules: any[]; voiceAnchors: any[]; openQuestions: string[] } {
+  const existing = sanitizeProjectLiteraryMemory(memoryInput);
+  const validSegments = new Map(segments.map((segment) => [segment.id, segment.text]));
+  const normalizeQuote = (segmentId: unknown, quote: unknown): boolean => {
+    const sourceText = validSegments.get(typeof segmentId === 'string' ? segmentId : '');
+    const normalizedQuote = typeof quote === 'string' ? normalizeEvidenceText(quote) : '';
+    return !!sourceText && !!normalizedQuote && normalizeEvidenceText(sourceText).includes(normalizedQuote);
+  };
+  const oldToStable = new Map<string, string>();
+  const profiles: any[] = [];
+  if (Array.isArray(parsed.characterVoices)) {
+    for (const raw of parsed.characterVoices.slice(0, 80)) {
+      if (!raw || typeof raw !== 'object' || Array.isArray(raw)) continue;
+      const name = typeof raw.canonicalSourceName === 'string' ? raw.canonicalSourceName.trim().slice(0, 120) : '';
+      if (!name || !raw.voiceCore || typeof raw.voiceCore !== 'object') continue;
+      const aliases = Array.isArray(raw.aliases) ? raw.aliases.filter((value: unknown) => typeof value === 'string').slice(0, 12) : [];
+      const existingProfile = existing.characterVoices.find((profile: any) =>
+        profile.characterId === raw.characterId ||
+        profile.canonicalSourceName.toLocaleLowerCase() === name.toLocaleLowerCase() ||
+        profile.aliases.some((alias: string) => alias.toLocaleLowerCase() === name.toLocaleLowerCase()) ||
+        aliases.some((alias: string) => alias.toLocaleLowerCase() === profile.canonicalSourceName.toLocaleLowerCase()),
+      );
+      // 模型生成的 ID 每一章都可能变化；宿主根据规范原文名锁定 ID，并优先沿用已有 ID。
+      const characterId = existingProfile?.characterId || stableCharacterId(name);
+      if (typeof raw.characterId === 'string') oldToStable.set(raw.characterId, characterId);
+      const evidence = Array.isArray(raw.evidence) ? raw.evidence.slice(0, 12).flatMap((item: any) => {
+        if (!item || typeof item !== 'object' || !normalizeQuote(item.segmentId, item.sourceQuote)) return [];
+        const dimension = ['register','syntax_rhythm','lexicon','discourse','stance','humor_irony','disfluency','relationship'].includes(item.dimension) ? item.dimension : '';
+        const observation = typeof item.observation === 'string' ? item.observation.trim().slice(0, 240) : '';
+        if (!dimension || !observation) return [];
+        return [{ ...item, segmentId: String(item.segmentId).slice(0, 160), sourceQuote: String(item.sourceQuote).slice(0, 240), dimension, observation, confidence: Number.isFinite(Number(item.confidence)) ? Math.max(0, Math.min(1, Number(item.confidence))) : 0.4 }];
+      }) : [];
+      if (!evidence.length) {
+        // 无可核对的原文证据，不创建可用于翻译的声音画像。
+        continue;
+      }
+      profiles.push({
+        ...raw, characterId, canonicalSourceName: name, aliases,
+        status: existingProfile?.status === 'confirmed' ? 'confirmed' : 'candidate',
+        confidence: Number.isFinite(Number(raw.confidence)) ? Math.max(0, Math.min(1, Number(raw.confidence))) : 0.4,
+        evidence,
+      });
+    }
+  }
+  const characterIds = new Set(profiles.map((profile) => profile.characterId));
+  const relationshipVoiceRules = Array.isArray(parsed.relationshipVoiceRules)
+    ? parsed.relationshipVoiceRules.slice(0, 160).flatMap((raw: any) => {
+      if (!raw || typeof raw !== 'object') return [];
+      const speakerId = oldToStable.get(raw.speakerId) || raw.speakerId;
+      const addresseeId = oldToStable.get(raw.addresseeId) || raw.addresseeId;
+      const evidenceSegmentIds = Array.isArray(raw.evidenceSegmentIds)
+        ? raw.evidenceSegmentIds.filter((id: unknown) => typeof id === 'string' && validSegments.has(id)).slice(0, 8)
+        : [];
+      return characterIds.has(speakerId) && characterIds.has(addresseeId) && evidenceSegmentIds.length
+        ? [{ ...raw, speakerId, addresseeId, evidenceSegmentIds, status: 'candidate' }]
+        : [];
+    })
+    : [];
+  const voiceAnchors = Array.isArray(parsed.voiceAnchors)
+    ? parsed.voiceAnchors.slice(0, 240).flatMap((raw: any) => {
+      if (!raw || typeof raw !== 'object') return [];
+      const speakerId = oldToStable.get(raw.speakerId) || raw.speakerId;
+      const source = typeof raw.source === 'string' ? raw.source.trim() : '';
+      const target = typeof raw.target === 'string' ? raw.target.trim() : '';
+      const segmentId = typeof raw.segmentId === 'string' ? raw.segmentId : '';
+      if (!characterIds.has(speakerId) || !source || !target || !normalizeQuote(segmentId, source)) return [];
+      const anchorId = 'anchor_' + stableCharacterId(segmentId + '\\u0000' + speakerId + '\\u0000' + source).slice(5);
+      return [{ ...raw, anchorId, speakerId, segmentId, source: source.slice(0, 400), target: target.slice(0, 500), status: 'candidate', approvedBy: 'reviewer' }];
+    })
+    : [];
+  const openQuestions = Array.isArray(parsed.openQuestions)
+    ? parsed.openQuestions.filter((value: unknown) => typeof value === 'string').slice(0, 40).map((value: string) => value.slice(0, 200))
+    : [];
+  for (const profile of profiles) {
+    const conflicts = existing.characterVoices.find((prior: any) =>
+      prior.characterId === profile.characterId && prior.status === 'confirmed' &&
+      JSON.stringify(prior.voiceCore) !== JSON.stringify(profile.voiceCore));
+    if (conflicts) openQuestions.push(profile.canonicalSourceName + '：新章节观察与已确认声音画像存在差异，需要复核，不自动覆盖。');
+    profile.contrastRules = Array.isArray(profile.contrastRules) ? profile.contrastRules.slice(0, 6).flatMap((rule: any) => {
+      const otherCharacterId = oldToStable.get(rule.otherCharacterId) || rule.otherCharacterId;
+      const evidenceSegmentIds = Array.isArray(rule.evidenceSegmentIds) ? rule.evidenceSegmentIds.filter((id: unknown) => typeof id === 'string' && validSegments.has(id)).slice(0, 6) : [];
+      return characterIds.has(otherCharacterId) && typeof rule.difference === 'string' && evidenceSegmentIds.length
+        ? [{ ...rule, otherCharacterId, evidenceSegmentIds }]
+        : [];
+    }) : [];
+    profile.openQuestions = Array.isArray(profile.openQuestions) ? profile.openQuestions.slice(0, 8) : [];
+  }
+  return { characterVoices: profiles, relationshipVoiceRules, voiceAnchors, openQuestions: openQuestions.slice(0, 40) };
+}
 
 export function validateSegments(input: any, max: number, type: string) {
   if (!Array.isArray(input) || input.length < 1 || input.length > max) {
@@ -79,7 +215,7 @@ export async function runLiteraryAnalysis(body: any, requestId: string, sessionS
   ].join('\n');
   const prompt = [
     '目标语言：' + (body.target || 'zh'), '章节：' + chapterTitle,
-    '当前书籍记忆（只读参考；模型条目不能当作人工确认）：', JSON.stringify(memory).slice(0, 30000),
+    '当前书籍记忆（只读参考；模型条目不能当作人工确认）：', JSON.stringify(buildAnalysisMemoryContext(memory)),
     '本章原文片段：', JSON.stringify(segments),
   ].join('\n\n');
   const agent = parseAgentModel(body.model || 'auto', body.runtime || body.provider || '');
@@ -88,6 +224,7 @@ export async function runLiteraryAnalysis(body: any, requestId: string, sessionS
     throw new Error('本章分析结果不是预期 JSON；请重试分析');
   }
   const summary = typeof parsed.chapterSummary === 'string' ? parsed.chapterSummary.slice(0, 420) : '';
+  const voiceMemory = stabilizeVoiceAnalysis(memory, memory, parsed, segments);
   return {
     analyzed: true,
     chapterTitle,
@@ -98,10 +235,7 @@ export async function runLiteraryAnalysis(body: any, requestId: string, sessionS
       styleGuide: parsed.styleGuide && typeof parsed.styleGuide === 'object' ? parsed.styleGuide : {},
       chapterSummaries: summary ? [{ chapter: chapterTitle, summary }] : [],
       recentExamples: [],
-      characterVoices: Array.isArray(parsed.characterVoices) ? parsed.characterVoices.slice(0, 80).map((item: any) => ({ ...item, status: 'candidate' })) : [],
-      relationshipVoiceRules: Array.isArray(parsed.relationshipVoiceRules) ? parsed.relationshipVoiceRules.slice(0, 160).map((item: any) => ({ ...item, status: 'candidate' })) : [],
-      voiceAnchors: Array.isArray(parsed.voiceAnchors) ? parsed.voiceAnchors.slice(0, 240).map((item: any) => ({ ...item, status: 'candidate' })) : [],
-      openQuestions: Array.isArray(parsed.openQuestions) ? parsed.openQuestions.slice(0, 40) : [],
+      ...voiceMemory,
     },
   };
 }
