@@ -54,14 +54,45 @@ type TranslationItem = { id: string; text: string; kind?: string; contextPath?: 
 
 
 /**
- * Per-run scheduler limits. The Workbuddy pool defaults to four sessions, so the default
- * budget is three translation sessions plus one review session. These values are capped
- * against the pool size below; the pool remains the final global concurrency guard across runs.
+ * Per-run scheduler caps. With the default four-session pool, literary runs budget two
+ * translation workers and two reviewers; runs without review may use all four translation slots.
+ * The pool is the final global concurrency guard across overlapping runs.
  */
-const CONFIGURED_TRANSLATION_CONCURRENCY = positiveIntegerEnv('LOCAL_AGENT_DOCUMENT_TRANSLATION_CONCURRENCY', 3);
-const CONFIGURED_REVIEW_CONCURRENCY = positiveIntegerEnv('LOCAL_AGENT_DOCUMENT_REVIEW_CONCURRENCY', 1);
+const CONFIGURED_TRANSLATION_CONCURRENCY = positiveIntegerEnv('LOCAL_AGENT_DOCUMENT_TRANSLATION_CONCURRENCY', 4);
+const CONFIGURED_REVIEW_CONCURRENCY = positiveIntegerEnv('LOCAL_AGENT_DOCUMENT_REVIEW_CONCURRENCY', 2);
 
 export type DocumentBatchRole = 'translation' | 'review';
+
+export interface DocumentRunConcurrencyBudget {
+  poolSize: number;
+  translationConcurrency: number;
+  reviewConcurrency: number;
+  detachReviews: boolean;
+}
+
+/** Allocate run-level workers without exceeding the actual session-pool capacity. */
+export function resolveDocumentRunConcurrencyBudget(
+  requestedPoolSize: number,
+  reviewEnabled: boolean,
+  translationLimit: number,
+  reviewLimit: number,
+): DocumentRunConcurrencyBudget {
+  const poolSize = Math.max(1, Math.floor(requestedPoolSize) || 1);
+  const translationCap = Math.max(1, Math.floor(translationLimit) || 1);
+  const reviewCap = Math.max(1, Math.floor(reviewLimit) || 1);
+  const reviewConcurrency = reviewEnabled
+    ? poolSize > 1 ? Math.min(reviewCap, poolSize - 1) : 1
+    : 0;
+  const translationConcurrency = poolSize > 1
+    ? Math.min(translationCap, Math.max(1, poolSize - reviewConcurrency))
+    : 1;
+  return {
+    poolSize,
+    translationConcurrency,
+    reviewConcurrency,
+    detachReviews: poolSize > 1 && reviewEnabled,
+  };
+}
 
 /** Stable for retries of one batch, distinct across batches and runs. */
 export function buildDocumentBatchSessionScope(input: {
@@ -252,17 +283,14 @@ async function executeRun(projectId: string, runId: string): Promise<void> {
     }
     const batches = buildBatches(items);
 
-    const poolSize = Math.max(1, WORKBUDDY_POOL_SIZE);
     const reviewEnabled = context.run.translationMode === 'literary' && context.run.reviewEnabled;
-    // Keep at least one slot budgeted for translation and, when the pool allows it, one for
-    // review. If this run has no review stage, translations may use the configured budget.
-    const reviewConcurrency = reviewEnabled
-      ? poolSize > 1 ? Math.min(CONFIGURED_REVIEW_CONCURRENCY, poolSize - 1) : 1
-      : 0;
-    const translationConcurrency = poolSize > 1
-      ? Math.min(CONFIGURED_TRANSLATION_CONCURRENCY, Math.max(1, poolSize - reviewConcurrency))
-      : 1;
-    const detachReviews = poolSize > 1 && reviewEnabled;
+    const { poolSize, translationConcurrency, reviewConcurrency, detachReviews } =
+      resolveDocumentRunConcurrencyBudget(
+        WORKBUDDY_POOL_SIZE,
+        reviewEnabled,
+        CONFIGURED_TRANSLATION_CONCURRENCY,
+        CONFIGURED_REVIEW_CONCURRENCY,
+      );
     store.appendEvent(projectId, runId, 'plan.ready', {
       batchCount: batches.length,
       segmentCount: items.length,
