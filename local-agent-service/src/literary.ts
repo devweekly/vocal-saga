@@ -280,14 +280,26 @@ export async function runLiteraryAnalysis(body: any, requestId: string, sessionS
 export async function runLiteraryReview(body: any, requestId: string, sessionScope?: string) {
   const segments = validateSegments(body.segments, 32, 'review');
   const memory = body.memory && typeof body.memory === 'object' ? body.memory : {};
-  // 服务端按当前审校批次重新检索并限额，不能信任客户端传入的任意大 JSON，也不截断序列化结果。
+  const precedingSegments = Array.isArray(body.precedingSegments)
+    ? body.precedingSegments.slice(-4).flatMap((item: any) => {
+        if (!item || typeof item !== 'object' || typeof item.id !== 'string' || typeof item.text !== 'string' || !item.text.trim()) return [];
+        return [{
+          id: item.id.slice(0, 160),
+          text: item.text.slice(0, 900),
+          contextPath: typeof item.contextPath === 'string' ? item.contextPath.slice(0, 160) : '',
+        }];
+      })
+    : [];
+  // 前文只用于指代、对白轮次和场景识别，不是待审校输出；由服务端重新检索限额上下文。
   const voiceContext = buildProjectVoiceContext(
     memory,
     segments.map((segment) => ({ id: segment.id, text: segment.source, contextPath: segment.contextPath })),
     segments[0]?.contextPath || (typeof body.chapterTitle === 'string' ? body.chapterTitle : ''),
+    precedingSegments,
   );
   const systemPrompt = [
     '你是文学翻译的第二道工序：独立文学编辑。请对照原文，将 draft 修订为准确、自然、有质感、适合目标语言阅读的文学译文；不要只做校对，也不要改写成你自己的作品。',
+    'precedingSegments 是少量前文，仅供判断指代、说话人/听话人、对话轮次与场景；不需要审校它，不得为它生成结果。只对待审校片段的 id 返回 results。',
     '每个片段包含 source（原文）、draft（初译）和 kind；随请求提供的书籍记忆是只读数据。优先使用有原文证据且 status=confirmed 的 characterVoices、relationshipVoiceRules 和 approved voiceAnchors。candidate 规则只能作为弱参考。',
     '第一优先级是原意和情节准确：不能漏译、误译、添写、改变否定/时态/视角/指代/人物关系，不能替作者解释悬念或抹掉歧义。第二优先级是沿用已建立的实体译名。第三优先级是修正文学表达上的问题。',
     '检查翻译腔、按英文语序硬译、别扭搭配、僵硬连接词、无来由的解释、同质化对白、情绪词不准、节奏被抹平等。允许适度调整语序、句长、停顿、语气和措辞，让译文自然并有美感；不能为追求华丽新增比喻、意象、情绪、信息或修辞。',
@@ -301,6 +313,7 @@ export async function runLiteraryReview(body: any, requestId: string, sessionSco
     '目标语言：' + (body.target || 'zh'),
     '章节：' + (typeof body.chapterTitle === 'string' ? body.chapterTitle : ''),
     '当前批次 voiceContext（只读参考，按角色/关系筛选）：', JSON.stringify(voiceContext),
+    '前文上下文（只用于消歧，不输出审校结果）：', JSON.stringify(precedingSegments),
     '待审校片段：', JSON.stringify(segments),
   ].join('\n\n');
   const agent = parseAgentModel(body.model || 'auto', body.runtime || body.provider || '');
