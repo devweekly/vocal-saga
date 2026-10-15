@@ -107,11 +107,21 @@ export function stabilizeVoiceAnalysis(
         // 无可核对的原文证据，不创建可用于翻译的声音画像。
         continue;
       }
+      const stableEvidence = existingProfile?.status === 'confirmed'
+        ? [...existingProfile.evidence, ...evidence].filter((item: any, index: number, all: any[]) =>
+            all.findIndex((other: any) => other.segmentId === item.segmentId && other.dimension === item.dimension) === index,
+          ).slice(0, 12)
+        : evidence;
       profiles.push({
-        ...raw, characterId, canonicalSourceName: name, aliases,
+        ...raw, characterId, canonicalSourceName: name,
+        targetName: existingProfile?.targetName || raw.targetName,
+        aliases: Array.from(new Set([...(existingProfile?.aliases || []), ...aliases])).slice(0, 12),
+        // 旧画像一旦由用户确认后，新章节只能增加证据/提出冲突，不得覆盖画像核心。
+        voiceCore: existingProfile?.status === 'confirmed' ? existingProfile.voiceCore : raw.voiceCore,
         status: existingProfile?.status === 'confirmed' ? 'confirmed' : 'candidate',
         confidence: Number.isFinite(Number(raw.confidence)) ? Math.max(0, Math.min(1, Number(raw.confidence))) : 0.4,
-        evidence,
+        evidence: stableEvidence,
+        openQuestions: Array.isArray(raw.openQuestions) ? raw.openQuestions.slice(0, 8) : [],
       });
     }
   }
