@@ -115,11 +115,19 @@ export function sanitizeProjectLiteraryMemory(input: unknown): Record<string, an
     const speakerId = text(item.speakerId, 100); const segmentId = text(item.segmentId, 160);
     const source = text(item.source, 400); const target = text(item.target, 500);
     if (!validCharacterIds.has(speakerId) || !segmentId || !source || !target) return [];
+    const attributionEvidence = text(item.attributionEvidence, 240);
+    const attributionConfidence = Number(item.attributionConfidence);
+    const claimedStatus = status(item.status, ['candidate','approved','rejected']);
+    // 老版本或缺少归属证据的锚点只能回到候选，不会因为 SQLite 中保存了 approved 就自动成为强约束。
+    const groundedAttribution = !!attributionEvidence &&
+      Number.isFinite(attributionConfidence) && attributionConfidence >= 0.7;
     return [{
       anchorId: text(item.anchorId, 120) || 'anchor_' + safeHash(segmentId + source).slice(0, 12),
       speakerId, addresseeId: text(item.addresseeId, 100), source, target, chapter: text(item.chapter, 120), segmentId,
-      status: status(item.status, ['candidate','approved','rejected']),
+      status: claimedStatus === 'approved' && !groundedAttribution ? 'candidate' : claimedStatus,
       approvedBy: status(item.approvedBy, ['user','reviewer','manual-edit'], 'reviewer'),
+      ...(attributionEvidence ? { attributionEvidence } : {}),
+      ...(Number.isFinite(attributionConfidence) ? { attributionConfidence: Math.max(0, Math.min(1, attributionConfidence)) } : {}),
       tags: list(item.tags, 8, 80),
     }];
   }) : [];
