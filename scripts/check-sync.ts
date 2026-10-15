@@ -1,6 +1,6 @@
 #!/usr/bin/env npx tsx
 // 跨项目同步校验脚本
-// 读取 CROSS_PROJECT_SYNC.md 中"完全一致"的模块列表,自动 diff 两端文件
+// 按下方静态同步清单比较两端文件；调整清单时必须同步更新 CROSS_PROJECT_SYNC.md
 // 用法:npx tsx scripts/check-sync.ts
 // CI 中有差异则 exit 1
 
