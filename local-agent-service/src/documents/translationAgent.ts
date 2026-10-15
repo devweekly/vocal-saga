@@ -281,12 +281,18 @@ async function executeRun(projectId: string, runId: string): Promise<void> {
         });
         return;
       }
+      const reviewedItems = batch.filter((item) => translations.has(item.id));
+      if (!reviewedItems.length) {
+        store.appendEvent(projectId, runId, 'batch.completed', {
+          batchIndex, batchCount: batches.length, candidateCount: translations.size,
+          failedIds, reviewCompleted: true,
+        });
+        return;
+      }
       store.appendEvent(projectId, runId, 'stage.started', {
         stage: 'review', batchIndex, label: '文学审校',
       });
       try {
-        const reviewedItems = batch.filter((item) => translations.has(item.id));
-        if (!reviewedItems.length) return;
         const reviewScope = buildDocumentBatchSessionScope({
           projectId,
           runId,
