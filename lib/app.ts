@@ -1141,7 +1141,8 @@ ${pager}
     const body = await c.req.json().catch(() => ({} as any));
     const { fileName, title, format, segments, warnings, source, target, glossary,
       promptStyle, translationMode, exportAs, exportMode, translate, concurrency, budget, provider, model, apiKey,
-      literaryContext, literaryReview, chapterTitle } = body || {};
+      literaryContext, literaryReview, chapterTitle, forceRefresh,
+      documentSystemPromptOverride, documentUserPromptTemplate } = body || {};
     if (typeof fileName !== 'string' || !fileName.trim()) {
       return c.json({ error: 'fileName is required' }, 400);
     }
@@ -1201,6 +1202,9 @@ ${pager}
         // Literary profile invokes the editorial pass for any structured document; EPUB/PDF
         // additionally carry book-level entity and style memory when supplied.
         literaryReview: literaryReview === true || (translationMode === 'literary' && literaryReview !== false),
+        forceRefresh: forceRefresh === true,
+        documentSystemPromptOverride: typeof documentSystemPromptOverride === 'string' ? documentSystemPromptOverride : undefined,
+        documentUserPromptTemplate: typeof documentUserPromptTemplate === 'string' ? documentUserPromptTemplate : undefined,
         chapterTitle: typeof chapterTitle === 'string' ? chapterTitle.slice(0, 160) : undefined,
       });
       return c.json({
