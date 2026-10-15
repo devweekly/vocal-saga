@@ -60,6 +60,6 @@ describe('literary book memory', () => {
     expect(memory.entities[0]?.source).not.toContain('<');
     expect(memory.entities[0]?.target).not.toContain('\n');
     expect(buildLiteraryTranslationInstructions(memory, 'Chapter 1')).toContain('规范译名');
-    expect(buildLiteraryReviewInstructions(memory, 'Chapter 1')).toContain('独立审校者');
+    expect(buildLiteraryReviewInstructions(memory, 'Chapter 1')).toContain('独立文学编辑');
   });
 });
