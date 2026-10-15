@@ -137,4 +137,18 @@ test('detached reviewer limiter never exceeds its own concurrency budget', async
   })));
   assert.equal(maxActive, 2);
 });
+test('document batch scheduler stops adding queued work after a fatal worker error', async () => {
+  const { runWithConcurrency } = await import('../src/documents/translationAgent.ts');
+  const started = [];
+  await assert.rejects(runWithConcurrency([0, 1, 2, 3, 4], 2, async (item) => {
+    started.push(item);
+    if (item === 0) {
+      await new Promise((resolve) => setTimeout(resolve, 2));
+      throw new Error('simulated persistence failure');
+    }
+    await new Promise((resolve) => setTimeout(resolve, 12));
+  }), /simulated persistence failure/);
+  assert.deepEqual(started.sort((a, b) => a - b), [0, 1],
+    'already-running work may settle, but new queued batches should not start');
+});
 
