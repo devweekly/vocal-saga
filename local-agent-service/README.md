@@ -135,6 +135,9 @@ The import JSON contains title, format, an optional sourceFileName, a segments a
 - 文学记忆位于每个项目的 `literary_memory_revisions` 表。每次 Run 固定保存 `literary_memory_revision_id`，可从运行记录还原该次使用的角色档案；记忆修改不创建新的静态 Prompt revision。
 - Reviewer 可在现有 `style` finding 上标记 `dimension=character_voice|register|narrative_style|pacing`，并引用角色 ID 与证据片段。准确性/术语仍沿用 must-fix 规则，人物声音与纯文风修订仍为候选，不自动覆盖译文。
 
+- The Project Store is the final trust boundary: it rechecks profile evidence against the current source revision; requires both confirmed profiles for a confirmed directional rule; and keeps an anchor approved only when its attribution evidence matches the source, confidence is at least 0.7, speaker is confirmed, and target is present in the accepted translation. Legacy/unverified anchors are downgraded to candidates.
+- Each literary batch now loads up to four preceding source segments from the same source revision (same chapter first) as a read-only context for pronouns/dialogue turns. They do not enter `run_segments` and must never appear as translation output IDs.
+
 API：
 - `GET /api/documents/projects/:id/literary-memory` 读取当前记忆和 revision 历史。
 - `POST /api/documents/projects/:id/literary-memory` 保存新的独立记忆 revision。
