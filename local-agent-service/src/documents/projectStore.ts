@@ -514,16 +514,18 @@ export class DocumentProjectStore {
     return (db.prepare('SELECT * FROM prompt_revisions ORDER BY created_at DESC').all() as any[]).map((row) => this.publicPrompt(row));
   }
 
-  private makeRunFingerprint(promptRow: any, config: any): string {
+  private makeRunFingerprint(promptRow: any, config: any, literaryMemoryFingerprint: string | null): string {
     return hash(JSON.stringify({
       promptFingerprint: promptRow.fingerprint,
+      // 人物声音/关系/锚点变化必须让文学批次变 stale，但不应虚增一个静态 Prompt revision。
+      literaryMemoryFingerprint: config.translationMode === 'literary' ? literaryMemoryFingerprint : null,
       sourceLang: config.sourceLang || 'auto',
       targetLang: config.targetLang || 'zh',
       provider: config.provider || 'workbuddy',
       model: config.model || 'auto',
       translationMode: config.translationMode || 'technical',
       literaryReview: Boolean(config.literaryReview),
-      pipelineVersion: 'document-agent-v1',
+      pipelineVersion: 'document-agent-v2-voice',
     }));
   }
 
@@ -561,7 +563,7 @@ export class DocumentProjectStore {
     const failedIds = new Set(failedRows.map((row) => row.segment_id));
     const idSet = new Set((scope.ids || []).map(String));
     const chapter = (scope.chapter || '').trim();
-    const runFingerprint = this.makeRunFingerprint(promptRow, config);
+    const runFingerprint = this.makeRunFingerprint(promptRow, config, currentMemory.fingerprint || null);
     const selected = currentSegments.filter((segment) => {
       if (scopeType === 'all') return true;
       if (scopeType === 'ids') return idSet.has(segment.segment_id);
@@ -687,10 +689,18 @@ export class DocumentProjectStore {
     const memoryRow = run.literary_memory_revision_id
       ? db.prepare('SELECT * FROM literary_memory_revisions WHERE memory_revision_id = ?').get(run.literary_memory_revision_id) as any
       : null;
+    // 旧版 Run 没有 memory revision 外键；如对应的 Prompt 曾嵌入文学记忆，仍使用那份旧快照，
+    // 不能在回看旧 Run 时偷偷套用当前最新版的 Voice Bible。
+    const legacyMemory = prompt ? parseJson<any>(prompt.config_json, {}).literaryMemory : null;
+    const memory = memoryRow
+      ? parseJson(memoryRow.memory_json, sanitizeProjectLiteraryMemory({}))
+      : legacyMemory
+        ? sanitizeProjectLiteraryMemory(legacyMemory)
+        : sanitizeProjectLiteraryMemory({});
     return {
       project,
       memoryRevisionId: memoryRow?.memory_revision_id || null,
-      memory: memoryRow ? parseJson(memoryRow.memory_json, sanitizeProjectLiteraryMemory({})) : sanitizeProjectLiteraryMemory({}),
+      memory,
       run: {
         runId: run.run_id, sourceRevisionId: run.source_revision_id, promptRevisionId: run.prompt_revision_id,
         literaryMemoryRevisionId: run.literary_memory_revision_id || null,
