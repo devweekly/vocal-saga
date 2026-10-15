@@ -524,7 +524,6 @@ export class DocumentProjectStore {
         status: anchor.status === 'rejected' ? 'rejected' : approved ? 'approved' : 'candidate',
       };
     });
-    memory.contrastRules = undefined;
     return memory;
   }
 
