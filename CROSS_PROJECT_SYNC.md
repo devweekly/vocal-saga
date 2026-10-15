@@ -4,7 +4,7 @@
 >
 > **范围**：共享网页翻译核心逻辑（DOM 提取、分块、缓存、Prompt、站点规则、内容检测）按下面的同步分类维护。扩展入口、云端路由和本机 Agent 的调度/SQLite 状态机属于各自项目，不复制成同一份实现；但文档翻译请求字段、事件语义、取消/恢复和候选译文规则必须保持契约一致。
 >
-> **更新日期**：2026-10-15。最新跨仓库字节级校验为 **18/18 通过**。`cacheKey.ts` 和 `service/_service.ts` 存在有意的平台扩展差异，按语义契约校验，不纳入字节级比较。
+> **更新日期**：2026-10-15。自动同步检查清单已扩展为 **26 组**：18 组网页翻译共享模块 + 8 组纯函数文档解析模块。。`cacheKey.ts` 和 `service/_service.ts` 存在有意的平台扩展差异，按语义契约校验，不纳入字节级比较。
 
 ## 项目定位
 
@@ -48,7 +48,7 @@
 
 > **文档解析模块（2026-09-09 新增）**
 > `types.ts` / `detect.ts` / `batcher.ts` / `export.ts` / `parsers/{text,subtitle,html,json}.ts`
-> **完全一致，必须同步**（纯函数，不碰 DOM，两端都能跑）。
+> **完全一致，必须同步**（纯函数，不碰 DOM，两端都能跑；这 8 组自 2026-10-15 起纳入 `check-sync.ts`）。
 > 差异仅两处：
 > - `document/index.ts`：扩展版支持 PDF/DOCX/EPUB（`parsers/pdf.ts` 走 pdfjs-dist、
 >   `parsers/office.ts` 走 jszip，均动态 import）；服务端版**不支持**这三种，直接抛
@@ -63,9 +63,9 @@
 
 修改这些文件时，**核心逻辑**必须同步到另一个项目，但**实现细节**可根据两端差异保留。
 
- > **同步校验**：在 `vocal-saga` 根目录运行 `npx tsx scripts/check-sync.ts`；默认查找同级 `../fanyi-extension`，也可通过 `VOCAL_SAGA_PATH` 与 `FANYI_EXTENSION_PATH` 指定仓库路径。该脚本在 `scripts/check-sync.ts` 中维护静态 `SYNC_PAIRS` 清单，并逐字节检查文档标注的 18 组同步对；增加、删除或移动同步对时必须同时更新脚本和本节。`cacheKey.ts` 和 `service/_service.ts` 的平台扩展字段不属于字节级同步。
+> **同步校验**：在 `vocal-saga` 根目录运行 `npx tsx scripts/check-sync.ts`；默认查找同级 `../fanyi-extension`，也可通过 `VOCAL_SAGA_PATH` 与 `FANYI_EXTENSION_PATH` 指定仓库路径。该脚本维护静态 `SYNC_PAIRS` 清单，并逐字节检查本节中的 26 组同步对；新增、删除或移动同步对时必须同时更新脚本和本节。`cacheKey.ts` 与 `service/_service.ts` 按语义契约维护，不参与字节级比较。
 >
-> **最新结果（2026-10-15）**：18/18 字节级同步对通过。两个仓库的 GitHub Actions 也会运行该检查。历史记录：2026-09-11 的检查曾覆盖 20 组文件，当时的结果不代表当前代码。
+> **最新结果（2026-10-15）**：原 18 组网页翻译同步对已通过；本次再将 8 组文档解析模块纳入检查，两个仓库的 GitHub Actions 会对 26 组执行完整校验。2026-09-11 的 20 组结果仅是历史记录。
 >
 > **2026-09-11 第二轮（prompt 全量中文化 + 骨架抽取）**：所有 prompt 改为中文，并抽成
 > 「共用骨架 + 各自文风段落」，`jinyong` / `acheng` / `wangxiaobo` 三个文风文件
@@ -85,8 +85,8 @@
 ### 1. `cacheKey.ts`（语义同步，不要求字节相同）
 - `simpleHash(str)` — 字符串哈希函数
 - `generateTranslationCacheKey(jsonContent, sourceLang, targetLang, provider?, promptStyle?, glossary?, sitePrompt?, translationMode?)` — 两端都区分 Provider、文风、术语/站点上下文和翻译模式。扩展端 `Glossary` 目前只包含 `document_terms`；服务端还会哈希 `site_instructions`、文档 system/user Prompt override 等服务端字段，因此不要求结果 key 完全相同，必须确保每个会改变译文的输入都能使对应缓存失效。
-- **check-sync: ✅ 完全一致**（2026-09-09 验证）
-- **注意**:glossary/sitePrompt 仅在显式传入且非空时才追加到 extra,旧 key 不变(向后兼容);fanyi-extension 与 vocal-saga 已对齐
+- 不纳入字节级 `check-sync`；两端的缓存键维度需要做语义对照，而不是要求 key 字符串完全一致。
+- 可选的术语/站点上下文不传入时不会追加相应维度；Prompt 版本前缀也参与哈希，因此不能笼统承诺与旧版本缓存 key 相同。
 
 ### 2. `chunkRetry.ts`
 - `shouldRetryChunk(chunk, missingCount, isRetry)` — chunk 翻译重试策略
@@ -99,9 +99,9 @@
 
 ### 4. `service/_service.ts`（核心契约同步，平台字段允许不同）
 - `Glossary`、`GlossaryEntry`、`TranslationService` 接口
-- **check-sync: ✅ 完全一致**（2026-09-11 验证）
-- **`Glossary` 已简化为 `{ document_terms?: string[] }`**（2026-09-11）：术语抽取定位为**用户无感的辅助手段**——只为略微提升翻译质量与一致性，**不是知识库**。因此删除了 `hard_terms` / `soft_terms` / `user_terms` 字段与全部手工术语管理面（详见 §4.5）。
-- **唯一生产端**：扩展端 `glossaryExtractor.extractGlossaryLocal(blocks)` 从页面正文自动抽取 `document_terms` → 随请求 body 传给服务端 → 由 prompt builder 注入。全程无需用户参与。
+- 不纳入字节级 `check-sync`：该文件的基础契约需要语义对齐，但两端并非同一接口文件。
+- 扩展端 `Glossary` 用于网页请求，目前定义 `document_terms`；服务端另有 `site_instructions`、文档 system/user Prompt override 等内部字段。扩展端还定义 `TranslationSessionContext` 与 `JsonSchemaResponseFormat`，服务端该文件则保留更小的基础接口。
+- 网页翻译中的自动术语抽取路径是 `glossaryExtractor.extractGlossaryLocal(blocks)`，从正文生成 `document_terms` 并随请求发送；这不代表所有文档 Agent 任务都只能使用该路径。
 - **⚠️ 架构注意**：翻译 pipeline 的 glossary **来自调用方 request body**（`lib/app.ts` 的 `/api/translate/*`、`/fanyi/*` 都从 body 读 `glossary`），服务端不再持久化任何术语。
 
 ### 4.5 `service/glossaryTerms.ts`
@@ -579,20 +579,20 @@ prepareHtmlForServer 时在 clone 上把 `link[rel=stylesheet]` 替换为
 
 - [x] **D1**:`translationQueue.ts` 改归"逻辑一致但实现有差异"(fanyi-extension 多了 `addAllWithWarmup` 方法,vocal-saga 没有) ✅ 已完成:addAllWithWarmup 方法已添加到 vocal-saga 的 translationQueue.ts
 - [x] **D2**:决定 vocal-saga 的 `globalQueue` 是启用还是删除(`pipeline.ts` 当前用 `Promise.all` 直接并行,从不调用 `globalQueue`,属死代码) ✅ 已完成:globalQueue 保留用于代码同步,已添加注释说明在 vocal-saga 中未使用(pipeline.ts 用 Promise.all)
-- [x] **D3**:明确 `TextBlock.renderHint` 字段的同步方向(vocal-saga 有 `renderHint?: { inlineCandidate?: boolean }`,fanyi-extension 无) ✅ 已完成:同步方向已明确 — fanyi-extension 应添加 renderHint 字段(未来同步)
+- [x] **D3**：`TextBlock.renderHint?: { inlineCandidate?: boolean }` 已在两端类型中声明；变更该字段时仍需同步并补充测试。
 - [x] **D4**:`extractBlocks` 签名统一(vocal-saga 传 `pageUrl`,fanyi-extension 不传) ✅ 已完成:设计性差异已文档化 — vocal-saga 传 pageUrl 用于服务端日志,fanyi-extension 不需要
 
 ### B. 短期:高价值低风险
 
-- [x] **A2**: `scripts/check-sync.ts` 已实现可移植路径解析；当前只对 18 组字节级同步对做归一化 diff，2026-10-15 实测 18/18 通过。
-- [x] **A3**:提取共享测试用例(JSON golden files)— 两端跑同一套输入输出,保证行为一致 ✅ 已完成:shared-test-cases/ 目录已创建,含 cacheKey.json 和 chunkRetry.json golden files
+- [x] **A2**：`scripts/check-sync.ts` 使用仓库相对路径和环境变量；同步清单现已从 18 组扩展到 26 组，CI 结果以本次运行状态为准。
+- [ ] **A3**：`cacheKey.json` 与 `chunkRetry.json` 目前只在 `vocal-saga/shared-test-cases/` 中；尚未让两个仓库的测试共同读取同一份 fixtures，当前只能算共享样例原型。
 - [x] **S2**:`cacheKey.ts` 加入 `provider` + `promptStyle` 维度 — 当前 key 不含 provider,切换 LLM 后读到旧 provider 的脏缓存 ✅ 已完成:generateTranslationCacheKey 新增 provider + promptStyle 可选参数,向后兼容,pipeline.ts 全链路透传
 - [x] **S6**:`/force/*` 路由跳过 chunk 缓存 — 当前只跳过 D1,`translateChunk` 内部仍查 chunk 缓存,导致"强制刷新"不彻底;两端同步增加 `skipCache` 参数 ✅ 已完成:translateChunk 新增 skipCache 参数,/force/* 路由透传 skipCache=true,跳过 chunk 缓存读取但保留写入
 
 ### C. 中期:架构改进
 
 - [ ] **A1**:共享类型包目前没有作为这两个仓库的依赖或 workspace 纳入 Git；此前本地目录中的原型不构成已上线的同步机制。当前仍由两仓库内的代码与 `check-sync.ts` 维护一致性。
-- [x] **S1**:D1 缓存加 `contentHash` 字段 — 当前 key 只含 `url + source_lang + target_lang`,页面内容更新后返回过时译文;服务端 POST 时计算 `contentHash = simpleHash(html)` 存入 D1 ✅ 已完成:db/migrations/001_add_content_hash.sql 已创建,translations 表加 content_hash 字段,UNIQUE 约束改为 (url, source_lang, target_lang, content_hash),app.ts 的 SELECT/UPSERT 已更新,向后兼容
+- [x] **S1（历史实现，语义已被 C2 替代）**：最初为 D1 增加 `contentHash` 字段并按 URL/语言/内容保存记录；当前缓存协议的正式语义以 C2 的客户端结构指纹为准，不再把 `simpleHash(html)` 当成客户端缓存指纹。
 - [x] **C1**:`/fanyi/page/check` 协议升级 — 扩展端传入 `contentHash` + `provider`,服务端比对不匹配返回 410(命中但内容已变)或 204(未命中) ✅ 已完成:/fanyi/page/check 支持 contentHash 查询参数,响应 200(命中且匹配)/204(未命中)/410(命中但内容已变),POST /fanyi/page 计算 contentHash = simpleHash(html)
 - [x] **C2(2026-10-06)**:`contentHash` 语义改为**客户端结构指纹** — 上面 S1/C1 写的 `contentHash = simpleHash(html)` 已被取代。现在扩展端 `computeBlocksFingerprint(blocks)` 产出 `b1:h3|b2:p|…`(block id + tag,文档序,**不含文本**),在 `/check` 与 `POST /fanyi/page` 都作为 `contentHash` 发出;服务端**原样存库**,仅在客户端没传时回退 `simpleHash(html)`。原因:`/fanyi/page` 的双语 HTML 靠 `data-fanyi-block-id` 回填,id 只在生成缓存那次抽取里才有意义 —— 页面结构一变(块插入/删除/重排)同一个 id 就指向别的元素,缓存命中后译文会贴到错误的块上(a16z.news 故障:小节标题下面跟着第 2 节段落的译文)。`simpleHash(html)` 的问题是它**不表达真正决定缓存有效性的东西**(id→元素映射):html 里任何无关字节变化(点赞数、广告位、CSRF token)都会让它失效并触发整页重译,而它又无法区分「id 映射没变、只是文本原地改了」这种本可复用的情况。客户端 `applyServerTranslatedHtml` 另加逐块兜底校验(服务端 `.fanyi-original` vs `block.text`,单向包含 + 去空白/Cf),不匹配的块**跳过并计数**而不是贴错。⚠️ 服务端**绝不能**从 `html` 重算指纹 —— 指纹是字符串、simpleHash 是数字,永不相等,缓存会再也不命中。
 - [x] **S3**:服务端翻译失败时的降级路径设计 — 扩展端 `translateViaServer` 失败时自动 fallback 到本地 DeepSeek;服务端 5xx 响应带 `X-Suggest-Fallback: local` header ✅ 已完成:fanyi-extension 侧实现降级路径 — ServerTranslationError 携带 suggestFallback 标志,translateViaServer 失败时(5xx/网络错误)自动 fallback 到本地 DeepSeek + UI 通知
@@ -602,15 +602,15 @@ prepareHtmlForServer 时在 clone 上把 `link[rel=stylesheet]` 替换为
 
 - [ ] **B1**: monorepo 评估文档未包含在当前仓库版本中；在文档入库前，不把本地分析记录视为已完成的项目产物。
 - [x] **S4**:扩展端 storage 分片 — 当前 `@wxt-dev/storage` 把所有缓存塞一个大对象(O(N) 序列化 + 5MB 配额 + 并发写丢失),改用 `browser.storage.local` key 前缀分片或 IndexedDB ✅ 已完成:fanyi-extension 侧创建 ShardedCache 类(src/entrypoints/utils/shardedStorage.ts),每 key 独立存储避免 O(N) 序列化,15 个测试通过,作为可选方案未替换现有 cacheManager
-- [x] **S7**:`isHealthyCachedHtml` 增加翻译完整性校验 — 当前只检查 `<html>` 标签和样式表,不检查翻译是否完整;两端共享 `validateTranslationCompleteness(html, expectedBlockCount)` 函数 ✅ 已完成:vocal-saga 侧创建 translationValidator.ts,validateTranslationCompleteness 校验 HTML 结构 + 翻译标记 + 数量 + 空翻译比例,isHealthyCachedHtml 已接入,13 个测试通过
+- [ ] **S7（仅服务端完成）**：`vocal-saga/lib/translate/translationValidator.ts` 为云端缓存增加完整性检查；fanyi-extension 当前并未共享该函数，而是用结构指纹与逐块映射校验保护缓存回填。若要统一策略，需要另外设计浏览器侧检查和共享用例。
 - [x] **S8**:扩展端离线队列 — 网络中断即翻译失败无兜底,用 IndexedDB 维护 failed-translation queue,网络恢复后重试 ✅ 已完成:fanyi-extension 侧创建 offlineQueue.ts,用原生 IndexedDB 维护失败翻译队列,监听 online 事件自动重试,最大重试 3 次
 - [x] **S9**:扩展端→服务端增量回传译文 — 本地翻译结果异步 POST 到 `/fanyi/page/upload`,需解决内容哈希校验、配额限流、隐私问题 ✅ 已完成:fanyi-extension 侧创建 translationUploader.ts,异步回传译文到 /fanyi/page/upload,含隐私保护(shareTranslations 默认关闭)、私有 URL 过滤、900KB 大小限制、10 秒超时
 
 ### E. 同步流程改进
 
 - [x] **A2 实现**：`scripts/check-sync.ts` 使用仓库相对路径和环境变量定位两个仓库；缺少任一仓库时立即以清晰错误退出。
-- [x] **CI 集成**：两个仓库的 GitHub Actions 都运行 18 组字节级同步检查；任一同步对漂移时 CI 失败。
-- [x] **A3 实现**：`shared-test-cases/` 已包含 `cacheKey` 与 `chunkRetry` 的共享样例；`cacheKey` 的平台特有维度另由两端测试覆盖。
+- [x] **CI 集成**：两个仓库的 GitHub Actions 都运行跨仓库逐字节检查；任一同步对漂移时 CI 失败。当前静态清单为 26 组。
+- [ ] **A3 实现**：`cacheKey` / `chunkRetry` fixtures 尚未被两端测试共同读取；需纳入两个仓库可复用的测试路径后才算完成。
 - [ ] **版本标记**：当前没有发布并被两端依赖的共享包版本；未来引入共享包时再补充版本锁定。
 
 ---
