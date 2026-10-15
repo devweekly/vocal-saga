@@ -7,7 +7,7 @@
 import express, { type Request, type Response, type NextFunction } from 'express';
 
 import {
-  DEFAULT_PROVIDER, HOST, PORT, MAX_BODY_BYTES, MAX_DOCUMENT_BODY_BYTES, DATABASE_PATH, STORE_CONTENT,
+  DEFAULT_PROVIDER, DEFAULT_WORKBUDDY_MODEL, HOST, PORT, MAX_BODY_BYTES, MAX_DOCUMENT_BODY_BYTES, DATABASE_PATH, STORE_CONTENT,
 } from './config.ts';
 import { initDatabase } from './db.ts';
 import { sendJson, addCors, isLoopbackHost } from './middleware.ts';
@@ -82,10 +82,10 @@ export function startLocalAgentServer() {
     console.log('[local-agent] provider default: ' + DEFAULT_PROVIDER);
     console.log('[local-agent] SQLite: ' + DATABASE_PATH);
     console.log('[local-agent] prompt/translation content storage: ' + String(STORE_CONTENT));
-    // 后台预热会话池：首波翻译不付 CLI 启动费。只 boot 进程不调模型；
-    // 失败自吞，首单懒创建同效。测试用 LOCAL_AGENT_PREWARM=false 关闭。
-    if ((process.env.LOCAL_AGENT_PREWARM || 'true').toLowerCase() !== 'false') {
-      void getTextPool().prewarm({ provider: 'workbuddy', model: '' }).catch(() => {});
+    // 仅默认 Provider 为 Workbuddy 时预热会话池，避免 OpenCode 模式启动无用 CLI。
+    // 预热只 boot 进程、不调用模型；失败时首单仍可懒创建。测试可设 LOCAL_AGENT_PREWARM=false 关闭。
+    if (DEFAULT_PROVIDER === 'workbuddy' && (process.env.LOCAL_AGENT_PREWARM || 'true').trim().toLowerCase() !== 'false') {
+      void getTextPool().prewarm({ provider: 'workbuddy', model: DEFAULT_WORKBUDDY_MODEL }).catch(() => {});
     }
   });
 }
