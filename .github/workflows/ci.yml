@@ -14,6 +14,12 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+      - name: Checkout fanyi-extension for cross-project checks
+        uses: actions/checkout@v4
+        with:
+          repository: saga/fanyi-extension
+          ref: main
+          path: .cross-sync/fanyi-extension
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
@@ -21,6 +27,10 @@ jobs:
           cache: npm
       - name: Install dependencies
         run: npm ci
+      - name: Check shared translation modules
+        env:
+          FANYI_EXTENSION_PATH: ${{ github.workspace }}/.cross-sync/fanyi-extension
+        run: npx tsx scripts/check-sync.ts
       - name: Type check
         run: npm run compile
       - name: Unit tests
