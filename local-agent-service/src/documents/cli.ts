@@ -81,9 +81,18 @@ export async function runDocumentCli(argv = process.argv.slice(2)): Promise<void
       await sleep(1000);
       current = store.getRun(projectId, run.runId);
       console.error('[document-agent] ' + current.status + ' ' + JSON.stringify(current.counts));
-      if (!['queued', 'running', 'paused'].includes(current.status)) break;
+      if (!['queued', 'running'].includes(current.status)) break;
     }
-    print({ run: current, next: current.status === 'awaiting_acceptance' ? '请检查候选译文，再运行 accept' : '请检查 verify 输出' });
+    const next = current.status === 'awaiting_acceptance'
+      ? '请检查候选译文，再运行 accept'
+      : current.status === 'paused'
+        ? '任务已暂停；可从扩展工作区恢复中断任务'
+        : current.status === 'cancelled'
+          ? '任务已停止；已经保存的候选仍保留'
+          : current.status === 'failed' || current.status === 'partial'
+            ? '请检查失败项与 verify 输出后重试'
+            : '请检查 verify 输出';
+    print({ run: current, next });
     if (current.status === 'failed' || current.status === 'partial') process.exitCode = 1;
     return;
   }
@@ -98,7 +107,11 @@ export async function runDocumentCli(argv = process.argv.slice(2)): Promise<void
     if (!args[0] || !args[1]) usage();
     const run = store.getRun(args[0], args[1]);
     const ids = new Set(run.segments.map((segment: any) => segment.id));
-    const all = store.getSegments(args[0], { limit: 1000, runId: args[1] });
+    const all: any[] = [];
+    const limit = 1000;
+    for (let offset = 0; offset < run.segments.length; offset += limit) {
+      all.push(...store.getSegments(args[0], { limit, offset, runId: args[1] }));
+    }
     print({
       runId: run.runId,
       status: run.status,
