@@ -981,13 +981,23 @@ export class DocumentProjectStore {
         // 翻译正在运行时，用户可能在另一 Tab 修订了相同片段；旧候选不得覆盖新人工版本。
         // 用插入顺序（rowid）而不是时间戳判断新旧：时间戳在毫秒上可能打平（跨进程也会），
         // 打平就会把「更晚插入的人工修订」误判成更旧，让旧候选覆盖掉它。
-        const candidate = db.prepare('SELECT rowid AS seq FROM translation_results WHERE result_id = ?').get(row.candidate_result_id) as { seq?: number } | undefined;
+        const candidate = db.prepare('SELECT rowid AS seq, source_hash FROM translation_results WHERE result_id = ?').get(row.candidate_result_id) as { seq?: number; source_hash?: string } | undefined;
+        // A manual translation for the same source revision always wins, even if it was saved
+        // before the Agent run started. Explicit retranslation must not silently erase user work.
+        const sameSourceManual = candidate
+          ? db.prepare("SELECT result_id FROM translation_results WHERE segment_id = ? AND accepted = 1 AND origin = 'manual' AND source_hash = ? ORDER BY rowid DESC LIMIT 1")
+            .get(row.segment_id, candidate.source_hash)
+          : undefined;
+        // A newer manual edit also wins when it was made while the model was running.
         const newerManual = candidate
           ? db.prepare("SELECT result_id FROM translation_results WHERE segment_id = ? AND accepted = 1 AND origin = 'manual' AND rowid > ? ORDER BY rowid DESC LIMIT 1")
             .get(row.segment_id, candidate.seq)
           : undefined;
-        if (newerManual) {
+        if (sameSourceManual || newerManual) {
           preservedManual.push(row.segment_id);
+          // Resolve this run item without making its discarded candidate the accepted translation.
+          db.prepare("UPDATE run_segments SET status = 'accepted', updated_at = ? WHERE run_id = ? AND segment_id = ?")
+            .run(now, runId, row.segment_id);
           continue;
         }
         db.prepare('UPDATE translation_results SET accepted = 1, accepted_at = ? WHERE result_id = ?').run(now, row.candidate_result_id);
