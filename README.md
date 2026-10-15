@@ -136,7 +136,8 @@ flowchart TD
     K --> M
     L --> N{Translations and reviews settled?}
     M --> N
-    N --> O[Compute final run status and expose events/segments]
+    N --> O[Finalize run; persist candidates, findings and events]
+    O --> Q[Expose candidates; caller can promote them through /accept]
     D -. Pause/cancel stops new allocation .-> P[Discard late results on cancellation]
     I -. Cancellation .-> P
 ```
