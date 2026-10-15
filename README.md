@@ -49,7 +49,7 @@ npm run deploy:cf
 ```mermaid
 C4Context
     title Vocal Saga system context
-    Person(reader, "Reader", "Reads and translates pages or EPUB/PDF documents")
+    Person(reader, "Reader", "Reads and translates pages or EPUB/PDF/Office documents")
     System(extension, "fanyi-extension", "Browser extension and document reader")
     System(cloud, "Vocal Saga Cloud API", "Hono on Cloudflare Workers; remote web translation and LLM proxy")
     System(local, "Local Agent Service", "Optional loopback-only Express service on the user's Mac")
@@ -120,9 +120,9 @@ sequenceDiagram
 
 ```mermaid
 flowchart TD
-    A[Extension parses EPUB/PDF into stable segments] --> B[Create/select project and run]
+    A[Extension parses EPUB/PDF/Office into stable segments] --> B[Create/select project and run]
     B --> C[Load source revision, Prompt and run scope]
-    C --> D[Translation workers: 2 with review, up to 4 without review]
+    C --> D[Pool 4: review on = 2 translators + 2 reviewers; off = up to 4 translators]
     D --> E[Translate next batch with independent Session scope]
     E --> F[Persist candidate + emit batch.translation.completed]
     F --> G{Literary review enabled?}
@@ -141,7 +141,7 @@ flowchart TD
     I -. Cancellation .-> P
 ```
 
-> The Cloudflare API and Local Agent are separate routes. Enabling Local Agent mode does not fall back to remote providers on local model failure.
+> The Cloudflare API and Local Agent are separate routes. Enabling Local Agent mode does not fall back to remote providers on local model failure. Worker caps are bounded by `LOCAL_AGENT_POOL_SIZE`, and every batch has an independent Session scope.
 
 ## Configuration
 
