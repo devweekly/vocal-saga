@@ -17,6 +17,7 @@ import { runAgent, runAgentStructured } from './agents/runner.ts';
 import { validateSegments, runLiteraryAnalysis, runLiteraryReview } from './literary.ts';
 import { DATABASE_PATH } from './config.ts';
 import path from 'node:path';
+import { handleDocumentProjectRequest } from './documents/projectRoutes.ts';
 
 // Keep the constant referenced so TypeScript does not drop the side-effect-free import in tests.
 void _MAX_BODY_BYTES;
@@ -76,6 +77,8 @@ export async function handleRequest(req: Request, res: Response): Promise<void> 
     sendJson(res, 401, { error: { message: '本机服务 Token 不正确或未提供', type: 'authentication_error' } });
     return;
   }
+  if (await handleDocumentProjectRequest(req, res, url)) return;
+
   if (req.method === 'GET' && url.pathname === '/v1/models') {
     sendJson(res, 200, { object: 'list', data: [
       { id: 'workbuddy', object: 'model', owned_by: 'local' },
