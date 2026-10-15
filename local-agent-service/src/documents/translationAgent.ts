@@ -503,6 +503,13 @@ async function executeRun(projectId: string, runId: string): Promise<void> {
       // An exception that arrives after explicit cancellation must not turn a cancelled run
       // into failed or overwrite its user-facing reason.
       if (status !== 'cancelled' && status !== 'paused') {
+        // A fatal persistence/scheduler error must not strand segments in "running"; failed
+        // segments are eligible for an explicit retry/resume through getRunSegmentsForExecution.
+        const run = store.getRun(projectId, runId);
+        const stuckIds = (run.segments || [])
+          .filter((item: any) => item.status === 'running')
+          .map((item: any) => item.id);
+        if (stuckIds.length) store.markRunSegments(projectId, runId, stuckIds, 'failed', message);
         store.setRunStatus(projectId, runId, 'failed', message);
         store.appendEvent(projectId, runId, 'run.failed', { error: message });
       }
