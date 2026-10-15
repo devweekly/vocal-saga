@@ -14,6 +14,7 @@ import { initDatabase } from './db.ts';
 import { sendJson, addCors, isLoopbackHost } from './middleware.ts';
 import { handleRequest } from './routes.ts';
 import { getTextPool } from './agents/workbuddyPool.ts';
+import { getDocumentProjectStore } from './documents/projectStore.ts';
 
 // 兼容旧入口与测试：继续从 server.ts 导出这些函数。
 export { parseAgentModel, buildAgentPrompt, parseJsonObject, parseJsonValue, normalizeMessages } from './json.ts';
@@ -28,6 +29,8 @@ export function startLocalAgentServer() {
   }
   if (!Number.isInteger(PORT) || PORT < 1 || PORT > 65535) throw new Error('LOCAL_AGENT_PORT 不合法');
   initDatabase();
+  // Create/repair the catalog and mark interrupted document runs resumable before serving requests.
+  getDocumentProjectStore();
 
   // Run the origin/Host checks before parsing potentially large request bodies.
   app.use((req: Request, res: Response, next: NextFunction) => {
