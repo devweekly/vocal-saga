@@ -235,12 +235,21 @@ export class WorkbuddySessionPool {
       this.dropSession(index);
       throw new Error('Workbuddy 调用超时（' + timeoutMs + ' ms）');
     }
-    // 空文本不能当成功：多半是会话已坏（后继请求会连续空转 15-20s）。
-    // 直接丢会话，下次懒重建；调用方走现有重试链路。
-    if (!text.trim()) {
-      console.error('[local-agent][' + requestId + '] workbuddy-empty-text dropping poisoned session');
+    // 原生 --json-schema 成功时，SDK 可能只返回 StructuredOutput tool_use，
+    // 最终数据放在 result.structured_output，而没有任何 assistant text。
+    // 因此只有 text 和 structured_output 都缺失才是空响应；不能误杀健康的 JSON Session。
+    // schemaKey 在 acquire 时记录本槽位的模式，用于让日志区分纯文本与结构化调用。
+    const structuredMode = slot.schemaKey.length > 0;
+    if (!text.trim() && structuredOutput === undefined) {
+      console.error(
+        '[local-agent][' + requestId + '] workbuddy-empty-output mode=' +
+        (structuredMode ? 'structured' : 'text') + ' dropping poisoned session',
+      );
       this.dropSession(index);
-      throw new Error('Workbuddy 返回了空内容，会话已丢弃重建；请重试该批次');
+      throw new Error(
+        'Workbuddy 返回了空内容（mode=' + (structuredMode ? 'structured' : 'text') +
+        '），会话已丢弃重建；请重试该批次',
+      );
     }
     console.info(
       '[local-agent][' + requestId + '] workbuddy-timing ttftMs=' + (firstTextAt ? firstTextAt - startedAt : -1) +
