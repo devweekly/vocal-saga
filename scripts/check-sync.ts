@@ -4,7 +4,6 @@
 // 用法:npx tsx scripts/check-sync.ts
 // CI 中有差异则 exit 1
 
-import { execSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -65,7 +64,7 @@ function checkPair(pair: { name: string; server: string; extension: string }): D
   const serverContent = fs.readFileSync(serverPath, 'utf-8');
   const extContent = fs.readFileSync(extPath, 'utf-8');
 
-  // 标准化:去除 import 路径差异(./xxx vs ../xxx)和空白
+  // 标准化相对 import 前缀与换行符；保留代码空白，避免把格式之外的差异抹掉。
   const normalize = (s: string) =>
     s.replace(/from\s+['"]\.\.?\//g, 'from \'./')
      .replace(/\r\n/g, '\n')
