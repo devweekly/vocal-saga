@@ -152,8 +152,22 @@ export async function handleDocumentProjectRequest(req: Request, res: Response, 
         translationMode: body.translationMode === 'literary' ? 'literary' : 'technical',
         literaryReview: body.literaryReview === true,
         glossary: body.glossary,
+        literaryMemory: body.literaryMemory,
       });
-      sendJson(res, 201, { prompt });
+      sendJson(res, 201, { prompt, literaryMemory: store.getCurrentLiteraryMemory(projectId) });
+      return true;
+    }
+    if (pathParts.length === 5 && pathParts[4] === 'literary-memory' && method === 'GET') {
+      sendJson(res, 200, {
+        current: store.getCurrentLiteraryMemory(projectId),
+        revisions: store.listLiteraryMemoryRevisions(projectId),
+      });
+      return true;
+    }
+    if (pathParts.length === 5 && pathParts[4] === 'literary-memory' && method === 'POST') {
+      const body = bodyObject(req.body);
+      const saved = store.saveLiteraryMemory(projectId, body.memory);
+      sendJson(res, 201, { ...saved, current: store.getCurrentLiteraryMemory(projectId) });
       return true;
     }
     if (pathParts.length === 5 && pathParts[4] === 'runs' && method === 'GET') {
