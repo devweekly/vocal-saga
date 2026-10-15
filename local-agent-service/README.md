@@ -123,6 +123,25 @@ npm run doc -- export <documentId> ./accepted-translations.json
 
 The import JSON contains title, format, an optional sourceFileName, a segments array and an optional prompt. It uses the normalized segment contract produced by the extension's EPUB/PDF parser; the CLI does not claim to independently parse original EPUB/PDF layout. The extension workspace uploads the selected original file separately (up to 20 MiB); normalized segment JSON continues to use the service's 6 MiB JSON-body limit. Prompt changes create a new fingerprinted revision. Manual edits remain the current accepted version across Prompt changes until the user explicitly runs and accepts a replacement; source text changes still mark them stale.
 
+### Literary translation and character voice memory v2
+
+文学模式在同一文档 workspace 内运行；不为每个人物创建独立 Agent。人物声音是可审核、可版本化的数据资产，和静态 Prompt 分开保存。
+
+- 文学记忆保留 v1 的实体、剧情关系、全书文风、章节摘要、近期例句，并迁移为 v2：`characterVoices`、有方向的 `relationshipVoiceRules`、`voiceAnchors`。
+- 新分析只产生候选画像/规则/锚点。服务端按规范原文名生成稳定 ID，证据引用必须能定位当前分析输入中的片段及原文短引文；没有证据的画像不会进入记忆。
+- 用户确认的角色声音核心与用户批准的声音锚点不会被后续章节静默覆盖。冲突会留下 open question；未知说话人不会被强行套用人物画像。
+- 批次翻译和 Reviewer 使用独立的只读 `voiceContext` 字段。它按本批原文检索相关已确认人物、方向性关系规则和 approved 锚点；`contextPath` 继续只表示章节/文档结构。
+- 上下文按完整条目裁剪，避免序列化 JSON 被字符切片。扩展端缓存指纹包含 voiceContext hash；普通网页没有该字段时，仍使用原来的 cache identity。
+- 文学记忆位于每个项目的 `literary_memory_revisions` 表。每次 Run 固定保存 `literary_memory_revision_id`，可从运行记录还原该次使用的角色档案；记忆修改不创建新的静态 Prompt revision。
+- Reviewer 可在现有 `style` finding 上标记 `dimension=character_voice|register|narrative_style|pacing`，并引用角色 ID 与证据片段。准确性/术语仍沿用 must-fix 规则，人物声音与纯文风修订仍为候选，不自动覆盖译文。
+
+API：
+- `GET /api/documents/projects/:id/literary-memory` 读取当前记忆和 revision 历史。
+- `POST /api/documents/projects/:id/literary-memory` 保存新的独立记忆 revision。
+- `POST /api/documents/projects/:id/prompts` 仍保存静态 Prompt revision；兼容性上若传入 `literaryMemory`，服务端会另存到记忆 revision，而不是放进 Prompt fingerprint。
+
+项目 Skill 见 `local-agent-service/skills/fiction-translation/SKILL.md`。它规定了证据门槛、批次上下文、声音审校和锚点批准顺序。
+
 ### Agent boundary
 
 Following the Runtime / Workflow / Skill / Tool / Human separation used in agentic-data-architect, this is a bounded document workflow, not a general-purpose agent with unrestricted tools. The model translates and proposes review changes; the project database owns durable state; deterministic code owns retries, identity validation, cancellation/recovery and state transitions; the user decides whether to accept candidate text. Important steps are persisted as project events.
