@@ -742,9 +742,9 @@ export class DocumentProjectStore {
     const rows = db.prepare('SELECT rs.segment_id, rs.candidate_result_id FROM run_segments rs WHERE rs.run_id = ? AND rs.status = \'candidate\' AND rs.candidate_result_id IS NOT NULL').all(runId) as any[];
     const now = isoNow();
     let accepted = 0;
+    const preservedManual: string[] = [];
     db.exec('BEGIN IMMEDIATE');
     try {
-      const preservedManual: string[] = [];
       for (const row of rows) {
         if (only && !only.has(row.segment_id)) continue;
         const candidate = db.prepare('SELECT created_at FROM translation_results WHERE result_id = ?').get(row.candidate_result_id) as { created_at?: string } | undefined;
