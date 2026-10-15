@@ -283,11 +283,10 @@ test('literary memory confirms only current-source evidence and accepted transla
     store.saveLiteraryMemory(project.projectId, memory);
     const saved = store.getCurrentLiteraryMemory(project.projectId).memory;
     assert.equal(saved.characterVoices.find((item) => item.characterId === 'char-alice').status, 'confirmed');
-    assert.equal(saved.characterVoices.find((item) => item.characterId === 'char-bob').status, 'candidate',
-      'a quote that is not in the current source must not uphold a confirmed profile');
-    assert.equal(saved.relationshipVoiceRules[0].status, 'candidate',
-      'relationship voice rules cannot be confirmed while one party is only a candidate');
-    assert.deepEqual(saved.relationshipVoiceRules[0].evidenceSegmentIds, ['ch1-p1']);
+    assert.equal(saved.characterVoices.some((item) => item.characterId === 'char-bob'), false,
+      'a profile with no source-grounded evidence is discarded instead of becoming an executable guess');
+    assert.equal(saved.relationshipVoiceRules.length, 0,
+      'relationship voice rules cannot survive when one of the referenced characters has no valid profile');
     assert.equal(saved.voiceAnchors.find((item) => item.anchorId === 'anchor-valid').status, 'approved');
     assert.equal(saved.voiceAnchors.find((item) => item.anchorId === 'anchor-wrong-target').status, 'candidate',
       'an anchor target must exist in the accepted translation for the referenced segment');
