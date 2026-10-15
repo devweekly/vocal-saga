@@ -176,3 +176,20 @@ test('imports existing reader translations into workspace without overwriting ac
   });
 });
 
+
+test('one workspace cannot run two translation jobs concurrently', async () => {
+  await withStore((store) => {
+    const project = store.createProject({ title: 'Single Run', format: 'epub', segments });
+    const first = store.createRun(project.projectId, { scope: { type: 'all' } });
+    assert.equal(first.status, 'queued');
+    assert.throws(
+      () => store.createRun(project.projectId, { scope: { type: 'all' } }),
+      /已有运行中的翻译任务/,
+      'reader and Agent tabs must share one in-flight run lock',
+    );
+    store.setRunStatus(project.projectId, first.runId, 'paused');
+    const next = store.createRun(project.projectId, { scope: { type: 'all' } });
+    assert.equal(next.status, 'queued', 'a paused run can be explicitly replaced with a new run');
+  });
+});
+
