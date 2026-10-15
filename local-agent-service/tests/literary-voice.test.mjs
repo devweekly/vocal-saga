@@ -4,7 +4,7 @@ import { stabilizeVoiceAnalysis } from '../src/literary.ts';
 import { buildProjectVoiceContext, sanitizeProjectLiteraryMemory } from '../src/documents/voiceContext.ts';
 
 const sourceSegments = [
-  { id: 'ch1-a1', text: 'Alice looked at Bob. “You really think so?”' },
+  { id: 'ch1-a1', text: 'Alice asked Bob, “You really think so?”' },
   { id: 'ch1-b1', text: 'The evidence is clear.' },
 ];
 
@@ -99,6 +99,8 @@ test('voice analysis assigns stable character IDs and rejects unsupported eviden
         segmentId: 'ch1-a1',
         status: 'approved',
         approvedBy: 'user',
+        attributionEvidence: 'Alice asked Bob',
+        attributionConfidence: 0.95,
         tags: ['question'],
       },
       {
@@ -158,7 +160,7 @@ test('project voice context includes confirmed profiles and approved anchors onl
     ],
     relationshipVoiceRules: [],
     voiceAnchors: [
-      { anchorId: 'approved', speakerId: 'char-alice', source: 'You really think so?', target: '你真这么认为？', segmentId: 'ch1-a1', status: 'approved', approvedBy: 'user', tags: [] },
+      { anchorId: 'approved', speakerId: 'char-alice', source: 'You really think so?', target: '你真这么认为？', segmentId: 'ch1-a1', status: 'approved', approvedBy: 'user', attributionEvidence: 'Alice asked Bob', attributionConfidence: 0.95, tags: [] },
       { anchorId: 'candidate', speakerId: 'char-alice', source: 'The evidence is clear.', target: '证据很清楚。', segmentId: 'ch1-b1', status: 'candidate', approvedBy: 'reviewer', tags: [] },
     ],
   });
