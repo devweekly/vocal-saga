@@ -873,7 +873,8 @@ export class DocumentProjectStore {
     const promptRow = db.prepare('SELECT * FROM prompt_revisions ORDER BY created_at DESC LIMIT 1').get() as any;
     if (!promptRow) throw new Error('导入译文前必须先保存当前 Prompt');
     const config = parseJson<any>(promptRow.config_json, {});
-    const runFingerprint = this.makeRunFingerprint(promptRow, config);
+    const currentMemory = this.getCurrentLiteraryMemory(projectId);
+    const runFingerprint = this.makeRunFingerprint(promptRow, config, currentMemory.fingerprint || null);
     const now = isoNow();
     let imported = 0;
     let skipped = 0;
@@ -940,8 +941,9 @@ export class DocumentProjectStore {
       }
     }
     const latestPrompt = db.prepare('SELECT * FROM prompt_revisions ORDER BY created_at DESC LIMIT 1').get() as any;
+    const currentMemory = this.getCurrentLiteraryMemory(projectId);
     const currentFingerprint = latestPrompt
-      ? this.makeRunFingerprint(latestPrompt, parseJson<any>(latestPrompt.config_json, {}))
+      ? this.makeRunFingerprint(latestPrompt, parseJson<any>(latestPrompt.config_json, {}), currentMemory.fingerprint || null)
       : '';
     const missing: string[] = [];
     const stale: string[] = [];
