@@ -8,6 +8,7 @@
  * - all long-running progress is persisted as project events, not only sent over HTTP.
  */
 import { parseAgentModel } from '../json.ts';
+import { positiveIntegerEnv, WORKBUDDY_POOL_SIZE } from '../config.ts';
 import { runAgentStructured } from '../agents/runner.ts';
 import { runLiteraryReview } from '../literary.ts';
 import { getDocumentProjectStore } from './projectStore.ts';
@@ -50,6 +51,79 @@ const MANDATORY_TRANSLATION_CONTRACT = [
 ].join('\n');
 
 type TranslationItem = { id: string; text: string; kind?: string; contextPath?: string; page?: number | null; level?: number | null; marker?: string | null };
+
+
+/**
+ * Per-run scheduler limits. The Workbuddy pool defaults to four sessions, so the default
+ * budget is three translation sessions plus one review session. These values are capped
+ * against the pool size below; the pool remains the final global concurrency guard across runs.
+ */
+const CONFIGURED_TRANSLATION_CONCURRENCY = positiveIntegerEnv('LOCAL_AGENT_DOCUMENT_TRANSLATION_CONCURRENCY', 3);
+const CONFIGURED_REVIEW_CONCURRENCY = positiveIntegerEnv('LOCAL_AGENT_DOCUMENT_REVIEW_CONCURRENCY', 1);
+
+export type DocumentBatchRole = 'translation' | 'review';
+
+/** Stable for retries of one batch, distinct across batches and runs. */
+export function buildDocumentBatchSessionScope(input: {
+  projectId: string;
+  runId: string;
+  promptRevisionId: string;
+  role: DocumentBatchRole;
+  batchIndex: number;
+  translationMode?: string;
+  memoryRevisionId?: string | null;
+}): string {
+  const lane = input.role === 'translation'
+    ? (input.translationMode === 'literary' ? 'book' : 'technical')
+    : (input.memoryRevisionId || 'no-memory');
+  return 'document:' + input.projectId + ':run:' + input.runId + ':' +
+    input.role + ':' + input.promptRevisionId + ':' + lane + ':b' + input.batchIndex;
+}
+
+/**
+ * Run a finite list with a fixed worker count. Worker errors do not cause Promise.all to reject
+ * early while sibling workers are still committing; all workers settle before the first error
+ * is re-thrown. shouldStop prevents new work from starting after pause/cancel.
+ */
+export async function runWithConcurrency<T>(
+  items: readonly T[],
+  concurrency: number,
+  task: (item: T, index: number) => Promise<void>,
+  shouldStop?: () => boolean,
+): Promise<void> {
+  if (!items.length) return;
+  const limit = Math.max(1, Math.min(items.length, Math.floor(concurrency) || 1));
+  let cursor = 0;
+  const worker = async (): Promise<void> => {
+    while (true) {
+      if (shouldStop?.()) return;
+      const index = cursor++;
+      if (index >= items.length) return;
+      await task(items[index]!, index);
+    }
+  };
+  const results = await Promise.allSettled(Array.from({ length: limit }, () => worker()));
+  const failed = results.find((result): result is PromiseRejectedResult => result.status === 'rejected');
+  if (failed) throw failed.reason;
+}
+
+/** A FIFO limiter for detached reviews. Waiting jobs reserve no Workbuddy slot until admitted. */
+export function createConcurrencyLimiter(concurrency: number): <T>(task: () => Promise<T>) => Promise<T> {
+  const limit = Math.max(1, Math.floor(concurrency) || 1);
+  let active = 0;
+  const waiting: Array<() => void> = [];
+  return async <T>(task: () => Promise<T>): Promise<T> => {
+    if (active >= limit) await new Promise<void>((resolve) => waiting.push(resolve));
+    else active++;
+    try {
+      return await task();
+    } finally {
+      const next = waiting.shift();
+      if (next) next();
+      else active--;
+    }
+  };
+}
 
 const activeRuns = new Set<string>();
 
@@ -133,7 +207,7 @@ function parseTranslations(value: unknown, expectedIds: Set<string>): Map<string
   return result;
 }
 
-async function translateBatch(context: any, items: TranslationItem[], requestId: string, precedingSegments: TranslationItem[] = []): Promise<Map<string, string>> {
+async function translateBatch(context: any, items: TranslationItem[], requestId: string, batchIndex: number, precedingSegments: TranslationItem[] = []): Promise<Map<string, string>> {
   const agent = parseAgentModel(context.run.model || 'auto', context.run.provider || 'workbuddy');
   const userPrompt = buildUserPrompt(context.prompt.userPromptTemplate || '', items, context, precedingSegments);
   const systemPrompt = [
@@ -141,9 +215,14 @@ async function translateBatch(context: any, items: TranslationItem[], requestId:
     context.run.translationMode === 'literary' ? LITERARY_TRANSLATION_CONTRACT : '',
     MANDATORY_TRANSLATION_CONTRACT,
   ].filter(Boolean).join('\n\n');
-  const lane = context.run.translationMode === 'literary' ? 'book' : 'technical';
-  const sessionScope = 'document:' + context.project.projectId + ':translation:' +
-    context.run.promptRevisionId + ':' + lane;
+  const sessionScope = buildDocumentBatchSessionScope({
+    projectId: context.project.projectId,
+    runId: context.run.runId,
+    promptRevisionId: context.run.promptRevisionId,
+    role: 'translation',
+    batchIndex,
+    translationMode: context.run.translationMode,
+  });
   const value = await runAgentStructured(agent, userPrompt, systemPrompt, TRANSLATION_SCHEMA, requestId, sessionScope);
   return parseTranslations(value, new Set(items.map((item) => item.id)));
 }
@@ -158,38 +237,169 @@ async function executeRun(projectId: string, runId: string): Promise<void> {
     store.setRunStatus(projectId, runId, 'running', null);
     store.appendEvent(projectId, runId, 'stage.started', { stage: 'translate', label: '开始翻译' });
 
-    let items = store.getRunSegmentsForExecution(projectId, runId) as TranslationItem[];
+    const items = store.getRunSegmentsForExecution(projectId, runId) as TranslationItem[];
     if (!items.length) {
       store.finishRun(projectId, runId);
       return;
     }
     const batches = buildBatches(items);
-    store.appendEvent(projectId, runId, 'plan.ready', { batchCount: batches.length, segmentCount: items.length, strategy: 'bounded-sequential' });
 
-    let batchIndex = 0;
-    for (const batch of batches) {
+    const poolSize = Math.max(1, WORKBUDDY_POOL_SIZE);
+    // Keep at least one slot budgeted for translation and, when the pool allows it, one for
+    // review. The pool still arbitrates globally when multiple document runs share the process.
+    const reviewConcurrency = poolSize > 1
+      ? Math.min(CONFIGURED_REVIEW_CONCURRENCY, poolSize - 1)
+      : 1;
+    const translationConcurrency = poolSize > 1
+      ? Math.min(CONFIGURED_TRANSLATION_CONCURRENCY, Math.max(1, poolSize - reviewConcurrency))
+      : 1;
+    const detachReviews = poolSize > 1 && context.run.translationMode === 'literary' && context.run.reviewEnabled;
+    store.appendEvent(projectId, runId, 'plan.ready', {
+      batchCount: batches.length,
+      segmentCount: items.length,
+      strategy: 'bounded-parallel',
+      translationConcurrency,
+      reviewConcurrency: context.run.translationMode === 'literary' && context.run.reviewEnabled ? reviewConcurrency : 0,
+      poolSize,
+      sessionStrategy: 'independent-per-batch',
+    });
+
+    const reviewLimiter = createConcurrencyLimiter(reviewConcurrency);
+    const reviewTasks: Promise<void>[] = [];
+
+    const reviewBatch = async (
+      batchIndex: number,
+      batch: TranslationItem[],
+      translations: Map<string, string>,
+      precedingSegments: TranslationItem[],
+    ): Promise<void> => {
+      if (store.getRunStatus(projectId, runId) === 'cancelled') {
+        store.appendEvent(projectId, runId, 'review.discarded', {
+          batchIndex, reason: 'cancelled before reviewer started',
+        });
+        return;
+      }
+      store.appendEvent(projectId, runId, 'stage.started', {
+        stage: 'review', batchIndex, label: '文学审校',
+      });
+      try {
+        const reviewedItems = batch.filter((item) => translations.has(item.id));
+        if (!reviewedItems.length) return;
+        const reviewScope = buildDocumentBatchSessionScope({
+          projectId,
+          runId,
+          promptRevisionId: context.run.promptRevisionId,
+          role: 'review',
+          batchIndex,
+          translationMode: context.run.translationMode,
+          memoryRevisionId: context.memoryRevisionId || 'no-memory',
+        });
+        const review = await runLiteraryReview({
+          chapterTitle: batch[0]?.contextPath || context.project.title,
+          target: context.run.targetLang,
+          provider: context.run.provider,
+          model: context.run.model,
+          memory: context.memory,
+          precedingSegments,
+          voiceContext: buildProjectVoiceContext(
+            context.memory,
+            reviewedItems.map((item) => ({
+              id: item.id, text: item.text, contextPath: item.contextPath,
+            })),
+            batch[0]?.contextPath || context.project.title,
+            precedingSegments,
+          ),
+          segments: reviewedItems.map((item) => ({
+            id: item.id, source: item.text, draft: translations.get(item.id)!,
+            kind: item.kind, contextPath: item.contextPath,
+          })),
+        }, runId + '-review-' + batchIndex, reviewScope);
+
+        // A cancellation can happen while the reviewer is in flight. In that case neither
+        // its revised candidates nor its findings may be written after the stop request.
+        if (store.getRunStatus(projectId, runId) === 'cancelled') {
+          store.appendEvent(projectId, runId, 'review.discarded', {
+            batchIndex, reason: 'cancelled while reviewer was in flight',
+          });
+          return;
+        }
+        let revisedCount = 0;
+        for (const [id, revised] of Object.entries(review.translations)) {
+          const draft = translations.get(id);
+          if (!draft || typeof revised !== 'string' || !revised.trim() || revised === draft) continue;
+          store.saveCandidate(projectId, runId, id, revised);
+          revisedCount++;
+        }
+        for (const finding of review.findings) {
+          store.saveFinding(projectId, runId, finding.id, finding);
+        }
+        store.appendEvent(projectId, runId, 'stage.completed', {
+          stage: 'review',
+          batchIndex,
+          reviewedIds: review.reviewedIds,
+          findingCount: review.findings.length,
+          revisedCount,
+        });
+      } catch (error) {
+        // Review is a quality improvement, not a gate on translation progress.
+        try {
+          if (store.getRunStatus(projectId, runId) !== 'cancelled') {
+            store.appendEvent(projectId, runId, 'stage.warning', {
+              stage: 'review', batchIndex,
+              warning: '审校失败，已保留有效初译，不影响本批翻译候选：' +
+                (error instanceof Error ? error.message : String(error)),
+            });
+          }
+        } catch (persistError) {
+          console.error('[document-agent] failed to persist review warning', persistError);
+        }
+      }
+    };
+
+    const processBatch = async (batch: TranslationItem[], zeroBasedIndex: number): Promise<void> => {
+      const batchIndex = zeroBasedIndex + 1;
       const status = store.getRunStatus(projectId, runId);
       if (status === 'cancelled' || status === 'paused') return;
-      batchIndex++;
+
       const batchIds = batch.map((item) => item.id);
       const precedingSegments = context.run.translationMode === 'literary' && batch[0]
         ? store.getPrecedingSegments(projectId, runId, batch[0].id, 4) as TranslationItem[]
         : [];
       store.markRunSegments(projectId, runId, batchIds, 'running');
-      store.appendEvent(projectId, runId, 'batch.started', { batchIndex, batchCount: batches.length, segmentIds: batchIds, precedingContextCount: precedingSegments.length });
+      store.appendEvent(projectId, runId, 'batch.started', {
+        batchIndex,
+        batchCount: batches.length,
+        segmentIds: batchIds,
+        precedingContextCount: precedingSegments.length,
+        sessionStrategy: 'independent-per-batch',
+      });
+
       const pending = new Map(batch.map((item) => [item.id, item]));
       const translations = new Map<string, string>();
       let lastError = '模型未返回完整的片段集合';
 
-      // One bounded repair pass: only missing IDs are sent again, never the full document.
+      // One bounded repair pass: only missing IDs are retried, never the full document.
+      // Retries reuse this batch's scope but still carry the entire explicit input context.
       for (let attempt = 0; attempt < 2 && pending.size > 0; attempt++) {
+        if (store.getRunStatus(projectId, runId) === 'cancelled') {
+          store.appendEvent(projectId, runId, 'batch.discarded', {
+            batchIndex, reason: 'cancelled before model call',
+          });
+          return;
+        }
         try {
           const current = Array.from(pending.values());
-          const output = await translateBatch(context, current, runId + '-b' + batchIndex + '-a' + attempt, precedingSegments);
-          // Cancellation may arrive while an SDK/CLI call is in flight. The result is discarded
-          // after the await; a stopped run must never commit a late candidate behind the user's back.
+          const output = await translateBatch(
+            context,
+            current,
+            runId + '-b' + batchIndex + '-a' + attempt,
+            batchIndex,
+            precedingSegments,
+          );
           if (store.getRunStatus(projectId, runId) === 'cancelled') {
-            store.appendEvent(projectId, runId, 'batch.discarded', { batchIndex, reason: 'cancelled while model call was in flight' });
+            store.appendEvent(projectId, runId, 'batch.discarded', {
+              batchIndex, reason: 'cancelled while model call was in flight',
+            });
             return;
           }
           for (const [id, translated] of output) {
@@ -198,73 +408,95 @@ async function executeRun(projectId: string, runId: string): Promise<void> {
           }
           if (pending.size > 0) {
             lastError = '模型响应缺少 ' + pending.size + ' 个片段；只重试缺失 ID';
-            store.appendEvent(projectId, runId, 'batch.partial', { batchIndex, attempt: attempt + 1, missingIds: Array.from(pending.keys()) });
+            store.appendEvent(projectId, runId, 'batch.partial', {
+              batchIndex, attempt: attempt + 1, missingIds: Array.from(pending.keys()),
+            });
           }
         } catch (error) {
           lastError = error instanceof Error ? error.message : String(error);
-          store.appendEvent(projectId, runId, 'model.call.failed', { batchIndex, attempt: attempt + 1, error: lastError });
-        }
-      }
-
-      if (translations.size > 0 && context.run.translationMode === 'literary' && context.run.reviewEnabled) {
-        store.appendEvent(projectId, runId, 'stage.started', { stage: 'review', batchIndex, label: '文学审校' });
-        try {
-          const review = await runLiteraryReview({
-            chapterTitle: batch[0]?.contextPath || context.project.title,
-            target: context.run.targetLang,
-            provider: context.run.provider,
-            model: context.run.model,
-            memory: context.memory,
-            precedingSegments,
-            voiceContext: buildProjectVoiceContext(
-              context.memory,
-              batch.filter((item) => translations.has(item.id)).map((item) => ({
-                id: item.id, text: item.text, contextPath: item.contextPath,
-              })),
-              batch[0]?.contextPath || context.project.title,
-              precedingSegments,
-            ),
-            segments: batch.filter((item) => translations.has(item.id)).map((item) => ({
-              id: item.id, source: item.text, draft: translations.get(item.id)!,
-              kind: item.kind, contextPath: item.contextPath,
-            })),
-          }, runId + '-review-' + batchIndex, 'document:' + projectId + ':review:' + context.run.promptRevisionId + ':' + (context.memoryRevisionId || 'no-memory'));
-          for (const [id, revised] of Object.entries(review.translations)) {
-            if (translations.has(id) && typeof revised === 'string' && revised.trim()) translations.set(id, revised);
-          }
-          for (const finding of review.findings) store.saveFinding(projectId, runId, finding.id, finding);
-          store.appendEvent(projectId, runId, 'stage.completed', {
-            stage: 'review', batchIndex, reviewedIds: review.reviewedIds, findingCount: review.findings.length,
-          });
-        } catch (error) {
-          store.appendEvent(projectId, runId, 'stage.warning', {
-            stage: 'review', batchIndex,
-            warning: '审校失败，已保留有效初译，不影响本批翻译候选：' + (error instanceof Error ? error.message : String(error)),
+          store.appendEvent(projectId, runId, 'model.call.failed', {
+            batchIndex, attempt: attempt + 1, error: lastError,
           });
         }
       }
 
-      // Reviewer can also be in flight when the user stops a run.
+      // Stop is checked again directly before persistence; no late model response may commit
+      // after cancellation, even if the response arrived in the same turn as a retry failure.
       if (store.getRunStatus(projectId, runId) === 'cancelled') {
-        store.appendEvent(projectId, runId, 'batch.discarded', { batchIndex, reason: 'cancelled before candidate commit' });
+        store.appendEvent(projectId, runId, 'batch.discarded', {
+          batchIndex, reason: 'cancelled before candidate commit',
+        });
         return;
       }
-      for (const [id, translated] of translations) store.saveCandidate(projectId, runId, id, translated);
+      for (const [id, translated] of translations) {
+        store.saveCandidate(projectId, runId, id, translated);
+      }
       if (pending.size > 0) {
         store.markRunSegments(projectId, runId, Array.from(pending.keys()), 'failed', lastError);
       }
+
+      const shouldReview = translations.size > 0 &&
+        context.run.translationMode === 'literary' &&
+        context.run.reviewEnabled;
       store.appendEvent(projectId, runId, 'batch.completed', {
-        batchIndex, batchCount: batches.length, candidateCount: translations.size, failedIds: Array.from(pending.keys()),
+        batchIndex,
+        batchCount: batches.length,
+        candidateCount: translations.size,
+        failedIds: Array.from(pending.keys()),
+        reviewScheduled: shouldReview,
+      });
+
+      if (!shouldReview) return;
+      const job = () => reviewBatch(batchIndex, batch, translations, precedingSegments);
+      if (detachReviews) {
+        // Do not await here: another translation batch can start while this review is in flight.
+        reviewTasks.push(reviewLimiter(job));
+      } else {
+        // A one-slot session pool cannot overlap translation and review safely.
+        await reviewLimiter(job);
+      }
+    };
+
+    await runWithConcurrency(
+      batches,
+      translationConcurrency,
+      processBatch,
+      () => {
+        const status = store.getRunStatus(projectId, runId);
+        return status === 'cancelled' || status === 'paused';
+      },
+    );
+
+    // Wait for all detached reviews before computing the terminal run status. Translation and
+    // review overlap, but a run cannot be accepted as complete while its reviewers are pending.
+    const reviewResults = await Promise.allSettled(reviewTasks);
+    const failedReviewTask = reviewResults.find((result): result is PromiseRejectedResult => result.status === 'rejected');
+    if (failedReviewTask) {
+      store.appendEvent(projectId, runId, 'stage.warning', {
+        stage: 'review',
+        warning: '部分审校任务未完成：' + (failedReviewTask.reason instanceof Error
+          ? failedReviewTask.reason.message : String(failedReviewTask.reason)),
       });
     }
 
-    store.appendEvent(projectId, runId, 'stage.completed', { stage: 'validate', label: '结果结构与片段映射检查完成' });
+    const finalStatus = store.getRunStatus(projectId, runId);
+    if (finalStatus === 'cancelled' || finalStatus === 'paused') return;
+
+    store.appendEvent(projectId, runId, 'stage.completed', {
+      stage: 'validate',
+      label: '结果结构与片段映射检查完成',
+    });
     store.finishRun(projectId, runId);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     try {
-      store.setRunStatus(projectId, runId, 'failed', message);
-      store.appendEvent(projectId, runId, 'run.failed', { error: message });
+      const status = store.getRunStatus(projectId, runId);
+      // An exception that arrives after explicit cancellation must not turn a cancelled run
+      // into failed or overwrite its user-facing reason.
+      if (status !== 'cancelled' && status !== 'paused') {
+        store.setRunStatus(projectId, runId, 'failed', message);
+        store.appendEvent(projectId, runId, 'run.failed', { error: message });
+      }
     } catch (persistError) {
       console.error('[document-agent] failed to persist run failure', persistError);
     }
