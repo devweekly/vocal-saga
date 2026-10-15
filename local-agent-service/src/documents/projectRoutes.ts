@@ -4,7 +4,7 @@
  * while model execution is owned by translationAgent. This keeps UI and CLI on one contract.
  */
 import type { Request, Response } from 'express';
-import { getDocumentProjectStore } from './projectStore.ts';
+import { getDocumentProjectStore, MAX_DOCUMENT_SOURCE_BYTES } from './projectStore.ts';
 import { startProjectTranslationRun, isProjectRunActive } from './translationAgent.ts';
 import { sendJson } from '../middleware.ts';
 
@@ -20,6 +20,18 @@ function routeError(res: Response, error: unknown): void {
     ? Number(value.status) : 500;
   sendJson(res, status, { error: value?.message || String(error) });
 }
+async function readRawSourceBody(req: Request, maxBytes: number): Promise<Buffer> {
+  const chunks: Buffer[] = [];
+  let total = 0;
+  for await (const chunk of req) {
+    const value = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+    total += value.byteLength;
+    if (total > maxBytes) throw Object.assign(new Error('原始文档超过 20 MiB 上限'), { status: 413 });
+    chunks.push(value);
+  }
+  return Buffer.concat(chunks, total);
+}
+
 function decoded(segment: string): string {
   try { return decodeURIComponent(segment); }
   catch { throw Object.assign(new Error('URL 路径编码无效'), { status: 400 }); }
@@ -71,6 +83,21 @@ export async function handleDocumentProjectRequest(req: Request, res: Response, 
     if (pathParts.length === 4 && method === 'DELETE') {
       store.archiveProject(projectId);
       sendJson(res, 200, { archived: true, projectId });
+      return true;
+    }
+    if (pathParts.length === 5 && pathParts[4] === 'source-file' && method === 'POST') {
+      const contentType = String(req.headers['content-type'] || '').split(';')[0]!.trim().toLowerCase();
+      if (!['application/octet-stream', 'application/pdf', 'application/epub+zip', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'].includes(contentType)) {
+        sendJson(res, 415, { error: '原始文档上传需要使用二进制 Content-Type' });
+        return true;
+      }
+      const encodedName = String(req.headers['x-source-file-name'] || '');
+      let fileName = encodedName;
+      try { if (encodedName) fileName = decodeURIComponent(encodedName); }
+      catch { throw Object.assign(new Error('X-Source-File-Name 编码无效'), { status: 400 }); }
+      const bytes = await readRawSourceBody(req, MAX_DOCUMENT_SOURCE_BYTES);
+      const saved = await store.storeSourceFile(projectId, fileName, bytes);
+      sendJson(res, 200, saved);
       return true;
     }
     if (pathParts.length === 5 && pathParts[4] === 'source' && method === 'POST') {
