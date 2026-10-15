@@ -42,7 +42,7 @@ export const WORKBUDDY_POOL_SIZE = positiveIntegerEnv('LOCAL_AGENT_POOL_SIZE', 4
 export const WORKBUDDY_POOL_MAX_USES = positiveIntegerEnv('LOCAL_AGENT_POOL_MAX_USES', 10, 1);
 export const MAX_BODY_BYTES = 24 * 1024 * 1024;
 // 文档项目创建会把整本书的片段正文放进一个 JSON 请求。20 MiB 源文件解析出的正文按 UTF-8
-// 最坏情况（中文 3 字节/字符 + JSON 转义）约为源文件的三倍，远超其余接口的 6 MiB。
+// 最坏情况（中文 3 字节/字符 + JSON 转义）约为源文件的三倍，远超普通接口的 24 MiB。
 // 只对 /api/documents 这一族路由放宽，其他接口仍受 MAX_BODY_BYTES 约束。
 export const MAX_DOCUMENT_BODY_BYTES = 100 * 1024 * 1024;
 export const MAX_HISTORY_ROWS = positiveIntegerEnv('LOCAL_AGENT_MAX_HISTORY', 500, 50);
