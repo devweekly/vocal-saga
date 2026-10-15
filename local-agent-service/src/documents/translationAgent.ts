@@ -83,7 +83,7 @@ function buildUserPrompt(template: string, items: TranslationItem[], context: an
     })),
     glossary: context.prompt.config?.glossary ?? null,
     // 当前批次只注入相关人物声音、关系规则和 approved 锚点，不把整本书的记忆全部塞进上下文。
-    voiceContext: context.run.translationMode === 'literary' ? buildProjectVoiceContext(context.memory, items) : null,
+    voiceContext: context.run.translationMode === 'literary' ? buildProjectVoiceContext(context.memory, items, items[0]?.contextPath || context.project.title) : null,
   });
   if (template.includes('{{CONTENT}}')) return template.replaceAll('{{CONTENT}}', payload);
   if (template.includes('{{CONTENT_JSON}}')) return template.replaceAll('{{CONTENT_JSON}}', payload);
@@ -198,7 +198,7 @@ async function executeRun(projectId: string, runId: string): Promise<void> {
             memory: context.memory,
             voiceContext: buildProjectVoiceContext(context.memory, batch.filter((item) => translations.has(item.id)).map((item) => ({
               id: item.id, text: item.text, contextPath: item.contextPath,
-            }))),
+            })), batch[0]?.contextPath || context.project.title),
             segments: batch.filter((item) => translations.has(item.id)).map((item) => ({
               id: item.id, source: item.text, draft: translations.get(item.id)!,
               kind: item.kind, contextPath: item.contextPath,
