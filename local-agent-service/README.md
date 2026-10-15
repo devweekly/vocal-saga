@@ -75,3 +75,55 @@
 数据库默认位置为 ~/.vocal-saga-local-agent/local-agent.sqlite，使用 WAL。保留运行状态、provider/model、时延、字符数、成功/失败和历史记录。默认 LOCAL_AGENT_STORE_CONTENT=true，会将完整请求 prompt、原文和译文保存在本机 SQLite；如果不希望持久化正文，在 .env 设置 LOCAL_AGENT_STORE_CONTENT=false 并重启，此时仅记录元数据与长度。GET /api/history?limit=30 可查询最近记录；DELETE /api/history 可清空历史。
 
 LOCAL_AGENT_TOKEN 是可选项。留空或保留示例占位值时，服务仍会启动；因为服务只监听 loopback，且会拒绝普通网页的 Origin，仅允许浏览器扩展来源与无 Origin 的本机命令行调用。若配置了 Token，则请求必须携带正确值；扩展的 Token 设置可留空或与服务配置一致。服务始终只监听 127.0.0.1，不应通过反向代理、隧道或局域网地址暴露。
+## Document projects and the EPUB/PDF Translation Agent
+
+The ordinary /v1/chat/completions endpoint remains the single-call provider interface. Long documents now have a separate project lifecycle rather than putting an entire book into one JSON checkpoint:
+
+- ~/.vocal-saga-local-agent/documents/catalog.sqlite is a rebuildable project catalog. Each project owns documents/<documentId>/project.sqlite.
+- Project databases store source revisions and stable segments, Prompt revisions, translation runs, per-segment status, candidate translations, accepted/manual translations, review findings and durable events. The old document_sessions API remains for compatibility.
+- Each run plans its scope deterministically: all, stale, failed, selected IDs or chapter. Source fingerprints, Prompt/config fingerprints and pipeline version are used to detect stale output.
+- The Agent executes a bounded workflow: plan, translate in batches, validate IDs and structure, optionally run literary review, then wait for acceptance. The model cannot change project state or bypass the acceptance gate. Missing IDs get one targeted retry instead of resending the whole document.
+- New runs do not overwrite accepted translations. The /runs/:runId/accept endpoint promotes candidates; manual corrections create accepted results marked with origin=manual.
+- On service startup, interrupted queued/running jobs become paused and in-flight segment rows return to pending. Resuming continues from remaining segments without deleting existing successful candidates.
+
+### API
+
+All project endpoints live below /api/documents/projects and use the existing Local Agent Token, loopback Host checks and extension-origin CORS rules:
+
+- GET/POST /api/documents/projects: list/create projects; creation accepts normalized segments.
+- GET /api/documents/projects/:id: project summary, verification and recent runs.
+- POST /api/documents/projects/:id/source: import a new source revision without deleting run history.
+- GET /api/documents/projects/:id/segments?limit=250&offset=0&runId=...: page through source, accepted translations and one run's candidates.
+- GET/POST /api/documents/projects/:id/prompts: list/save Prompt revisions.
+- GET/POST /api/documents/projects/:id/runs: list/create runs. Create returns HTTP 202 while model work continues in the background.
+- GET /api/documents/projects/:id/runs/:runId: run status, segment outcomes and review findings.
+- POST /api/documents/projects/:id/runs/:runId/resume, cancel or accept: recover, stop or promote candidates.
+- PUT /api/documents/projects/:id/segments/:segmentId/translation: save one manual correction.
+- GET /api/documents/projects/:id/events?runId=...: read persisted execution events. Browser polling is not the only run history.
+- GET /api/documents/projects/:id/verify: detect missing translations and source changes.
+
+### CLI and scripting
+
+UI, CLI and JavaScript scripts call the same TypeScript Project Store and Translation Agent; CLI does not maintain a second translation implementation.
+
+~~~bash
+cd local-agent-service
+npm run doc -- projects
+npm run doc -- import ./parsed-book.json
+npm run doc -- status <documentId>
+npm run doc -- run <documentId> --scope=stale
+npm run doc -- run <documentId> --scope=all --prompt-file=./prompt.json
+npm run doc -- diff <documentId> <runId>
+npm run doc -- accept <documentId> <runId>
+npm run doc -- verify <documentId>
+npm run doc -- export <documentId> ./accepted-translations.json
+~~~
+
+The import JSON contains title, format, an optional sourceFileName, a segments array and an optional prompt. It uses the normalized segment contract produced by the extension's EPUB/PDF parser; the CLI does not claim to independently parse original EPUB/PDF layout.
+
+### Agent boundary
+
+Following the Runtime / Workflow / Skill / Tool / Human separation used in agentic-data-architect, this is a bounded document workflow, not a general-purpose agent with unrestricted tools. The model translates and proposes review changes; the project database owns durable state; deterministic code owns retries, identity validation, cancellation/recovery and state transitions; the user decides whether to accept candidate text. Important steps are persisted as project events.
+
+This first version uses bounded sequential batches for recoverability and context isolation. Workbuddy may reuse a dedicated project/task Session; OpenCode retains its existing one-shot CLI semantics. OCR for scanned PDF and layout reconstruction from original EPUB/PDF remain in the extension and are outside the project Agent's current input contract.
+
