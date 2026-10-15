@@ -261,6 +261,113 @@ test('会话池按轮数轮换与失败丢弃', async () => {
   pool.closeAll();
 });
 
+test('结构化 Session 仅返回 tool_use 与 structured_output 时视为成功并保留会话', async () => {
+  const { WorkbuddySessionPool } = await import('../src/agents/workbuddyPool.ts');
+  const sessions = [];
+  const schema = {
+    type: 'object',
+    properties: { value: { type: 'string' } },
+    required: ['value'],
+  };
+  const factory = (options) => {
+    const session = {
+      closed: false, sent: [], options,
+      async send(message) { this.sent.push(message); },
+      async *stream() {
+        // reproduce the SDK shape: no assistant text, only the StructuredOutput tool call.
+        yield {
+          type: 'assistant',
+          message: {
+            content: [{
+              type: 'tool_use',
+              id: 'toolu_structured_1',
+              name: 'StructuredOutput',
+              input: { value: 'ok' },
+            }],
+          },
+        };
+        yield {
+          type: 'result',
+          subtype: 'success',
+          structured_output: { value: 'ok' },
+        };
+      },
+      async interrupt() {},
+      close() { this.closed = true; },
+      async setModel() {},
+    };
+    sessions.push(session);
+    return session;
+  };
+  const pool = new WorkbuddySessionPool(1, 10, factory);
+  const index = await pool.acquire({ provider: 'workbuddy', model: 'test-model' }, 'book-a:review', schema);
+  const result = await pool.runPrompt(index, 'review this passage', 'structured-only', 5000);
+  assert.equal(result.text, '');
+  assert.deepEqual(result.structuredOutput, { value: 'ok' });
+  assert.equal(sessions[0].closed, false, 'a valid native structured result must not poison the Session');
+  assert.equal(pool.isFresh(index), false, 'successful structured turns count as Session uses');
+  pool.release(index);
+
+  const reused = await pool.acquire({ provider: 'workbuddy', model: 'test-model' }, 'book-a:review', schema);
+  assert.equal(reused, index);
+  assert.equal(sessions.length, 1, 'the healthy structured Session should be reused');
+  pool.release(reused);
+  pool.closeAll();
+  assert.equal(sessions[0].closed, true, 'closeAll still releases the retained Session');
+});
+
+test('纯文本模式没有 text 和 structured_output 时仍丢弃空 Session', async () => {
+  const { WorkbuddySessionPool } = await import('../src/agents/workbuddyPool.ts');
+  const sessions = [];
+  const factory = () => {
+    const session = {
+      closed: false,
+      async send() {},
+      async *stream() {
+        yield { type: 'assistant', message: { content: [{ type: 'tool_use', name: 'SomeTool', input: {} }] } };
+        yield { type: 'result', subtype: 'success' };
+      },
+      async interrupt() {},
+      close() { this.closed = true; },
+      async setModel() {},
+    };
+    sessions.push(session);
+    return session;
+  };
+  const pool = new WorkbuddySessionPool(1, 10, factory);
+  const index = await pool.acquire({ provider: 'workbuddy', model: 'test-model' });
+  await assert.rejects(pool.runPrompt(index, 'translate', 'empty-text', 5000), /mode=text/);
+  assert.equal(sessions[0].closed, true);
+  pool.release(index);
+  pool.closeAll();
+});
+
+test('结构化模式同时缺少 structured_output 和文本时仍报告失败', async () => {
+  const { WorkbuddySessionPool } = await import('../src/agents/workbuddyPool.ts');
+  const sessions = [];
+  const factory = () => {
+    const session = {
+      closed: false,
+      async send() {},
+      async *stream() {
+        yield { type: 'assistant', message: { content: [{ type: 'tool_use', name: 'StructuredOutput', input: {} }] } };
+        yield { type: 'result', subtype: 'success' };
+      },
+      async interrupt() {},
+      close() { this.closed = true; },
+      async setModel() {},
+    };
+    sessions.push(session);
+    return session;
+  };
+  const pool = new WorkbuddySessionPool(1, 10, factory);
+  const index = await pool.acquire({ provider: 'workbuddy', model: 'test-model' }, 'book-a:review', { type: 'object' });
+  await assert.rejects(pool.runPrompt(index, 'review', 'missing-structured-output', 5000), /mode=structured/);
+  assert.equal(sessions[0].closed, true);
+  pool.release(index);
+  pool.closeAll();
+});
+
 test('会话池失败后丢弃会话并抛错', async () => {
   const { WorkbuddySessionPool } = await import('../src/agents/workbuddyPool.ts');
   const sessions = [];
