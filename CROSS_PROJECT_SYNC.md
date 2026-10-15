@@ -65,7 +65,7 @@
 
 > **同步校验**：在 `vocal-saga` 根目录运行 `npx tsx scripts/check-sync.ts`；默认查找同级 `../fanyi-extension`，也可通过 `VOCAL_SAGA_PATH` 与 `FANYI_EXTENSION_PATH` 指定仓库路径。该脚本维护静态 `SYNC_PAIRS` 清单，并逐字节检查本节中的 26 组同步对；新增、删除或移动同步对时必须同时更新脚本和本节。`cacheKey.ts` 与 `service/_service.ts` 按语义契约维护，不参与字节级比较。
 >
-> **最新结果（2026-10-15）**：26/26 组逐字节同步检查已在两个仓库的 CI 中通过。2026-09-11 的 20 组结果仅是历史记录。
+> **当前检查范围**：静态清单包含 26 组同步对，两个仓库的 GitHub Actions 均运行该检查；最近一次实际运行结果以 [vocal-saga Actions](https://github.com/devweekly/vocal-saga/actions) 与 [fanyi-extension Actions](https://github.com/saga/fanyi-extension/actions) 为准。2026-09-11 的 20 组结果仅是历史记录。
 >
 > **2026-09-11 第二轮（prompt 全量中文化 + 骨架抽取）**：所有 prompt 改为中文，并抽成
 > 「共用骨架 + 各自文风段落」，`jinyong` / `acheng` / `wangxiaobo` 三个文风文件
