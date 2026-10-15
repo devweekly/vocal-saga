@@ -1,0 +1,191 @@
+/**
+ * HTTP adapter for the durable document-project API.
+ * Request handling is deliberately thin: project state and transitions live in projectStore,
+ * while model execution is owned by translationAgent. This keeps UI and CLI on one contract.
+ */
+import type { Request, Response } from 'express';
+import { getDocumentProjectStore } from './projectStore.ts';
+import { startProjectTranslationRun, isProjectRunActive } from './translationAgent.ts';
+import { sendJson } from '../middleware.ts';
+
+function bodyObject(value: unknown): Record<string, any> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw Object.assign(new Error('JSON 请求体必须是对象'), { status: 400 });
+  }
+  return value as Record<string, any>;
+}
+function routeError(res: Response, error: unknown): void {
+  const value = error as { status?: number; message?: string };
+  const status = Number.isInteger(value?.status) && Number(value.status) >= 400 && Number(value.status) < 600
+    ? Number(value.status) : 500;
+  sendJson(res, status, { error: value?.message || String(error) });
+}
+function decoded(segment: string): string {
+  try { return decodeURIComponent(segment); }
+  catch { throw Object.assign(new Error('URL 路径编码无效'), { status: 400 }); }
+}
+
+/** Return true when the request belongs to this route family. */
+export async function handleDocumentProjectRequest(req: Request, res: Response, url: URL): Promise<boolean> {
+  if (!url.pathname.startsWith('/api/documents/projects')) return false;
+  try {
+    const method = req.method.toUpperCase();
+    const pathParts = url.pathname.split('/').filter(Boolean).map(decoded);
+    // api / documents / projects
+    if (pathParts.length === 3 && method === 'GET') {
+      sendJson(res, 200, { projects: getDocumentProjectStore().listProjects() });
+      return true;
+    }
+    if (pathParts.length === 3 && method === 'POST') {
+      const body = bodyObject(req.body);
+      const project = getDocumentProjectStore().createProject({
+        title: String(body.title || body.fileName || '未命名文档'),
+        format: String(body.format || ''),
+        sourceFileName: typeof body.sourceFileName === 'string' ? body.sourceFileName : body.fileName,
+        segments: body.segments,
+        prompt: body.prompt && typeof body.prompt === 'object' ? body.prompt : undefined,
+      });
+      sendJson(res, 201, { project });
+      return true;
+    }
+
+    if (pathParts.length < 4) {
+      sendJson(res, 404, { error: '未知文档项目端点' });
+      return true;
+    }
+    const projectId = pathParts[3]!;
+    const store = getDocumentProjectStore();
+
+    if (pathParts.length === 4 && method === 'GET') {
+      const project = store.getProject(projectId);
+      if (!project) { sendJson(res, 404, { error: '找不到文档项目' }); return true; }
+      sendJson(res, 200, { project, verification: store.verifyProject(projectId), runs: store.listRuns(projectId, 10) });
+      return true;
+    }
+    if (pathParts.length === 4 && method === 'DELETE') {
+      store.archiveProject(projectId);
+      sendJson(res, 200, { archived: true, projectId });
+      return true;
+    }
+    if (pathParts.length === 5 && pathParts[4] === 'source' && method === 'POST') {
+      const body = bodyObject(req.body);
+      const project = store.createSourceRevision(projectId, {
+        title: String(body.title || ''),
+        format: String(body.format || ''),
+        sourceFileName: typeof body.sourceFileName === 'string' ? body.sourceFileName : undefined,
+        segments: body.segments,
+      });
+      sendJson(res, 201, { project });
+      return true;
+    }
+    if (pathParts.length === 5 && pathParts[4] === 'segments' && method === 'GET') {
+      const limit = Number.parseInt(url.searchParams.get('limit') || '250', 10);
+      const offset = Number.parseInt(url.searchParams.get('offset') || '0', 10);
+      const runId = url.searchParams.get('runId') || undefined;
+      sendJson(res, 200, {
+        project: store.getProject(projectId),
+        segments: store.getSegments(projectId, { limit, offset, runId }),
+        limit: Math.max(1, Math.min(1000, Number.isFinite(limit) ? limit : 250)),
+        offset: Math.max(0, Number.isFinite(offset) ? offset : 0),
+      });
+      return true;
+    }
+    if (pathParts.length === 7 && pathParts[4] === 'segments' && pathParts[6] === 'translation' && method === 'PUT') {
+      const body = bodyObject(req.body);
+      const saved = store.saveManualEdit(projectId, pathParts[5]!, String(body.text ?? ''));
+      sendJson(res, 200, saved);
+      return true;
+    }
+    if (pathParts.length === 5 && pathParts[4] === 'prompts' && method === 'GET') {
+      sendJson(res, 200, { prompts: store.listPrompts(projectId) });
+      return true;
+    }
+    if (pathParts.length === 5 && pathParts[4] === 'prompts' && method === 'POST') {
+      const body = bodyObject(req.body);
+      const prompt = store.savePrompt(projectId, {
+        name: typeof body.name === 'string' ? body.name : undefined,
+        systemPrompt: typeof body.systemPrompt === 'string' ? body.systemPrompt : undefined,
+        userPromptTemplate: typeof body.userPromptTemplate === 'string' ? body.userPromptTemplate : undefined,
+        sourceLang: typeof body.sourceLang === 'string' ? body.sourceLang : undefined,
+        targetLang: typeof body.targetLang === 'string' ? body.targetLang : undefined,
+        provider: typeof body.provider === 'string' ? body.provider : undefined,
+        model: typeof body.model === 'string' ? body.model : undefined,
+        translationMode: body.translationMode === 'literary' ? 'literary' : 'technical',
+        literaryReview: body.literaryReview === true,
+        glossary: body.glossary,
+      });
+      sendJson(res, 201, { prompt });
+      return true;
+    }
+    if (pathParts.length === 5 && pathParts[4] === 'runs' && method === 'GET') {
+      sendJson(res, 200, { runs: store.listRuns(projectId, Number.parseInt(url.searchParams.get('limit') || '50', 10)) });
+      return true;
+    }
+    if (pathParts.length === 5 && pathParts[4] === 'runs' && method === 'POST') {
+      const body = bodyObject(req.body);
+      const run = store.createRun(projectId, {
+        promptRevisionId: typeof body.promptRevisionId === 'string' ? body.promptRevisionId : undefined,
+        prompt: body.prompt && typeof body.prompt === 'object' ? body.prompt : undefined,
+        scope: body.scope && typeof body.scope === 'object' ? body.scope : { type: 'stale' },
+      });
+      if (run.counts.total > 0) startProjectTranslationRun(projectId, run.runId);
+      sendJson(res, 202, { run, started: run.counts.total > 0 });
+      return true;
+    }
+    if (pathParts.length === 7 && pathParts[4] === 'runs' && pathParts[6] === 'resume' && method === 'POST') {
+      const runId = pathParts[5]!;
+      const run = store.getRun(projectId, runId);
+      if (!['paused', 'queued', 'failed', 'partial'].includes(run.status)) {
+        sendJson(res, 409, { error: '当前运行状态不允许恢复：' + run.status, run });
+        return true;
+      }
+      if (isProjectRunActive(runId)) {
+        sendJson(res, 200, { run, alreadyRunning: true });
+        return true;
+      }
+      store.setRunStatus(projectId, runId, 'queued', null);
+      const started = startProjectTranslationRun(projectId, runId);
+      sendJson(res, 202, { run: store.getRun(projectId, runId), ...started });
+      return true;
+    }
+    if (pathParts.length === 7 && pathParts[4] === 'runs' && pathParts[6] === 'cancel' && method === 'POST') {
+      const runId = pathParts[5]!;
+      const run = store.getRun(projectId, runId);
+      if (['completed', 'cancelled', 'failed'].includes(run.status)) {
+        sendJson(res, 409, { error: '运行已经结束：' + run.status, run });
+        return true;
+      }
+      store.setRunStatus(projectId, runId, 'cancelled', '用户请求停止');
+      store.markRunSegments(projectId, runId, run.segments.filter((item: any) => ['pending', 'running'].includes(item.status)).map((item: any) => item.id), 'cancelled');
+      sendJson(res, 200, { run: store.getRun(projectId, runId) });
+      return true;
+    }
+    if (pathParts.length === 7 && pathParts[4] === 'runs' && pathParts[6] === 'accept' && method === 'POST') {
+      const body = bodyObject(req.body || {});
+      const run = store.acceptCandidates(projectId, pathParts[5]!, Array.isArray(body.segmentIds) ? body.segmentIds.map(String) : undefined);
+      sendJson(res, 200, { run });
+      return true;
+    }
+    if (pathParts.length === 5 && pathParts[4] === 'verify' && method === 'GET') {
+      sendJson(res, 200, store.verifyProject(projectId));
+      return true;
+    }
+    if (pathParts.length === 5 && pathParts[4] === 'events' && method === 'GET') {
+      const after = Number.parseInt(url.searchParams.get('after') || '0', 10);
+      const runId = url.searchParams.get('runId') || undefined;
+      const limit = Number.parseInt(url.searchParams.get('limit') || '200', 10);
+      sendJson(res, 200, { events: store.getEvents(projectId, runId, after, limit) });
+      return true;
+    }
+    if (pathParts.length === 6 && pathParts[4] === 'runs' && method === 'GET') {
+      sendJson(res, 200, { run: store.getRun(projectId, pathParts[5]!) });
+      return true;
+    }
+
+    sendJson(res, 404, { error: '未知文档项目端点：' + method + ' ' + url.pathname });
+    return true;
+  } catch (error) {
+    routeError(res, error);
+    return true;
+  }
+}
