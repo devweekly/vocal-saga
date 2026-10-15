@@ -180,7 +180,7 @@ export function buildProjectVoiceContext(
   const names = new Set(entities.map((entity: any) => entity.source.toLocaleLowerCase()));
   const relationships = memory.relationships.filter((relation: any) => names.has(relation.subject.toLocaleLowerCase()) || names.has(relation.object.toLocaleLowerCase())).slice(0, 6);
   const result = {
-    version: 1, policyVersion: 'character-voice-v1',
+    version: 1, policyVersion: 'character-voice-v2',
     styleGuide: memory.styleGuide,
     scene: {
       ...(chapterTitle ? { chapterTitle: text(chapterTitle, 160) } : {}),
