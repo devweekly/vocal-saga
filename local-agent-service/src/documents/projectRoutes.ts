@@ -111,6 +111,12 @@ export async function handleDocumentProjectRequest(req: Request, res: Response, 
       sendJson(res, 201, { project });
       return true;
     }
+    if (pathParts.length === 5 && pathParts[4] === 'translations' && method === 'POST') {
+      const body = bodyObject(req.body);
+      const result = store.importAcceptedTranslations(projectId, body.items);
+      sendJson(res, 200, result);
+      return true;
+    }
     if (pathParts.length === 5 && pathParts[4] === 'segments' && method === 'GET') {
       const limit = Number.parseInt(url.searchParams.get('limit') || '250', 10);
       const offset = Number.parseInt(url.searchParams.get('offset') || '0', 10);
