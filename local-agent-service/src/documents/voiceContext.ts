@@ -139,20 +139,32 @@ export function sanitizeProjectLiteraryMemory(input: unknown): Record<string, an
 }
 
 /** 根据本批原文，构造小而相关的只读语音档案，不把整本记忆塞进每次模型调用。 */
-export function buildProjectVoiceContext(memoryInput: unknown, segments: ProjectVoiceContextSegment[], chapterTitle?: string): Record<string, unknown> {
+export function buildProjectVoiceContext(
+  memoryInput: unknown,
+  segments: ProjectVoiceContextSegment[],
+  chapterTitle?: string,
+  precedingSegments: ProjectVoiceContextSegment[] = [],
+): Record<string, unknown> {
   const memory = sanitizeProjectLiteraryMemory(memoryInput);
-  const source = segments.map((item) => item.text).join('\n').toLocaleLowerCase();
+  const source = [...precedingSegments.slice(-4), ...segments].map((item) => item.text).join('\n').toLocaleLowerCase();
   const profiles = memory.characterVoices.filter((profile: any) => profile.status === 'confirmed');
   const matched = profiles.filter((profile: any) =>
     [profile.canonicalSourceName, ...profile.aliases].some((name: string) => name && source.includes(name.toLocaleLowerCase())),
   );
-  const chosen = (matched.length ? matched : profiles.slice(0, 2)).slice(0, 4);
+  // 没有文本命中时不随机选择前两个角色；只留下风格、场景与精确命中的术语。
+  const chosen = matched.slice(0, 4);
   const ids = new Set(chosen.map((profile: any) => profile.characterId));
   const relationshipVoiceRules = memory.relationshipVoiceRules.filter((rule: any) =>
     rule.status === 'confirmed' && ids.has(rule.speakerId) && ids.has(rule.addresseeId)).slice(0, 4);
   const voiceAnchors = memory.voiceAnchors.filter((anchor: any) =>
     anchor.status === 'approved' && ids.has(anchor.speakerId) &&
-    (source.includes(anchor.source.toLocaleLowerCase()) || segments.some((segment) => segment.contextPath && segment.contextPath === anchor.chapter)))
+    typeof anchor.attributionEvidence === 'string' && !!anchor.attributionEvidence.trim() &&
+    Number(anchor.attributionConfidence) >= 0.7)
+    .sort((a: any, b: any) => {
+      const aSameChapter = segments.some((segment) => segment.contextPath && segment.contextPath === a.chapter) ? 1 : 0;
+      const bSameChapter = segments.some((segment) => segment.contextPath && segment.contextPath === b.chapter) ? 1 : 0;
+      return bSameChapter - aSameChapter;
+    })
     .slice(0, 2);
   const entities = memory.entities.filter((entity: any) =>
     [entity.source, ...entity.aliases].some((name: string) => name && source.includes(name.toLocaleLowerCase())))
