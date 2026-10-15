@@ -41,7 +41,11 @@ describe('literary book memory', () => {
 
   it('merges explicit person aliases and preserves one canonical translation', () => {
     const first = sanitizeLiteraryMemory({
-      entities: [{ source: 'Kiri', target: '吉莉', kind: 'person', aliases: ['Kiri'], reviewStatus: 'confirmed' }],
+      // Simulate old saved memory that already contains two conflicting rows.
+      entities: [
+        { source: 'Kiri', target: '吉莉', kind: 'person', aliases: ['Kiri'], reviewStatus: 'confirmed' },
+        { source: 'Kiritsubo', target: '吉罗', kind: 'person', aliases: [], reviewStatus: 'suggested' },
+      ],
     });
     const next = sanitizeLiteraryMemory({
       entities: [{ source: 'Kiritsubo', target: '吉罗', kind: 'person', aliases: ['Kiri'], reviewStatus: 'suggested' }],
