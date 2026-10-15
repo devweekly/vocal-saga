@@ -49,6 +49,11 @@ export interface DocumentTranslateInput {
   literaryContext?: unknown;
   /** 是否在初译后执行独立文学 reviewer。 */
   literaryReview?: boolean;
+  /** 强制重新调用模型，跳过翻译缓存读取，但仍写入新结果。 */
+  forceRefresh?: boolean;
+  /** 文档阅读器可自定义系统指令与每批用户消息模板。 */
+  documentSystemPromptOverride?: string;
+  documentUserPromptTemplate?: string;
   chapterTitle?: string;
 }
 
@@ -153,6 +158,9 @@ export async function translateDocument(
         provider: input.provider,
         model: input.model,
         apiKey: input.apiKey,
+        skipCache: input.forceRefresh ?? false,
+        systemPromptOverride: input.documentSystemPromptOverride,
+        userPromptTemplate: input.documentUserPromptTemplate,
         ...(literaryMemory ? {
           taskInstructions: buildLiteraryTranslationInstructions(
             input.chapterTitle || batch[0]?.contextPath || '',
