@@ -635,7 +635,7 @@ prepareHtmlForServer 时在 clone 上把 `link[rel=stylesheet]` 替换为
 
 ### 当前调度与状态契约
 
-1. 默认目标预算是 3 个翻译 worker + 1 个 Reviewer worker，且并发会按 `LOCAL_AGENT_POOL_SIZE` 收敛；配置项为 `LOCAL_AGENT_DOCUMENT_TRANSLATION_CONCURRENCY` 与 `LOCAL_AGENT_DOCUMENT_REVIEW_CONCURRENCY`。
+1. 默认配置上限为 4 个翻译 worker + 2 个 Reviewer worker；四槽位且启用审校时，实际预算为 2 个翻译 + 2 个 Reviewer；关闭审校时翻译可占用最多 4 个槽位。两项上限按 `LOCAL_AGENT_POOL_SIZE` 收敛。
 2. 每个翻译批次使用独立 scope，scope 包含 run、角色、Prompt revision、lane 和 batch index。缺失 ID 的重试复用**同一批** scope；不同批次或 Reviewer 不共享对话历史。
 3. Reviewer 作为独立有界任务与后续初译重叠。初译候选落库后发出 `batch.translation.completed`；只有该批 Reviewer 结算后才发出 `batch.completed`。run 结束前必须 drain 所有已排队的 Reviewer。
 4. 每个批次仍必须显式携带原文前文 `precedingSegments`、Prompt/glossary 和只读 `voiceContext`；不得用共享对话历史代替这些输入。
