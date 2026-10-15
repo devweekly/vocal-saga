@@ -107,12 +107,15 @@ export function stabilizeVoiceAnalysis(
         // 无可核对的原文证据，不创建可用于翻译的声音画像。
         continue;
       }
+      const analysisConflictWithConfirmed = existingProfile?.status === 'confirmed' &&
+        JSON.stringify(existingProfile.voiceCore) !== JSON.stringify(raw.voiceCore);
       const stableEvidence = existingProfile?.status === 'confirmed'
         ? [...existingProfile.evidence, ...evidence].filter((item: any, index: number, all: any[]) =>
             all.findIndex((other: any) => other.segmentId === item.segmentId && other.dimension === item.dimension) === index,
           ).slice(0, 12)
         : evidence;
       profiles.push({
+        analysisConflictWithConfirmed,
         ...raw, characterId, canonicalSourceName: name,
         targetName: existingProfile?.targetName || raw.targetName,
         aliases: Array.from(new Set([...(existingProfile?.aliases || []), ...aliases])).slice(0, 12),
