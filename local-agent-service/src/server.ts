@@ -5,7 +5,6 @@
  * 本文件负责组装 Express 应用并重新导出测试/外部调用需要的公共 API。
  */
 import express, { type Request, type Response, type NextFunction } from 'express';
-import path from 'node:path';
 
 import {
   DEFAULT_PROVIDER, HOST, PORT, MAX_BODY_BYTES, MAX_DOCUMENT_BODY_BYTES, DATABASE_PATH, STORE_CONTENT,
@@ -90,5 +89,4 @@ export function startLocalAgentServer() {
     }
   });
   void server;
-  void path;
 }
