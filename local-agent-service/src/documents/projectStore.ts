@@ -585,7 +585,7 @@ export class DocumentProjectStore {
     const offset = Math.max(0, Math.floor(options.offset || 0));
     const rows = db.prepare(
       'SELECT s.segment_id, s.ordinal, s.text, s.kind, s.context_path, s.page, s.level, s.marker, s.path, s.start_time, s.end_time, s.source_hash, ' +
-      '(SELECT r.translation_text FROM translation_results r WHERE r.segment_id = s.segment_id AND r.accepted = 1 ORDER BY COALESCE(r.accepted_at, r.created_at) DESC, r.created_at DESC LIMIT 1) AS accepted_translation, ' +
+      '(SELECT r.translation_text FROM translation_results r WHERE r.segment_id = s.segment_id AND r.source_hash = s.source_hash AND r.accepted = 1 ORDER BY COALESCE(r.accepted_at, r.created_at) DESC, r.created_at DESC LIMIT 1) AS accepted_translation, ' +
       '(SELECT r.translation_text FROM translation_results r WHERE r.segment_id = s.segment_id AND r.run_id = ? ORDER BY r.created_at DESC LIMIT 1) AS candidate_translation ' +
       'FROM source_segments s WHERE s.source_revision_id = ? ORDER BY s.ordinal LIMIT ? OFFSET ?'
     ).all(options.runId || '', currentSourceRevisionId, limit, offset) as any[];
@@ -842,7 +842,7 @@ export class DocumentProjectStore {
       else if (result.source_hash !== segment.source_hash) stale.push(segment.segment_id);
     }
     const activeRuns = db.prepare("SELECT run_id, status FROM translation_runs WHERE status IN ('queued','running','paused','awaiting_acceptance','partial') ORDER BY created_at DESC").all();
-    return { project, totalSegments: segments.length, acceptedSegments: segments.length - missing.length, missingSegmentIds: missing, staleSourceIds: stale, activeRuns };
+    return { project, totalSegments: segments.length, acceptedSegments: segments.length - missing.length - stale.length, missingSegmentIds: missing, staleSourceIds: stale, activeRuns };
   }
 
   archiveProject(projectId: string): void {
