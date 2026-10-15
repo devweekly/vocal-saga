@@ -166,8 +166,10 @@ test('project voice context includes confirmed profiles and approved anchors onl
     id: 'ch1-a1',
     text: 'Alice looked at Bob. “You really think so?”',
     contextPath: 'Chapter 1',
-  }]);
+  }], 'Chapter 1');
   const roundTrip = JSON.parse(JSON.stringify(context));
+  assert.equal(roundTrip.scene.chapterTitle, 'Chapter 1');
+  assert.deepEqual(roundTrip.scene.segmentIds, ['ch1-a1']);
   assert.equal(roundTrip.characterVoices.length, 1);
   assert.equal(roundTrip.characterVoices[0].characterId, 'char-alice');
   assert.deepEqual(roundTrip.voiceAnchors.map((anchor) => anchor.anchorId), ['approved']);
