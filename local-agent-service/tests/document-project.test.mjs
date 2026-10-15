@@ -121,6 +121,26 @@ test('stores each original source file in its document revision directory', asyn
   });
 });
 
+test('auto-applying a rerun preserves an existing manual translation for the same source', async () => {
+  await withStore((store) => {
+    const project = store.createProject({ title: 'Preserve Manual Translation', format: 'epub', segments });
+    store.saveManualEdit(project.projectId, 'ch1-p1', '用户已经确认的译文。');
+
+    const run = store.createRun(project.projectId, { scope: { type: 'all' } });
+    store.saveCandidate(project.projectId, run.runId, 'ch1-p1', '模型重新生成的译文。');
+    store.saveCandidate(project.projectId, run.runId, 'ch1-p2', '第二段的新译文。');
+    store.finishRun(project.projectId, run.runId);
+
+    const finished = store.acceptCandidates(project.projectId, run.runId);
+    assert.equal(finished.status, 'completed');
+    assert.equal(finished.counts.candidate, 0, 'preserved manual text must resolve the run item instead of leaving it awaiting acceptance');
+
+    const current = store.getSegments(project.projectId, { limit: 10 });
+    assert.equal(current.find((item) => item.id === 'ch1-p1')?.acceptedTranslation, '用户已经确认的译文。');
+    assert.equal(current.find((item) => item.id === 'ch1-p2')?.acceptedTranslation, '第二段的新译文。');
+  });
+});
+
 test('manual acceptance is newer than an older candidate and is not auto-staled by Prompt changes', async () => {
   await withStore((store) => {
     const project = store.createProject({ title: 'Manual Priority', format: 'epub', segments });
