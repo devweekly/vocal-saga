@@ -346,10 +346,11 @@ export class DocumentProjectStore {
       literaryReview: Boolean(prompt.literaryReview),
       glossary: prompt.glossary,
     });
-    if (prompt.literaryMemory !== undefined) this.saveLiteraryMemory(projectId, prompt.literaryMemory);
     this.catalogDb().prepare(
       'INSERT INTO document_projects(project_id, title, format, source_file_name, source_fingerprint, db_path, created_at, updated_at, archived) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)'
     ).run(projectId, title, format, fileName, revision.fingerprint, filePath, now, now);
+    // Source and catalog rows must exist before evidence-backed memory validation looks them up.
+    if (prompt.literaryMemory !== undefined) this.saveLiteraryMemory(projectId, prompt.literaryMemory);
     return this.getProject(projectId)!;
   }
 
