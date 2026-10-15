@@ -245,21 +245,22 @@ async function executeRun(projectId: string, runId: string): Promise<void> {
     const batches = buildBatches(items);
 
     const poolSize = Math.max(1, WORKBUDDY_POOL_SIZE);
+    const reviewEnabled = context.run.translationMode === 'literary' && context.run.reviewEnabled;
     // Keep at least one slot budgeted for translation and, when the pool allows it, one for
-    // review. The pool still arbitrates globally when multiple document runs share the process.
-    const reviewConcurrency = poolSize > 1
-      ? Math.min(CONFIGURED_REVIEW_CONCURRENCY, poolSize - 1)
-      : 1;
+    // review. If this run has no review stage, translations may use the configured budget.
+    const reviewConcurrency = reviewEnabled
+      ? poolSize > 1 ? Math.min(CONFIGURED_REVIEW_CONCURRENCY, poolSize - 1) : 1
+      : 0;
     const translationConcurrency = poolSize > 1
       ? Math.min(CONFIGURED_TRANSLATION_CONCURRENCY, Math.max(1, poolSize - reviewConcurrency))
       : 1;
-    const detachReviews = poolSize > 1 && context.run.translationMode === 'literary' && context.run.reviewEnabled;
+    const detachReviews = poolSize > 1 && reviewEnabled;
     store.appendEvent(projectId, runId, 'plan.ready', {
       batchCount: batches.length,
       segmentCount: items.length,
       strategy: 'bounded-parallel',
       translationConcurrency,
-      reviewConcurrency: context.run.translationMode === 'literary' && context.run.reviewEnabled ? reviewConcurrency : 0,
+      reviewConcurrency,
       poolSize,
       sessionStrategy: 'independent-per-batch',
     });
