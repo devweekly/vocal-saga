@@ -9,6 +9,10 @@ export const LITERARY_ANALYSIS_SCHEMA: Record<string, unknown> = {
     relationships: { type: 'array' },
     styleGuide: { type: 'object' },
     chapterSummary: { type: 'string' },
+    characterVoices: { type: 'array' },
+    relationshipVoiceRules: { type: 'array' },
+    voiceAnchors: { type: 'array' },
+    openQuestions: { type: 'array' },
   },
   required: ['entities', 'relationships'],
 };
@@ -67,8 +71,11 @@ export async function runLiteraryAnalysis(body: any, requestId: string, sessionS
     '只根据给定原文提取记忆，不猜测未出现的事实。新建实体与关系均是建议项，reviewStatus 必须是 suggested；模型不能声称任何条目已经过人工确认。',
     '已有实体的 source→target 规范译名必须沿用，不能擅自更改；人物/事物关系只记录原文支持的明确事实。',
     '实体字段：source、target、kind（person/place/object/organization/concept/other）、aliases、description、evidence、reviewStatus。',
-    '关系字段：subject、predicate、object、evidence、reviewStatus。',
-    '只返回 JSON 对象：{ "entities": [], "relationships": [], "styleGuide": {}, "chapterSummary": "" }。styleGuide 可包含 narrativeVoice、register、rhythm、dialogue、diction、avoid。',
+    '关系字段只记录剧情事实：subject、predicate、object、evidence、reviewStatus；人物之间如何说话必须另放 relationshipVoiceRules。',
+    '人物声音不是性格形容词。对本章有充分证据的主要人物，输出 characterVoices：characterId（优先沿用已有记忆 ID；否则用 char_ + 同一规范原文名的稳定 ID）、canonicalSourceName、targetName、aliases、status=candidate、confidence、voiceCore、contrastRules、evidence、openQuestions。只挑 3–6 个可以在语言中观察到的特征，涉及语域/句法节奏/词汇/对话策略/情态立场/幽默反讽/口语特征；不能凭性别、年龄、职业或刻板印象推断，不强加口头禅或方言。每条 evidence 必须包含输入中的 segmentId、短原文 sourceQuote、dimension、observation 和 0–1 confidence。',
+    'relationshipVoiceRules 是有方向的 speakerId → addresseeId，描述 baselineRegister、addressTerms、directness、emotionalDistance、sceneDependentShift 和 evidenceSegmentIds。关系事实与关系语言规则不能混用。',
+    'voiceAnchors 只能取有充分归属证据的短对白，包含 anchorId、speakerId、可选 addresseeId、source、target、chapter、segmentId、tags，status 必须为 candidate；不能把说话人猜测写成事实。已存在的 confirmed 画像不能被本次分析静默覆盖，冲突写入 openQuestions。',
+    '新人物声音、关系语言规则、声音锚点全部输出 candidate，不能伪称人工审核。只返回 JSON 对象：{ "entities": [], "relationships": [], "styleGuide": {}, "chapterSummary": "", "characterVoices": [], "relationshipVoiceRules": [], "voiceAnchors": [], "openQuestions": [] }。styleGuide 可包含 narrativeVoice、register、rhythm、dialogue、diction、avoid。',
   ].join('\n');
   const prompt = [
     '目标语言：' + (body.target || 'zh'), '章节：' + chapterTitle,
@@ -85,12 +92,16 @@ export async function runLiteraryAnalysis(body: any, requestId: string, sessionS
     analyzed: true,
     chapterTitle,
     memory: {
-      version: 1,
+      version: 2,
       entities: parsed.entities.slice(0, 120).map((item: any) => ({ ...item, reviewStatus: 'suggested' })),
       relationships: parsed.relationships.slice(0, 160).map((item: any) => ({ ...item, reviewStatus: 'suggested' })),
       styleGuide: parsed.styleGuide && typeof parsed.styleGuide === 'object' ? parsed.styleGuide : {},
       chapterSummaries: summary ? [{ chapter: chapterTitle, summary }] : [],
       recentExamples: [],
+      characterVoices: Array.isArray(parsed.characterVoices) ? parsed.characterVoices.slice(0, 80).map((item: any) => ({ ...item, status: 'candidate' })) : [],
+      relationshipVoiceRules: Array.isArray(parsed.relationshipVoiceRules) ? parsed.relationshipVoiceRules.slice(0, 160).map((item: any) => ({ ...item, status: 'candidate' })) : [],
+      voiceAnchors: Array.isArray(parsed.voiceAnchors) ? parsed.voiceAnchors.slice(0, 240).map((item: any) => ({ ...item, status: 'candidate' })) : [],
+      openQuestions: Array.isArray(parsed.openQuestions) ? parsed.openQuestions.slice(0, 40) : [],
     },
   };
 }
@@ -100,13 +111,14 @@ export async function runLiteraryReview(body: any, requestId: string, sessionSco
   const memory = body.memory && typeof body.memory === 'object' ? body.memory : {};
   const systemPrompt = [
     '你是文学翻译的第二道工序：独立文学编辑。请对照原文，将 draft 修订为准确、自然、有质感、适合目标语言阅读的文学译文；不要只做校对，也不要改写成你自己的作品。',
-    '每个片段包含 source（原文）、draft（初译）和 kind；随请求提供的书籍记忆是只读数据，用于统一实体译名、人物关系、叙述声线和近期表达。',
+    '每个片段包含 source（原文）、draft（初译）和 kind；随请求提供的书籍记忆是只读数据。优先使用有原文证据且 status=confirmed 的 characterVoices、relationshipVoiceRules 和 approved voiceAnchors。candidate 规则只能作为弱参考。',
     '第一优先级是原意和情节准确：不能漏译、误译、添写、改变否定/时态/视角/指代/人物关系，不能替作者解释悬念或抹掉歧义。第二优先级是沿用已建立的实体译名。第三优先级是修正文学表达上的问题。',
     '检查翻译腔、按英文语序硬译、别扭搭配、僵硬连接词、无来由的解释、同质化对白、情绪词不准、节奏被抹平等。允许适度调整语序、句长、停顿、语气和措辞，让译文自然并有美感；不能为追求华丽新增比喻、意象、情绪、信息或修辞。',
-    '尊重作品自身风格：简洁不必润饰成华丽，有意的重复不要随便删，冷峻不应煽情，粗粝不应文雅化，幽默与反讽不能磨平。不同人物要有不同声音。',
+    '尊重作品自身风格：简洁不必润饰成华丽，有意的重复不要随便删，冷峻不应煽情，粗粝不应文雅化，幽默与反讽不能磨平。人物声音审校必须先说明说话人/听话人归属是否可靠，再指出与具体画像/人物对规则的偏离，并用同批其他人物的语言差异作对照；不能只说“声音不鲜明”。如果 attribution uncertain，报告该不确定性，不强行套用画像。',
     'finding category 只能为 accuracy（可核验的意义/事实错误）、terminology（实体规范译名错误）、style（具体的翻译腔、不自然搭配或语气/节奏/人物声音问题）。accuracy 与 terminology 的 priority 必须是 must_fix；style 的 priority 必须是 optional。style 必须指出具体文本问题，不能只是审校者个人偏好。',
     'finalTranslation 必须是完整可阅读的修订译文。发现明确错误要纠正，发现有依据的文风问题应作适度修订；如果原稿已妥当则原样返回。保留初译可取之处，禁止添加原文不存在的内容。',
-    '只返回严格 JSON：{ "results": [{ "id": "...", "finalTranslation": "...", "findings": [{ "category": "accuracy|terminology|style", "priority": "must_fix|optional", "sourceExcerpt": "...", "draftExcerpt": "...", "reason": "...", "suggestion": "..." }] }] }。',
+    'style finding 可以带可选字段 dimension=character_voice|register|narrative_style|pacing、characterId、relatedCharacterId、evidenceSegmentIds。人物声音 finding 必须给出具体 source/draft 片段与画像或人物对证据；不允许凭空增加口头禅、方言、粗口、情绪或修辞。',
+    '只返回严格 JSON：{ "results": [{ "id": "...", "finalTranslation": "...", "findings": [{ "category": "accuracy|terminology|style", "priority": "must_fix|optional", "dimension": "character_voice", "characterId": "...", "relatedCharacterId": "...", "evidenceSegmentIds": [], "sourceExcerpt": "...", "draftExcerpt": "...", "reason": "...", "suggestion": "..." }] }] }。',
   ].join('\n');
   const prompt = [
     '目标语言：' + (body.target || 'zh'),
@@ -138,6 +150,12 @@ export async function runLiteraryReview(body: any, requestId: string, sessionSco
           draftExcerpt: typeof item.draftExcerpt === 'string' ? item.draftExcerpt.slice(0, 240) : '',
           reason: typeof item.reason === 'string' ? item.reason.slice(0, 400) : '',
           suggestion: typeof item.suggestion === 'string' ? item.suggestion.slice(0, 400) : '',
+          ...(item.category === 'style' && ['character_voice', 'register', 'narrative_style', 'pacing'].includes(item.dimension)
+            ? { dimension: item.dimension,
+                ...(typeof item.characterId === 'string' ? { characterId: item.characterId.slice(0, 100) } : {}),
+                ...(typeof item.relatedCharacterId === 'string' ? { relatedCharacterId: item.relatedCharacterId.slice(0, 100) } : {}),
+                ...(Array.isArray(item.evidenceSegmentIds) ? { evidenceSegmentIds: item.evidenceSegmentIds.filter((id: unknown) => typeof id === 'string').slice(0, 8).map((id: string) => id.slice(0, 160)) } : {}) }
+            : {}),
           ...(item.category === 'style' && candidateUsable ? {
             proposedTranslation: candidateText,
             applicationStatus: 'pending' as const,
