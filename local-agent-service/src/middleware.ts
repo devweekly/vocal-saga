@@ -24,7 +24,7 @@ export function addCors(req: Request, res: Response): boolean {
     res.setHeader('Vary', 'Origin');
   }
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Source-File-Name');
   res.setHeader('Access-Control-Max-Age', '600');
   return true;
 }
