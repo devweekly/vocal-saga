@@ -299,7 +299,8 @@ export class DocumentProjectStore {
       .run(revisionId, fileName, format, fingerprint, 'segment-contract-v1', segments.length, createdAt);
     const insert = db.prepare('INSERT INTO source_segments(source_revision_id, segment_id, ordinal, text, kind, context_path, page, level, marker, path, start_time, end_time, source_hash) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
     segments.forEach((segment, index) => insert.run(revisionId, segment.id, index, segment.text, segment.kind || 'paragraph',
-      segment.contextPath || '', segment.page ?? null, segment.level ?? null, segment.marker ?? null, segmentHash(segment)));
+      segment.contextPath || '', segment.page ?? null, segment.level ?? null, segment.marker ?? null,
+      segment.path ?? null, segment.start ?? null, segment.end ?? null, segmentHash(segment)));
     this.projectMeta(db, 'project_id', projectId);
     this.projectMeta(db, 'title', title);
     this.projectMeta(db, 'format', format);
