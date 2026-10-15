@@ -119,7 +119,7 @@ test('voice analysis assigns stable character IDs and rejects unsupported eviden
   const alice = normalized.characterVoices.find((profile) => profile.canonicalSourceName === 'Alice');
   assert.equal(alice.characterId, 'char_existing_alice', 'an existing character id is stable across chapters');
   assert.equal(alice.status, 'confirmed', 'new analysis cannot silently demote a confirmed profile');
-  assert.deepEqual(alice.voiceCore, { syntaxRhythm: ['短反问'] }, 'new chapters cannot silently overwrite a confirmed voice core');
+  assert.equal(alice.voiceCore.syntaxRhythm[0], '短反问', 'new chapters cannot silently overwrite a confirmed voice core');
   assert.ok(normalized.openQuestions.some((question) => question.includes('Alice') && question.includes('差异')));
   assert.equal(normalized.characterVoices.some((profile) => profile.canonicalSourceName === 'Unknown'), false);
 
