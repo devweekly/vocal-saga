@@ -225,7 +225,7 @@ describe('POST /api/translate/document/literary/review', () => {
     expect(json.findings.find((finding: any) => finding.category === 'accuracy')?.priority).toBe('must_fix');
     const style = json.findings.find((finding: any) => finding.category === 'style');
     expect(style?.priority).toBe('optional');
-    expect(style?.applicationStatus).toBe('pending');
+    expect(style?.applicationStatus).toBe('applied'); // A required correction applies the complete reviewer translation for this segment.
     expect(style?.proposedTranslation).toBe('她推开了那扇旧门。');
   });
 });
