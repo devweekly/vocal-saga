@@ -290,6 +290,15 @@ test('literary memory confirms only current-source evidence and accepted transla
     assert.equal(saved.voiceAnchors.find((item) => item.anchorId === 'anchor-valid').status, 'approved');
     assert.equal(saved.voiceAnchors.find((item) => item.anchorId === 'anchor-wrong-target').status, 'candidate',
       'an anchor target must exist in the accepted translation for the referenced segment');
+
+    // Once the source segment changes, the prior accepted result is stale even if the quote still exists.
+    store.createSourceRevision(project.projectId, {
+      title: project.title, format: 'epub',
+      segments: [{ ...source[0], text: source[0].text + ' Then she left.' }, source[1]],
+    });
+    const afterSourceRevision = store.getCurrentLiteraryMemory(project.projectId).memory;
+    assert.equal(afterSourceRevision.voiceAnchors.find((item) => item.anchorId === 'anchor-valid').status, 'candidate',
+      'an old accepted translation cannot keep a voice anchor approved for a newer source revision');
   });
 });
 
