@@ -861,15 +861,32 @@ export class DocumentProjectStore {
         latestAccepted.set(row.segment_id, row);
       }
     }
+    const latestPrompt = db.prepare('SELECT * FROM prompt_revisions ORDER BY created_at DESC LIMIT 1').get() as any;
+    const currentFingerprint = latestPrompt
+      ? this.makeRunFingerprint(latestPrompt, parseJson<any>(latestPrompt.config_json, {}))
+      : '';
     const missing: string[] = [];
     const stale: string[] = [];
+    const stalePrompt: string[] = [];
     for (const segment of segments) {
-      if (latestAccepted.has(segment.segment_id)) continue;
-      if (anyAcceptedIds.has(segment.segment_id)) stale.push(segment.segment_id);
-      else missing.push(segment.segment_id);
+      const result = latestAccepted.get(segment.segment_id);
+      if (!result) {
+        if (anyAcceptedIds.has(segment.segment_id)) stale.push(segment.segment_id);
+        else missing.push(segment.segment_id);
+        continue;
+      }
+      if (result.origin !== 'manual' && result.run_fingerprint !== currentFingerprint) stalePrompt.push(segment.segment_id);
     }
     const activeRuns = db.prepare("SELECT run_id, status FROM translation_runs WHERE status IN ('queued','running','paused','awaiting_acceptance','partial') ORDER BY created_at DESC").all();
-    return { project, totalSegments: segments.length, acceptedSegments: segments.length - missing.length - stale.length, missingSegmentIds: missing, staleSourceIds: stale, activeRuns };
+    return {
+      project,
+      totalSegments: segments.length,
+      acceptedSegments: segments.length - missing.length - stale.length - stalePrompt.length,
+      missingSegmentIds: missing,
+      staleSourceIds: stale,
+      stalePromptIds: stalePrompt,
+      activeRuns,
+    };
   }
 
   archiveProject(projectId: string): void {
