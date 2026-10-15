@@ -36,6 +36,9 @@ describe('translateChunk block-level cache reuse', () => {
       'zh',
       'deepseek',
       'default',
+      undefined,
+      undefined,
+      'technical',
     );
     getCachedMock.mockImplementation(async (key) =>
       key === stableKey ? new Map([['b1', '稳定段落。']]) : null,
@@ -77,8 +80,8 @@ describe('translateChunk block-level cache reuse', () => {
     ];
     const chunk = buildChunks(blocks)[0];
     const perBlockCache = new Map([
-      [generateTranslationCacheKey(JSON.stringify([{ id: 'b1', text: blocks[0].text }]), 'en', 'zh', 'deepseek', 'default'), new Map([['b1', '第一段。']])],
-      [generateTranslationCacheKey(JSON.stringify([{ id: 'b2', text: blocks[1].text }]), 'en', 'zh', 'deepseek', 'default'), new Map([['b2', '第二段。']])],
+      [generateTranslationCacheKey(JSON.stringify([{ id: 'b1', text: blocks[0].text }]), 'en', 'zh', 'deepseek', 'default', undefined, undefined, 'technical'), new Map([['b1', '第一段。']])],
+      [generateTranslationCacheKey(JSON.stringify([{ id: 'b2', text: blocks[1].text }]), 'en', 'zh', 'deepseek', 'default', undefined, undefined, 'technical'), new Map([['b2', '第二段。']])],
     ]);
     getCachedMock.mockImplementation(async (key) => perBlockCache.get(key) ?? null);
 
