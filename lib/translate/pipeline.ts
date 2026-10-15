@@ -826,7 +826,7 @@ async function runTranslationPipeline(
           blocks: reviewBlocks,
           source: sourceLang,
           target: targetLang,
-          glossary: literaryInstructions ? { site_instructions: [literaryInstructions] } : undefined,
+          glossary: pageGlossary,
           promptStyle: effectiveStyle,
           translationMode: 'literary',
           provider,
