@@ -179,10 +179,12 @@ describe('文学翻译 profile', () => {
       translationMode: 'literary',
     });
 
-    expect(result.translations.s0).toBe('具有文学感的修订译文 s0');
-    expect(result.translations.s1).toBe('具有文学感的修订译文 s1');
+    expect(result.translations.s0).toBe('初译 s0');
+    expect(result.translations.s1).toBe('初译 s1');
     expect(result.reviewedSegmentCount).toBe(2);
     expect(result.reviewFindings.every((finding) => finding.category === 'style')).toBe(true);
+    expect(result.reviewFindings.every((finding) => finding.applicationStatus === 'pending')).toBe(true);
+    expect(result.reviewFindings.every((finding) => finding.proposedTranslation?.startsWith('具有文学感的修订译文 '))).toBe(true);
     expect(mocked).toHaveBeenCalledTimes(2);
   });
 });
