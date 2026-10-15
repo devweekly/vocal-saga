@@ -257,6 +257,7 @@ export async function runLiteraryReview(body: any, requestId: string, sessionSco
   const voiceContext = buildProjectVoiceContext(
     memory,
     segments.map((segment) => ({ id: segment.id, text: segment.source, contextPath: segment.contextPath })),
+    segments[0]?.contextPath || chapterTitle,
   );
   const systemPrompt = [
     '你是文学翻译的第二道工序：独立文学编辑。请对照原文，将 draft 修订为准确、自然、有质感、适合目标语言阅读的文学译文；不要只做校对，也不要改写成你自己的作品。',
