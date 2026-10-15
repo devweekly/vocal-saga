@@ -162,6 +162,12 @@ async function executeRun(projectId: string, runId: string): Promise<void> {
         try {
           const current = Array.from(pending.values());
           const output = await translateBatch(context, current, runId + '-b' + batchIndex + '-a' + attempt);
+          // Cancellation may arrive while an SDK/CLI call is in flight. The result is discarded
+          // after the await; a stopped run must never commit a late candidate behind the user's back.
+          if (store.getRunStatus(projectId, runId) === 'cancelled') {
+            store.appendEvent(projectId, runId, 'batch.discarded', { batchIndex, reason: 'cancelled while model call was in flight' });
+            return;
+          }
           for (const [id, translated] of output) {
             translations.set(id, translated);
             pending.delete(id);
@@ -204,6 +210,11 @@ async function executeRun(projectId: string, runId: string): Promise<void> {
         }
       }
 
+      // Reviewer can also be in flight when the user stops a run.
+      if (store.getRunStatus(projectId, runId) === 'cancelled') {
+        store.appendEvent(projectId, runId, 'batch.discarded', { batchIndex, reason: 'cancelled before candidate commit' });
+        return;
+      }
       for (const [id, translated] of translations) store.saveCandidate(projectId, runId, id, translated);
       if (pending.size > 0) {
         store.markRunSegments(projectId, runId, Array.from(pending.keys()), 'failed', lastError);
