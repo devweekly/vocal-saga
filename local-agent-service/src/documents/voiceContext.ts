@@ -99,7 +99,8 @@ export function sanitizeProjectLiteraryMemory(input: unknown): Record<string, an
       description: text(item.description, 200), evidence: text(item.evidence, 180),
       reviewStatus: item.reviewStatus === 'confirmed' ? 'confirmed' : 'suggested',
     }];
-  }) : []);  const relationships = Array.isArray(raw.relationships) ? raw.relationships.slice(0, 160).flatMap((item: any) => {
+  }) : []);
+  const relationships = Array.isArray(raw.relationships) ? raw.relationships.slice(0, 160).flatMap((item: any) => {
     if (!item || typeof item !== 'object' || Array.isArray(item)) return [];
     const subject = text(item.subject, 120); const predicate = text(item.predicate, 100); const object = text(item.object, 120);
     if (!subject || !predicate || !object) return [];
