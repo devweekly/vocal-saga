@@ -12,6 +12,7 @@ import { writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { DATA_DIR } from '../config.ts';
+import { sanitizeProjectLiteraryMemory } from './voiceContext.ts';
 
 export type DocumentFormat = 'epub' | 'pdf' | 'txt' | 'md' | 'html' | 'docx' | 'srt' | 'vtt' | 'json';
 export const MAX_DOCUMENT_SOURCE_BYTES = 20 * 1024 * 1024;
@@ -183,8 +184,11 @@ export class DocumentProjectStore {
       'prompt_revision_id TEXT PRIMARY KEY, name TEXT NOT NULL, system_prompt TEXT NOT NULL, user_prompt_template TEXT NOT NULL, ' +
       'config_json TEXT NOT NULL, fingerprint TEXT NOT NULL, created_at TEXT NOT NULL);' +
       'CREATE INDEX IF NOT EXISTS idx_prompt_revisions_created ON prompt_revisions(created_at DESC);' +
+      'CREATE TABLE IF NOT EXISTS literary_memory_revisions (' +
+      'memory_revision_id TEXT PRIMARY KEY, version INTEGER NOT NULL, memory_json TEXT NOT NULL, fingerprint TEXT NOT NULL, created_at TEXT NOT NULL);' +
+      'CREATE INDEX IF NOT EXISTS idx_literary_memory_created ON literary_memory_revisions(created_at DESC);' +
       'CREATE TABLE IF NOT EXISTS translation_runs (' +
-      'run_id TEXT PRIMARY KEY, source_revision_id TEXT NOT NULL, prompt_revision_id TEXT NOT NULL, status TEXT NOT NULL, ' +
+      'run_id TEXT PRIMARY KEY, source_revision_id TEXT NOT NULL, prompt_revision_id TEXT NOT NULL, literary_memory_revision_id TEXT, status TEXT NOT NULL, '+
       'scope_json TEXT NOT NULL, run_fingerprint TEXT NOT NULL, provider TEXT NOT NULL, model TEXT NOT NULL, source_lang TEXT NOT NULL, ' +
       'target_lang TEXT NOT NULL, translation_mode TEXT NOT NULL, review_enabled INTEGER NOT NULL, parent_run_id TEXT, ' +
       'created_at TEXT NOT NULL, started_at TEXT, finished_at TEXT, error TEXT);' +
@@ -208,6 +212,11 @@ export class DocumentProjectStore {
       'CREATE INDEX IF NOT EXISTS idx_project_events_run ON project_events(run_id, event_id);'
     );
     // Add columns safely for project DBs created by earlier iterations of this feature.
+    // SQLite 项目可能早于独立文学记忆版本表创建；增量迁移不能丢旧的 Run / Prompt / 译文。
+    const runColumns = new Set(
+      (db.prepare('PRAGMA table_info(translation_runs)').all() as Array<{ name: string }>).map((column) => column.name),
+    );
+    if (!runColumns.has('literary_memory_revision_id')) db.exec('ALTER TABLE translation_runs ADD COLUMN literary_memory_revision_id TEXT');
     const translationColumns = new Set(
       (db.prepare('PRAGMA table_info(translation_results)').all() as Array<{ name: string }>).map((column) => column.name),
     );
@@ -337,6 +346,7 @@ export class DocumentProjectStore {
       literaryReview: Boolean(prompt.literaryReview),
       glossary: prompt.glossary,
     });
+    if (prompt.literaryMemory !== undefined) this.saveLiteraryMemory(projectId, prompt.literaryMemory);
     this.catalogDb().prepare(
       'INSERT INTO document_projects(project_id, title, format, source_file_name, source_fingerprint, db_path, created_at, updated_at, archived) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)'
     ).run(projectId, title, format, fileName, revision.fingerprint, filePath, now, now);
@@ -417,7 +427,7 @@ export class DocumentProjectStore {
       translationMode: prompt.translationMode === 'literary' ? 'literary' : 'technical',
       literaryReview: Boolean(prompt.literaryReview),
       glossary: prompt.glossary ?? null,
-      literaryMemory: prompt.literaryMemory ?? null,
+      // 动态书籍记忆存入独立 literary_memory_revisions，不参与静态 Prompt fingerprint。
     };
     const systemPrompt = String(prompt.systemPrompt || DEFAULT_SYSTEM_PROMPT).slice(0, 50000);
     const userPromptTemplate = String(prompt.userPromptTemplate || '').slice(0, 30000);
@@ -433,9 +443,58 @@ export class DocumentProjectStore {
 
   savePrompt(projectId: string, prompt: ProjectPrompt & { name?: string }): any {
     const result = this.savePromptRevision(projectId, prompt);
+    if (prompt.literaryMemory !== undefined) this.saveLiteraryMemory(projectId, prompt.literaryMemory);
     this.catalogDb().prepare('UPDATE document_projects SET updated_at = ? WHERE project_id = ?').run(isoNow(), projectId);
     this.addEvent(projectId, null, 'prompt.saved', { promptRevisionId: result.prompt_revision_id, fingerprint: result.fingerprint });
     return this.publicPrompt(result);
+  }
+
+  /**
+   * 文学记忆是独立的不可变业务资产，不应混进 Prompt fingerprint。
+   * 角色画像按证据与状态维护；每个 Run 固定引用一个 memory revision，方便复现。
+   */
+  saveLiteraryMemory(projectId: string, input: unknown): any {
+    const db = this.openProjectDb(projectId);
+    const memory = sanitizeProjectLiteraryMemory(input);
+    const memoryJson = JSON.stringify(memory);
+    const fingerprint = hash(memoryJson);
+    const existing = db.prepare('SELECT * FROM literary_memory_revisions WHERE fingerprint = ? ORDER BY created_at DESC LIMIT 1').get(fingerprint) as any;
+    if (existing) {
+      this.projectMeta(db, 'current_literary_memory_revision_id', existing.memory_revision_id);
+      return { memoryRevisionId: existing.memory_revision_id, fingerprint: existing.fingerprint, version: existing.version, createdAt: existing.created_at };
+    }
+    const memoryRevisionId = randomUUID();
+    const createdAt = isoNow();
+    db.prepare('INSERT INTO literary_memory_revisions(memory_revision_id, version, memory_json, fingerprint, created_at) VALUES (?, ?, ?, ?, ?)')
+      .run(memoryRevisionId, 2, memoryJson, fingerprint, createdAt);
+    this.projectMeta(db, 'current_literary_memory_revision_id', memoryRevisionId);
+    this.addEvent(projectId, null, 'literary-memory.saved', { memoryRevisionId, fingerprint, characterCount: memory.characterVoices.length, relationshipVoiceRuleCount: memory.relationshipVoiceRules.length, voiceAnchorCount: memory.voiceAnchors.length });
+    return { memoryRevisionId, fingerprint, version: 2, createdAt };
+  }
+
+  getCurrentLiteraryMemory(projectId: string): any {
+    const db = this.openProjectDb(projectId);
+    let revisionId = db.prepare('SELECT value FROM project_meta WHERE key = ?').get('current_literary_memory_revision_id') as { value?: string } | undefined;
+    // 兼容早期 Project API：历史 Prompt 把整本书的记忆放在 config_json 内。首次读取时迁移一次。
+    if (!revisionId?.value) {
+      const prompt = db.prepare('SELECT * FROM prompt_revisions ORDER BY created_at DESC LIMIT 1').get() as any;
+      const oldConfig = prompt ? parseJson<any>(prompt.config_json, {}) : {};
+      if (oldConfig.literaryMemory) {
+        const saved = this.saveLiteraryMemory(projectId, oldConfig.literaryMemory);
+        revisionId = { value: saved.memoryRevisionId };
+      }
+    }
+    if (!revisionId?.value) {
+      return { memoryRevisionId: null, fingerprint: null, memory: sanitizeProjectLiteraryMemory({}) };
+    }
+    const row = db.prepare('SELECT * FROM literary_memory_revisions WHERE memory_revision_id = ?').get(revisionId.value) as any;
+    if (!row) return { memoryRevisionId: null, fingerprint: null, memory: sanitizeProjectLiteraryMemory({}) };
+    return { memoryRevisionId: row.memory_revision_id, fingerprint: row.fingerprint, memory: parseJson(row.memory_json, sanitizeProjectLiteraryMemory({})), createdAt: row.created_at };
+  }
+
+  listLiteraryMemoryRevisions(projectId: string): any[] {
+    return (this.openProjectDb(projectId).prepare('SELECT memory_revision_id, version, fingerprint, created_at FROM literary_memory_revisions ORDER BY created_at DESC LIMIT 100').all() as any[])
+      .map((row) => ({ memoryRevisionId: row.memory_revision_id, version: row.version, fingerprint: row.fingerprint, createdAt: row.created_at }));
   }
 
   private publicPrompt(row: any): any {
@@ -479,6 +538,9 @@ export class DocumentProjectStore {
         ? db.prepare('SELECT * FROM prompt_revisions WHERE prompt_revision_id = ?').get(input.promptRevisionId)
         : db.prepare('SELECT * FROM prompt_revisions ORDER BY created_at DESC LIMIT 1').get();
     if (!promptRow) throw Object.assign(new Error('找不到指定 Prompt 版本'), { status: 404 });
+    if (input.prompt?.literaryMemory !== undefined) this.saveLiteraryMemory(projectId, input.prompt.literaryMemory);
+    const currentMemory = this.getCurrentLiteraryMemory(projectId);
+    const literaryMemoryRevisionId = currentMemory.memoryRevisionId as string | null;
     const config = parseJson<any>(promptRow.config_json, {});
     const scope = input.scope || { type: 'stale' };
     const scopeType = scope.type || 'stale';
@@ -517,8 +579,8 @@ export class DocumentProjectStore {
       if (inFlight?.run_id) {
         throw Object.assign(new Error('当前文档已有运行中的翻译任务：' + inFlight.run_id), { status: 409 });
       }
-      db.prepare('INSERT INTO translation_runs(run_id, source_revision_id, prompt_revision_id, status, scope_json, run_fingerprint, provider, model, source_lang, target_lang, translation_mode, review_enabled, parent_run_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
-        .run(runId, sourceRevisionId, promptRow.prompt_revision_id, selected.length ? 'queued' : 'completed', JSON.stringify({ ...scope, type: scopeType }), runFingerprint,
+      db.prepare('INSERT INTO translation_runs(run_id, source_revision_id, prompt_revision_id, literary_memory_revision_id, status, scope_json, run_fingerprint, provider, model, source_lang, target_lang, translation_mode, review_enabled, parent_run_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+        .run(runId, sourceRevisionId, promptRow.prompt_revision_id, literaryMemoryRevisionId, selected.length ? 'queued' : 'completed', JSON.stringify({ ...scope, type: scopeType }), runFingerprint,
           config.provider || 'workbuddy', config.model || 'auto', config.sourceLang || 'auto', config.targetLang || 'zh',
           config.translationMode || 'technical', config.literaryReview ? 1 : 0, null, createdAt);
       const insert = db.prepare('INSERT INTO run_segments(run_id, segment_id, source_hash, status, attempts, candidate_result_id, error, updated_at) VALUES (?, ?, ?, ?, 0, NULL, NULL, ?)');
@@ -528,7 +590,7 @@ export class DocumentProjectStore {
       db.exec('ROLLBACK');
       throw error;
     }
-    this.addEvent(projectId, runId, 'run.planned', { scope: { ...scope, type: scopeType }, promptRevisionId: promptRow.prompt_revision_id, plannedSegments: selected.length, sourceRevisionId });
+    this.addEvent(projectId, runId, 'run.planned', { scope: { ...scope, type: scopeType }, promptRevisionId: promptRow.prompt_revision_id, literaryMemoryRevisionId, plannedSegments: selected.length, sourceRevisionId });
     this.catalogDb().prepare('UPDATE document_projects SET updated_at = ? WHERE project_id = ?').run(createdAt, projectId);
     return this.getRun(projectId, runId);
   }
@@ -622,10 +684,16 @@ export class DocumentProjectStore {
     const run = db.prepare('SELECT * FROM translation_runs WHERE run_id = ?').get(runId) as any;
     if (!run) throw Object.assign(new Error('找不到翻译运行：' + runId), { status: 404 });
     const prompt = db.prepare('SELECT * FROM prompt_revisions WHERE prompt_revision_id = ?').get(run.prompt_revision_id) as any;
+    const memoryRow = run.literary_memory_revision_id
+      ? db.prepare('SELECT * FROM literary_memory_revisions WHERE memory_revision_id = ?').get(run.literary_memory_revision_id) as any
+      : null;
     return {
       project,
+      memoryRevisionId: memoryRow?.memory_revision_id || null,
+      memory: memoryRow ? parseJson(memoryRow.memory_json, sanitizeProjectLiteraryMemory({})) : sanitizeProjectLiteraryMemory({}),
       run: {
         runId: run.run_id, sourceRevisionId: run.source_revision_id, promptRevisionId: run.prompt_revision_id,
+        literaryMemoryRevisionId: run.literary_memory_revision_id || null,
         status: run.status, scope: parseJson(run.scope_json, {}), runFingerprint: run.run_fingerprint,
         provider: run.provider, model: run.model, sourceLang: run.source_lang, targetLang: run.target_lang,
         translationMode: run.translation_mode, reviewEnabled: Boolean(run.review_enabled),
@@ -651,7 +719,7 @@ export class DocumentProjectStore {
     const counts = db.prepare('SELECT status, COUNT(*) AS count FROM run_segments WHERE run_id = ? GROUP BY status').all(row.run_id) as Array<{ status: string; count: number }>;
     const byStatus = Object.fromEntries(counts.map((entry) => [entry.status, Number(entry.count)]));
     const summary = {
-      runId: row.run_id, sourceRevisionId: row.source_revision_id, promptRevisionId: row.prompt_revision_id,
+      runId: row.run_id, sourceRevisionId: row.source_revision_id, promptRevisionId: row.prompt_revision_id, literaryMemoryRevisionId: row.literary_memory_revision_id || null,
       status: row.status as RunStatus, scope: parseJson(row.scope_json, {}), runFingerprint: row.run_fingerprint,
       provider: row.provider, model: row.model, sourceLang: row.source_lang, targetLang: row.target_lang,
       translationMode: row.translation_mode, reviewEnabled: Boolean(row.review_enabled), parentRunId: row.parent_run_id,
