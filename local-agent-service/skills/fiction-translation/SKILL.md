@@ -1,7 +1,7 @@
 ---
 name: fiction-translation
 description: Evidence-based literary translation with stable character voices, directional relationship speech rules, approved original-translation anchors, and independent reviewer checks.
-version: 1
+version: 2
 ---
 
 # Fiction Translation Workflow
@@ -23,15 +23,15 @@ Use this skill only for literary documents (novels, stories, memoir, dialogue-he
 - `characterVoices`: stable `characterId`, canonical source name, aliases, status, voiceCore, contrastRules, evidence, openQuestions.
 - `relationshipVoiceRules`: directional speaker → addressee, address terms, baseline register, directness, emotional distance, scene-dependent shifts, source evidence IDs.
 - `voiceAnchors`: short original/accepted-translation pairs tied to a real segment and speaker. Only `status=approved` anchors enter normal translation context.
-- All generated records start as `candidate`. Confirmation requires valid evidence IDs/source quotes; anchors require the quote to match the stored source segment and the speaker profile to be confirmed.
+- All generated records start as `candidate`. A voice profile requires at least one source quote that matches its referenced segment. A voice anchor additionally requires `attributionEvidence` to match the same source segment and `attributionConfidence >= 0.7`; approval also requires a confirmed speaker profile and an anchor target that occurs in the current accepted translation for that segment. The Project Store revalidates these conditions server-side.
 - Merge is conservative: user-confirmed voice cores and user-approved/rejected states survive future analysis. Conflicting new observations create an open question instead of silently changing the profile.
 - Keep memory as an independent immutable revision, not a growing static Prompt. Each Run references the exact memory revision used.
 
 ## Output and caching
 
-- Put voice data into an explicit read-only user-data field named `voiceContext`; never concatenate it into `contextPath`.
+- Put voice data into an explicit read-only user-data field named `voiceContext`; never concatenate it into `contextPath`. For dialogue/coreference disambiguation, pass at most four preceding source segments in a separate read-only `precedingSegments` field; do not ask the model to translate or return IDs for them.
 - Bound by removing lower-priority complete records, not by slicing serialized JSON.
-- Include the voice-context/policy hash in the literary translation cache key, including caller-supplied keys. Keep non-literary/web cache keys unchanged.
+- Include the voice-context and preceding-context/policy hash in the literary translation cache key, including caller-supplied keys. The current policy version is `character-voice-v2`. Keep non-literary/web cache keys unchanged.
 - Record policy version and memory revision with each run. Never reuse a candidate produced with a different source hash, static Prompt, or voice context when deciding whether a result is current.
 
 ## Review checklist
