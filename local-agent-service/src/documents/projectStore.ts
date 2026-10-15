@@ -494,6 +494,7 @@ export class DocumentProjectStore {
       return { ...profile, evidence, status, openQuestions: Array.from(new Set(questions)).slice(0, 8) };
     });
     const characterIds = new Set(memory.characterVoices.map((profile: any) => profile.characterId));
+    const confirmedCharacterIds = new Set(memory.characterVoices.filter((profile: any) => profile.status === 'confirmed').map((profile: any) => profile.characterId));
     memory.characterVoices = memory.characterVoices.map((profile: any) => ({
       ...profile,
       contrastRules: profile.contrastRules.flatMap((rule: any) => {
@@ -505,7 +506,7 @@ export class DocumentProjectStore {
     memory.relationshipVoiceRules = memory.relationshipVoiceRules.flatMap((rule: any) => {
       const evidenceSegmentIds = rule.evidenceSegmentIds.filter((id: string) => sources.has(id));
       const status = rule.status === 'rejected' ? 'rejected'
-        : rule.status === 'confirmed' && evidenceSegmentIds.length ? 'confirmed' : 'candidate';
+        : rule.status === 'confirmed' && evidenceSegmentIds.length && confirmedCharacterIds.has(rule.speakerId) && confirmedCharacterIds.has(rule.addresseeId) ? 'confirmed' : 'candidate';
       return characterIds.has(rule.speakerId) && characterIds.has(rule.addresseeId) && evidenceSegmentIds.length
         ? [{ ...rule, evidenceSegmentIds, status }] : [];
     });
@@ -563,7 +564,21 @@ export class DocumentProjectStore {
     }
     const row = db.prepare('SELECT * FROM literary_memory_revisions WHERE memory_revision_id = ?').get(revisionId.value) as any;
     if (!row) return { memoryRevisionId: null, fingerprint: null, memory: sanitizeProjectLiteraryMemory({}) };
-    return { memoryRevisionId: row.memory_revision_id, fingerprint: row.fingerprint, memory: parseJson(row.memory_json, sanitizeProjectLiteraryMemory({})), createdAt: row.created_at };
+    const stored = parseJson(row.memory_json, sanitizeProjectLiteraryMemory({}));
+    const validated = this.validateLiteraryMemoryAgainstProject(projectId, stored);
+    const validatedFingerprint = hash(JSON.stringify(validated));
+    if (validatedFingerprint !== row.fingerprint) {
+      // 旧版本写入的未核验画像/锚点在首次读取时产生一个兼容的新 revision，不修改任何历史 Run 引用的快照。
+      const saved = this.saveLiteraryMemory(projectId, validated);
+      const upgraded = db.prepare('SELECT * FROM literary_memory_revisions WHERE memory_revision_id = ?').get(saved.memoryRevisionId) as any;
+      return {
+        memoryRevisionId: upgraded.memory_revision_id,
+        fingerprint: upgraded.fingerprint,
+        memory: parseJson(upgraded.memory_json, sanitizeProjectLiteraryMemory({})),
+        createdAt: upgraded.created_at,
+      };
+    }
+    return { memoryRevisionId: row.memory_revision_id, fingerprint: row.fingerprint, memory: validated, createdAt: row.created_at };
   }
 
   listLiteraryMemoryRevisions(projectId: string): any[] {
