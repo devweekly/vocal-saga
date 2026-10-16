@@ -175,6 +175,37 @@ function htmlBlocks(html: string): Array<{ text: string; kind: string; level?: n
   return blocks;
 }
 
+/** Keep long no-blank-line input and unusually large EPUB/DOCX paragraphs within batch limits. */
+function splitLongText(value: string, maxChars = 1800): string[] {
+  let remaining = value.trim();
+  const chunks: string[] = [];
+  while (remaining.length > maxChars) {
+    const window = remaining.slice(0, maxChars + 1);
+    let cut = -1;
+    const punctuation = /[.!?。！？…;；](?:["'”’」』）)]*)/gu;
+    for (const match of window.matchAll(punctuation)) {
+      const end = match.index! + match[0].length;
+      if (end >= Math.floor(maxChars * 0.55) && end <= maxChars) cut = end;
+    }
+    if (cut < 0) {
+      const whitespace = window.lastIndexOf(' ');
+      if (whitespace >= Math.floor(maxChars * 0.75)) cut = whitespace;
+    }
+    if (cut < 1) cut = maxChars;
+    // Never separate a UTF-16 surrogate pair at a hard boundary.
+    if (cut < remaining.length) {
+      const before = remaining.charCodeAt(cut - 1);
+      const after = remaining.charCodeAt(cut);
+      if (before >= 0xd800 && before <= 0xdbff && after >= 0xdc00 && after <= 0xdfff) cut--;
+    }
+    const chunk = remaining.slice(0, cut).trim();
+    if (chunk) chunks.push(chunk);
+    remaining = remaining.slice(cut).trim();
+  }
+  if (remaining) chunks.push(remaining);
+  return chunks;
+}
+
 function stableId(prefix: string, index: number): string {
   const safe = prefix.replace(/[^A-Za-z0-9_-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 70) || 'section';
   return safe + '-' + String(index + 1).padStart(5, '0');
@@ -213,13 +244,16 @@ function appendTextSegments(
   let ordinal = segments.length;
   for (const block of blocks) {
     if (block.kind === 'heading') chapter = block.text.slice(0, 160);
-    segments.push({
-      id: stableId(sourcePath || format, ordinal++),
-      text: block.text,
-      kind: block.kind,
-      contextPath: chapter,
-      ...(block.level ? { level: block.level } : {}),
-      ...(sourcePath ? { path: sourcePath } : {}),
+    const chunks = splitLongText(block.text);
+    chunks.forEach((chunk, chunkIndex) => {
+      segments.push({
+        id: stableId(sourcePath || format, ordinal++),
+        text: chunk,
+        kind: chunkIndex === 0 ? block.kind : 'paragraph',
+        contextPath: chapter,
+        ...(chunkIndex === 0 && block.level ? { level: block.level } : {}),
+        ...(sourcePath ? { path: sourcePath } : {}),
+      });
     });
     if (segments.length > MAX_SEGMENTS) fail('文档片段超过 20000 项上限；请拆分文档后分项目导入。', 413);
   }
@@ -249,13 +283,16 @@ function parseDocx(bytes: Buffer, fileName: string): ProjectSegment[] {
       /^第.{1,40}[章节回卷部篇幕]\s*.*$/.test(text) ||
       /^(chapter|part|prologue|epilogue)\b/i.test(text);
     if (heading) chapter = text.slice(0, 160);
-    segments.push({
-      id: stableId('docx', segments.length),
-      text,
-      kind: heading ? 'heading' : 'paragraph',
-      contextPath: chapter,
-      ...(heading ? { level: Number(style.match(/\d/)?.[0] || 1) } : {}),
-      path: 'word/document.xml',
+    const chunks = splitLongText(text);
+    chunks.forEach((chunk, chunkIndex) => {
+      segments.push({
+        id: stableId('docx', segments.length),
+        text: chunk,
+        kind: chunkIndex === 0 ? (heading ? 'heading' : 'paragraph') : 'paragraph',
+        contextPath: chapter,
+        ...(chunkIndex === 0 && heading ? { level: Number(style.match(/\d/)?.[0] || 1) } : {}),
+        path: 'word/document.xml',
+      });
     });
     if (segments.length > MAX_SEGMENTS) fail('文档片段超过 20000 项上限；请拆分文档后分项目导入。', 413);
   }
@@ -304,15 +341,18 @@ function parseEpub(bytes: Buffer, fileName: string): ProjectSegment[] {
         // path per spine document so chronology and chapter retrieval remain stable.
         if (block.text.length <= 160 && (localIndex === 0 || block.level === 1)) chapter = block.text;
       }
-      segments.push({
-        id: stableId(partPath, segments.length),
-        text: block.text,
-        kind: block.kind,
-        contextPath: chapter,
-        ...(block.level ? { level: block.level } : {}),
-        path: partPath,
+      const chunks = splitLongText(block.text);
+      chunks.forEach((chunk, chunkIndex) => {
+        segments.push({
+          id: stableId(partPath, segments.length),
+          text: chunk,
+          kind: chunkIndex === 0 ? block.kind : 'paragraph',
+          contextPath: chapter,
+          ...(chunkIndex === 0 && block.level ? { level: block.level } : {}),
+          path: partPath,
+        });
+        localIndex++;
       });
-      localIndex++;
       if (segments.length > MAX_SEGMENTS) fail('EPUB 正文片段超过 20000 项上限；请拆分 EPUB 后分项目导入。', 413);
     }
   }
