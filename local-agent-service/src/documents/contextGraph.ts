@@ -101,16 +101,21 @@ function hasQuote(source: string, quote: string): boolean {
   return quoteNorm.length >= 4 && sourceNorm.includes(quoteNorm);
 }
 
-function readSegments(projectId: string): { db: DatabaseSync; revisionId: string; segments: Segment[] } {
+function graphContext(projectId: string): { db: DatabaseSync; revisionId: string } {
   const context = getDocumentProjectStore().getProjectContext(projectId);
   ensureSchema(context.db);
+  return { db: context.db, revisionId: context.currentSourceRevisionId };
+}
+
+function readSegments(projectId: string): { db: DatabaseSync; revisionId: string; segments: Segment[] } {
+  const context = graphContext(projectId);
   const rows = context.db.prepare(
     'SELECT segment_id, ordinal, text, kind, context_path FROM source_segments ' +
     'WHERE source_revision_id = ? ORDER BY ordinal'
-  ).all(context.currentSourceRevisionId) as any[];
+  ).all(context.revisionId) as any[];
   return {
     db: context.db,
-    revisionId: context.currentSourceRevisionId,
+    revisionId: context.revisionId,
     segments: rows.map((row) => ({
       id: String(row.segment_id), ordinal: Number(row.ordinal), text: String(row.text),
       kind: String(row.kind || 'paragraph'), contextPath: String(row.context_path || ''),
@@ -444,7 +449,9 @@ async function runAnalysis(projectId: string, runId: string): Promise<void> {
 }
 
 export function startContextGraphAnalysis(projectId: string): { accepted: boolean; alreadyRunning: boolean; runId: string } {
-  const { db, revisionId } = readSegments(projectId);
+  const { db, revisionId } = graphContext(projectId);
+  const segmentCount = Number((db.prepare('SELECT COUNT(*) AS count FROM source_segments WHERE source_revision_id = ?').get(revisionId) as any)?.count || 0);
+  if (!segmentCount) throw Object.assign(new Error('当前来源版本没有可分析的文档片段。'), { status: 409 });
   const existing = db.prepare(
     'SELECT run_id FROM context_graph_runs WHERE source_revision_id = ? AND status IN (\'queued\', \'running\') ORDER BY started_at DESC LIMIT 1'
   ).get(revisionId) as { run_id?: string } | undefined;
@@ -472,7 +479,8 @@ export function startContextGraphAnalysis(projectId: string): { accepted: boolea
 }
 
 export function getContextGraph(projectId: string): Record<string, unknown> {
-  const { db, revisionId, segments } = readSegments(projectId);
+  const { db, revisionId } = graphContext(projectId);
+  const segmentCount = Number((db.prepare('SELECT COUNT(*) AS count FROM source_segments WHERE source_revision_id = ?').get(revisionId) as any)?.count || 0);
   const nodes = db.prepare('SELECT * FROM context_graph_nodes WHERE source_revision_id = ? ORDER BY kind, name LIMIT 500').all(revisionId) as any[];
   const edges = db.prepare('SELECT * FROM context_graph_edges WHERE source_revision_id = ? ORDER BY kind LIMIT 800').all(revisionId) as any[];
   const runs = db.prepare('SELECT * FROM context_graph_runs WHERE source_revision_id = ? ORDER BY started_at DESC LIMIT 10').all(revisionId) as any[];
@@ -496,7 +504,7 @@ export function getContextGraph(projectId: string): Record<string, unknown> {
   }));
   return {
     sourceRevisionId: revisionId,
-    segmentCount: segments.length,
+    segmentCount,
     overview: {
       bookSummary: getMeta(db, revisionId, 'bookSummary'),
       narrativeStyle: getMeta(db, revisionId, 'narrativeStyle'),
@@ -534,7 +542,7 @@ export function reviewContextGraphItem(
   status: 'candidate' | 'confirmed' | 'rejected',
 ): Record<string, unknown> {
   if (!['candidate', 'confirmed', 'rejected'].includes(status)) throw Object.assign(new Error('Context Graph 状态无效。'), { status: 400 });
-  const { db, revisionId } = readSegments(projectId);
+  const { db, revisionId } = graphContext(projectId);
   const table = type === 'node' ? 'context_graph_nodes' : 'context_graph_edges';
   const key = type === 'node' ? 'node_id' : 'edge_id';
   const row = db.prepare('SELECT status FROM ' + table + ' WHERE ' + key + ' = ? AND source_revision_id = ?').get(id, revisionId) as { status?: string } | undefined;
@@ -555,8 +563,7 @@ export function buildProjectContextGraphBundle(
   items: Array<{ id: string; text: string; contextPath?: string }>,
   precedingSegments: Array<{ id: string; text: string; contextPath?: string }> = [],
 ): Record<string, unknown> | null {
-  const { db, revisionId } = readSegments(projectId);
-  ensureSchema(db);
+  const { db, revisionId } = graphContext(projectId);
   const sourceText = [...precedingSegments.slice(-4), ...items].map((item) => item.text).join('\n');
   const normalizedSource = normalize(sourceText);
   if (!normalizedSource) return null;
