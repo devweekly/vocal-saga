@@ -527,6 +527,9 @@ async function executeRun(projectId: string, runId: string): Promise<void> {
           accuracyFindingCount: review.findings.filter((item: any) => item.category === 'accuracy').length,
           terminologyFindingCount: review.findings.filter((item: any) => item.category === 'terminology').length,
           revisedCount,
+          promptChars: review.promptChars,
+          contextChars: review.contextChars,
+          translationBriefHash: review.translationBriefHash || translationBrief?.contextHash || null,
           durationMs: Date.now() - reviewStartedAt,
         });
 
@@ -572,6 +575,9 @@ async function executeRun(projectId: string, runId: string): Promise<void> {
                 reviewedIds: styleReview.reviewedIds,
                 styleFindingCount: styleReview.findings.filter((item: any) => item.category === 'style').length,
                 proposedStyleTranslations: styleReview.findings.filter((item: any) => item.category === 'style' && item.proposedTranslation).length,
+                promptChars: styleReview.promptChars,
+                contextChars: styleReview.contextChars,
+                translationBriefHash: styleReview.translationBriefHash || translationBrief?.contextHash || null,
                 durationMs: Date.now() - styleStartedAt,
               });
             }
