@@ -504,8 +504,9 @@ export function createProjectQualityEvaluation(projectId: string, beforeRunId: s
   const sourceById = new Map(segmentsRows.map((row) => [String(row.id), row]));
   const candidateIds = before.metrics.segmentIds.filter((id: string) =>
     before.translations.get(id) !== after.translations.get(id));
-  const prioritized = candidateIds.length ? candidateIds : Array.from(beforeIds);
+  const prioritized = candidateIds;
   const maxBlindItems = 40;
+  const maxSamples = Math.min(maxBlindItems, prioritized.length);
   const byChapter = new Map<string, string[]>();
   for (const id of prioritized) {
     const segment = sourceById.get(id);
@@ -515,33 +516,38 @@ export function createProjectQualityEvaluation(projectId: string, beforeRunId: s
     list.push(id);
     byChapter.set(chapter, list);
   }
+  const chapterEntries = Array.from(byChapter.entries());
   const selected = new Set<string>();
-  for (const ids of byChapter.values()) {
-    if (selected.size >= maxBlindItems) break;
-    selected.add(ids[0]!);
+  // Reserve one sample per evenly spaced chapter first, then use evenly spaced remaining
+  // changed segments. This prevents long novels from sampling only the first 40 chapters.
+  const chapterSlots = Math.min(maxSamples, chapterEntries.length);
+  for (let i = 0; i < chapterSlots; i++) {
+    const chapterIndex = Math.floor(i * chapterEntries.length / chapterSlots);
+    const representative = chapterEntries[chapterIndex]?.[1]?.[0];
+    if (representative) selected.add(representative);
   }
-  if (prioritized.length <= maxBlindItems) {
-    for (const id of prioritized) selected.add(id);
-  } else {
-    for (let i = 0; i < maxBlindItems && selected.size < maxBlindItems; i++) {
-      selected.add(prioritized[Math.floor(i * prioritized.length / maxBlindItems)]!);
-    }
+  const remainingIds = prioritized.filter((id: string) => !selected.has(id));
+  while (selected.size < maxSamples && remainingIds.length) {
+    const slots = maxSamples - selected.size;
+    const index = Math.min(remainingIds.length - 1, Math.floor((remainingIds.length - 1) / 2));
+    selected.add(remainingIds.splice(index, 1)[0]!);
+    // Recompute the center each time to avoid a front-loaded sample after chapter coverage.
+    if (slots <= 1) break;
   }
-  const swap = randomInt(2) === 1;
-  const blindMapping = {
-    A: swap ? 'after' : 'before',
-    B: swap ? 'before' : 'after',
-  };
+  const blindMapping: Record<string, { A: 'before' | 'after'; B: 'before' | 'after' }> = {};
   const blindPacket = Array.from(selected).map((id) => {
     const source = sourceById.get(id)!;
     const beforeText = before.translations.get(id) || '';
     const afterText = after.translations.get(id) || '';
+    const swap = randomInt(2) === 1;
+    const mapping = { A: swap ? 'after' as const : 'before' as const, B: swap ? 'before' as const : 'after' as const };
+    blindMapping[id] = mapping;
     return {
       segmentId: id,
       chapter: String(source.contextPath || ''),
       source: String(source.text || ''),
-      variantA: blindMapping.A === 'before' ? beforeText : afterText,
-      variantB: blindMapping.B === 'before' ? beforeText : afterText,
+      variantA: mapping.A === 'before' ? beforeText : afterText,
+      variantB: mapping.B === 'before' ? beforeText : afterText,
     };
   });
   const metricKeys = [
