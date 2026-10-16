@@ -395,6 +395,7 @@ export function buildTranslationBrief(
   const sourceRevisionId = String(context?.run?.sourceRevisionId || '');
   const promptRevisionId = String(context?.run?.promptRevisionId || '');
   const memoryRevisionId = typeof context?.memoryRevisionId === 'string' ? context.memoryRevisionId : null;
+  const glossary = filterGlossaryForBatch(context, items);
   const temporalMemory = context?.run?.translationMode === 'literary'
     ? buildTemporallyVisibleMemory(context, items, precedingSegments)
     : {};
@@ -433,6 +434,7 @@ export function buildTranslationBrief(
     memoryRevisionId,
     sourceSegmentIds: items.map((item) => item.id),
     chapterPath,
+    glossary,
     precedingSegments: precedingSegments.slice(-4).map((item) => ({
       id: item.id,
       text: String(item.text || '').slice(-900),
@@ -454,6 +456,7 @@ export function buildTranslationBrief(
       version: 1,
       policyVersion: TRANSLATION_BRIEF_POLICY_VERSION,
       chapterSummaries: [],
+      glossary: { document_terms: [] },
       entities: [],
       relationships: [],
       characterVoices: [],
@@ -493,6 +496,7 @@ export function summarizeTranslationBrief(brief: TranslationBrief): Record<strin
     graphEntities: count(graph?.entities),
     graphRelationships: count(graph?.relationships),
     graphChapterSummaries: count(graph?.chapterSummaries),
+    glossaryTerms: count((brief.glossary as any)?.document_terms),
     voiceEntities: count(voice?.entities),
     voiceRelationships: count(voice?.relationships),
     characterVoices: count(voice?.characterVoices),
