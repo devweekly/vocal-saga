@@ -284,7 +284,7 @@ function nameMap(nodes: Array<{ id: string; name: string; aliases: string[]; kin
 
 function graphAnalysisPrompt(projectTitle: string, format: string, samples: Segment[], chapters: Array<{ key: string; title: string; order: number; segments: Segment[] }>, scan: BookScanResult, sampleReasons: Map<string, string[]>): string {
   const chosenChapters = new Set(samples.map((segment) => segment.contextPath));
-  const chapterList = chapters.filter((chapter) => chosenChapters.has(chapter.key)).slice(0, 24)
+  const chapterList = chapters.filter((chapter) => chosenChapters.has(chapter.key))
     .map((chapter) => ({ chapter: chapter.title, order: chapter.order }));
   const sampleIds = new Set(samples.map((segment) => segment.id));
   const scanHints = {
