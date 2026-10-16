@@ -61,7 +61,7 @@ export async function runDocumentCli(argv = process.argv.slice(2)): Promise<void
     const titleArg = args.find((item) => item.startsWith('--title='))?.slice('--title='.length);
     const title = titleArg?.trim() || parsed.title;
     const project = store.createProject({
-      title, format: parsed.format, sourceFileName: fileName, segments: parsed.segments,
+      title, format: parsed.format, sourceFileName: fileName, segments: parsed.segments, prompt: { translationMode: 'literary' },
     });
     let sourceFile: unknown;
     try {
