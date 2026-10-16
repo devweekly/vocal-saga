@@ -304,18 +304,35 @@ export function planBookSamples(
       add(byId.get(phrase.segmentIds[phrase.segmentIds.length - 1] || ''), 'repeated-phrase:last', phrasePhaseLimit);
     }
 
-    const dialogueCandidates = segments
-      .filter(isDialogueSegment)
-      .sort((a, b) => {
-        const chapterA = chapterTitle(a);
-        const chapterB = chapterTitle(b);
-        if (chapterA !== chapterB) return chapterA.localeCompare(chapterB);
-        return b.text.length - a.text.length || a.ordinal - b.ordinal;
-      });
     const dialogueLimit = Math.min(limit, MAX_SAMPLES);
-    for (const segment of dialogueCandidates) {
-      if (picked.size >= dialogueLimit) break;
-      add(segment, 'dialogue-density:' + chapterTitle(segment), dialogueLimit);
+    const dialogueByChapter = new Map<string, Array<{ segment: BookScanSegment; score: number }>>();
+    for (const segment of segments) {
+      if (!isDialogueSegment(segment)) continue;
+      const quoteCount = (segment.text.match(/[“”"'‘’「」『』]/g) || []).length;
+      const score = Math.min(10, quoteCount) +
+        (SPEECH_VERBS.test(segment.text) ? 2 : 0) +
+        (/(?:^|\s)[—–]\s*\p{Lu}/u.test(segment.text) ? 2 : 0);
+      const key = chapterTitle(segment);
+      const group = dialogueByChapter.get(key) || [];
+      group.push({ segment, score });
+      dialogueByChapter.set(key, group);
+    }
+    for (const group of dialogueByChapter.values()) {
+      group.sort((a, b) => b.score - a.score || a.segment.ordinal - b.segment.ordinal);
+    }
+    // Round-robin by chapter order: do not let lexical chapter names or one dialogue-heavy
+    // chapter consume all supplemental dialogue slots before later chapters are represented.
+    const orderedDialogueGroups = scan.chapters
+      .map((chapter) => dialogueByChapter.get(chapter.key) || [])
+      .filter((group) => group.length > 0);
+    let dialogueRank = 0;
+    while (picked.size < dialogueLimit && orderedDialogueGroups.some((group) => group.length > dialogueRank)) {
+      for (const group of orderedDialogueGroups) {
+        const entry = group[dialogueRank];
+        if (!entry || picked.size >= dialogueLimit) continue;
+        add(entry.segment, 'dialogue-density:' + chapterTitle(entry.segment), dialogueLimit);
+      }
+      dialogueRank++;
     }
 
     // A final spread pass avoids spending all remaining slots in a handful of adjacent chapters.
