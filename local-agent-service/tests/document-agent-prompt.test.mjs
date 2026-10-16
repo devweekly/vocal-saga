@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { buildUserPrompt } from '../src/documents/translationAgent.ts';
+import { buildProjectVoiceContext } from '../src/documents/voiceContext.ts';
 
 test('literary Project Agent separates preceding context from translatable segments', () => {
   const memory = {
@@ -8,7 +9,13 @@ test('literary Project Agent separates preceding context from translatable segme
     entities: [],
     relationships: [],
     styleGuide: { narrativeVoice: '克制的第三人称' },
-    chapterSummaries: [],
+    chapterSummaries: [
+      { chapter: 'Chapter 1', summary: 'Alice arrives at the estate.' },
+      { chapter: 'Chapter 2', summary: 'Bob conceals an important letter.' },
+      { chapter: 'Chapter 3', summary: 'Alice and Bob agree to speak honestly.' },
+      { chapter: 'Chapter 4', summary: 'Alice confronts Bob about the letter.' },
+      { chapter: 'Chapter 5', summary: 'A later event that should not leak into Chapter 4.' },
+    ],
     recentExamples: [],
     characterVoices: [
       {
@@ -59,6 +66,53 @@ test('literary Project Agent separates preceding context from translatable segme
     'preceding source provides disambiguation only and must not become a translation output ID');
   assert.deepEqual(payload.voiceContext.characterVoices.map((profile) => profile.characterId), ['char-alice', 'char-bob']);
   assert.deepEqual(payload.voiceContext.voiceAnchors.map((anchor) => anchor.anchorId), ['alice-cross-chapter']);
+  assert.deepEqual(
+    payload.voiceContext.chapterSummaries.map((item) => item.chapter),
+    ['Chapter 2', 'Chapter 3', 'Chapter 4'],
+    'literary translation receives the current and preceding chapter summaries, but not future chapters',
+  );
+  assert.equal(payload.voiceContext.policyVersion, 'character-voice-v3');
+});
+
+
+test('literary context matches Latin character names as words, not accidental substrings', () => {
+  const profile = (characterId, canonicalSourceName, targetName) => ({
+    characterId, canonicalSourceName, targetName, aliases: [], status: 'confirmed', confidence: 0.9,
+    voiceCore: { register: 'measured' }, contrastRules: [],
+    evidence: [{
+      segmentId: 'evidence-1', sourceQuote: canonicalSourceName + ' spoke',
+      dimension: 'register', observation: 'observable speech pattern', confidence: 0.9,
+    }],
+    openQuestions: [],
+  });
+  const memory = {
+    entities: [
+      { source: 'Ann', target: '安', kind: 'person', aliases: [] },
+      { source: 'Alice', target: '艾丽丝', kind: 'person', aliases: ['A.'] },
+    ],
+    relationships: [
+      { subject: 'A.', predicate: 'trusts', object: 'Ann', reviewStatus: 'confirmed' },
+    ],
+    styleGuide: {},
+    chapterSummaries: [],
+    recentExamples: [],
+    characterVoices: [
+      profile('char-ann', 'Ann', '安'),
+      profile('char-alice', 'Alice', '艾丽丝'),
+    ],
+    relationshipVoiceRules: [],
+    voiceAnchors: [],
+  };
+  const context = buildProjectVoiceContext(
+    memory,
+    [{ id: 'current', text: 'The annual report says Alice left. Annabelle stayed.' }],
+    'Chapter 1',
+  );
+
+  assert.deepEqual(context.characterVoices.map((item) => item.characterId), ['char-alice']);
+  assert.deepEqual(context.entities.map((item) => item.source), ['Alice']);
+  assert.deepEqual(context.relationships, [],
+    'relationship memory should not be injected just because an unrelated name is a substring');
 });
 
 test('document batch sessions isolate runs, roles, and batch indices while remaining stable across retries', async () => {
