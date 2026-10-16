@@ -232,21 +232,19 @@ function segmentsFromBlocks(
   let ordinal = startOrdinal;
 
   for (const block of blocks) {
-    if (hasHeadings) {
-      if (block.kind === 'heading') chapter = block.text.slice(0, 160);
-    } else if (autoPartition) {
-      if (groupBlocks > 0 && (groupBlocks >= 40 || groupChars + block.text.length > 20_000)) {
-        autoChapter++;
-        groupBlocks = 0;
-        groupChars = 0;
-      }
-      chapter = '自动分段 ' + String(autoChapter).padStart(2, '0');
-      groupBlocks++;
-      groupChars += block.text.length;
-    }
-
+    if (hasHeadings && block.kind === 'heading') chapter = block.text.slice(0, 160);
     const chunks = splitLongText(block.text);
     chunks.forEach((chunk, chunkIndex) => {
+      if (!hasHeadings && autoPartition) {
+        if (groupBlocks > 0 && (groupBlocks >= 40 || groupChars + chunk.length > 20_000)) {
+          autoChapter++;
+          groupBlocks = 0;
+          groupChars = 0;
+        }
+        chapter = '自动分段 ' + String(autoChapter).padStart(2, '0');
+        groupBlocks++;
+        groupChars += chunk.length;
+      }
       result.push({
         id: stableId(idPrefix || sourcePath || format, ordinal++),
         text: chunk,
