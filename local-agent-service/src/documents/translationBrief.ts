@@ -28,6 +28,7 @@ export interface TranslationBrief {
   memoryRevisionId: string | null;
   sourceSegmentIds: string[];
   chapterPath: string;
+  glossary: unknown;
   precedingSegments: Array<{ id: string; text: string; contextPath: string }>;
   contextGraph: Record<string, any> | null;
   voiceContext: Record<string, any>;
@@ -207,7 +208,7 @@ function buildTemporallyVisibleMemory(
 
 function serializedContext(brief: Pick<TranslationBrief,
   'policyVersion' | 'sourceRevisionId' | 'promptRevisionId' | 'memoryRevisionId' |
-  'sourceSegmentIds' | 'chapterPath' | 'precedingSegments' | 'contextGraph' | 'voiceContext'
+  'sourceSegmentIds' | 'chapterPath' | 'glossary' | 'precedingSegments' | 'contextGraph' | 'voiceContext'
 >): string {
   return JSON.stringify({
     policyVersion: brief.policyVersion,
@@ -216,6 +217,7 @@ function serializedContext(brief: Pick<TranslationBrief,
     memoryRevisionId: brief.memoryRevisionId,
     sourceSegmentIds: brief.sourceSegmentIds,
     chapterPath: brief.chapterPath,
+    glossary: brief.glossary,
     precedingSegments: brief.precedingSegments,
     contextGraph: brief.contextGraph,
     voiceContext: brief.voiceContext,
@@ -227,6 +229,11 @@ function removeLowestPriorityContext(brief: TranslationBrief): boolean {
   const graph = brief.contextGraph as any;
   if (Array.isArray(voice.recentExamples) && voice.recentExamples.length) {
     voice.recentExamples.pop();
+    return true;
+  }
+  const glossary = brief.glossary as any;
+  if (glossary && Array.isArray(glossary.document_terms) && glossary.document_terms.length) {
+    glossary.document_terms.pop();
     return true;
   }
   if (Array.isArray(voice.voiceAnchors) && voice.voiceAnchors.length) {
