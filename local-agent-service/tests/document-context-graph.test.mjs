@@ -42,9 +42,15 @@ test('retrieval injects matched graph records and excludes future chapter summar
   insertNode.run('node-bob', currentSourceRevisionId, 'character', 'Bob', 'bob',
     JSON.stringify({ aliases: [], role: 'companion', traits: [], voice: ['terse'] }),
     'candidate', now, now);
-  db.prepare(
+  insertNode.run('node-future', currentSourceRevisionId, 'entity', 'secret passage', 'secret passage',
+    JSON.stringify({ aliases: ['locked door'], entityKind: 'location', significance: 'future reveal', suggestedTranslation: '密道' }),
+    'confirmed', now, now);
+  const insertEvidence = db.prepare(
     'INSERT INTO context_graph_evidence(source_revision_id, node_id, edge_id, segment_id, quote, role, created_at) VALUES (?, ?, NULL, ?, ?, ?, ?)',
-  ).run(currentSourceRevisionId, 'node-alice', 'chapter-1-seg-1', 'Alice spoke politely', 'character', now);
+  );
+  insertEvidence.run(currentSourceRevisionId, 'node-alice', 'chapter-1-seg-1', 'Alice spoke politely', 'character', now);
+  insertEvidence.run(currentSourceRevisionId, 'node-bob', 'chapter-1-seg-1', 'Bob', 'character', now);
+  insertEvidence.run(currentSourceRevisionId, 'node-future', 'chapter-3-seg-1', 'secret passage', 'entity', now);
   const insertChapter = db.prepare(
     'INSERT INTO context_graph_chapters(source_revision_id, chapter_key, chapter_order, chapter_title, summary, summary_kind, segment_ids_json, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
   );
@@ -59,6 +65,8 @@ test('retrieval injects matched graph records and excludes future chapter summar
   assert.deepEqual(bundle.characters.map((item) => item.name).sort(), ['Alice', 'Bob']);
   assert.deepEqual(bundle.chapterSummaries.map((item) => item.chapter), ['Chapter 1', 'Chapter 2']);
   assert.ok(!JSON.stringify(bundle).includes('secret passage'));
+  assert.ok(!JSON.stringify(bundle).includes('future reveal'));
+  assert.ok(!JSON.stringify(bundle).includes('密道'));
 
   const graph = getContextGraph(project.projectId);
   const alice = graph.nodes.find((item) => item.id === 'node-alice');
