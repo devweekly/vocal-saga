@@ -252,13 +252,8 @@ export class WorkbuddySessionPool {
         '），会话已丢弃重建；请重试该批次',
       );
     }
-    console.info(
-      '[local-agent][' + requestId + '] workbuddy-timing ttftMs=' + (firstTextAt ? firstTextAt - startedAt : -1) +
-      ' totalMs=' + (Date.now() - startedAt) +
-      ' textChars=' + text.trim().length +
-      ' uses=' + (slot.uses + 1) +
-      ' structured=' + (structuredOutput === undefined ? 'none' : 'native'),
-    );
+    // The document workflow logs role, batch, latency and output counts at the project boundary.
+    // Keep internal Session reuse counters out of the default terminal output.
     slot.uses += 1;
     if (slot.uses >= this.maxUses) this.dropSession(index);
     return { text: text.trim(), structuredOutput };
