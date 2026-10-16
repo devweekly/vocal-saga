@@ -34,8 +34,17 @@ export interface TranslationBrief {
   contextHash: string;
 }
 
-function serializedContext(brief: Pick<TranslationBrief, 'precedingSegments' | 'contextGraph' | 'voiceContext'>): string {
+function serializedContext(brief: Pick<TranslationBrief,
+  'policyVersion' | 'sourceRevisionId' | 'promptRevisionId' | 'memoryRevisionId' |
+  'sourceSegmentIds' | 'chapterPath' | 'precedingSegments' | 'contextGraph' | 'voiceContext'
+>): string {
   return JSON.stringify({
+    policyVersion: brief.policyVersion,
+    sourceRevisionId: brief.sourceRevisionId,
+    promptRevisionId: brief.promptRevisionId,
+    memoryRevisionId: brief.memoryRevisionId,
+    sourceSegmentIds: brief.sourceSegmentIds,
+    chapterPath: brief.chapterPath,
     precedingSegments: brief.precedingSegments,
     contextGraph: brief.contextGraph,
     voiceContext: brief.voiceContext,
