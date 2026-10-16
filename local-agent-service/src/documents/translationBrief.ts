@@ -168,22 +168,13 @@ function buildTemporallyVisibleMemory(
   const appearsAsEarlierEvidence = (quoteInput: unknown): boolean =>
     firstMatchingSourceOrdinal(projectContext.db, revisionId, quoteInput, 'quote') < firstOrdinal;
 
-  const currentSourceText = [...precedingSegments.slice(-4), ...items].map((item) => item.text).join('\n');
-  const appearsInCurrentSource = (name: unknown) => sourceNameMatches(currentSourceText, name);
   rawMemory.entities = (Array.isArray(rawMemory.entities) ? rawMemory.entities : []).flatMap((entity: any) => {
     const aliases = Array.isArray(entity?.aliases) ? entity.aliases : [];
-    // A canonical name/target is a glossary entry, not a plot fact. It can be reused as soon as
-    // the canonical source name appears in this batch, even if supporting examples were analyzed
-    // later in the book. Keep only aliases already seen or present in current source, and strip
-    // unscoped description/evidence when their quote is not temporally visible.
-    if (!entity || !(appearedBefore(entity.source) || appearsInCurrentSource(entity.source))) return [];
-    const visibleAliases = aliases.filter((alias: unknown) => appearedBefore(alias) || appearsInCurrentSource(alias));
-    const evidenceIsPrior = !!entity.evidence && appearsAsEarlierEvidence(entity.evidence);
-    return [{
-      ...entity,
-      aliases: visibleAliases,
-      ...(evidenceIsPrior ? {} : { description: '', evidence: '' }),
-    }];
+    // Literary memory can contain identity-level reinterpretations inferred from later chapters.
+    // Keep a memory-backed mapping only when its evidence and every alias precede this batch.
+    if (!entity || !appearedBefore(entity.source) || !sourceNameMatches(entity.evidence, entity.source) ||
+        !appearsAsEarlierEvidence(entity.evidence) || aliases.some((alias: unknown) => !appearedBefore(alias))) return [];
+    return [{ ...entity, aliases }];
   });
   rawMemory.relationships = (Array.isArray(rawMemory.relationships) ? rawMemory.relationships : []).filter((relation: any) =>
     relation && sourceNameMatches(relation.evidence, relation.subject) &&
@@ -432,17 +423,34 @@ export function buildTranslationBrief(
     : null;
   if (graph && Array.isArray(graph.nameMappings)) {
     const sourceText = [...precedingSegments.slice(-4), ...items].map((item) => item.text).join('\n');
+    const projectContext = getDocumentProjectStore().getProjectContext(projectId);
+    const batchRows = projectContext.db.prepare(
+      'SELECT ordinal FROM source_segments WHERE source_revision_id = ? AND segment_id IN (' +
+        items.map(() => '?').join(',') + ')'
+    ).all(sourceRevisionId, ...items.map((item) => item.id)) as Array<{ ordinal: number }>;
+    const ordinals = batchRows.map((row) => Number(row.ordinal)).filter(Number.isFinite);
+    const firstOrdinal = ordinals.length ? Math.min(...ordinals) : Number.POSITIVE_INFINITY;
+    const sourceVisible = (name: unknown) =>
+      firstMatchingSourceOrdinal(projectContext.db, sourceRevisionId, name, 'name') < firstOrdinal ||
+      sourceNameMatches(sourceText, name);
     const memoryEntities = Array.isArray(context?.memory?.entities) ? context.memory.entities : [];
     for (const entity of memoryEntities) {
       const source = String(entity?.source || '').trim();
       const target = String(entity?.target || '').trim();
-      if (!source || !target || !sourceNameMatches(sourceText, source)) continue;
-      const aliases = (Array.isArray(entity.aliases) ? entity.aliases : [])
-        .filter((alias: unknown) => sourceNameMatches(sourceText, alias));
+      const evidence = String(entity?.evidence || '').trim();
+      if (!source || !target || !sourceVisible(source) || !evidence) continue;
+      const evidenceOrdinal = firstMatchingSourceOrdinal(projectContext.db, sourceRevisionId, evidence, 'quote');
+      const evidenceVisible = evidenceOrdinal < firstOrdinal ||
+        normalizedSourceText(sourceText).includes(normalizedSourceText(evidence));
+      const rawAliases = Array.isArray(entity.aliases) ? entity.aliases : [];
+      const aliasesVisible = rawAliases.every((alias: unknown) => sourceVisible(alias));
+      // A manually confirmed label is not permission to move a later identity reveal backward.
+      if (!evidenceVisible || !aliasesVisible) continue;
+      const aliases = rawAliases.filter((alias: unknown) => sourceNameMatches(sourceText, alias));
       const incoming = {
         source, target, aliases,
         kind: String(entity.kind || 'other'),
-        evidenceBacked: !!String(entity.evidence || '').trim(),
+        evidenceBacked: true,
         sourceStatus: entity.reviewStatus === 'confirmed' ? 'confirmed-memory' : 'literary-memory',
       };
       const names = new Set([source, ...aliases].map((name) => normalizedSourceText(name)));
@@ -452,7 +460,7 @@ export function buildTranslationBrief(
       if (entity.reviewStatus === 'confirmed') {
         if (index >= 0) graph.nameMappings[index] = { ...graph.nameMappings[index], ...incoming };
         else graph.nameMappings.unshift(incoming);
-      } else if (index < 0 && incoming.evidenceBacked) {
+      } else if (index < 0) {
         graph.nameMappings.push(incoming);
       }
     }
