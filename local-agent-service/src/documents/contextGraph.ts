@@ -456,11 +456,14 @@ export function startContextGraphAnalysis(projectId: string): { accepted: boolea
     'SELECT run_id FROM context_graph_runs WHERE source_revision_id = ? AND status IN (\'queued\', \'running\') ORDER BY started_at DESC LIMIT 1'
   ).get(revisionId) as { run_id?: string } | undefined;
   if (existing?.run_id) return { accepted: true, alreadyRunning: true, runId: existing.run_id };
+  // Do not persist a queued run that cannot start while another source revision is being analyzed.
+  if (activeAnalyses.has(projectId)) {
+    throw Object.assign(new Error('该项目的上一轮 Context Graph 分析仍在运行，请稍后重试。'), { status: 409 });
+  }
   const runId = randomUUID();
   db.prepare(
     'INSERT INTO context_graph_runs(run_id, source_revision_id, status, phase, progress_json, started_at) VALUES (?, ?, \'queued\', \'queued\', ?, ?)'
   ).run(runId, revisionId, JSON.stringify({}), new Date().toISOString());
-  if (activeAnalyses.has(projectId)) return { accepted: true, alreadyRunning: true, runId };
   activeAnalyses.add(projectId);
   void runAnalysis(projectId, runId).catch((error) => {
     const message = (error instanceof Error ? error.message : String(error)).slice(0, 2000);
