@@ -699,6 +699,17 @@ export function buildProjectContextGraphBundle(
     nameBeforeCache.set(name, matched);
     return matched;
   };
+  const quoteMentions = (quoteInput: unknown, nameInput: unknown): boolean => {
+    const quote = normalize(quoteInput);
+    const name = normalize(nameInput);
+    if (!quote || !name || name.length < 2) return false;
+    if (/^[a-z0-9 ._\u0027’-]+$/i.test(name)) {
+      const haystack = ' ' + quote.replace(/[^a-z0-9]+/gi, ' ').trim() + ' ';
+      const needle = name.replace(/[^a-z0-9]+/gi, ' ').trim();
+      return needle.length >= 2 && haystack.includes(' ' + needle + ' ');
+    }
+    return quote.includes(name);
+  };
   const nodes = (db.prepare(
     'SELECT * FROM context_graph_nodes WHERE source_revision_id = ? AND status IN (\'candidate\', \'confirmed\')'
   ).all(revisionId) as any[]).filter((row) =>
@@ -738,29 +749,45 @@ export function buildProjectContextGraphBundle(
     evidence: (db.prepare(
       'SELECT e.segment_id AS segmentId, e.quote FROM context_graph_evidence e ' +
       'JOIN source_segments s ON s.source_revision_id = e.source_revision_id AND s.segment_id = e.segment_id ' +
-      'WHERE e.source_revision_id = ? AND e.node_id = ? AND s.ordinal <= ? ORDER BY s.ordinal LIMIT 2'
-    ).all(revisionId, item.row.node_id, knowledgeBoundary) as any[]).map((row) => ({ segmentId: row.segmentId, quote: row.quote })),
+      'WHERE e.source_revision_id = ? AND e.node_id = ? AND s.ordinal <= ? ORDER BY s.ordinal'
+    ).all(revisionId, item.row.node_id, knowledgeBoundary) as any[])
+      .filter((evidence) => [item.row.name, ...(Array.isArray(item.attributes.aliases) ? item.attributes.aliases : [])]
+        .filter((name: unknown) => appearedBefore(name))
+        .some((name: unknown) => quoteMentions(evidence.quote, name)))
+      .slice(0, 2).map((row) => ({ segmentId: row.segmentId, quote: row.quote })),
   });
   const edges = (db.prepare(
     'SELECT * FROM context_graph_edges WHERE source_revision_id = ? AND status IN (\'candidate\', \'confirmed\')'
   ).all(revisionId) as any[]).filter((edge) => visibleEdgeIds.has(edge.edge_id));
-  const relationships = edges.filter((edge) => selectedIds.has(edge.source_node_id) && selectedIds.has(edge.target_node_id)).slice(0, 6).map((edge) => {
-    let attributes: any = {};
-    try { attributes = JSON.parse(edge.attributes_json); } catch { attributes = {}; }
-    return {
-      sourceNodeId: edge.source_node_id,
-      targetNodeId: edge.target_node_id,
-      // A coarse association marker carries less semantic information than full-book relation
-      // descriptions/voice rules; these free-text fields have no per-claim temporal citations.
-      kind: 'observed-association',
-      status: edge.status,
-      evidence: (db.prepare(
+  const selectedById = new Map(selectedNodes.map((item) => [item.row.node_id, item]));
+  const relationships = edges.filter((edge) => selectedIds.has(edge.source_node_id) && selectedIds.has(edge.target_node_id))
+    .flatMap((edge) => {
+      const sourceNode = selectedById.get(edge.source_node_id) as any;
+      const targetNode = selectedById.get(edge.target_node_id) as any;
+      const evidenceRows = db.prepare(
         'SELECT e.segment_id AS segmentId, e.quote FROM context_graph_evidence e ' +
         'JOIN source_segments s ON s.source_revision_id = e.source_revision_id AND s.segment_id = e.segment_id ' +
-        'WHERE e.source_revision_id = ? AND e.edge_id = ? AND s.ordinal <= ? ORDER BY s.ordinal LIMIT 1'
-      ).all(revisionId, edge.edge_id, knowledgeBoundary) as any[]),
-    };
-  });
+        'WHERE e.source_revision_id = ? AND e.edge_id = ? AND s.ordinal <= ? ORDER BY s.ordinal'
+      ).all(revisionId, edge.edge_id, knowledgeBoundary) as any[];
+      const grounded = evidenceRows.find((evidence) => {
+        const sourceNames = [sourceNode.row.name, ...(Array.isArray(sourceNode.attributes.aliases) ? sourceNode.attributes.aliases : [])]
+          .filter((name: unknown) => appearedBefore(name));
+        const targetNames = [targetNode.row.name, ...(Array.isArray(targetNode.attributes.aliases) ? targetNode.attributes.aliases : [])]
+          .filter((name: unknown) => appearedBefore(name));
+        return sourceNames.some((name: unknown) => quoteMentions(evidence.quote, name)) &&
+          targetNames.some((name: unknown) => quoteMentions(evidence.quote, name));
+      });
+      if (!grounded) return [];
+      // A coarse association marker carries less semantic information than full-book relation
+      // descriptions/voice rules; those free-text fields have no per-claim temporal citations.
+      return [{
+        sourceNodeId: edge.source_node_id,
+        targetNodeId: edge.target_node_id,
+        kind: 'observed-association',
+        status: edge.status,
+        evidence: [{ segmentId: grounded.segmentId, quote: grounded.quote }],
+      }];
+    }).slice(0, 6);
 
   const contextPaths = Array.from(new Set(items.map((item) => item.contextPath).filter(Boolean))) as string[];
   const currentChapter = contextPaths[0] || '';
