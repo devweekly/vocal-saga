@@ -447,6 +447,7 @@ function runMetrics(projectId: string, runId: string): any {
     translationById,
     memoryWithGlossary(context.memory, context.prompt?.config?.glossary),
   ).filter((item) => item.category === 'terminology');
+  const numbers = numericFindings(normalizedSegments, translationById);
   const scopedIds = new Set(segments.map((item) => item.id));
   const repeated = repeatedExpressionFindings(normalizedSegments, translationById, scopedIds);
   const findings = db.prepare('SELECT category, finding_json FROM review_findings WHERE run_id = ?').all(runId) as any[];
@@ -491,6 +492,8 @@ function runMetrics(projectId: string, runId: string): any {
       coveragePercent: coverage,
       terminologyDriftCount: entities.length,
       terminologyDriftRatePer100Segments: ratePer100(entities.length),
+      numericTokenMismatchCount: numbers.length,
+      numericTokenMismatchRatePer100Segments: ratePer100(numbers.length),
       repeatedExpressionDriftGroups: repeated.length,
       repeatedExpressionDriftRatePer100Segments: ratePer100(repeated.length),
       styleFindingCount: styleFindings,
@@ -506,7 +509,7 @@ function runMetrics(projectId: string, runId: string): any {
       modelDurationMsKnown: durationMs,
       tokenAndBillingCostsAvailable: false,
     },
-    findings: [...entities, ...repeated],
+    findings: [...entities, ...numbers, ...repeated],
   };
 }
 
