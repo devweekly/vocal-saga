@@ -719,7 +719,7 @@ export function buildProjectContextGraphBundle(
     return quote.includes(name);
   };
   const nodes = (db.prepare(
-    'SELECT * FROM context_graph_nodes WHERE source_revision_id = ? AND status IN (\'candidate\', \'confirmed\')'
+    'SELECT * FROM context_graph_nodes WHERE source_revision_id = ? AND status IN (\'candidate\', \'confirmed\') ORDER BY kind, name'
   ).all(revisionId) as any[]).filter((row) =>
     visibleNodeIds.has(row.node_id) && appearedBefore(row.name));
   const matched: Array<{ row: any; score: number; attributes: any }> = [];
@@ -843,7 +843,7 @@ export function buildProjectContextGraphBundle(
   const appearsInContext = (value: unknown): boolean => {
     const name = normalize(value);
     if (!name || name.length < 2) return false;
-    if (/^[a-z0-9 ._'’\\-]+$/i.test(name)) {
+    if (/^[a-z0-9 ._'’ -]+$/i.test(name)) {
       const haystack = ' ' + normalize(namesInContext).replace(/[^a-z0-9]+/gi, ' ').trim() + ' ';
       const needle = name.replace(/[^a-z0-9]+/gi, ' ').trim();
       return needle.length >= 2 && haystack.includes(' ' + needle + ' ');
