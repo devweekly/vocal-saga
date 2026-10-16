@@ -23,9 +23,12 @@ test('book audit finds missing translations, confirmed-name drift and repeated-l
     title: 'Quality Audit Test',
     format: 'txt',
     sourceFileName: 'quality-audit.txt',
-    prompt: { translationMode: 'literary', sourceLang: 'en', targetLang: 'zh' },
+    prompt: { translationMode: 'literary', sourceLang: 'en', targetLang: 'zh', glossary: { document_terms: [
+      { source: 'Captain Vale', target: '维尔船长' },
+    ] } },
     segments: [
       { id: 'name-1', text: 'Mara Voss entered the archive before dawn.', kind: 'paragraph', contextPath: 'Chapter 1' },
+      { id: 'name-2', text: 'Captain Vale entered the archive before dawn.', kind: 'paragraph', contextPath: 'Chapter 1' },
       { id: 'repeat-1', text: 'Keep the western lamp burning.', kind: 'dialogue', contextPath: 'Chapter 1' },
       { id: 'repeat-2', text: 'Keep the western lamp burning.', kind: 'dialogue', contextPath: 'Chapter 3' },
       { id: 'missing-1', text: 'The ledger remained beneath the floor.', kind: 'paragraph', contextPath: 'Chapter 4' },
@@ -49,6 +52,7 @@ test('book audit finds missing translations, confirmed-name drift and repeated-l
     voiceAnchors: [],
   });
   store.saveManualEdit(project.projectId, 'name-1', '玛丽·沃斯在黎明前进入档案室。');
+  store.saveManualEdit(project.projectId, 'name-2', '维尔在黎明前进入档案室。');
   store.saveManualEdit(project.projectId, 'repeat-1', '让西侧的灯一直亮着。');
   store.saveManualEdit(project.projectId, 'repeat-2', '西边的灯不要熄灭。');
 
@@ -56,6 +60,8 @@ test('book audit finds missing translations, confirmed-name drift and repeated-l
   assert.equal(report.metrics.missingTranslationCount, 1);
   assert.ok(report.findings.some((item) => item.type === 'missing-translation' && item.segmentIds.includes('missing-1')));
   assert.ok(report.findings.some((item) => item.type === 'terminology-drift' && item.segmentIds.includes('name-1')));
+  assert.ok(report.findings.some((item) => item.type === 'terminology-drift' && item.segmentIds.includes('name-2')),
+    'book audit must include prompt glossary terms even when literary memory has no duplicate entry');
   assert.ok(report.findings.some((item) => item.type === 'repeated-expression-drift' &&
     item.segmentIds.includes('repeat-1') && item.segmentIds.includes('repeat-2')));
 
