@@ -55,11 +55,11 @@ type TranslationItem = { id: string; text: string; kind?: string; contextPath?: 
 
 
 /**
- * Per-run scheduler caps. With the default four-session pool, literary runs budget two
- * translation workers and two reviewers; runs without review may use all four translation slots.
+ * Per-run scheduler caps. With the default six-session pool, literary runs budget up to four
+ * translation workers and two reviewers; runs without review may use all six translation slots.
  * The pool is the final global concurrency guard across overlapping runs.
  */
-const CONFIGURED_TRANSLATION_CONCURRENCY = positiveIntegerEnv('LOCAL_AGENT_DOCUMENT_TRANSLATION_CONCURRENCY', 4);
+const CONFIGURED_TRANSLATION_CONCURRENCY = positiveIntegerEnv('LOCAL_AGENT_DOCUMENT_TRANSLATION_CONCURRENCY', 6);
 const CONFIGURED_REVIEW_CONCURRENCY = positiveIntegerEnv('LOCAL_AGENT_DOCUMENT_REVIEW_CONCURRENCY', 2);
 
 export type DocumentBatchRole = 'translation' | 'review';
