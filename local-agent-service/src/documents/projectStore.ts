@@ -209,6 +209,17 @@ function logWorkflowEvent(runId: string | null, type: string, rawPayload: unknow
     case 'batch.translation.completed':
       message = '初译候选已保存 ' + batch + ' · ' + (p.candidateCount ?? 0) + ' 段 · 审校' + (p.reviewScheduled ? '已排队' : '未启用');
       break;
+    case 'batch.completed':
+      message = '批次流程结束 ' + batch + ' · 候选 ' + (p.candidateCount ?? 0) + ' 段 · 失败 ' + (Array.isArray(p.failedIds) ? p.failedIds.length : 0) + ' 段';
+      if (Array.isArray(p.failedIds) && p.failedIds.length) level = 'warn';
+      break;
+    case 'run.finished': {
+      const counts = p.counts && typeof p.counts === 'object' ? p.counts : {};
+      message = '运行结束 · 状态 ' + (p.status || '未知') + ' · 候选 ' + (counts.candidate ?? 0) +
+        ' · 已接受 ' + (counts.accepted ?? 0) + ' · 失败 ' + (counts.failed ?? 0) + (p.error ? ' · ' + String(p.error).slice(0, 200) : '');
+      if (p.status === 'failed' || p.status === 'partial') level = 'warn';
+      break;
+    }
     case 'stage.started':
       message = String(p.label || traceStage(p.stage)) + '开始 ' + batch;
       break;
@@ -252,7 +263,7 @@ function logWorkflowEvent(runId: string | null, type: string, rawPayload: unknow
       break;
     case 'context-graph.completed':
       message = '全书预处理完成 · 人物 ' + (p.characterCount ?? 0) + ' · 实体 ' + (p.entityCount ?? 0) + ' · 关系 ' +
-        (p.relationshipCount ?? 0) + ' · 规范译名 ' + (p.canonicalNameMappingCount ?? 0);
+        (p.relationshipCount ?? 0) + ' · 规范译名 ' + (p.canonicalNameMappingCount ?? 0) + ' · 无效证据 ' + (p.invalidEvidenceCount ?? 0);
       break;
     case 'context-graph.failed':
       message = '全书预处理失败 · ' + String(p.error || '未知错误').replace(/\s+/g, ' ').slice(0, 240);
