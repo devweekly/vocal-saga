@@ -528,18 +528,34 @@ export class DocumentProjectStore {
     const format = normalizeFormat(input.format || current.format);
     const fileName = (input.sourceFileName || current.sourceFileName).trim().slice(0, 500);
     const db = this.openProjectDb(projectId);
-    const activeRun = db.prepare(
-      "SELECT run_id, status FROM translation_runs WHERE status IN ('queued','running','paused','awaiting_acceptance','partial') LIMIT 1"
-    ).get() as { run_id?: string; status?: string } | undefined;
-    if (activeRun?.run_id) {
-      throw Object.assign(
-        new Error('翻译运行 ' + activeRun.run_id + ' 仍处于 ' + activeRun.status + ' 状态，不能切换原文版本。请先完成、取消或明确处理本次运行。'),
-        { status: 409 },
-      );
-    }
     db.exec('BEGIN IMMEDIATE');
+    let revision: any;
     try {
-      const revision = this.insertSourceRevision(db, projectId, title, format, fileName, segments);
+      // These checks belong inside the same SQLite write transaction as the revision switch.
+      const activeRun = db.prepare(
+        "SELECT run_id, status FROM translation_runs WHERE status IN ('queued','running','paused','awaiting_acceptance','partial') LIMIT 1"
+      ).get() as { run_id?: string; status?: string } | undefined;
+      if (activeRun?.run_id) {
+        throw Object.assign(
+          new Error('翻译运行 ' + activeRun.run_id + ' 仍处于 ' + activeRun.status + ' 状态，不能切换原文版本。请先完成、取消或明确处理本次运行。'),
+          { status: 409 },
+        );
+      }
+      const graphTable = db.prepare(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'context_graph_runs'"
+      ).get();
+      if (graphTable) {
+        const activeGraph = db.prepare(
+          "SELECT run_id FROM context_graph_runs WHERE status IN ('queued','running') ORDER BY started_at DESC LIMIT 1"
+        ).get() as { run_id?: string } | undefined;
+        if (activeGraph?.run_id) {
+          throw Object.assign(
+            new Error('全书预处理 ' + activeGraph.run_id + ' 仍在运行，不能切换原文版本。请等待预处理结束后再重试。'),
+            { status: 409 },
+          );
+        }
+      }
+      revision = this.insertSourceRevision(db, projectId, title, format, fileName, segments);
       db.exec('COMMIT');
       this.catalogDb().prepare('UPDATE document_projects SET title = ?, format = ?, source_file_name = ?, source_fingerprint = ?, updated_at = ? WHERE project_id = ?')
         .run(title, format, fileName, revision.fingerprint, revision.createdAt, projectId);
