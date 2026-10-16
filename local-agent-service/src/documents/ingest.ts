@@ -110,7 +110,7 @@ function zipDirectory(buffer: Buffer): Map<string, ZipEntry> {
     if (end > buffer.length) fail('ZIP 中央目录越界。');
     if (flags & 1) fail('暂不支持加密 ZIP 文档。', 415);
     if (method !== 0 && method !== 8) fail('ZIP 使用了不支持的压缩方式：' + method, 415);
-    const rawName = buffer.subarray(offset + 46, offset + 46 + nameLength).toString('utf8').replace(/\\/g, '/');
+    const rawName = buffer.subarray(offset + 46, offset + 46 + nameLength).toString('utf8').replace(/\/g, '/');
     const name = path.posix.normalize(rawName);
     if (name.startsWith('../') || name === '..' || name.startsWith('/')) fail('ZIP 包含不安全的文件路径。');
     expandedTotal += size;
@@ -122,7 +122,7 @@ function zipDirectory(buffer: Buffer): Map<string, ZipEntry> {
 }
 
 function zipRead(buffer: Buffer, entries: Map<string, ZipEntry>, entryName: string): Buffer {
-  const entry = entries.get(path.posix.normalize(entryName.replace(/\\/g, '/')));
+  const entry = entries.get(path.posix.normalize(entryName.replace(/\/g, '/')));
   if (!entry) fail('压缩文档缺少必要文件：' + entryName);
   const offset = entry.localOffset;
   if (offset + 30 > buffer.length || buffer.readUInt32LE(offset) !== 0x04034b50) fail('ZIP 本地文件头损坏。');
@@ -143,7 +143,7 @@ function zipRead(buffer: Buffer, entries: Map<string, ZipEntry>, entryName: stri
 }
 
 function normalizePath(baseFile: string, href: string): string {
-  const cleanHref = decodeURIComponent(href.split('#')[0]!.split('?')[0]!).replace(/\\/g, '/');
+  const cleanHref = decodeURIComponent(href.split('#')[0]!.split('?')[0]!).replace(/\/g, '/');
   return path.posix.normalize(path.posix.join(path.posix.dirname(baseFile), cleanHref)).replace(/^\.\/+/, '');
 }
 
