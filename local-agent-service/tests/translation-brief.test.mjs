@@ -165,6 +165,8 @@ test('later identity never enters an earlier brief', () => {
     sourceFileName: 'temporal.txt',
     prompt: { translationMode: 'literary', sourceLang: 'en', targetLang: 'zh', glossary: { document_terms: [
       { source: 'Mara Voss', target: '玛拉·沃斯', aliases: ['Mara'] },
+      // Canonical spelling is known early, but this target was derived from a later alias.
+      { source: 'Mara Voss', target: '灰后', aliases: ['Queen Ash'], description: 'Target contaminated by a later identity reveal' },
       { source: 'Queen Ash', target: '灰后', aliases: ['Liora Vale'], description: 'Later identity reveal' },
     ] } },
     segments: [
