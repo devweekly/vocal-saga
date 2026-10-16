@@ -851,7 +851,7 @@ export function buildProjectContextGraphBundle(
     return normalize(namesInContext).includes(name);
   };
   const graphNameRows = db.prepare(
-    'SELECT * FROM context_graph_nodes WHERE source_revision_id = ? AND status IN (\\'candidate\\', \\'confirmed\\') ORDER BY kind, name'
+    `SELECT * FROM context_graph_nodes WHERE source_revision_id = ? AND status IN ('candidate', 'confirmed') ORDER BY kind, name`
   ).all(revisionId) as any[];
   const nameMappings = graphNameRows.flatMap((row) => {
     if (!appearsInContext(row.name)) return [];
