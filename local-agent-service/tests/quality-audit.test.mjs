@@ -282,7 +282,7 @@ test('M4 paired-run evaluation uses the real-novel corpus and withholds A/B mapp
   assert.equal(persisted.blindReview.status, 'completed');
   assert.equal(persisted.beforeRunId, before.runId);
   assert.equal(persisted.afterRunId, after.runId);
-  assert.equal(persisted.deterministic.before.segmentIds.length, realNovelFixture.segments.length);
+  assert.equal(persisted.deterministic.before.segmentCount, realNovelFixture.segments.length);
 });
 
 test('paired-run evaluation withholds A/B mapping until every sampled segment has an overall blind rating', () => {
