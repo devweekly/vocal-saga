@@ -156,3 +156,43 @@ test('future-supported glossary, character profile, anchor, examples and style t
   assert.deepEqual(brief.voiceContext.voiceAnchors, []);
   assert.deepEqual(brief.voiceContext.chapterSummaries, []);
 });
+
+test('later identity never enters an earlier brief', () => {
+  const store = getDocumentProjectStore();
+  const project = store.createProject({
+    title: 'Temporal Boundary',
+    format: 'txt',
+    sourceFileName: 'temporal.txt',
+    prompt: { translationMode: 'literary', sourceLang: 'en', targetLang: 'zh' },
+    segments: [
+      { id: 'early-a', text: 'Mara Voss is a careful archivist.', contextPath: 'Chapter 1' },
+      { id: 'early-b', text: 'Mara Voss said, Keep the western lamp burning.', contextPath: 'Chapter 1' },
+      { id: 'late-a', text: 'Mara Voss was secretly Queen Ash.', contextPath: 'Chapter 2' },
+    ],
+  });
+  const run = store.createRun(project.projectId, { scope: { type: 'ids', ids: ['early-b'] } });
+  const context = store.getRunContext(project.projectId, run.runId);
+  context.memory = {
+    entities: [
+      { source: 'Mara Voss', target: '玛拉·沃斯', aliases: ['Mara'], reviewStatus: 'confirmed', evidence: 'Mara Voss is a careful archivist.' },
+      { source: 'Queen Ash', target: '灰后', aliases: [], reviewStatus: 'confirmed', evidence: 'Mara Voss was secretly Queen Ash.' },
+    ],
+    relationships: [],
+    styleGuide: { narrativeVoice: 'Mara Voss is secretly Queen Ash.' },
+    chapterSummaries: [{ chapter: 'Chapter 2', summary: 'Mara Voss is secretly Queen Ash.' }],
+    recentExamples: [{ source: 'Mara Voss was secretly Queen Ash.', target: '玛拉其实是灰后。' }],
+    characterVoices: [],
+    relationshipVoiceRules: [],
+    voiceAnchors: [],
+  };
+  const brief = buildTranslationBrief(context,
+    [{ id: 'early-b', text: 'Mara Voss said, Keep the western lamp burning.', contextPath: 'Chapter 1' }],
+    [{ id: 'early-a', text: 'Mara Voss is a careful archivist.', contextPath: 'Chapter 1' }]);
+  const injected = JSON.stringify({ graph: brief.contextGraph, voice: brief.voiceContext });
+  assert.ok(injected.includes('Mara Voss'));
+  assert.ok(!injected.includes('Queen Ash'));
+  assert.ok(!injected.includes('灰后'));
+  assert.deepEqual(brief.voiceContext.chapterSummaries, []);
+  assert.deepEqual(brief.voiceContext.recentExamples, []);
+  assert.ok(brief.contextChars <= MAX_TRANSLATION_BRIEF_CHARS);
+});
