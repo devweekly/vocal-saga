@@ -1413,10 +1413,12 @@ export class DocumentProjectStore {
     if (status === 'cancelled' || status === 'paused') return this.getRun(projectId, runId);
     const counts = db.prepare('SELECT status, COUNT(*) AS count FROM run_segments WHERE run_id = ? GROUP BY status').all(runId) as any[];
     const values = Object.fromEntries(counts.map((row) => [row.status, Number(row.count)]));
-    const candidates = Number(values.candidate || 0) + Number(values.accepted || 0);
+    const candidates = Number(values.candidate || 0);
+    const accepted = Number(values.accepted || 0);
     const failures = Number(values.failed || 0);
     const pending = Number(values.pending || 0) + Number(values.running || 0);
-    const finalStatus: RunStatus = pending > 0 ? 'paused' : candidates > 0 ? 'awaiting_acceptance' : failures > 0 ? 'failed' : 'completed';
+    const finalStatus: RunStatus = pending > 0 ? 'paused' : candidates > 0 ? 'awaiting_acceptance'
+      : failures > 0 ? (accepted > 0 ? 'partial' : 'failed') : 'completed';
     this.setRunStatus(projectId, runId, finalStatus, failures ? (String(failures) + ' 个片段失败，可重试失败范围') : null);
     return this.getRun(projectId, runId);
   }
