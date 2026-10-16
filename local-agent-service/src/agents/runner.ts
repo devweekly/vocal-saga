@@ -2,49 +2,98 @@ import { runOpenCode } from './opencode.ts';
 import { runWorkbuddy, runWorkbuddyJson, runWorkbuddyStructured } from './workbuddy.ts';
 import { parseJsonValue } from '../json.ts';
 
+type AgentSpec = { provider: string; model: string };
+
+function isWorkflowManaged(sessionScope?: string): boolean {
+  return !!sessionScope && (sessionScope.startsWith('document:') || sessionScope.startsWith('context-graph:'));
+}
+
+function describeTask(requestId: string, sessionScope?: string): string {
+  if (requestId.includes('style-review')) return '人物声音/文风审校';
+  if (requestId.includes('-review-') || sessionScope?.includes(':review:')) return '准确性/术语审校';
+  if (sessionScope?.startsWith('context-graph:') || requestId.startsWith('context-graph:')) return '全书预处理';
+  if (sessionScope?.includes(':translation:') || /-b\d+-a\d+$/.test(requestId)) return '文档初译';
+  if (requestId.includes('literary')) return '文学分析';
+  return '通用模型请求';
+}
+
+function compactOutputSummary(value: unknown): string {
+  if (typeof value === 'string') return '文本 ' + value.length + ' 字符';
+  if (Array.isArray(value)) return '数组 ' + value.length + ' 项';
+  if (!value || typeof value !== 'object') return typeof value;
+  const row = value as Record<string, unknown>;
+  const counts: string[] = [];
+  for (const key of ['translations', 'findings', 'characters', 'entities', 'relationships', 'chapterSummaries', 'openQuestions']) {
+    if (Array.isArray(row[key])) counts.push(key + '=' + (row[key] as unknown[]).length);
+  }
+  return counts.length ? counts.join(' ') : 'JSON 字段 ' + Object.keys(row).slice(0, 8).join(', ');
+}
+
+function logModelStart(
+  agent: AgentSpec, prompt: string, systemPrompt: string, requestId: string,
+  sessionScope: string | undefined, mode: string,
+): void {
+  if (isWorkflowManaged(sessionScope)) return; // Document Project emits richer batch/stage traces.
+  const task = describeTask(requestId, sessionScope);
+  console.info('[model] ' + task + ' · 开始 · request=' + requestId.slice(0, 12) +
+    ' · ' + agent.provider + '/' + (agent.model || '运行时默认模型') +
+    ' · 模式=' + mode + ' · 输入=' + prompt.length.toLocaleString() +
+    ' 字符 · 系统指令=' + systemPrompt.length.toLocaleString() + ' 字符');
+}
+
+function logModelSuccess(
+  agent: AgentSpec, output: unknown, requestId: string, sessionScope: string | undefined,
+  startedAt: number, mode: string,
+): void {
+  if (isWorkflowManaged(sessionScope)) return;
+  console.info('[model] ' + describeTask(requestId, sessionScope) + ' · 完成 · request=' + requestId.slice(0, 12) +
+    ' · ' + agent.provider + '/' + (agent.model || '运行时默认模型') +
+    ' · 耗时=' + ((Date.now() - startedAt) / 1000).toFixed(1) + 's · 输出=' + compactOutputSummary(output) + ' · 模式=' + mode);
+}
+
+function logModelFailure(
+  agent: AgentSpec, error: unknown, requestId: string, sessionScope: string | undefined,
+  startedAt: number, mode: string,
+): void {
+  const message = error instanceof Error ? error.message : String(error);
+  const task = describeTask(requestId, sessionScope);
+  const duration = ((Date.now() - startedAt) / 1000).toFixed(1) + 's';
+  if (isWorkflowManaged(sessionScope)) {
+    // The workflow event has the specific batch/stage ID. Avoid a duplicate low-level stack dump.
+    return;
+  }
+  console.error('[model] ' + task + ' · 失败 · request=' + requestId.slice(0, 12) +
+    ' · ' + agent.provider + '/' + (agent.model || '运行时默认模型') + ' · 耗时=' + duration + ' · ' + message);
+  if (process.env.LOCAL_AGENT_LOG_LEVEL === 'debug' && error instanceof Error && error.stack) {
+    console.error(error.stack);
+  }
+}
+
 export async function runAgent(
-  agent: { provider: string; model: string },
+  agent: AgentSpec,
   prompt: string,
   systemPrompt: string,
   requestId = 'unknown',
   sessionScope?: string,
 ): Promise<string> {
   const startedAt = Date.now();
-  console.info(
-    '[local-agent][' + requestId + '] provider-start provider=' + agent.provider +
-    ' model=' + (agent.model || '<runtime-default>') +
-    ' systemChars=' + systemPrompt.length +
-    ' promptChars=' + prompt.length,
-  );
+  logModelStart(agent, prompt, systemPrompt, requestId, sessionScope, '文本');
   try {
     let output: string;
     if (agent.provider === 'workbuddy') output = await runWorkbuddy(agent, prompt, systemPrompt, requestId, sessionScope);
     else if (agent.provider === 'opencode') output = await runOpenCode(agent, prompt, systemPrompt);
     else throw new Error('不支持的本机 Agent：' + agent.provider);
-    console.info(
-      '[local-agent][' + requestId + '] provider-success provider=' + agent.provider +
-      ' durationMs=' + (Date.now() - startedAt) +
-      ' outputChars=' + output.length,
-    );
+    logModelSuccess(agent, output, requestId, sessionScope, startedAt, '文本');
     return output;
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    console.error(
-      '[local-agent][' + requestId + '] provider-failed provider=' + agent.provider +
-      ' durationMs=' + (Date.now() - startedAt) +
-      ' error=' + message,
-    );
-    if (error instanceof Error && error.stack) {
-      console.error('[local-agent][' + requestId + '] provider-stack=' + error.stack);
-    }
+    logModelFailure(agent, error, requestId, sessionScope, startedAt, '文本');
     throw error;
   }
 }
 
-// 需要严格 JSON 对象的调用走这里，直接返回解析好的对象。
-// workbuddy 用原生 structured output；opencode 暂无对应开关，沿用文本输出再解析。
+/** Strict JSON object output: prefer native structured output and validate the returned shape. */
 export async function runAgentJson(
-  agent: { provider: string; model: string },
+  agent: AgentSpec,
   prompt: string,
   systemPrompt: string,
   schema: Record<string, unknown>,
@@ -52,12 +101,7 @@ export async function runAgentJson(
   sessionScope?: string,
 ): Promise<Record<string, any>> {
   const startedAt = Date.now();
-  console.info(
-    '[local-agent][' + requestId + '] provider-start provider=' + agent.provider +
-    ' model=' + (agent.model || '<runtime-default>') +
-    ' mode=json systemChars=' + systemPrompt.length +
-    ' promptChars=' + prompt.length,
-  );
+  logModelStart(agent, prompt, systemPrompt, requestId, sessionScope, 'JSON 对象');
   try {
     let parsed: Record<string, any>;
     if (agent.provider === 'workbuddy') {
@@ -70,29 +114,17 @@ export async function runAgentJson(
     } else {
       throw new Error('不支持的本机 Agent：' + agent.provider);
     }
-    console.info(
-      '[local-agent][' + requestId + '] provider-success provider=' + agent.provider +
-      ' mode=json durationMs=' + (Date.now() - startedAt),
-    );
+    logModelSuccess(agent, parsed, requestId, sessionScope, startedAt, 'JSON 对象');
     return parsed;
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    console.error(
-      '[local-agent][' + requestId + '] provider-failed provider=' + agent.provider +
-      ' mode=json durationMs=' + (Date.now() - startedAt) +
-      ' error=' + message,
-    );
-    if (error instanceof Error && error.stack) {
-      console.error('[local-agent][' + requestId + '] provider-stack=' + error.stack);
-    }
+    logModelFailure(agent, error, requestId, sessionScope, startedAt, 'JSON 对象');
     throw error;
   }
 }
 
-// 需要严格 JSON（对象或数组）的调用走这里。用途：重试升级轮——
-// 数组形状（如翻译条目表）无法用"对象专用"的 runAgentJson 表达。
+/** Strict JSON object/array output; used for translation arrays and schema-constrained retries. */
 export async function runAgentStructured(
-  agent: { provider: string; model: string },
+  agent: AgentSpec,
   prompt: string,
   systemPrompt: string,
   schema: Record<string, unknown>,
@@ -100,12 +132,7 @@ export async function runAgentStructured(
   sessionScope?: string,
 ): Promise<Record<string, any> | any[]> {
   const startedAt = Date.now();
-  console.info(
-    '[local-agent][' + requestId + '] provider-start provider=' + agent.provider +
-    ' model=' + (agent.model || '<runtime-default>') +
-    ' mode=structured systemChars=' + systemPrompt.length +
-    ' promptChars=' + prompt.length,
-  );
+  logModelStart(agent, prompt, systemPrompt, requestId, sessionScope, '结构化 JSON');
   try {
     let result: Record<string, any> | any[];
     if (agent.provider === 'workbuddy') {
@@ -118,21 +145,10 @@ export async function runAgentStructured(
     } else {
       throw new Error('不支持的本机 Agent：' + agent.provider);
     }
-    console.info(
-      '[local-agent][' + requestId + '] provider-success provider=' + agent.provider +
-      ' mode=structured durationMs=' + (Date.now() - startedAt),
-    );
+    logModelSuccess(agent, result, requestId, sessionScope, startedAt, '结构化 JSON');
     return result;
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    console.error(
-      '[local-agent][' + requestId + '] provider-failed provider=' + agent.provider +
-      ' mode=structured durationMs=' + (Date.now() - startedAt) +
-      ' error=' + message,
-    );
-    if (error instanceof Error && error.stack) {
-      console.error('[local-agent][' + requestId + '] provider-stack=' + error.stack);
-    }
+    logModelFailure(agent, error, requestId, sessionScope, startedAt, '结构化 JSON');
     throw error;
   }
 }
