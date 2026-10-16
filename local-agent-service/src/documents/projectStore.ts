@@ -1309,7 +1309,7 @@ export class DocumentProjectStore {
   ): any {
     const { db, currentSourceRevisionId } = this.getProjectContext(projectId);
     const row = db.prepare(
-      'SELECT rf.finding_id, rf.segment_id, rf.category, rf.finding_json, rf.status AS finding_status, tr.source_revision_id, rs.source_hash AS run_source_hash ' +
+      'SELECT rf.finding_id, rf.segment_id, rf.category, rf.finding_json, rf.status AS finding_status, rf.created_at AS finding_created_at, tr.source_revision_id, rs.source_hash AS run_source_hash ' +
       'FROM review_findings rf JOIN translation_runs tr ON tr.run_id = rf.run_id ' +
       'JOIN run_segments rs ON rs.run_id = rf.run_id AND rs.segment_id = rf.segment_id ' +
       'WHERE rf.finding_id = ? AND rf.run_id = ?'
@@ -1348,6 +1348,14 @@ export class DocumentProjectStore {
       if (!source || source.source_hash !== row.run_source_hash) {
         throw Object.assign(new Error('原文片段已变化，拒绝应用基于旧文本生成的文风建议'), { status: 409 });
       }
+      const newerManual = db.prepare(
+        'SELECT COALESCE(accepted_at, created_at) AS accepted_at FROM translation_results ' +
+        'WHERE source_revision_id = ? AND segment_id = ? AND source_hash = ? AND origin = \'manual\' AND accepted = 1 ' +
+        'ORDER BY COALESCE(accepted_at, created_at) DESC, rowid DESC LIMIT 1'
+      ).get(currentSourceRevisionId, row.segment_id, source.source_hash) as { accepted_at?: string } | undefined;
+      if (newerManual?.accepted_at && String(newerManual.accepted_at) >= String(row.finding_created_at || '')) {
+        throw Object.assign(new Error('该片段在生成建议后已被人工修改；为避免覆盖最新编辑，请先核对正文，再手工决定是否采用此建议。'), { status: 409 });
+      }
       const latestPrompt = db.prepare(
         'SELECT prompt_revision_id FROM prompt_revisions ORDER BY created_at DESC, rowid DESC LIMIT 1'
       ).get() as { prompt_revision_id?: string } | undefined;
@@ -1363,10 +1371,30 @@ export class DocumentProjectStore {
         finding.appliedResultId = resultId;
         db.prepare('UPDATE review_findings SET status = \'applied\', finding_json = ? WHERE finding_id = ? AND run_id = ?')
           .run(JSON.stringify(finding), findingId, runId);
+        db.prepare(
+          'UPDATE run_segments SET status = \'accepted\', candidate_result_id = ?, error = NULL, updated_at = ? ' +
+          'WHERE run_id = ? AND segment_id = ?'
+        ).run(resultId, now, runId, row.segment_id);
         db.exec('COMMIT');
       } catch (error) {
         db.exec('ROLLBACK');
         throw error;
+      }
+      const currentRunStatus = this.getRunStatus(projectId, runId);
+      if (!['cancelled', 'paused'].includes(currentRunStatus)) {
+        const counts = db.prepare('SELECT status, COUNT(*) AS count FROM run_segments WHERE run_id = ? GROUP BY status').all(runId) as any[];
+        const values = Object.fromEntries(counts.map((item) => [item.status, Number(item.count)]));
+        const unresolved = Number(values.candidate || 0) + Number(values.pending || 0) + Number(values.running || 0);
+        const failures = Number(values.failed || 0);
+        if (!unresolved) {
+          const acceptedCount = Number(values.accepted || 0);
+          const terminalStatus: RunStatus = failures
+            ? acceptedCount > 0 ? 'partial' : 'failed'
+            : 'completed';
+          if (terminalStatus !== currentRunStatus) {
+            this.setRunStatus(projectId, runId, terminalStatus, failures ? (String(failures) + ' 个片段失败，可重试失败范围') : null);
+          }
+        }
       }
       this.addEvent(projectId, runId, 'review-finding.applied', { findingId, segmentId: row.segment_id, resultId });
       this.catalogDb().prepare('UPDATE document_projects SET updated_at = ? WHERE project_id = ?').run(now, projectId);
