@@ -242,7 +242,8 @@ function numericFindings(
       JSON.stringify(sourceUnits) !== JSON.stringify(targetUnits);
     if (!numericValuesDiffer && !quantityUnitsDiffer) continue;
     findings.push({
-      findingId: stableFindingId('numeric-token-mismatch', [segment.id], sourceNumbers.join(',') + '>' + targetNumbers.join(',')),
+      findingId: stableFindingId('numeric-token-mismatch', [segment.id],
+        sourceNumbers.join(',') + '>' + targetNumbers.join(',') + ':' + sourceUnits.join(',') + '>' + targetUnits.join(',')),
       type: 'numeric-token-mismatch',
       category: 'numeric',
       severity: 'warning',
