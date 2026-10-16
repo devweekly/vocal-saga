@@ -35,5 +35,13 @@ jobs:
         run: npm run compile
       - name: Unit tests
         run: npm test
+      - name: Install local-agent-service dependencies
+        run: npm ci --prefix local-agent-service
+      - name: Type check local-agent-service
+        run: npm run typecheck --prefix local-agent-service
+      - name: Test local-agent-service
+        run: npm test --prefix local-agent-service
+      - name: Evaluate fiction quality regression fixture
+        run: npm run quality:fiction-baseline --prefix local-agent-service
       - name: Build library
         run: npm run build
