@@ -136,3 +136,21 @@ test('paired-run evaluation withholds A/B mapping until every sampled segment ha
   assert.equal(persisted.beforeRunId, before.runId);
   assert.equal(persisted.afterRunId, after.runId);
 });
+
+
+  const identical = createRunWithTranslations([
+    ['eval-1', '玛丽·沃斯进入了档案室。'],
+    ['eval-2', '伊文关上了沉重的门。'],
+    ['eval-3', '让西边的灯一直亮着。'],
+  ]);
+  const noTextDelta = createProjectQualityEvaluation(project.projectId, before.runId, identical.runId);
+  assert.equal(noTextDelta.blindReview.status, 'not_applicable');
+  assert.equal(noTextDelta.blindReview.sampleCount, 0);
+  assert.ok(noTextDelta.deterministic, 'metrics are disclosed when no differing translation can be blindly compared');
+  assert.throws(
+    () => submitProjectQualityEvaluationReviews(project.projectId, noTextDelta.evaluationId, [
+      { segmentId: 'eval-1', dimension: 'overall', preference: 'A' },
+    ]),
+    /不处于待盲评状态/,
+  );
+
