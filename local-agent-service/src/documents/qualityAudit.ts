@@ -500,11 +500,15 @@ export function createQualityRepairRun(projectId: string, auditId: string, selec
   const { currentSourceRevisionId } = store.getProjectContext(projectId);
   if (report.sourceRevisionId !== currentSourceRevisionId) fail('来源版本已变化，旧质量报告不能用于返工。', 409);
   const wantedFindings = new Set(selectedFindingIds);
-  const wantedSegments = new Set(requestedSegmentIds);
-  const segments = new Set<string>();
-  for (const finding of report.findings || []) {
-    if (!finding.repairable) continue;
-    if (wantedFindings.has(finding.findingId) || (finding.segmentIds || []).some((id: string) => wantedSegments.has(id))) {
+  // Explicit segment IDs mean a genuinely narrow repair. They must not expand to every segment
+  // in a repeated-expression group simply because that segment belongs to the same finding.
+  const segments = new Set<string>(requestedSegmentIds.map(String).filter(Boolean));
+  if (!requestedSegmentIds.length) {
+    for (const finding of report.findings || []) {
+      if (!wantedFindings.has(finding.findingId)) continue;
+      if (!finding.repairable) {
+        fail('该质量发现涉及较多片段，为避免扩大返工，请显式提供要修改的 segmentIds。');
+      }
       for (const id of finding.segmentIds || []) segments.add(String(id));
     }
   }
