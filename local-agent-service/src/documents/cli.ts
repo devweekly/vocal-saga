@@ -7,7 +7,7 @@ import path from 'node:path';
 import { getDocumentProjectStore } from './projectStore.ts';
 import { startProjectTranslationRun } from './translationAgent.ts';
 import { parseDocumentFile } from './ingest.ts';
-import { startContextGraphAnalysis, getContextGraph, getContextGraphStatus } from './contextGraph.ts';
+import { startContextGraphAnalysis, getContextGraph, getContextGraphStatus, reviewContextGraphItem } from './contextGraph.ts';
 
 function usage(): never {
   console.error([
@@ -16,6 +16,7 @@ function usage(): never {
     '  import-file <document.epub|docx|pdf|txt|md|html> [--title=TITLE] [--skip-analysis]  parse locally and preprocess the book',
     '  context <documentId>                           inspect the persisted Context Graph and analysis status',
     '  context-analyze <documentId>                    build/update the Context Graph for an existing project',
+    '  context-review <documentId> <node|edge> <id> <candidate|confirmed|rejected>  review one graph item',
     '  projects                                      list document projects',
     '  status <documentId>                           inspect project, runs and stale segments',
     '  run <documentId> [--scope=stale|all|failed] [--chapter=TITLE] [--prompt-file=FILE]',
@@ -105,6 +106,18 @@ export async function runDocumentCli(argv = process.argv.slice(2)): Promise<void
     }
     print({ preprocessing: status });
     if (status.status !== 'completed') process.exitCode = 1;
+    return;
+  }
+
+  if (command === 'context-review') {
+    if (!args[0] || !['node', 'edge'].includes(args[1] || '') || !args[2] ||
+        !['candidate', 'confirmed', 'rejected'].includes(args[3] || '')) usage();
+    print(reviewContextGraphItem(
+      args[0]!,
+      args[1] as 'node' | 'edge',
+      args[2]!,
+      args[3] as 'candidate' | 'confirmed' | 'rejected',
+    ));
     return;
   }
 
