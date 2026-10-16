@@ -206,6 +206,75 @@ function buildTemporallyVisibleMemory(
   return rawMemory;
 }
 
+function filterGlossaryForBatch(context: any, items: BriefSegment[]): unknown {
+  const configured = context?.prompt?.config?.glossary ?? context?.prompt?.glossary ?? null;
+  if (context?.run?.translationMode !== 'literary') return configured;
+  const empty = { document_terms: [] as unknown[] };
+  if (!configured || typeof configured !== 'object' || Array.isArray(configured) || !items.length) return empty;
+
+  const projectId = String(context?.project?.projectId || '');
+  const revisionId = String(context?.run?.sourceRevisionId || '');
+  const { db, currentSourceRevisionId } = getDocumentProjectStore().getProjectContext(projectId);
+  if (!projectId || currentSourceRevisionId !== revisionId) return empty;
+  const rows = db.prepare(
+    'SELECT ordinal FROM source_segments WHERE source_revision_id = ? AND segment_id IN (' +
+      items.map(() => '?').join(',') + ')'
+  ).all(revisionId, ...items.map((item) => item.id)) as Array<{ ordinal: number }>;
+  const ordinals = rows.map((row) => Number(row.ordinal)).filter(Number.isFinite);
+  if (!ordinals.length) return empty;
+  const firstOrdinal = Math.min(...ordinals);
+
+  const normalize = (value: unknown) =>
+    String(value || '').normalize('NFKC').toLocaleLowerCase().replace(/\s+/g, ' ').trim();
+  const appearedEarlier = (value: unknown): boolean => {
+    const term = String(value || '').trim();
+    const key = normalize(term);
+    if (key.length < 2) return false;
+    const candidates = db.prepare(
+      'SELECT text FROM source_segments WHERE source_revision_id = ? AND ordinal < ? ' +
+        'AND instr(lower(text), lower(?)) > 0 ORDER BY ordinal LIMIT 100'
+    ).all(revisionId, firstOrdinal, term) as Array<{ text: string }>;
+    if (/^[a-z0-9 ._'’-]+$/i.test(term)) {
+      const needle = key.replace(/[^a-z0-9]+/gi, ' ').trim();
+      return needle.length >= 2 && candidates.some((row) => {
+        const haystack = ' ' + normalize(row.text).replace(/[^a-z0-9]+/gi, ' ').trim() + ' ';
+        return haystack.includes(' ' + needle + ' ');
+      });
+    }
+    return candidates.some((row) => normalize(row.text).includes(key));
+  };
+
+  const allowedKeys = [
+    'source', 'source_term', 'term', 'original', 'en', 'from',
+    'target', 'target_term', 'translation', 'zh', 'to',
+    'kind', 'category', 'caseSensitive', 'case_sensitive',
+  ];
+  const sourceOf = (item: any) => item && typeof item === 'object'
+    ? item.source ?? item.source_term ?? item.term ?? item.original ?? item.en ?? item.from
+    : item;
+  const terms = Array.isArray((configured as any).document_terms) ? (configured as any).document_terms : [];
+  return {
+    document_terms: terms.flatMap((term: any) => {
+      const source = sourceOf(term);
+      if (!appearedEarlier(source)) return [];
+      if (typeof term === 'string') return [term];
+      if (!term || typeof term !== 'object' || Array.isArray(term)) return [];
+      const selected: Record<string, unknown> = {};
+      for (const key of allowedKeys) {
+        const value = term[key];
+        if (value !== undefined && (typeof value !== 'object' || value === null)) selected[key] = value;
+      }
+      for (const key of ['aliases', 'source_aliases', 'sourceAliases']) {
+        if (Array.isArray(term[key])) {
+          const aliases = term[key].filter((alias: unknown) => appearedEarlier(alias));
+          if (key === 'aliases' || aliases.length) selected[key] = aliases;
+        }
+      }
+      return [selected];
+    }),
+  };
+}
+
 function serializedContext(brief: Pick<TranslationBrief,
   'policyVersion' | 'sourceRevisionId' | 'promptRevisionId' | 'memoryRevisionId' |
   'sourceSegmentIds' | 'chapterPath' | 'glossary' | 'precedingSegments' | 'contextGraph' | 'voiceContext'
