@@ -766,7 +766,8 @@ export function buildProjectContextGraphBundle(
   ];
 
   const result = {
-    policyVersion: 'context-graph-v1',
+    policyVersion: 'context-graph-v2-temporal',
+    knowledgeBoundaryOrdinal: knowledgeBoundary,
     styleGuide: {
       narrativeStyle: safeText(getMeta(db, revisionId, 'narrativeStyle'), 1000),
       rules: uniqueStrings(getMeta(db, revisionId, 'styleRules'), 12, 180),
