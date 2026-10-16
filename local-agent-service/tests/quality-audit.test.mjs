@@ -75,6 +75,18 @@ test('book audit finds missing translations, confirmed-name drift and repeated-l
   assert.equal(store.getSegments(project.projectId, { limit: 10 }).find((item) => item.id === 'name-1').acceptedTranslation,
     '玛丽·沃斯在黎明前进入档案室。', 'planning a repair must never overwrite an accepted manual translation');
   assert.equal(store.getRun(project.projectId, repair.run.runId).status, 'queued');
+
+  store.saveCandidate(project.projectId, repair.run.runId, 'name-1', '模型候选：玛拉·沃斯在黎明前走进档案室。');
+  store.saveCandidate(project.projectId, repair.run.runId, 'missing-1', '账本仍然藏在地板下面。');
+  store.saveManualEdit(project.projectId, 'name-1', '人工再次确认：玛丽·沃斯在黎明前进入档案室。');
+  store.finishRun(project.projectId, repair.run.runId);
+  store.acceptCandidates(project.projectId, repair.run.runId);
+  const afterRepairAcceptance = store.getSegments(project.projectId, { limit: 10 });
+  assert.equal(afterRepairAcceptance.find((item) => item.id === 'name-1').acceptedTranslation,
+    '人工再次确认：玛丽·沃斯在黎明前进入档案室。',
+    'an acceptance operation must not overwrite a newer manual edit with a repair candidate');
+  assert.equal(afterRepairAcceptance.find((item) => item.id === 'missing-1').acceptedTranslation,
+    '账本仍然藏在地板下面。');
 });
 
 test('paired-run evaluation withholds A/B mapping until every sampled segment has an overall blind rating', () => {
