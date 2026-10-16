@@ -112,6 +112,15 @@ test('parses DOCX paragraphs without a browser-side parser', async () => {
   assert.match(result.segments[1].text, /Alice read/);
 });
 
+test('splits oversized paragraphs even when the text has no blank-line boundaries', async () => {
+  const source = Buffer.from('Alice spoke to Bob. '.repeat(300), 'utf8');
+  const result = await parseDocumentFile('long.txt', source);
+  assert.ok(result.segments.length > 1);
+  assert.ok(result.segments.every((segment) => segment.text.length <= 1800));
+  assert.ok(result.segments.every((segment) => segment.text.trim().length > 0));
+  assert.equal(new Set(result.segments.map((segment) => segment.id)).size, result.segments.length);
+});
+
 test('rejects empty or malformed document input with a client-facing error', async () => {
   await assert.rejects(() => parseDocumentFile('empty.epub', Buffer.alloc(0)), /为空/);
   await assert.rejects(() => parseDocumentFile('broken.epub', Buffer.from('not zip')), /ZIP|压缩/);
