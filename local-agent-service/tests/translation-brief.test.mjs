@@ -1,4 +1,5 @@
 import test from 'node:test';
+import { ensureTestContextGraph } from './helpers/literary-context-graph.mjs';
 import assert from 'node:assert/strict';
 import os from 'node:os';
 import path from 'node:path';
@@ -25,6 +26,7 @@ test('TranslationBrief is revision-pinned, bounded and hashes the source selecti
       { id: 'c2-1', text: 'Iven returned at midnight.', kind: 'paragraph', contextPath: 'Chapter 2' },
     ],
   });
+  ensureTestContextGraph(store, project);
   const run = store.createRun(project.projectId, {
     scope: { type: 'ids', ids: ['c1-1', 'c1-2'] },
   });
@@ -140,6 +142,7 @@ test('future-supported glossary, character profile, anchor, examples and style t
     }],
     openQuestions: [],
   });
+  ensureTestContextGraph(store, project);
   const run = store.createRun(project.projectId, { scope: { type: 'ids', ids: ['early-1'] } });
   const context = store.getRunContext(project.projectId, run.runId);
   const source = store.getSegments(project.projectId, { limit: 10 }).find((item) => item.id === 'early-1');
@@ -175,6 +178,7 @@ test('later identity never enters an earlier brief', () => {
       { id: 'late-a', text: 'Mara Voss was secretly Queen Ash.', contextPath: 'Chapter 2' },
     ],
   });
+  ensureTestContextGraph(store, project);
   const run = store.createRun(project.projectId, { scope: { type: 'ids', ids: ['early-b'] } });
   const context = store.getRunContext(project.projectId, run.runId);
   context.memory = {
