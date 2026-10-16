@@ -35,6 +35,176 @@ export interface TranslationBrief {
   contextHash: string;
 }
 
+function normalizedSourceText(value: unknown): string {
+  return String(value || '').normalize('NFKC').toLocaleLowerCase().replace(/\s+/g, ' ').trim();
+}
+
+function sourceQuoteMatches(source: unknown, quote: unknown): boolean {
+  const sourceText = normalizedSourceText(source);
+  const quoteText = normalizedSourceText(quote);
+  return quoteText.length >= 8 && sourceText.includes(quoteText);
+}
+
+function sourceNameMatches(source: unknown, nameInput: unknown): boolean {
+  const sourceText = normalizedSourceText(source);
+  const name = normalizedSourceText(nameInput);
+  if (!sourceText || !name || name.length < 2) return false;
+  if (/^[a-z0-9 ._'’-]+$/i.test(name)) {
+    const haystack = ' ' + sourceText.replace(/[^a-z0-9]+/gi, ' ').trim() + ' ';
+    const needle = name.replace(/[^a-z0-9]+/gi, ' ').trim();
+    return needle.length >= 2 && haystack.includes(' ' + needle + ' ');
+  }
+  return sourceText.includes(name);
+}
+
+/**
+ * Literary memory is a book-level snapshot, but not all its claims are available at every point
+ * in the source. Only evidence whose source ordinal precedes this batch may survive retrieval.
+ * Unscoped free-text summaries/examples are removed because they have no trustworthy temporal
+ * provenance and could contain late plot revelations.
+ */
+function buildTemporallyVisibleMemory(
+  context: any,
+  items: BriefSegment[],
+  precedingSegments: BriefSegment[],
+): Record<string, any> {
+  const projectId = String(context?.project?.projectId || '');
+  const revisionId = String(context?.run?.sourceRevisionId || '');
+  const store = getDocumentProjectStore();
+  const projectContext = store.getProjectContext(projectId);
+  const empty = {
+    version: 2, entities: [], relationships: [], styleGuide: {},
+    chapterSummaries: [], recentExamples: [], characterVoices: [],
+    relationshipVoiceRules: [], voiceAnchors: [], openQuestions: [],
+  };
+  if (!projectId || projectContext.currentSourceRevisionId !== revisionId || !items.length) return empty;
+
+  const rows = projectContext.db.prepare(
+    'SELECT segment_id, ordinal, text, context_path FROM source_segments ' +
+    'WHERE source_revision_id = ? AND segment_id IN (' + items.map(() => '?').join(',') + ') ' +
+    'ORDER BY ordinal'
+  ).all(revisionId, ...items.map((item) => item.id)) as any[];
+  const itemOrdinals = rows.map((row) => Number(row.ordinal)).filter(Number.isFinite);
+  if (!itemOrdinals.length) return empty;
+  const firstOrdinal = Math.min(...itemOrdinals);
+
+  const rawMemory = context?.memory && typeof context.memory === 'object'
+    ? JSON.parse(JSON.stringify(context.memory)) as Record<string, any>
+    : empty;
+  const referencedIds = new Set<string>();
+  for (const profile of Array.isArray(rawMemory.characterVoices) ? rawMemory.characterVoices : []) {
+    for (const evidence of Array.isArray(profile.evidence) ? profile.evidence : []) {
+      if (typeof evidence?.segmentId === 'string') referencedIds.add(evidence.segmentId);
+    }
+    for (const rule of Array.isArray(profile.contrastRules) ? profile.contrastRules : []) {
+      for (const id of Array.isArray(rule?.evidenceSegmentIds) ? rule.evidenceSegmentIds : []) {
+        if (typeof id === 'string') referencedIds.add(id);
+      }
+    }
+  }
+  for (const rule of Array.isArray(rawMemory.relationshipVoiceRules) ? rawMemory.relationshipVoiceRules : []) {
+    for (const id of Array.isArray(rule?.evidenceSegmentIds) ? rule.evidenceSegmentIds : []) {
+      if (typeof id === 'string') referencedIds.add(id);
+    }
+  }
+  for (const anchor of Array.isArray(rawMemory.voiceAnchors) ? rawMemory.voiceAnchors : []) {
+    if (typeof anchor?.segmentId === 'string') referencedIds.add(anchor.segmentId);
+  }
+  for (const segment of precedingSegments) referencedIds.add(segment.id);
+
+  const ids = Array.from(referencedIds);
+  const sourceById = new Map<string, { ordinal: number; text: string; contextPath: string }>();
+  for (let offset = 0; offset < ids.length; offset += 400) {
+    const chunk = ids.slice(offset, offset + 400);
+    const refRows = projectContext.db.prepare(
+      'SELECT segment_id, ordinal, text, context_path FROM source_segments ' +
+      'WHERE source_revision_id = ? AND segment_id IN (' + chunk.map(() => '?').join(',') + ')'
+    ).all(revisionId, ...chunk) as any[];
+    for (const row of refRows) sourceById.set(String(row.segment_id), {
+      ordinal: Number(row.ordinal), text: String(row.text || ''), contextPath: String(row.context_path || ''),
+    });
+  }
+  for (const row of rows) sourceById.set(String(row.segment_id), {
+    ordinal: Number(row.ordinal), text: String(row.text || ''), contextPath: String(row.context_path || ''),
+  });
+  const isPrior = (id: unknown) => {
+    const source = typeof id === 'string' ? sourceById.get(id) : undefined;
+    return !!source && Number.isFinite(source.ordinal) && source.ordinal < firstOrdinal;
+  };
+  const nameCache = new Map<string, boolean>();
+  const appearedBefore = (nameInput: unknown): boolean => {
+    const name = String(nameInput || '').trim();
+    const key = normalizedSourceText(name);
+    if (!key) return false;
+    const cached = nameCache.get(key);
+    if (cached !== undefined) return cached;
+    // SQL narrows the scan; JS enforces whole-name matching for Latin names.
+    const candidates = projectContext.db.prepare(
+      'SELECT text FROM source_segments WHERE source_revision_id = ? AND ordinal < ? ' +
+      'AND instr(lower(text), lower(?)) > 0 ORDER BY ordinal LIMIT 100'
+    ).all(revisionId, firstOrdinal, name) as Array<{ text: string }>;
+    const matched = candidates.some((row) => sourceNameMatches(row.text, name));
+    nameCache.set(key, matched);
+    return matched;
+  };
+  const appearsAsEarlierEvidence = (quoteInput: unknown): boolean => {
+    const quote = String(quoteInput || '').trim();
+    if (normalizedSourceText(quote).length < 8) return false;
+    const candidates = projectContext.db.prepare(
+      'SELECT text FROM source_segments WHERE source_revision_id = ? AND ordinal < ? ' +
+      'AND instr(lower(text), lower(?)) > 0 ORDER BY ordinal LIMIT 100'
+    ).all(revisionId, firstOrdinal, quote) as Array<{ text: string }>;
+    return candidates.some((row) => sourceQuoteMatches(row.text, quote));
+  };
+
+  rawMemory.entities = (Array.isArray(rawMemory.entities) ? rawMemory.entities : []).flatMap((entity: any) => {
+    if (!entity || !appearedBefore(entity.source) || !appearsAsEarlierEvidence(entity.evidence)) return [];
+    return [{
+      ...entity,
+      aliases: (Array.isArray(entity.aliases) ? entity.aliases : []).filter((alias: unknown) => appearedBefore(alias)),
+    }];
+  });
+  rawMemory.relationships = (Array.isArray(rawMemory.relationships) ? rawMemory.relationships : []).filter((relation: any) =>
+    relation && appearedBefore(relation.subject) && appearedBefore(relation.object) &&
+    appearsAsEarlierEvidence(relation.evidence));
+
+  rawMemory.characterVoices = (Array.isArray(rawMemory.characterVoices) ? rawMemory.characterVoices : []).flatMap((profile: any) => {
+    const evidence = (Array.isArray(profile.evidence) ? profile.evidence : []).filter((item: any) => {
+      if (!item || !isPrior(item.segmentId)) return false;
+      const source = sourceById.get(item.segmentId);
+      return !!source && sourceQuoteMatches(source.text, item.sourceQuote);
+    });
+    if (!evidence.length || !appearedBefore(profile.canonicalSourceName)) return [];
+    const aliases = (Array.isArray(profile.aliases) ? profile.aliases : [])
+      .filter((alias: unknown) => appearedBefore(alias));
+    const contrastRules = (Array.isArray(profile.contrastRules) ? profile.contrastRules : []).filter((rule: any) => {
+      const ids = Array.isArray(rule.evidenceSegmentIds) ? rule.evidenceSegmentIds : [];
+      return ids.length > 0 && ids.every(isPrior) && rawMemory.characterVoices.some((other: any) =>
+        other.characterId === rule.otherCharacterId && appearedBefore(other.canonicalSourceName));
+    }).map((rule: any) => ({ ...rule, evidenceSegmentIds: rule.evidenceSegmentIds.filter(isPrior) }));
+    return [{ ...profile, aliases, evidence, contrastRules }];
+  });
+  const visibleCharacterIds = new Set(rawMemory.characterVoices.map((profile: any) => profile.characterId));
+  rawMemory.relationshipVoiceRules = (Array.isArray(rawMemory.relationshipVoiceRules) ? rawMemory.relationshipVoiceRules : []).filter((rule: any) => {
+    const evidenceIds = Array.isArray(rule.evidenceSegmentIds) ? rule.evidenceSegmentIds : [];
+    return evidenceIds.length > 0 && evidenceIds.every(isPrior) &&
+      visibleCharacterIds.has(rule.speakerId) && visibleCharacterIds.has(rule.addresseeId);
+  });
+  rawMemory.voiceAnchors = (Array.isArray(rawMemory.voiceAnchors) ? rawMemory.voiceAnchors : []).filter((voiceAnchor: any) => {
+    const source = sourceById.get(String(voiceAnchor?.segmentId || ''));
+    return !!source && source.ordinal < firstOrdinal &&
+      visibleCharacterIds.has(voiceAnchor.speakerId) && sourceQuoteMatches(source.text, voiceAnchor.source);
+  });
+
+  // These book-level strings lack source-positioned citations. Do not let whole-book analysis
+  // leak a future plot fact through a field labelled "style", "example", or "summary".
+  rawMemory.styleGuide = {};
+  rawMemory.chapterSummaries = [];
+  rawMemory.recentExamples = [];
+  rawMemory.openQuestions = [];
+  return rawMemory;
+}
+
 function serializedContext(brief: Pick<TranslationBrief,
   'policyVersion' | 'sourceRevisionId' | 'promptRevisionId' | 'memoryRevisionId' |
   'sourceSegmentIds' | 'chapterPath' | 'precedingSegments' | 'contextGraph' | 'voiceContext'
@@ -149,6 +319,9 @@ export function buildTranslationBrief(
   const sourceRevisionId = String(context?.run?.sourceRevisionId || '');
   const promptRevisionId = String(context?.run?.promptRevisionId || '');
   const memoryRevisionId = typeof context?.memoryRevisionId === 'string' ? context.memoryRevisionId : null;
+  const temporalMemory = context?.run?.translationMode === 'literary'
+    ? buildTemporallyVisibleMemory(context, items, precedingSegments)
+    : {};
   const chapterPaths = Array.from(new Set(items.map((item) => String(item.contextPath || '').trim()).filter(Boolean)));
   // Book batches should be chapter-scoped. If callers violate that invariant, omitting summaries is safer.
   const chapterPath = chapterPaths.length === 1 ? chapterPaths[0]! : '';
@@ -161,12 +334,18 @@ export function buildTranslationBrief(
     : null;
   const voiceContext = context?.run?.translationMode === 'literary'
     ? buildProjectVoiceContext(
-        context.memory,
+        temporalMemory,
         items.map((item) => ({ id: item.id, text: item.text, contextPath: item.contextPath })),
         chapterPath || undefined,
         precedingSegments,
       ) as Record<string, any>
     : {};
+  // Context Graph style notes are book-wide and have no ordinal-bearing evidence links.
+  // Keep only per-batch, evidence-bounded characters/entities/relationships and chapter prefix summaries.
+  if (graph) {
+    graph.styleGuide = { narrativeStyle: '', rules: [] };
+    graph.policyVersion = 'context-graph-v2-temporal';
+  }
   // Graph chapter order is derived from source segment order and therefore is the canonical
   // boundary. Do not use memory-only summaries when chapter matching could be ambiguous.
   voiceContext.chapterSummaries = graph && chapterPath ? graph.chapterSummaries : [];
