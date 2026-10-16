@@ -656,21 +656,34 @@ export function submitProjectQualityEvaluationReviews(
   const complete = packetIds.every((id: string) => overallBySegment.has(id));
   if (complete) {
     const mapping = loaded.blindMapping;
-    let beforeWins = 0, afterWins = 0, ties = 0, cannotJudge = 0;
-    for (const preference of overallBySegment.values()) {
-      if (preference === 'tie') ties++;
-      else if (preference === 'cannot_judge') cannotJudge++;
-      else if (mapping[preference] === 'before') beforeWins++;
-      else if (mapping[preference] === 'after') afterWins++;
-    }
+    const summarizePreferences = (items: any[]) => {
+      let beforeWins = 0, afterWins = 0, ties = 0, cannotJudge = 0;
+      for (const item of items) {
+        const preference = item.preference;
+        if (preference === 'tie') ties++;
+        else if (preference === 'cannot_judge') cannotJudge++;
+        else if (mapping[preference] === 'before') beforeWins++;
+        else if (mapping[preference] === 'after') afterWins++;
+      }
+      const decided = beforeWins + afterWins;
+      return {
+        beforeWins, afterWins, ties, cannotJudge,
+        decidedPreferenceCount: decided,
+        afterPreferred: afterWins > beforeWins,
+        afterWinRateAmongDecided: decided ? Math.round(afterWins / decided * 1000) / 10 : null,
+      };
+    };
+    const dimensions = ['overall', 'accuracy', 'terminology', 'voice', 'style'];
+    const preferenceByDimension = Object.fromEntries(dimensions.map((dimension) => [
+      dimension,
+      summarizePreferences(reviews.filter((item) => item.dimension === dimension)),
+    ]));
     report.blindReview = {
       ...report.blindReview,
       status: 'completed',
       result: {
-        beforeWins, afterWins, ties, cannotJudge,
-        decidedPreferenceCount: beforeWins + afterWins,
-        afterPreferred: afterWins > beforeWins,
-        afterWinRateAmongDecided: beforeWins + afterWins ? Math.round(afterWins / (beforeWins + afterWins) * 1000) / 10 : null,
+        ...summarizePreferences(reviews.filter((item) => item.dimension === 'overall')),
+        preferenceByDimension,
       },
     };
     report.blindReview.packet = [];
