@@ -26,6 +26,7 @@ test('retrieval injects matched graph records and excludes future chapter summar
     segments: [
       { id: 'chapter-1-seg-1', text: 'Alice spoke politely to Bob.', kind: 'paragraph', contextPath: 'Chapter 1' },
       { id: 'chapter-2-seg-1', text: 'Alice asked Bob about the locked door.', kind: 'paragraph', contextPath: 'Chapter 2' },
+      { id: 'chapter-2-seg-2', text: 'Alice later found the hidden staircase behind the locked door.', kind: 'paragraph', contextPath: 'Chapter 2' },
       { id: 'chapter-3-seg-1', text: 'Alice revealed the secret passage.', kind: 'paragraph', contextPath: 'Chapter 3' },
     ],
   });
@@ -55,7 +56,7 @@ test('retrieval injects matched graph records and excludes future chapter summar
     'INSERT INTO context_graph_chapters(source_revision_id, chapter_key, chapter_order, chapter_title, summary, summary_kind, segment_ids_json, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
   );
   insertChapter.run(currentSourceRevisionId, 'Chapter 1', 0, 'Chapter 1', 'Alice met Bob for the first time.', 'model', '["chapter-1-seg-1"]', now);
-  insertChapter.run(currentSourceRevisionId, 'Chapter 2', 1, 'Chapter 2', 'Alice asked about a locked door.', 'model', '["chapter-2-seg-1"]', now);
+  insertChapter.run(currentSourceRevisionId, 'Chapter 2', 1, 'Chapter 2', 'Later Alice found the hidden staircase behind the locked door.', 'model', '["chapter-2-seg-1","chapter-2-seg-2"]', now);
   insertChapter.run(currentSourceRevisionId, 'Chapter 3', 2, 'Chapter 3', 'Alice found the secret passage.', 'model', '["chapter-3-seg-1"]', now);
 
   const bundle = buildProjectContextGraphBundle(project.projectId, [
@@ -63,7 +64,8 @@ test('retrieval injects matched graph records and excludes future chapter summar
   ]);
   assert.ok(bundle);
   assert.deepEqual(bundle.characters.map((item) => item.name).sort(), ['Alice', 'Bob']);
-  assert.deepEqual(bundle.chapterSummaries.map((item) => item.chapter), ['Chapter 1', 'Chapter 2']);
+  assert.deepEqual(bundle.chapterSummaries.map((item) => item.chapter), ['Chapter 1']);
+  assert.ok(!JSON.stringify(bundle).includes('hidden staircase'));
   assert.ok(!JSON.stringify(bundle).includes('secret passage'));
   assert.ok(!JSON.stringify(bundle).includes('future reveal'));
   assert.ok(!JSON.stringify(bundle).includes('密道'));
