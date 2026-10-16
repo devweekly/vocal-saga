@@ -1,6 +1,7 @@
 /**
  * CLI for automation, debugging and bulk document runs.
- * Inputs are normalized segment JSON produced by the same EPUB/PDF parser contract as the extension.
+ * It accepts normalized segment JSON or parses original text documents inside local-agent-service;
+ * the extension is not involved in the import-file command.
  */
 import { readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
