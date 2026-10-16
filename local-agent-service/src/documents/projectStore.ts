@@ -909,7 +909,7 @@ export class DocumentProjectStore {
         "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'context_graph_runs'"
       ).get();
       if (!graphTable) {
-        throw Object.assign(new Error('文学翻译的全书预处理尚未运行。请先在“人物与预处理”中启动预处理。'), { status: 409 });
+        throw Object.assign(new Error('文学翻译的全书预处理尚未运行。请先在 UI 的“人物与预处理”中启动，或执行 npm run doc -- context-analyze ' + projectId + '。'), { status: 409 });
       }
       const preprocessing = db.prepare(
         'SELECT run_id, status, progress_json, error FROM context_graph_runs WHERE source_revision_id = ? ORDER BY started_at DESC, rowid DESC LIMIT 1'
@@ -921,7 +921,7 @@ export class DocumentProjectStore {
         throw Object.assign(new Error('全书预处理仍在运行（' + preprocessing.run_id + '），完成后再启动翻译。'), { status: 409 });
       }
       if (preprocessing.status !== 'completed') {
-        throw Object.assign(new Error('全书预处理未成功：' + (preprocessing.error || preprocessing.status) + '。请在“人物与预处理”中重新分析。'), { status: 409 });
+        throw Object.assign(new Error('全书预处理未成功：' + (preprocessing.error || preprocessing.status) + '。请在 UI 的“人物与预处理”中重新分析，或执行 npm run doc -- context-analyze ' + projectId + '。'), { status: 409 });
       }
       const preprocessingProgress = parseJson<any>(preprocessing.progress_json, {});
       if (preprocessingProgress.analysisVersion !== 'context-graph-v5-language-pinned') {
