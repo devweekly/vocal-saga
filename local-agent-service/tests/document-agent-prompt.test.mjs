@@ -94,7 +94,10 @@ test('literary context matches Latin character names as words, not accidental su
       { subject: 'Ann', predicate: 'trusts', object: 'Unknown', reviewStatus: 'confirmed' },
     ],
     styleGuide: {},
-    chapterSummaries: [],
+    chapterSummaries: [
+      { chapter: 'Chapter 10', summary: 'A later event.' },
+      { chapter: 'Chapter 11', summary: 'Another later event.' },
+    ],
     recentExamples: [],
     characterVoices: [
       profile('char-ann', 'Ann', '安'),
@@ -106,9 +109,11 @@ test('literary context matches Latin character names as words, not accidental su
   const context = buildProjectVoiceContext(
     memory,
     [{ id: 'current', text: 'The annual report says Alice left. Annabelle stayed.' }],
-    'Chapter 1',
+    'Unmapped Chapter',
   );
 
+  assert.deepEqual(context.chapterSummaries, [],
+    'do not inject unscoped summaries that could describe unrelated or later chapters');
   assert.deepEqual(context.characterVoices.map((item) => item.characterId), ['char-alice']);
   assert.deepEqual(context.entities.map((item) => item.source), ['Alice']);
   assert.deepEqual(context.relationships, [],
