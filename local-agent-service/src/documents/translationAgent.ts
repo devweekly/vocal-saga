@@ -269,7 +269,7 @@ function parseTranslations(value: unknown, expectedIds: Set<string>): {
   const unexpectedIds = new Set<string>();
   let duplicateCount = 0;
   let unexpectedCount = 0;
-  let malformedRowCount = 0;
+  let malformedRowCount = Array.isArray(outer.translations) || Array.isArray(value) ? 0 : 1;
 
   for (const raw of rows) {
     if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
