@@ -48,6 +48,110 @@ function targetPresent(translation: string, target: string): boolean {
   return haystack.includes(needle);
 }
 
+function numericTokens(value: unknown): string[] {
+  // NFKC normalizes full-width digits. Treat thousands separators as formatting, but keep
+  // decimal points; dates/ranges remain ordered numeric sequences ("2026-10-16" -> 2026, 10, 16).
+  const matches = String(value ?? '').normalize('NFKC').match(/\\d+(?:[,.]\\d+)*/gu) || [];
+  return matches.map((token) => token.replace(/,/g, ''));
+}
+
+function numericFindings(
+  segments: Array<{ id: string; text: string; contextPath: string }>,
+  translations: Map<string, string>,
+) {
+  const findings: any[] = [];
+  for (const segment of segments) {
+    const translation = translations.get(segment.id) || '';
+    if (!translation.trim()) continue;
+    const sourceNumbers = numericTokens(segment.text);
+    const targetNumbers = numericTokens(translation);
+    if (JSON.stringify(sourceNumbers) === JSON.stringify(targetNumbers)) continue;
+    findings.push({
+      findingId: stableFindingId('numeric-token-mismatch', [segment.id], sourceNumbers.join(',') + '>' + targetNumbers.join(',')),
+      type: 'numeric-token-mismatch',
+      category: 'numeric',
+      severity: 'warning',
+      confidence: 'heuristic',
+      repairable: true,
+      segmentIds: [segment.id],
+      chapter: segment.contextPath || null,
+      sourceNumbers,
+      translatedNumbers: targetNumbers,
+      sourceExcerpt: segment.text.slice(0, 240),
+      translationExcerpt: translation.slice(0, 320),
+      explanation: '原文与译文中的数字序列不同；这可能是数值遗漏、增添或格式转换，需要结合上下文人工确认。',
+    });
+  }
+  return findings;
+}
+
+function translationOutputValidationFindings(
+  db: any,
+  runId: string | undefined,
+  sourceSegmentIds: Set<string>,
+): any[] {
+  if (!runId) return [];
+  const rows = db.prepare(
+    'SELECT event_id, payload_json FROM project_events WHERE run_id = ? AND event_type = ? ORDER BY event_id'
+  ).all(runId, 'batch.output.validation') as any[];
+  const findings: any[] = [];
+  for (const row of rows) {
+    let payload: any = {};
+    try { payload = JSON.parse(String(row.payload_json || '{}')); } catch { payload = {}; }
+    const batchIndex = Number.isFinite(Number(payload.batchIndex)) ? Number(payload.batchIndex) : null;
+    const duplicateIds = Array.isArray(payload.duplicateSegmentIds)
+      ? Array.from(new Set(payload.duplicateSegmentIds.filter((id: unknown) => typeof id === 'string' && sourceSegmentIds.has(id)))
+          .map(String)).slice(0, 20)
+      : [];
+    if (Number(payload.duplicateCount) > 0) {
+      findings.push({
+        findingId: stableFindingId('duplicate-output-id', duplicateIds, String(runId) + ':' + String(batchIndex) + ':' + String(payload.duplicateCount)),
+        type: 'duplicate-output-id',
+        category: 'output-validation',
+        severity: 'warning',
+        confidence: 'deterministic-output-shape',
+        repairable: duplicateIds.length > 0,
+        segmentIds: duplicateIds,
+        batchIndex,
+        duplicateCount: Math.max(0, Number(payload.duplicateCount) || 0),
+        explanation: '模型在同一批响应中重复返回了输入片段 ID；重复结果未被接受，相关片段仍按缺失/重试逻辑处理。',
+      });
+    }
+    if (Number(payload.unexpectedCount) > 0) {
+      findings.push({
+        findingId: stableFindingId('unexpected-output-id', [], String(runId) + ':' + String(batchIndex) + ':' + String(payload.unexpectedCount)),
+        type: 'unexpected-output-id',
+        category: 'output-validation',
+        severity: 'warning',
+        confidence: 'deterministic-output-shape',
+        repairable: false,
+        segmentIds: [],
+        batchIndex,
+        unexpectedCount: Math.max(0, Number(payload.unexpectedCount) || 0),
+        unexpectedOutputIds: Array.isArray(payload.unexpectedOutputIds)
+          ? payload.unexpectedOutputIds.filter((id: unknown) => typeof id === 'string').slice(0, 20)
+          : [],
+        explanation: '模型返回了不属于本批输入的片段 ID；这些结果已忽略。',
+      });
+    }
+    if (Number(payload.malformedRowCount) > 0) {
+      findings.push({
+        findingId: stableFindingId('malformed-output-row', [], String(runId) + ':' + String(batchIndex) + ':' + String(payload.malformedRowCount)),
+        type: 'malformed-output-row',
+        category: 'output-validation',
+        severity: 'warning',
+        confidence: 'deterministic-output-shape',
+        repairable: false,
+        segmentIds: [],
+        batchIndex,
+        malformedRowCount: Math.max(0, Number(payload.malformedRowCount) || 0),
+        explanation: '模型响应包含缺少 ID、空译文或结构不合法的行；这些行未被接受。',
+      });
+    }
+  }
+  return findings;
+}
+
 function stableFindingId(type: string, ids: string[], detail: string): string {
   let hash = 0x811c9dc5;
   const input = type + ':' + ids.join(',') + ':' + detail;
@@ -437,9 +541,11 @@ export function runProjectQualityAudit(projectId: string, runId?: string): Recor
     explanation: '该来源片段没有当前可用的已采纳译文或本次运行候选译文。',
   }));
   const termFindings = terminologyFindings(segments, translations, memory);
+  const numberFindings = numericFindings(segments, translations);
   const repeatedFindings = repeatedExpressionFindings(segments, translations);
-  const review = currentReviewFindings(context.db, context.currentSourceRevisionId, runId);
   const presentIds = new Set(segments.map((segment) => segment.id));
+  const outputFindings = translationOutputValidationFindings(context.db, runId, presentIds);
+  const review = currentReviewFindings(context.db, context.currentSourceRevisionId, runId);
   const reviewFindings = review.findings.filter((finding) => presentIds.has(finding.segmentId)).map((finding) => ({
     findingId: 'review_' + finding.findingId,
     type: finding.category === 'accuracy'
@@ -462,7 +568,7 @@ export function runProjectQualityAudit(projectId: string, runId?: string): Recor
     suggestion: finding.suggestion,
     proposedTranslation: finding.proposedTranslation,
   }));
-  const findings = [...missing, ...termFindings, ...repeatedFindings, ...reviewFindings];
+  const findings = [...missing, ...termFindings, ...numberFindings, ...repeatedFindings, ...outputFindings, ...reviewFindings];
   const auditId = randomUUID();
   const translatedCount = segments.length - missing.length;
   const ratePer100 = (count: number) => segments.length ? Math.round(count / segments.length * 1000) / 10 : 0;
@@ -487,6 +593,11 @@ export function runProjectQualityAudit(projectId: string, runId?: string): Recor
       coveragePercent: segments.length ? Math.round(translatedCount / segments.length * 1000) / 10 : 100,
       terminologyDriftCount: termFindings.length,
       terminologyDriftRatePer100Segments: ratePer100(termFindings.length),
+      numericTokenMismatchCount: numberFindings.length,
+      numericTokenMismatchRatePer100Segments: ratePer100(numberFindings.length),
+      duplicateOutputIdFindingCount: outputFindings.filter((item) => item.type === 'duplicate-output-id').length,
+      malformedOutputFindingCount: outputFindings.filter((item) => item.type === 'malformed-output-row').length,
+      unexpectedOutputIdFindingCount: outputFindings.filter((item) => item.type === 'unexpected-output-id').length,
       repeatedExpressionDriftGroups: repeatedFindings.length,
       repeatedExpressionDriftRatePer100Segments: ratePer100(repeatedFindings.length),
       accuracyReviewFindingCount: reviewFindings.filter((item) => item.category === 'accuracy').length,
@@ -500,7 +611,9 @@ export function runProjectQualityAudit(projectId: string, runId?: string): Recor
     interpretation: [
       '遗漏检查为确定性检查。',
       '术语漂移是基于已确认规范译名的启发式提示；未出现规范译名不一定代表错误。',
+      '数字序列差异是启发式提示，需考虑中文数字、日期格式和上下文后人工确认。',
       '重复表达只对重复源文片段的译文差异提示复核，不自动统一。',
+      '重复输出 ID、未知输出 ID 和结构不合法的模型响应只从运行事件报告，不接受这些异常行。',
       '准确性/遗漏、术语、人物声线与文风提示来自已有 Reviewer 发现；若没有运行相应审校，报告不能证明该类问题不存在。',
       '所有修订都进入新的候选 Run，不自动覆盖已采纳或人工修改的译文。',
     ],
