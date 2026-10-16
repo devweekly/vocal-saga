@@ -211,6 +211,58 @@ function stableId(prefix: string, index: number): string {
   return safe + '-' + String(index + 1).padStart(5, '0');
 }
 
+function segmentsFromBlocks(
+  blocks: Array<{ text: string; kind: string; level?: number }>,
+  format: DocumentFormat,
+  sourcePath: string,
+  idPrefix: string,
+  initialChapter: string,
+  startOrdinal = 0,
+): ProjectSegment[] {
+  const result: ProjectSegment[] = [];
+  const hasHeadings = blocks.some((block) => block.kind === 'heading');
+  const totalChars = blocks.reduce((sum, block) => sum + block.text.length, 0);
+  // Plain-text exports often have no heading markers. Divide these into stable virtual sections
+  // so summaries/retrieval stay local instead of treating the complete novel as one chapter.
+  const autoPartition = !hasHeadings && (blocks.length > 20 || totalChars > 20_000);
+  let chapter = initialChapter || '正文';
+  let autoChapter = 1;
+  let groupBlocks = 0;
+  let groupChars = 0;
+  let ordinal = startOrdinal;
+
+  for (const block of blocks) {
+    if (hasHeadings) {
+      if (block.kind === 'heading') chapter = block.text.slice(0, 160);
+    } else if (autoPartition) {
+      if (groupBlocks > 0 && (groupBlocks >= 40 || groupChars + block.text.length > 20_000)) {
+        autoChapter++;
+        groupBlocks = 0;
+        groupChars = 0;
+      }
+      chapter = '自动分段 ' + String(autoChapter).padStart(2, '0');
+      groupBlocks++;
+      groupChars += block.text.length;
+    }
+
+    const chunks = splitLongText(block.text);
+    chunks.forEach((chunk, chunkIndex) => {
+      result.push({
+        id: stableId(idPrefix || sourcePath || format, ordinal++),
+        text: chunk,
+        kind: chunkIndex === 0 ? block.kind : 'paragraph',
+        contextPath: chapter,
+        ...(chunkIndex === 0 && block.level ? { level: block.level } : {}),
+        ...(sourcePath ? { path: sourcePath } : {}),
+      });
+    });
+    if (result.length + startOrdinal > MAX_SEGMENTS) {
+      fail('文档片段超过 20000 项上限；请拆分文档后分项目导入。', 413);
+    }
+  }
+  return result;
+}
+
 function appendTextSegments(
   segments: ProjectSegment[],
   text: string,
@@ -240,39 +292,32 @@ function appendTextSegments(
   }
   flush();
 
-  let chapter = path.basename(sourcePath || '正文');
-  let ordinal = segments.length;
-  for (const block of blocks) {
-    if (block.kind === 'heading') chapter = block.text.slice(0, 160);
-    const chunks = splitLongText(block.text);
-    chunks.forEach((chunk, chunkIndex) => {
-      segments.push({
-        id: stableId(sourcePath || format, ordinal++),
-        text: chunk,
-        kind: chunkIndex === 0 ? block.kind : 'paragraph',
-        contextPath: chapter,
-        ...(chunkIndex === 0 && block.level ? { level: block.level } : {}),
-        ...(sourcePath ? { path: sourcePath } : {}),
-      });
-    });
-    if (segments.length > MAX_SEGMENTS) fail('文档片段超过 20000 项上限；请拆分文档后分项目导入。', 413);
-  }
+  const parsed = segmentsFromBlocks(
+    blocks, format, sourcePath, sourcePath || format,
+    path.basename(sourcePath || '正文'), segments.length,
+  );
+  segments.push(...parsed);
 }
 
 function parsePlainDocument(bytes: Buffer, format: DocumentFormat, fileName: string): ProjectSegment[] {
-  let text = decodeText(bytes);
-  if (format === 'html') text = cleanText(text);
+  const text = decodeText(bytes);
+  const filePath = path.basename(fileName);
+  if (format === 'html') {
+    const blocks = htmlBlocks(text);
+    if (!blocks.length) fail('HTML 中没有可提取的正文。', 415);
+    const initialChapter = headingFromHtml(text) || path.basename(fileName, path.extname(fileName));
+    return segmentsFromBlocks(blocks, format, filePath, filePath, initialChapter);
+  }
   const segments: ProjectSegment[] = [];
-  appendTextSegments(segments, text, format, path.basename(fileName));
+  appendTextSegments(segments, text, format, filePath);
   return segments;
 }
 
 function parseDocx(bytes: Buffer, fileName: string): ProjectSegment[] {
   const entries = zipDirectory(bytes);
   const documentXml = zipRead(bytes, entries, 'word/document.xml').toString('utf8');
-  const segments: ProjectSegment[] = [];
-  let chapter = path.basename(fileName, path.extname(fileName));
   const paragraphPattern = /<w:p\b[^>]*>([\s\S]*?)<\/w:p\s*>/gi;
+  const blocks: Array<{ text: string; kind: string; level?: number }> = [];
   for (const match of documentXml.matchAll(paragraphPattern)) {
     const xml = match[1]!;
     const pieces = Array.from(xml.matchAll(/<w:t\b[^>]*>([\s\S]*?)<\/w:t\s*>/gi), (item) => decodeEntities(item[1]!));
@@ -282,22 +327,16 @@ function parseDocx(bytes: Buffer, fileName: string): ProjectSegment[] {
     const heading = /^Heading[1-6]$/i.test(style) || /^Title$/i.test(style) ||
       /^第.{1,40}[章节回卷部篇幕]\s*.*$/.test(text) ||
       /^(chapter|part|prologue|epilogue)\b/i.test(text);
-    if (heading) chapter = text.slice(0, 160);
-    const chunks = splitLongText(text);
-    chunks.forEach((chunk, chunkIndex) => {
-      segments.push({
-        id: stableId('docx', segments.length),
-        text: chunk,
-        kind: chunkIndex === 0 ? (heading ? 'heading' : 'paragraph') : 'paragraph',
-        contextPath: chapter,
-        ...(chunkIndex === 0 && heading ? { level: Number(style.match(/\d/)?.[0] || 1) } : {}),
-        path: 'word/document.xml',
-      });
+    blocks.push({
+      text, kind: heading ? 'heading' : 'paragraph',
+      ...(heading ? { level: Number(style.match(/\d/)?.[0] || 1) } : {}),
     });
-    if (segments.length > MAX_SEGMENTS) fail('文档片段超过 20000 项上限；请拆分文档后分项目导入。', 413);
   }
-  if (!segments.length) fail('DOCX 中没有可提取的文字。', 415);
-  return segments;
+  if (!blocks.length) fail('DOCX 中没有可提取的文字。', 415);
+  return segmentsFromBlocks(
+    blocks, 'docx', 'word/document.xml', 'docx',
+    path.basename(fileName, path.extname(fileName)),
+  );
 }
 
 function parseEpub(bytes: Buffer, fileName: string): ProjectSegment[] {
