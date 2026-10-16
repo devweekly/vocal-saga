@@ -32,13 +32,15 @@ function containsName(source: string, name: string): boolean {
 }
 
 function targetPresent(translation: string, target: string): boolean {
-  const needle = normalized(target).replace(/\s+/g, '');
-  if (!needle) return true;
-  const haystack = normalized(translation).replace(/\s+/g, '');
-  if (/^[a-z0-9 ._'’-]+$/i.test(target)) {
-    return (' ' + haystack.replace(/[^a-z0-9]+/gi, ' ').trim() + ' ')
-      .includes(' ' + target.replace(/[^a-z0-9]+/gi, ' ').trim() + ' ');
+  const latinTarget = /^[a-z0-9 ._'’-]+$/i.test(target);
+  if (latinTarget) {
+    const haystack = ' ' + normalized(translation).replace(/[^a-z0-9]+/gi, ' ').trim() + ' ';
+    const needle = target.replace(/[^a-z0-9]+/gi, ' ').trim();
+    return !needle || haystack.includes(' ' + needle + ' ');
   }
+  const needle = normalizedPhrase(target).replace(/\s+/g, '');
+  if (!needle) return true;
+  const haystack = normalizedPhrase(translation).replace(/\s+/g, '');
   return haystack.includes(needle);
 }
 
@@ -436,9 +438,16 @@ export function createProjectQualityEvaluation(projectId: string, beforeRunId: s
   const before = runComparisonData(projectId, beforeRunId);
   const after = runComparisonData(projectId, afterRunId);
   if (before.metrics.sourceRevisionId !== after.metrics.sourceRevisionId) fail('前后运行的来源版本不同，不能作有效对照。', 409);
-  if (before.metrics.targetLang !== after.metrics.targetLang) fail('前后运行的目标语言不同，不能作有效对照。', 409);
+  if (before.metrics.targetLang !== after.metrics.targetLang || before.context.run.sourceLang !== after.context.run.sourceLang) {
+    fail('前后运行的源语言或目标语言不同，不能作有效对照。', 409);
+  }
+  const comparableStatuses = new Set(['completed', 'awaiting_acceptance']);
+  if (!comparableStatuses.has(before.metrics.status) || !comparableStatuses.has(after.metrics.status)) {
+    fail('前后运行必须已完成翻译和审校并进入 completed 或 awaiting_acceptance；不能比较仍在运行、暂停或取消的结果。', 409);
+  }
+  const afterIdSet = new Set<string>(after.metrics.segmentIds);
   if (before.metrics.segmentIds.length !== after.metrics.segmentIds.length ||
-      before.metrics.segmentIds.some((id: string) => !new Set(after.metrics.segmentIds).has(id))) {
+      before.metrics.segmentIds.some((id: string) => !afterIdSet.has(id))) {
     fail('前后运行的片段范围不同；为了可比性，必须使用同一来源版本和相同片段集合。', 409);
   }
   const beforeIds = new Set(before.metrics.segmentIds);
@@ -464,8 +473,12 @@ export function createProjectQualityEvaluation(projectId: string, beforeRunId: s
     if (selected.size >= maxBlindItems) break;
     selected.add(ids[0]!);
   }
-  for (let i = 0; i < prioritized.length && selected.size < maxBlindItems; i++) {
-    selected.add(prioritized[Math.floor(i * prioritized.length / Math.max(1, maxBlindItems))]!);
+  if (prioritized.length <= maxBlindItems) {
+    for (const id of prioritized) selected.add(id);
+  } else {
+    for (let i = 0; i < maxBlindItems && selected.size < maxBlindItems; i++) {
+      selected.add(prioritized[Math.floor(i * prioritized.length / maxBlindItems)]!);
+    }
   }
   const swap = randomInt(2) === 1;
   const blindMapping = {
