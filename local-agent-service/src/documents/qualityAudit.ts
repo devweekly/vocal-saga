@@ -316,6 +316,19 @@ function runMetrics(projectId: string, runId: string): any {
 export function runProjectQualityAudit(projectId: string, runId?: string): Record<string, any> {
   const { store, context, segments } = currentSource(projectId);
   if (!segments.length) fail('当前来源版本没有可审计的片段。', 409);
+  const active = context.db.prepare(
+    "SELECT run_id FROM translation_runs WHERE status IN ('queued','running','paused','partial') LIMIT 1"
+  ).get() as { run_id?: string } | undefined;
+  if (active?.run_id && (!runId || runId === active.run_id)) {
+    fail('当前翻译运行仍在执行或暂停中，请等待完成后审计；若需检查候选结果，请提供已结束的 runId。', 409);
+  }
+  if (runId) {
+    const requestedRun = context.db.prepare('SELECT status FROM translation_runs WHERE run_id = ?').get(runId) as { status?: string } | undefined;
+    if (!requestedRun) fail('找不到质量审计指定的翻译运行：' + runId, 404);
+    if (!['completed', 'awaiting_acceptance'].includes(String(requestedRun.status))) {
+      fail('只有已完成或等待采纳的运行可以作为审计候选来源。', 409);
+    }
+  }
   const translations = acceptedTranslations(context.db, context.currentSourceRevisionId);
   if (runId) overlayRunCandidates(context.db, context.currentSourceRevisionId, runId, translations);
   const memory = loadMemory(projectId, runId);
