@@ -70,7 +70,7 @@ test('CJK scans surface word candidates and repeated dialogue without whitespace
   const japanese = [
     { id: 'ja-1', ordinal: 0, contextPath: '第一章', kind: 'dialogue', text: '桜花は言った。「西の灯を消さないでください。」' },
     { id: 'ja-2', ordinal: 12, contextPath: '第二章', kind: 'dialogue', text: '桜花はもう一度言った。「西の灯を消さないでください。」' },
-    { id: 'ja-3', ordinal: 24, contextPath: '第七章', kind: 'dialogue', text: '「西の灯を消さないでください」と桜花は頼んだ。' },
+    { id: 'ja-3', ordinal: 24, contextPath: '第七章', kind: 'dialogue', text: '「西の灯を消さないでください。」桜花は頼んだ。' },
   ];
   const japaneseScan = scanBookSegments(japanese);
   assert.ok(japaneseScan.nameCandidates.some((candidate) => candidate.name === '桜花'));
