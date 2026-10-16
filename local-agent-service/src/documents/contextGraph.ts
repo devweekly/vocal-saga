@@ -119,10 +119,15 @@ function assertNoActiveTranslation(projectId: string, db: DatabaseSync): void {
   }
 }
 
-function graphContext(projectId: string): { db: DatabaseSync; revisionId: string } {
+function graphContext(projectId: string, sourceRevisionId?: string): { db: DatabaseSync; revisionId: string } {
   const context = getDocumentProjectStore().getProjectContext(projectId);
   ensureSchema(context.db);
-  return { db: context.db, revisionId: context.currentSourceRevisionId };
+  const revisionId = sourceRevisionId || context.currentSourceRevisionId;
+  if (revisionId !== context.currentSourceRevisionId) {
+    const exists = context.db.prepare('SELECT 1 FROM source_revisions WHERE revision_id = ?').get(revisionId);
+    if (!exists) throw Object.assign(new Error('找不到指定的原文版本：' + revisionId), { status: 404 });
+  }
+  return { db: context.db, revisionId };
 }
 
 function readSegments(projectId: string): { db: DatabaseSync; revisionId: string; segments: Segment[] } {
@@ -236,7 +241,7 @@ function saveNode(
   db.prepare(
     'INSERT INTO context_graph_nodes(node_id, source_revision_id, kind, name, normalized_name, attributes_json, status, created_at, updated_at) ' +
     'VALUES (?, ?, ?, ?, ?, ?, \'candidate\', ?, ?) ON CONFLICT(node_id) DO UPDATE SET ' +
-    'attributes_json=CASE WHEN context_graph_nodes.status IN (\'confirmed\',\'rejected\') THEN context_graph_nodes.attributes_json ELSE excluded.attributes_json END, ' +
+    'attributes_json=CASE WHEN context_graph_nodes.status IN (\'confirmed\',\'rejected\') AND json_extract(context_graph_nodes.attributes_json, \'$.targetLang\') IS excluded.targetLang THEN context_graph_nodes.attributes_json ELSE excluded.attributes_json END, ' +
     'status=CASE WHEN context_graph_nodes.status IN (\'confirmed\',\'rejected\') THEN context_graph_nodes.status ELSE \'candidate\' END, updated_at=excluded.updated_at'
   ).run(id, revisionId, kind, safeText(name, 120), normalizedName, JSON.stringify(attributes), now, now);
   const insertEvidence = db.prepare(
@@ -432,7 +437,7 @@ async function runAnalysis(projectId: string, runId: string): Promise<void> {
       if (!evidence.length) continue;
       const aliases = uniqueStrings(raw.aliases, 12, 100).filter((item) => normalize(item) !== normalize(name));
       const attributes = {
-        aliases, suggestedTranslation: safeText(raw.suggestedTranslation, 120),
+        aliases, suggestedTranslation: safeText(raw.suggestedTranslation, 120), targetLang,
         role: safeText(raw.role, 360), traits: uniqueStrings(raw.traits, 10, 160),
         voice: uniqueStrings(raw.voice, 10, 180), evidenceCount: evidence.length,
       };
@@ -448,7 +453,7 @@ async function runAnalysis(projectId: string, runId: string): Promise<void> {
       const attributes = {
         aliases, entityKind: safeText(raw.kind, 50) || 'other',
         significance: safeText(raw.significance, 360),
-        suggestedTranslation: safeText(raw.suggestedTranslation, 120),
+        suggestedTranslation: safeText(raw.suggestedTranslation, 120), targetLang,
         evidenceCount: evidence.length,
       };
       const id = saveNode(db, revisionId, 'entity', name, attributes, evidence);
@@ -494,7 +499,7 @@ async function runAnalysis(projectId: string, runId: string): Promise<void> {
     const now = new Date().toISOString();
     db.prepare('UPDATE context_graph_runs SET status = \'completed\', phase = \'completed\', progress_json = ?, finished_at = ?, error = NULL WHERE run_id = ?')
       .run(JSON.stringify({
-        analysisVersion: 'context-graph-v4-target-language',
+        analysisVersion: 'context-graph-v5-language-pinned',
         sourceLang, targetLang,
         sampleCount: samples.length, chapterCount: chapters.length,
         characterCount: persistedNodes.filter((node) => node.kind === 'character').length,
@@ -672,8 +677,10 @@ export function buildProjectContextGraphBundle(
   projectId: string,
   items: Array<{ id: string; text: string; contextPath?: string }>,
   precedingSegments: Array<{ id: string; text: string; contextPath?: string }> = [],
+  sourceRevisionId?: string,
+  targetLang?: string,
 ): Record<string, unknown> | null {
-  const { db, revisionId } = graphContext(projectId);
+  const { db, revisionId } = graphContext(projectId, sourceRevisionId);
   const sourceText = [...precedingSegments.slice(-4), ...items].map((item) => item.text).join('\n');
   const normalizedSource = normalize(sourceText);
   if (!normalizedSource) return null;
@@ -742,6 +749,7 @@ export function buildProjectContextGraphBundle(
   for (const row of nodes) {
     let attributes: any = {};
     try { attributes = JSON.parse(row.attributes_json); } catch { attributes = {}; }
+    if (targetLang && safeText(attributes.suggestedTranslation, 120) && attributes.targetLang !== targetLang) continue;
     const safeAliases = (Array.isArray(attributes.aliases) ? attributes.aliases : [])
       .filter((alias: unknown) => appearedBefore(alias));
     const names = [row.name, ...safeAliases].map(normalize).filter(Boolean);
@@ -856,6 +864,17 @@ export function buildProjectContextGraphBundle(
   // current/preceding source are exposed. No future aliases, role descriptions, relationships,
   // or plot facts are included here.
   const namesInContext = sourceText;
+  const priorNamesInContext = precedingSegments.slice(-4).map((item) => item.text).join('\n');
+  const appearsInPriorContext = (value: unknown): boolean => {
+    const name = normalize(value);
+    if (!name || name.length < 2) return false;
+    if (/^[a-z0-9 ._'’ -]+$/i.test(name)) {
+      const haystack = ' ' + normalize(priorNamesInContext).replace(/[^a-z0-9]+/gi, ' ').trim() + ' ';
+      const needle = name.replace(/[^a-z0-9]+/gi, ' ').trim();
+      return needle.length >= 2 && haystack.includes(' ' + needle + ' ');
+    }
+    return normalize(priorNamesInContext).includes(name);
+  };
   const appearsInContext = (value: unknown): boolean => {
     const name = normalize(value);
     if (!name || name.length < 2) return false;
@@ -874,7 +893,7 @@ export function buildProjectContextGraphBundle(
     let attributes: any = {};
     try { attributes = JSON.parse(row.attributes_json); } catch { attributes = {}; }
     const target = safeText(attributes.suggestedTranslation, 120);
-    if (!target) return [];
+    if (!target || (targetLang && attributes.targetLang !== targetLang)) return [];
     const hasEvidence = db.prepare(
       'SELECT 1 FROM context_graph_evidence WHERE source_revision_id = ? AND node_id = ? LIMIT 1'
     ).get(revisionId, row.node_id);
@@ -883,8 +902,8 @@ export function buildProjectContextGraphBundle(
       .filter((alias) => normalize(alias) !== normalize(row.name));
     // A later alias can change the canonical target itself (identity reveal). Do not use a
     // whole-book target early until its complete known alias set is temporally visible.
-    if (allAliases.some((alias) => !appearedBefore(alias) && !appearsInContext(alias))) return [];
-    const aliases = allAliases.filter((alias) => appearedBefore(alias) || appearsInContext(alias));
+    if (allAliases.some((alias) => !appearedBefore(alias) && !appearsInPriorContext(alias))) return [];
+    const aliases = allAliases.filter((alias) => appearedBefore(alias) || appearsInPriorContext(alias));
     return [{
       source: safeText(row.name, 120),
       target,
