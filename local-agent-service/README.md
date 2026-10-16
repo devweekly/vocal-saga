@@ -55,7 +55,7 @@
 - `POST /api/documents/batches`：把结构化文档片段交给本机服务计算批次边界。支持字符数、片段数、章节/PDF 页边界约束，返回片段 ID 而不是重复传回全文；服务不可用时扩展才使用同一套确定性本地计算作为降级，不会调用远程服务。
 - `POST /api/documents/session/save` / `POST /api/documents/session/get`：SQLite 文档检查点，保存阅读位置、已完成译文、书籍记忆和任务状态；服务端最多保留最近 30 个不同的 `sessionId`。当前扩展使用单一活动会话 ID，因此阅读器 UI 实际只恢复最近一本书。后续检查点只提交变化的译文，服务端合并回完整快照，避免每批重复上传整本书的译文。
 - `POST /api/documents/session/summary`：只返回恢复卡片所需的标题、格式与更新时间，不传回整份文档；即使扩展的 IndexedDB 不可用，阅读器也可以发现 SQLite 中的恢复副本。扩展仍以 IndexedDB 为主要阅读状态存储，SQLite 是本机模式的额外恢复副本。
-- EPUB/PDF 的文件选择与 PDF/EPUB 容器解析仍在扩展中执行，因为它们依赖浏览器文件权限、PDF.js 和浏览器阅读器环境；提取后的片段批次规划、文学实体分析、书籍记忆和 Reviewer 由本机服务优先处理。
+- 扩展现有阅读流程的文件选择与容器解析仍由扩展执行，因为它们依赖浏览器文件权限、PDF.js 和浏览器阅读器环境；这只描述现有集成路径，并不表示本机服务无法解析原文件。另有独立的服务端直读入口（见下文），可从 CLI 或本机 API 导入 EPUB/DOCX/纯文本 PDF/TXT/Markdown/HTML，并在服务内完成预处理。本次服务端改动未修改扩展。
 
 这些端点只供 loopback 本机扩展使用，沿用同一可选 Token 校验。缓存值、文档检查点与请求历史是独立表；`LOCAL_AGENT_STORE_CONTENT=false` 只控制请求历史是否记录完整 prompt/响应，不会关闭业务缓存和文档检查点。扩展当前将单个文档检查点限制在序列化 JSON 5 MiB 以内；这是 SQLite 恢复副本的大小限制，不是 project API 的 HTTP 请求体限制。`/api/documents/*` 的 JSON 请求体上限为 100 MiB，其他 Local Agent JSON API 为 24 MiB，原始 `source-file` 二进制上传上限为 20 MiB。由于快照同时保存解析后的文档和部分原始文本，某些接近 20 MiB 文件上限的 EPUB/PDF 无法完整写入 SQLite。扩展会停止重试这个过大的 SQLite 快照，但仍会继续使用 IndexedDB 主存储；如果 IndexedDB 也不可用，这类大文档就没有 SQLite 恢复副本。清空翻译缓存不会删除文档快照或请求历史。要彻底清除本机保存的内容，应在停止服务后删除整个 SQLite 数据库文件。
 
@@ -89,6 +89,18 @@ The ordinary /v1/chat/completions endpoint remains the single-call provider inte
 - New runs do not overwrite accepted translations. The /runs/:runId/accept endpoint promotes candidates; manual corrections create accepted results marked with origin=manual.
 - On service startup, interrupted queued/running jobs become paused and in-flight segment rows return to pending. Resuming continues from remaining segments without deleting existing successful candidates.
 
+### Service-side original-file import and Context Graph
+
+The local service can parse original text documents directly; file parsing is not delegated to the browser extension. The importer accepts EPUB, DOCX, text-layer PDF, TXT, Markdown and HTML. It caps uploaded source files at 20 MiB, expanded ZIP content at 80 MiB and normalized input at 20,000 segments. EPUB/DOCX ZIP entries are read in memory without extracting archive paths to disk. Encrypted and ZIP64 archives are rejected rather than silently producing incomplete text.
+
+For PDFs, the importer uses Poppler's `pdftotext` command in text-only mode. Install it on macOS with `brew install poppler`. There is no OCR path. A PDF without a usable text layer returns an explicit error.
+
+Every imported source revision gets stable segment IDs and stores the original file outside SQLite. Preprocessing selects beginning/middle/end, representative chapters, dialogue-dense and entity-dense samples, then asks the configured local model for candidate characters, aliases, entities, relationships, narrative style and chapter summaries. Each graph candidate must include a quote validated against a sampled source segment. Model output cannot auto-confirm facts. Nodes, edges and source evidence are stored against the source revision; users can review items through the CLI or API.
+
+Before each literary translation batch, retrieval matches names and aliases in the current batch plus preceding segments, then injects only a bounded set of matched characters/entities, related edges and summaries from the current and previous chapters. It does not inject the full graph or later chapter summaries. The Context Graph is part of the literary run fingerprint, so graph changes make previously accepted non-manual translations stale. Re-analysis and graph status changes are blocked while a translation run remains active.
+
+This is a separate opt-in ingestion path and does not alter `fanyi-extension`. To use it end to end, import a book through `npm run doc -- import-file` or the service API, inspect/review the graph, then start translation. The existing extension reader flow continues to work as before.
+
 ### API
 
 All project endpoints live below /api/documents/projects and use the existing Local Agent Token, loopback Host checks and extension-origin CORS rules:
@@ -97,6 +109,10 @@ All project endpoints live below /api/documents/projects and use the existing Lo
 - GET /api/documents/projects/:id: project summary, verification and recent runs.
 - POST /api/documents/projects/:id/source: import a new normalized source revision without deleting run history. Segment identity metadata includes EPUB part path / page / time markers where supplied, so the project retains enough mapping information for future reader/export adapters.
 - POST /api/documents/projects/:id/source-file: upload the original file as a binary request with X-Source-File-Name. Files up to 20 MiB are stored outside SQLite at documents/<documentId>/sources/<sourceRevisionId>.<format>; SHA-256 and byte size are recorded in the project database. Re-importing creates a new source revision and never overwrites an earlier revision's source file.
+- POST /api/documents/projects/import-file: directly import an original file through the local service. Send raw bytes (not JSON) and set X-Source-File-Name to the URL-encoded file name. The service parses the document, creates stable source segments, stores the original bytes, and starts asynchronous Context Graph preprocessing. This endpoint is independent of the extension's existing reader pipeline; the extension has not been changed.
+- GET /api/documents/projects/:id/context-graph: inspect book-level style notes, chapters, graph nodes/edges, source evidence and analysis runs for the current source revision.
+- POST /api/documents/projects/:id/context-graph/analyze: re-run preprocessing for an existing project; poll the context-graph endpoint to observe completion.
+- POST /api/documents/projects/:id/context-graph/review: review a graph item with JSON { "type": "node" | "edge", "id": "...", "status": "candidate" | "confirmed" | "rejected" }. A node/edge cannot be confirmed without stored source evidence. Graph edits and re-analysis are rejected while a translation run is active, keeping the retrieved context stable during that run.
 - GET /api/documents/projects/:id/segments?limit=250&offset=0&runId=...: page through source, accepted translations and one run's candidates.
 - GET/POST /api/documents/projects/:id/prompts: list/save Prompt revisions.
 - GET/POST /api/documents/projects/:id/runs: list/create runs. Create returns HTTP 202 while model work continues in the background.
@@ -114,6 +130,14 @@ UI, CLI and JavaScript scripts call the same TypeScript Project Store and Transl
 cd local-agent-service
 npm run doc -- projects
 npm run doc -- import ./parsed-book.json
+# Parse the original file locally and wait for the whole-book preprocessing pass.
+npm run doc -- import-file ./my-novel.epub
+npm run doc -- import-file ./my-document.docx
+# Text-layer PDF requires Poppler's pdftotext; no OCR is performed.
+npm run doc -- import-file ./my-book.pdf
+npm run doc -- context <documentId>
+npm run doc -- context-analyze <documentId>
+npm run doc -- context-review <documentId> node <nodeId> confirmed
 npm run doc -- status <documentId>
 npm run doc -- run <documentId> --scope=stale
 npm run doc -- run <documentId> --scope=all --prompt-file=./prompt.json
@@ -123,7 +147,7 @@ npm run doc -- verify <documentId>
 npm run doc -- export <documentId> ./accepted-translations.json
 ~~~
 
-The import JSON contains title, format, an optional sourceFileName, a segments array and an optional prompt. It uses the normalized segment contract produced by the extension's EPUB/PDF parser; the CLI does not claim to independently parse original EPUB/PDF layout. The extension workspace uploads the selected original file separately (up to 20 MiB); normalized segment JSON is sent through the `/api/documents/*` route family, whose JSON-body limit is 100 MiB; the separate raw source-file upload limit is 20 MiB. Prompt changes create a new fingerprinted revision. Manual edits remain the current accepted version across Prompt changes until the user explicitly runs and accepts a replacement; source text changes still mark them stale.
+The normalized JSON import accepts title, format, an optional sourceFileName, a segments array and an optional prompt. In addition, `import-file` and `POST /api/documents/projects/import-file` parse original files inside the local service without involving the browser extension. Supported formats are EPUB, DOCX, text-layer PDF, TXT, Markdown and HTML. EPUB extraction follows OPF spine order and preserves content paths; DOCX reads Word paragraphs; PDF uses Poppler `pdftotext` and does not run OCR. On macOS, install the PDF text utility with `brew install poppler`. This direct-import path is deliberately service-only; the extension's current reader workflow has not been changed. Prompt changes create a new fingerprinted revision. Manual edits remain the current accepted version across Prompt changes until the user explicitly runs and accepts a replacement; source text changes still mark them stale.
 
 ### Literary translation and character voice memory v2
 
