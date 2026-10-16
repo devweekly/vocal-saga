@@ -239,7 +239,7 @@ function collectRepeatedPhrases(segments: BookScanSegment[]): RepeatedPhraseCand
   for (const segment of segments) {
     const sentences = segment.text.match(/[^.!?。！？\n]+[.!?。！？]?/gu) || [];
     const quotedPhrases = Array.from(
-      segment.text.matchAll(/[“"「『]([^”"」』]{12,})[”"」』]/gu),
+      segment.text.matchAll(/[“"「『]([^”"」』]{8,})[”"」』]/gu),
       (match) => match[1] || '',
     );
     // Extract quote contents separately: punctuation inside CJK quotation marks often means a
@@ -250,7 +250,7 @@ function collectRepeatedPhrases(segments: BookScanSegment[]): RepeatedPhraseCand
       const cjkPhrase = HAS_CJK_SCRIPT.test(text);
       const normalizedLength = Array.from(normalized).length;
       if (cjkPhrase
-        ? normalizedLength < 12
+        ? normalizedLength < 8
         : normalizedLength < 24 || normalized.split(' ').filter(Boolean).length < 4) continue;
       const current = seen.get(normalized) || { text: text.slice(0, 180), segmentIds: [], chapterKeys: [] };
       if (!current.segmentIds.includes(segment.id)) current.segmentIds.push(segment.id);
