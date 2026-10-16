@@ -681,8 +681,9 @@ export class DocumentProjectStore {
       promptFingerprint: promptRow.fingerprint,
       // 人物声音/关系/锚点变化必须让文学批次变 stale，但不应虚增一个静态 Prompt revision。
       literaryMemoryFingerprint: config.translationMode === 'literary' ? literaryMemoryFingerprint : null,
-      contextGraphFingerprint: config.translationMode === 'literary'
-        ? this.contextGraphFingerprint(projectId, sourceRevisionId) : null,
+      ...(config.translationMode === 'literary'
+        ? { contextGraphFingerprint: this.contextGraphFingerprint(projectId, sourceRevisionId) }
+        : {}),
       sourceLang: config.sourceLang || 'auto',
       targetLang: config.targetLang || 'zh',
       provider: config.provider || 'workbuddy',
