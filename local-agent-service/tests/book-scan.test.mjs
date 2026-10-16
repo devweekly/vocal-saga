@@ -104,3 +104,27 @@ test('English scan retains recurring full names as separate sampling candidates'
   assert.equal(fullName.chapterCount, 3);
   assert.equal(fullName.regionCount, 3);
 });
+
+test('repeated-phrase sampling selects the true final occurrence beyond the bounded ID preview', () => {
+  const segments = Array.from({ length: 120 }, (_, index) => ({
+    id: 'long-' + String(index + 1).padStart(3, '0'),
+    ordinal: index,
+    contextPath: 'Chapter ' + (Math.floor(index / 10) + 1),
+    kind: 'dialogue',
+    text: index % 5 === 3
+      ? 'A traveller whispered: “Keep the western lamp burning.”'
+      : 'A traveller walked quietly through the archive corridor.',
+  }));
+  const scan = scanBookSegments(segments);
+  const phrase = scan.repeatedPhrases.find((item) => item.normalized === 'keep the western lamp burning');
+  assert.ok(phrase);
+  assert.equal(phrase.firstSegmentId, 'long-004');
+  assert.equal(phrase.lastSegmentId, 'long-119');
+  assert.equal(phrase.segmentIdsTruncated, true);
+  assert.ok(!phrase.segmentIds.includes('long-119'), 'bounded preview must not silently claim to contain the last occurrence');
+
+  const plan = planBookSamples(segments, scan, 72);
+  const finalOccurrence = plan.samples.find((sample) => sample.segment.id === 'long-119');
+  assert.ok(finalOccurrence);
+  assert.ok(finalOccurrence.reasons.includes('repeated-phrase:last'));
+});
