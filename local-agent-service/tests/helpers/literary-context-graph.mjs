@@ -15,14 +15,20 @@ export function ensureTestContextGraph(store, project) {
     'progress_json TEXT NOT NULL, started_at TEXT NOT NULL, finished_at TEXT, error TEXT)'
   );
   const existing = db.prepare(
-    'SELECT run_id FROM context_graph_runs WHERE source_revision_id = ? AND status = ? LIMIT 1',
+    'SELECT run_id, progress_json FROM context_graph_runs WHERE source_revision_id = ? AND status = ? ORDER BY started_at DESC LIMIT 1',
   ).get(currentSourceRevisionId, 'completed');
-  if (existing) return;
+  if (existing) {
+    let progress = {};
+    try { progress = JSON.parse(existing.progress_json); } catch { /* replace invalid test fixture */ }
+    if (progress.analysisVersion === 'context-graph-v5-language-pinned' &&
+        progress.sourceLang === (config.sourceLang || 'auto') &&
+        progress.targetLang === (config.targetLang || 'zh')) return;
+  }
   const now = new Date().toISOString();
   db.prepare(
     'INSERT INTO context_graph_runs(run_id, source_revision_id, status, phase, progress_json, started_at, finished_at, error) VALUES (?, ?, ?, ?, ?, ?, ?, NULL)',
   ).run(
-    'test-context-graph-' + currentSourceRevisionId,
+    'test-context-graph-' + currentSourceRevisionId + '-' + Date.now(),
     currentSourceRevisionId,
     'completed',
     'completed',
