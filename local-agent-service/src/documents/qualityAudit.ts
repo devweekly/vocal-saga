@@ -288,6 +288,7 @@ function runMetrics(projectId: string, runId: string): any {
   ).reduce((sum, event) => sum + Number(event.payload.durationMs || 0), 0);
   const missing = segments.filter((segment) => !translationById.get(segment.id)?.trim()).length;
   const coverage = segments.length ? Math.round(((segments.length - missing) / segments.length) * 1000) / 10 : 100;
+  const ratePer100 = (count: number) => segments.length ? Math.round(count / segments.length * 1000) / 10 : 0;
   return {
     runId,
     sourceRevisionId: currentSourceRevisionId,
@@ -305,11 +306,16 @@ function runMetrics(projectId: string, runId: string): any {
       segmentCount: segments.length,
       translatedSegmentCount: segments.length - missing,
       missingTranslationCount: missing,
+      missingTranslationRatePer100Segments: ratePer100(missing),
       coveragePercent: coverage,
       terminologyDriftCount: entities.length,
+      terminologyDriftRatePer100Segments: ratePer100(entities.length),
       repeatedExpressionDriftGroups: repeated.length,
+      repeatedExpressionDriftRatePer100Segments: ratePer100(repeated.length),
       styleFindingCount: styleFindings,
+      styleFindingRatePer100Segments: ratePer100(styleFindings),
       characterVoiceFindingCount: voiceFindings,
+      characterVoiceFindingRatePer100Segments: ratePer100(voiceFindings),
       translationRequestCount: translationCalls,
       reviewerRequestCount: reviewCalls,
       totalPipelineRequestCount: translationCalls + reviewCalls,
@@ -382,6 +388,7 @@ export function runProjectQualityAudit(projectId: string, runId?: string): Recor
   const findings = [...missing, ...termFindings, ...repeatedFindings, ...reviewFindings];
   const auditId = randomUUID();
   const translatedCount = segments.length - missing.length;
+  const ratePer100 = (count: number) => segments.length ? Math.round(count / segments.length * 1000) / 10 : 0;
   const report = {
     auditId,
     projectId,
@@ -393,13 +400,18 @@ export function runProjectQualityAudit(projectId: string, runId?: string): Recor
       sourceSegmentCount: segments.length,
       translatedSegmentCount: translatedCount,
       missingTranslationCount: missing.length,
+      missingTranslationRatePer100Segments: ratePer100(missing.length),
       coveragePercent: segments.length ? Math.round(translatedCount / segments.length * 1000) / 10 : 100,
       terminologyDriftCount: termFindings.length,
+      terminologyDriftRatePer100Segments: ratePer100(termFindings.length),
       repeatedExpressionDriftGroups: repeatedFindings.length,
+      repeatedExpressionDriftRatePer100Segments: ratePer100(repeatedFindings.length),
       accuracyReviewFindingCount: reviewFindings.filter((item) => item.category === 'accuracy').length,
       reviewerTerminologyFindingCount: reviewFindings.filter((item) => item.category === 'terminology').length,
       styleReviewFindingCount: reviewFindings.filter((item) => item.category === 'style').length,
+      styleFindingRatePer100Segments: ratePer100(reviewFindings.filter((item) => item.category === 'style').length),
       characterVoiceFindingCount: reviewFindings.filter((item) => item.type === 'character-voice-review').length,
+      characterVoiceFindingRatePer100Segments: ratePer100(reviewFindings.filter((item) => item.type === 'character-voice-review').length),
       repairableFindingCount: findings.filter((item) => item.repairable).length,
     },
     interpretation: [
@@ -533,8 +545,9 @@ export function createProjectQualityEvaluation(projectId: string, beforeRunId: s
     };
   });
   const metricKeys = [
-    'missingTranslationCount', 'coveragePercent', 'terminologyDriftCount',
-    'repeatedExpressionDriftGroups', 'styleFindingCount', 'characterVoiceFindingCount',
+    'missingTranslationCount', 'missingTranslationRatePer100Segments', 'coveragePercent', 'terminologyDriftCount',
+    'terminologyDriftRatePer100Segments', 'repeatedExpressionDriftGroups', 'repeatedExpressionDriftRatePer100Segments',
+    'styleFindingCount', 'styleFindingRatePer100Segments', 'characterVoiceFindingCount', 'characterVoiceFindingRatePer100Segments',
     'totalPipelineRequestCount', 'totalPromptCharsKnown', 'modelDurationMsKnown',
   ];
   const delta: Record<string, number> = {};
