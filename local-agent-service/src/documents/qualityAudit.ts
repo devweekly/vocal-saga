@@ -177,6 +177,54 @@ function numericTokens(value: unknown, allowImplicitChineseClassifierOne = true)
   return result;
 }
 
+const QUANTITY_UNIT_CANONICAL: Record<string, string> = {
+  inch: 'length:inch', inches: 'length:inch', 英寸: 'length:inch', 寸: 'length:inch',
+  foot: 'length:foot', feet: 'length:foot', 英尺: 'length:foot', 尺: 'length:foot',
+  mile: 'length:mile', miles: 'length:mile', 英里: 'length:mile',
+  meter: 'length:meter', meters: 'length:meter', metre: 'length:meter', metres: 'length:meter',
+  米: 'length:meter', centimeter: 'length:centimeter', centimeters: 'length:centimeter',
+  centimetre: 'length:centimeter', centimetres: 'length:centimeter', 厘米: 'length:centimeter',
+  millimeter: 'length:millimeter', millimeters: 'length:millimeter', 毫米: 'length:millimeter',
+  kilometer: 'length:kilometer', kilometers: 'length:kilometer', kilometre: 'length:kilometer',
+  kilometres: 'length:kilometer', 公里: 'length:kilometer', 千米: 'length:kilometer',
+  hour: 'time:hour', hours: 'time:hour', 小时: 'time:hour',
+  minute: 'time:minute', minutes: 'time:minute', 分钟: 'time:minute',
+  second: 'time:second', seconds: 'time:second', 秒: 'time:second', 秒钟: 'time:second',
+  day: 'time:day', days: 'time:day', 天: 'time:day',
+  week: 'time:week', weeks: 'time:week', 周: 'time:week', 星期: 'time:week',
+  month: 'time:month', months: 'time:month', 月: 'time:month', '个月': 'time:month',
+  year: 'time:year', years: 'time:year', 年: 'time:year', 岁: 'time:year',
+  side: 'count:side', sides: 'count:side', 边: 'count:side',
+  degree: 'angle:degree', degrees: 'angle:degree', 度: 'angle:degree',
+  pound: 'weight:pound', pounds: 'weight:pound', kilogram: 'weight:kilogram',
+  kilograms: 'weight:kilogram', 公斤: 'weight:kilogram', 千克: 'weight:kilogram',
+  ounce: 'weight:ounce', ounces: 'weight:ounce', gram: 'weight:gram', grams: 'weight:gram',
+  克: 'weight:gram', liter: 'volume:liter', liters: 'volume:liter', litre: 'volume:liter',
+  litres: 'volume:liter', 升: 'volume:liter', milliliter: 'volume:milliliter',
+  milliliters: 'volume:milliliter', millilitre: 'volume:milliliter', millilitres: 'volume:milliliter',
+  毫升: 'volume:milliliter',
+};
+
+function numericQuantityUnits(value: unknown): string[] {
+  const source = String(value ?? '').normalize('NFKC').toLocaleLowerCase();
+  const found: Array<{ index: number; unit: string }> = [];
+  const englishNumber = '(?:\\d+(?:[,.]\\d+)*|zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred|thousand|million|billion)';
+  const englishPattern = new RegExp('\\\\b' + englishNumber +
+    '(?:[\\\\s-]+(?:and[\\\\s-]+)?' + englishNumber + ')*[\\\\s-]+' +
+    '(inches?|feet|foot|miles?|hours?|minutes?|seconds?|days?|weeks?|months?|years?|degrees?|meters?|metres?|centimeters?|centimetres?|millimeters?|millimetres?|kilometers?|kilometres?|pounds?|kilograms?|ounces?|liters?|litres?|sides?)\\\\b', 'giu');
+  for (const match of source.matchAll(englishPattern)) {
+    const unit = QUANTITY_UNIT_CANONICAL[String(match[1] || '').toLocaleLowerCase()];
+    if (unit) found.push({ index: match.index ?? 0, unit });
+  }
+  const chinesePattern = /(?:\\d+(?:[,.]\\d+)*|[零〇一二两三四五六七八九十百千万亿]+)(英寸|寸|英尺|尺|英里|公里|千米|厘米|毫米|米|小时|分钟|秒钟|秒|天|周|星期|个月|月|年|岁|公斤|千克|克|升|毫升|度|边)/gu;
+  for (const match of source.matchAll(chinesePattern)) {
+    const rawUnit = String(match[1] || '');
+    const unit = QUANTITY_UNIT_CANONICAL[rawUnit];
+    if (unit) found.push({ index: match.index ?? 0, unit });
+  }
+  return found.sort((a, b) => a.index - b.index).map((item) => item.unit);
+}
+
 function numericFindings(
   segments: Array<{ id: string; text: string; contextPath: string }>,
   translations: Map<string, string>,
@@ -187,7 +235,12 @@ function numericFindings(
     if (!translation.trim()) continue;
     const sourceNumbers = numericTokens(segment.text, false);
     const targetNumbers = numericTokens(translation, sourceNumbers.length > 0);
-    if (JSON.stringify(sourceNumbers) === JSON.stringify(targetNumbers)) continue;
+    const sourceUnits = numericQuantityUnits(segment.text);
+    const targetUnits = numericQuantityUnits(translation);
+    const numericValuesDiffer = JSON.stringify(sourceNumbers) !== JSON.stringify(targetNumbers);
+    const quantityUnitsDiffer = (sourceUnits.length > 0 || targetUnits.length > 0) &&
+      JSON.stringify(sourceUnits) !== JSON.stringify(targetUnits);
+    if (!numericValuesDiffer && !quantityUnitsDiffer) continue;
     findings.push({
       findingId: stableFindingId('numeric-token-mismatch', [segment.id], sourceNumbers.join(',') + '>' + targetNumbers.join(',')),
       type: 'numeric-token-mismatch',
@@ -199,9 +252,13 @@ function numericFindings(
       chapter: segment.contextPath || null,
       sourceNumbers,
       translatedNumbers: targetNumbers,
+      sourceUnits,
+      translatedUnits: targetUnits,
       sourceExcerpt: segment.text.slice(0, 240),
       translationExcerpt: translation.slice(0, 320),
-      explanation: '原文与译文中的数字序列不同；这可能是数值遗漏、增添或格式转换，需要结合上下文人工确认。',
+      explanation: numericValuesDiffer
+        ? '原文与译文中的数字序列不同；这可能是数值遗漏、增添或格式转换，需要结合上下文人工确认。'
+        : '原文与译文中的计量单位或数量单位不同；请结合上下文判断是否属于有效换算或单位误译。',
     });
   }
   return findings;
