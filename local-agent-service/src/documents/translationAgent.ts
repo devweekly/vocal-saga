@@ -376,6 +376,14 @@ async function translateBatch(context: any, items: TranslationItem[], requestId:
     contextGraphIncluded: !!contextGraph,
     contextGraphCharacters: count((contextGraph as any)?.characters),
     contextGraphEntities: count((contextGraph as any)?.entities),
+    contextGraphNameMappingCount: count((contextGraph as any)?.nameMappings),
+    // Compact names-only preview verifies that the glossary reached this batch without storing
+    // the full source text or full prompt in the event stream.
+    contextGraphNameMappingPreview: (Array.isArray((contextGraph as any)?.nameMappings)
+      ? (contextGraph as any).nameMappings : []).slice(0, 12).map((item: any) => ({
+        source: typeof item?.source === 'string' ? item.source.slice(0, 120) : '',
+        target: typeof item?.target === 'string' ? item.target.slice(0, 120) : '',
+      })),
     contextGraphRelationships: count((contextGraph as any)?.relationships),
     contextGraphChapterSummaries: count((contextGraph as any)?.chapterSummaries),
     voiceContextIncluded: !!voiceContext,
