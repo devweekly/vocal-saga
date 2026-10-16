@@ -185,20 +185,24 @@ function buildTemporallyVisibleMemory(
     appearedBefore(relation.predicate) && appearsAsEarlierEvidence(relation.evidence));
 
   rawMemory.characterVoices = (Array.isArray(rawMemory.characterVoices) ? rawMemory.characterVoices : []).flatMap((profile: any) => {
-    const evidence = (Array.isArray(profile.evidence) ? profile.evidence : []).filter((item: any) => {
-      if (!item || !isPrior(item.segmentId)) return false;
+    const rawEvidence = Array.isArray(profile.evidence) ? profile.evidence : [];
+    // VoiceCore is a summary of its evidence set. If any cited example is from this or a later
+    // batch, filtering only that example would still leak a profile synthesized from future voice.
+    if (!rawEvidence.length || rawEvidence.some((item: any) => {
+      if (!item || !isPrior(item.segmentId)) return true;
       const source = sourceById.get(item.segmentId);
-      return !!source && sourceQuoteMatches(source.text, item.sourceQuote);
-    });
-    if (!evidence.length || !appearedBefore(profile.canonicalSourceName)) return [];
-    const aliases = (Array.isArray(profile.aliases) ? profile.aliases : [])
-      .filter((alias: unknown) => appearedBefore(alias));
+      return !source || !sourceQuoteMatches(source.text, item.sourceQuote);
+    })) return [];
+    if (!appearedBefore(profile.canonicalSourceName)) return [];
+    const aliases = Array.isArray(profile.aliases) ? profile.aliases : [];
+    if (aliases.some((alias: unknown) => !appearedBefore(alias))) return [];
     const contrastRules = (Array.isArray(profile.contrastRules) ? profile.contrastRules : []).filter((rule: any) => {
       const ids = Array.isArray(rule.evidenceSegmentIds) ? rule.evidenceSegmentIds : [];
       return ids.length > 0 && ids.every(isPrior) && rawMemory.characterVoices.some((other: any) =>
-        other.characterId === rule.otherCharacterId && appearedBefore(other.canonicalSourceName));
+        other.characterId === rule.otherCharacterId && appearedBefore(other.canonicalSourceName) &&
+        (Array.isArray(other.aliases) ? other.aliases : []).every((alias: unknown) => appearedBefore(alias)));
     }).map((rule: any) => ({ ...rule, evidenceSegmentIds: rule.evidenceSegmentIds.filter(isPrior) }));
-    return [{ ...profile, aliases, evidence, contrastRules }];
+    return [{ ...profile, aliases, evidence: rawEvidence, contrastRules }];
   });
   const visibleCharacterIds = new Set(rawMemory.characterVoices.map((profile: any) => profile.characterId));
   rawMemory.relationshipVoiceRules = (Array.isArray(rawMemory.relationshipVoiceRules) ? rawMemory.relationshipVoiceRules : []).filter((rule: any) => {
@@ -209,7 +213,8 @@ function buildTemporallyVisibleMemory(
   rawMemory.voiceAnchors = (Array.isArray(rawMemory.voiceAnchors) ? rawMemory.voiceAnchors : []).filter((voiceAnchor: any) => {
     const source = sourceById.get(String(voiceAnchor?.segmentId || ''));
     return !!source && source.ordinal < firstOrdinal &&
-      visibleCharacterIds.has(voiceAnchor.speakerId) && sourceQuoteMatches(source.text, voiceAnchor.source);
+      visibleCharacterIds.has(voiceAnchor.speakerId) && sourceQuoteMatches(source.text, voiceAnchor.source) &&
+      sourceNameMatches(source.text, voiceAnchor.source);
   });
 
   // These book-level strings lack source-positioned citations. Do not let whole-book analysis
