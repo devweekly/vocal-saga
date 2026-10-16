@@ -178,6 +178,44 @@ test('book audit detects numeric drift and records malformed model outputs witho
     'audit findings must not overwrite an accepted manual translation');
 });
 
+test('numeric audit compares written-out English and Chinese quantities without treating articles as numbers', () => {
+  const store = getDocumentProjectStore();
+  const project = store.createProject({
+    title: 'Written Quantity Audit Test',
+    format: 'txt',
+    sourceFileName: 'written-quantity-audit.txt',
+    prompt: { translationMode: 'literary', sourceLang: 'en', targetLang: 'zh' },
+    segments: [
+      { id: 'ten-correct', text: 'She was now only ten inches high.', kind: 'paragraph', contextPath: 'Chapter 1' },
+      { id: 'ten-wrong', text: 'She was now only ten inches high.', kind: 'paragraph', contextPath: 'Chapter 1' },
+      { id: 'article-a', text: 'A White Rabbit ran close by.', kind: 'paragraph', contextPath: 'Chapter 1' },
+      { id: 'one-side', text: 'One side will make you grow taller.', kind: 'paragraph', contextPath: 'Chapter 5' },
+      { id: 'twenty-four-hours', text: 'The earth takes twenty-four hours to turn around.', kind: 'paragraph', contextPath: 'Chapter 6' },
+      { id: 'digit-mismatch', text: 'The door is 4 inches high.', kind: 'paragraph', contextPath: 'Chapter 1' },
+    ],
+  });
+  store.saveManualEdit(project.projectId, 'ten-correct', '她如今只有十英寸高。');
+  store.saveManualEdit(project.projectId, 'ten-wrong', '她如今只有九英寸高。');
+  store.saveManualEdit(project.projectId, 'article-a', '一只白兔从她身边跑过。');
+  store.saveManualEdit(project.projectId, 'one-side', '一边会让你长高。');
+  store.saveManualEdit(project.projectId, 'twenty-four-hours', '地球转一圈需要二十四小时。');
+  store.saveManualEdit(project.projectId, 'digit-mismatch', '这扇门有五英寸高。');
+
+  const report = runProjectQualityAudit(project.projectId);
+  const numeric = report.findings.filter((item) => item.type === 'numeric-token-mismatch');
+  assert.deepEqual(new Set(numeric.flatMap((item) => item.segmentIds)), new Set(['ten-wrong', 'digit-mismatch']));
+  assert.ok(numeric.some((item) => item.segmentIds.includes('ten-wrong') &&
+    item.sourceNumbers[0] === '10' && item.translatedNumbers[0] === '9'));
+  assert.ok(numeric.some((item) => item.segmentIds.includes('digit-mismatch') &&
+    item.sourceNumbers[0] === '4' && item.translatedNumbers[0] === '5'));
+  assert.ok(!numeric.some((item) => item.segmentIds.includes('article-a')),
+    'Chinese classifier 一只 should not be misread as an explicit number for English article a');
+  assert.ok(!numeric.some((item) => item.segmentIds.includes('one-side')),
+    'the explicitly numeric phrase one side should match 一边');
+  assert.ok(!numeric.some((item) => item.segmentIds.includes('twenty-four-hours')),
+    'written-out twenty-four must match 二十四');
+});
+
 test('paired-run evaluation withholds A/B mapping until every sampled segment has an overall blind rating', () => {
   const store = getDocumentProjectStore();
   const project = store.createProject({
