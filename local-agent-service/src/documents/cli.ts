@@ -6,11 +6,16 @@ import { readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { getDocumentProjectStore } from './projectStore.ts';
 import { startProjectTranslationRun } from './translationAgent.ts';
+import { parseDocumentFile } from './ingest.ts';
+import { startContextGraphAnalysis, getContextGraph, getContextGraphStatus } from './contextGraph.ts';
 
 function usage(): never {
   console.error([
     'Usage: npm run doc -- <command> [arguments]',
     '  import <segments.json>                         create a project from normalized segments',
+    '  import-file <document.epub|docx|pdf|txt|md|html> [--title=TITLE] [--skip-analysis]  parse locally and preprocess the book',
+    '  context <documentId>                           inspect the persisted Context Graph and analysis status',
+    '  context-analyze <documentId>                    build/update the Context Graph for an existing project',
     '  projects                                      list document projects',
     '  status <documentId>                           inspect project, runs and stale segments',
     '  run <documentId> [--scope=stale|all|failed] [--chapter=TITLE] [--prompt-file=FILE]',
@@ -44,6 +49,62 @@ export async function runDocumentCli(argv = process.argv.slice(2)): Promise<void
       prompt: input.prompt,
     });
     print({ created: true, project });
+    return;
+  }
+
+  if (command === 'import-file') {
+    if (!args[0]) usage();
+    const sourcePath = path.resolve(args[0]);
+    const fileName = path.basename(sourcePath);
+    const bytes = await readFile(sourcePath);
+    const parsed = await parseDocumentFile(fileName, bytes);
+    const titleArg = args.find((item) => item.startsWith('--title='))?.slice('--title='.length);
+    const title = titleArg?.trim() || parsed.title;
+    const project = store.createProject({
+      title, format: parsed.format, sourceFileName: fileName, segments: parsed.segments,
+    });
+    let sourceFile: unknown;
+    try {
+      sourceFile = await store.storeSourceFile(project.projectId, fileName, bytes);
+    } catch (error) {
+      try { store.archiveProject(project.projectId); } catch { /* retain the source persistence error */ }
+      throw error;
+    }
+    if (args.includes('--skip-analysis')) {
+      print({ created: true, project, sourceFile, preprocessing: { status: 'skipped' } });
+      return;
+    }
+    const preprocessing = startContextGraphAnalysis(project.projectId);
+    print({ created: true, project, sourceFile, preprocessing });
+    let status = getContextGraphStatus(project.projectId, preprocessing.runId);
+    while (status.status === 'queued' || status.status === 'running') {
+      await sleep(1000);
+      status = getContextGraphStatus(project.projectId, preprocessing.runId);
+      console.error('[context-graph] ' + String(status.status) + ' phase=' + String(status.phase));
+    }
+    print({ projectId: project.projectId, preprocessing: status });
+    if (status.status !== 'completed') process.exitCode = 1;
+    return;
+  }
+
+  if (command === 'context') {
+    if (!args[0]) usage();
+    print(getContextGraph(args[0]));
+    return;
+  }
+
+  if (command === 'context-analyze') {
+    if (!args[0]) usage();
+    const started = startContextGraphAnalysis(args[0]);
+    print({ preprocessing: started });
+    let status = getContextGraphStatus(args[0], started.runId);
+    while (status.status === 'queued' || status.status === 'running') {
+      await sleep(1000);
+      status = getContextGraphStatus(args[0], started.runId);
+      console.error('[context-graph] ' + String(status.status) + ' phase=' + String(status.phase));
+    }
+    print({ preprocessing: status });
+    if (status.status !== 'completed') process.exitCode = 1;
     return;
   }
 
