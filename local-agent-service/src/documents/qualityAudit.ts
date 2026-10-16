@@ -8,6 +8,10 @@ import { randomInt, randomUUID } from 'node:crypto';
 import { scanBookSegments, type BookScanSegment } from './bookScan.ts';
 import { getDocumentProjectStore } from './projectStore.ts';
 
+const MAX_REPEATED_EXPRESSION_GROUPS = 300;
+const MAX_REPEATED_EXPRESSION_LOCATIONS_PER_FINDING = 500;
+const MAX_BULK_REPAIR_SEGMENTS = 100;
+
 function fail(message: string, status = 400): never {
   throw Object.assign(new Error(message), { status });
 }
@@ -253,7 +257,7 @@ function repeatedExpressionFindings(
     kind: 'paragraph',
     contextPath: segment.contextPath,
   }));
-  const scan = scanBookSegments(scanSegments, { maxRepeatedPhraseGroups: 300 });
+  const scan = scanBookSegments(scanSegments, { maxRepeatedPhraseGroups: MAX_REPEATED_EXPRESSION_GROUPS });
   const wantedPhrases = new Set(scan.repeatedPhrases.map((phrase) => phrase.normalized));
   const occurrencesByPhrase = new Map<string, string[]>();
   for (const segment of segments) {
@@ -281,14 +285,14 @@ function repeatedExpressionFindings(
       variants.set(key, ids);
     }
     if (variants.size <= 1) continue;
-    const maxListedIds = 500;
+    const maxListedIds = MAX_REPEATED_EXPRESSION_LOCATIONS_PER_FINDING;
     findings.push({
       findingId: stableFindingId('repeated-expression-drift', exactIds.slice(0, 32), phrase.normalized),
       type: 'repeated-expression-drift',
       category: 'consistency',
       severity: 'warning',
       confidence: 'deterministic-source-match',
-      repairable: exactIds.length <= 100,
+      repairable: exactIds.length <= MAX_BULK_REPAIR_SEGMENTS,
       segmentIds: exactIds.slice(0, maxListedIds),
       occurrenceCount: exactIds.length,
       segmentIdsTruncated: exactIds.length > maxListedIds,
@@ -300,7 +304,7 @@ function repeatedExpressionFindings(
         normalizedTranslation,
         sampleTranslation: (rows.find((row) => row.id === ids[0])?.text || '').slice(0, 320),
       })),
-      explanation: exactIds.length <= 100
+      explanation: exactIds.length <= MAX_BULK_REPAIR_SEGMENTS
         ? '相同原文表达在不同位置存在不同译法；可能是有意的语境差异，也可能是重复台词或固定表达漂移。'
         : '相同原文表达在大量位置存在译法差异。为避免一键扩大返工，报告只列出前 500 个位置；请从报告中选取具体 segmentIds 进行定点返工。',
     });
@@ -469,6 +473,12 @@ export function runProjectQualityAudit(projectId: string, runId?: string): Recor
     runId: runId || null,
     reviewRunId: review.reviewRunId,
     createdAt: new Date().toISOString(),
+    analysisLimits: {
+      repeatedExpressionGroupsAnalyzed: MAX_REPEATED_EXPRESSION_GROUPS,
+      maximumLocationsListedPerRepeatedExpression: MAX_REPEATED_EXPRESSION_LOCATIONS_PER_FINDING,
+      maximumSegmentsForFindingLevelRepair: MAX_BULK_REPAIR_SEGMENTS,
+      note: '全书原文参与确定性扫描；为控制报告规模，重复表达最多分析前 300 个高频候选组，单组最多列出 500 个位置。更大范围必须显式选 segmentIds 返工。',
+    },
     metrics: {
       sourceSegmentCount: segments.length,
       translatedSegmentCount: translatedCount,
