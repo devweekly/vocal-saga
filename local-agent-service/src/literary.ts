@@ -286,7 +286,7 @@ export async function runLiteraryAnalysis(body: any, requestId: string, sessionS
 export async function runLiteraryReview(body: any, requestId: string, sessionScope?: string) {
   const segments = validateSegments(body.segments, 32, 'review');
   const memory = body.memory && typeof body.memory === 'object' ? body.memory : {};
-  const precedingSegments = Array.isArray(body.precedingSegments)
+  const suppliedPrecedingSegments = Array.isArray(body.precedingSegments)
     ? body.precedingSegments.slice(-4).flatMap((item: any) => {
         if (!item || typeof item !== 'object' || typeof item.id !== 'string' || typeof item.text !== 'string' || !item.text.trim()) return [];
         return [{
@@ -301,6 +301,16 @@ export async function runLiteraryReview(body: any, requestId: string, sessionSco
   const translationBrief = body.translationBrief && typeof body.translationBrief === 'object'
     ? body.translationBrief as Record<string, any>
     : null;
+  const precedingSegments = Array.isArray(translationBrief?.precedingSegments)
+    ? translationBrief.precedingSegments.slice(-4).flatMap((item: any) => {
+        if (!item || typeof item !== 'object' || typeof item.id !== 'string' || typeof item.text !== 'string' || !item.text.trim()) return [];
+        return [{
+          id: item.id.slice(0, 160),
+          text: item.text.slice(0, 900),
+          contextPath: typeof item.contextPath === 'string' ? item.contextPath.slice(0, 160) : '',
+        }];
+      })
+    : suppliedPrecedingSegments;
   const voiceContext = translationBrief?.voiceContext && typeof translationBrief.voiceContext === 'object'
     ? translationBrief.voiceContext
     : body.voiceContext && typeof body.voiceContext === 'object'
