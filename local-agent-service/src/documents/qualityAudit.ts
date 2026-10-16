@@ -500,7 +500,7 @@ export function createProjectQualityEvaluation(projectId: string, beforeRunId: s
   const metricKeys = [
     'missingTranslationCount', 'coveragePercent', 'terminologyDriftCount',
     'repeatedExpressionDriftGroups', 'styleFindingCount', 'characterVoiceFindingCount',
-    'totalModelCalls', 'totalPromptCharsKnown', 'modelDurationMsKnown',
+    'totalPipelineRequestCount', 'totalPromptCharsKnown', 'modelDurationMsKnown',
   ];
   const delta: Record<string, number> = {};
   for (const key of metricKeys) {
