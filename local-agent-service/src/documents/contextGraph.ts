@@ -653,9 +653,33 @@ export function buildProjectContextGraphBundle(
   const sourceText = [...precedingSegments.slice(-4), ...items].map((item) => item.text).join('\n');
   const normalizedSource = normalize(sourceText);
   if (!normalizedSource) return null;
-  const nodes = db.prepare(
+  // Fail closed at the start of the batch. A graph fact is eligible only when every stored
+  // evidence segment precedes the first segment of this batch. The current source always wins.
+  const firstOrdinal = items.reduce((minimum, item) => {
+    const row = db.prepare(
+      'SELECT ordinal FROM source_segments WHERE source_revision_id = ? AND segment_id = ?'
+    ).get(revisionId, item.id) as { ordinal?: number } | undefined;
+    return typeof row?.ordinal === 'number' ? Math.min(minimum, row.ordinal) : minimum;
+  }, Number.POSITIVE_INFINITY);
+  if (!Number.isFinite(firstOrdinal)) return null;
+  const knowledgeBoundary = firstOrdinal - 1;
+  const visibleNodeRows = db.prepare(
+    'SELECT e.node_id FROM context_graph_evidence e ' +
+    'JOIN source_segments s ON s.source_revision_id = e.source_revision_id AND s.segment_id = e.segment_id ' +
+    'WHERE e.source_revision_id = ? AND e.node_id IS NOT NULL ' +
+    'GROUP BY e.node_id HAVING COUNT(*) > 0 AND MAX(s.ordinal) <= ?'
+  ).all(revisionId, knowledgeBoundary) as Array<{ node_id: string }>;
+  const visibleNodeIds = new Set(visibleNodeRows.map((row) => row.node_id));
+  const visibleEdgeRows = db.prepare(
+    'SELECT e.edge_id FROM context_graph_evidence e ' +
+    'JOIN source_segments s ON s.source_revision_id = e.source_revision_id AND s.segment_id = e.segment_id ' +
+    'WHERE e.source_revision_id = ? AND e.edge_id IS NOT NULL ' +
+    'GROUP BY e.edge_id HAVING COUNT(*) > 0 AND MAX(s.ordinal) <= ?'
+  ).all(revisionId, knowledgeBoundary) as Array<{ edge_id: string }>;
+  const visibleEdgeIds = new Set(visibleEdgeRows.map((row) => row.edge_id));
+  const nodes = (db.prepare(
     'SELECT * FROM context_graph_nodes WHERE source_revision_id = ? AND status IN (\'candidate\', \'confirmed\')'
-  ).all(revisionId) as any[];
+  ).all(revisionId) as any[]).filter((row) => visibleNodeIds.has(row.node_id));
   const matched: Array<{ row: any; score: number; attributes: any }> = [];
   for (const row of nodes) {
     let attributes: any = {};
@@ -689,9 +713,9 @@ export function buildProjectContextGraphBundle(
     evidence: (db.prepare('SELECT segment_id AS segmentId, quote FROM context_graph_evidence WHERE source_revision_id = ? AND node_id = ? ORDER BY evidence_id LIMIT 2')
       .all(revisionId, item.row.node_id) as any[]).map((row) => ({ segmentId: row.segmentId, quote: row.quote })),
   });
-  const edges = db.prepare(
+  const edges = (db.prepare(
     'SELECT * FROM context_graph_edges WHERE source_revision_id = ? AND status IN (\'candidate\', \'confirmed\')'
-  ).all(revisionId) as any[];
+  ).all(revisionId) as any[]).filter((edge) => visibleEdgeIds.has(edge.edge_id));
   const relationships = edges.filter((edge) => selectedIds.has(edge.source_node_id) && selectedIds.has(edge.target_node_id)).slice(0, 6).map((edge) => {
     let attributes: any = {};
     try { attributes = JSON.parse(edge.attributes_json); } catch { attributes = {}; }
