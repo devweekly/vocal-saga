@@ -109,11 +109,20 @@ The local-agent service includes a small synthetic regression corpus at `tests/f
 cd local-agent-service
 npm test
 npm run quality:fiction-baseline
-# Compare an exported/collected candidate JSON file with the intentional failure-control baseline:
-node scripts/evaluate-fiction-quality-baseline.mjs ./candidate-translations.json
+
+# Create a literary project from the synthetic source corpus and run the current pipeline.
+npm run doc -- import tests/fixtures/fiction-quality-baseline.json
+npm run doc -- context-analyze <documentId>
+npm run doc -- run <documentId> --scope=all
+# Accept the completed run before exporting accepted translations.
+npm run doc -- accept <documentId> <runId>
+npm run doc -- export <documentId> ./before-or-after.json
+
+# Compare two saved runs against the same annotated source checks:
+node scripts/evaluate-fiction-quality-baseline.mjs ./before.json ./after.json
 ```
 
-The evaluator accepts a `translations` array (each item has `id` and `translated_text`), or an ID-to-text object. It reports coverage, annotated name/term checks, repeated-expression consistency, pre-reveal spoiler checks, and a weighted comparison score. The fixture's baseline translations intentionally contain defects and its improved example is a known-good control for the deterministic checks. **These are synthetic controls, not a quality measurement of any particular provider/model or a real novel.** Real-world effectiveness still needs the same source sample translated with the actual local configuration and reviewed blind.
+The evaluator accepts the service CLI export shape (`segments[].translation`), a `translations` array (each item has `id` and `translated_text`), or an ID-to-text object. It reports coverage, annotated name/term checks, repeated-expression consistency, pre-reveal spoiler checks, and a weighted comparison score; two files are compared directly with per-metric deltas. The fixture's `baselineTranslations` intentionally contain defects and its `improvedExampleTranslations` demonstrate the deterministic checks. **These are synthetic controls, not a quality measurement of any particular provider/model or a real novel.** Real-world effectiveness should be measured with matched settings and the same source corpus, then character voice should be reviewed blind.
 
 Before model analysis, `bookScan.ts` deterministically scans all source segments for chapter distribution, dialogue signals, repeated sentences/phrases, and capitalization-based name candidates. For longer documents it samples beginning/middle/end, distributed chapter positions, early/middle/late mentions of recurring candidate names, repeated phrases and dialogue-dense segments, with a maximum of 72 samples (850 source characters per sample). Short documents within the limit are sampled in full. Each selected segment carries sampling reasons in the persisted Context Graph run progress, and graph evidence now includes its source segment ordinal and chapter path.
 
