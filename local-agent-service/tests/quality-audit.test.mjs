@@ -89,6 +89,37 @@ test('book audit finds missing translations, confirmed-name drift and repeated-l
     '账本仍然藏在地板下面。');
 });
 
+test('book consistency audit catches a changed repeated dialogue after the first 16 occurrences', () => {
+  const store = getDocumentProjectStore();
+  const segments = Array.from({ length: 20 }, (_, index) => ({
+    id: 'dialogue-' + String(index + 1).padStart(2, '0'),
+    text: 'Speaker ' + (index + 1) + ' whispered: “Keep the western lamp burning.”',
+    kind: 'dialogue',
+    contextPath: 'Chapter ' + (Math.floor(index / 4) + 1),
+  }));
+  const project = store.createProject({
+    title: 'Late Repeated Dialogue Test',
+    format: 'txt',
+    sourceFileName: 'late-repeat.txt',
+    prompt: { translationMode: 'literary', sourceLang: 'en', targetLang: 'zh' },
+    segments,
+  });
+  segments.forEach((segment, index) => {
+    store.saveManualEdit(project.projectId, segment.id,
+      index === 19 ? '别让西边的灯熄灭。' : '让西边的灯一直亮着。');
+  });
+
+  const report = runProjectQualityAudit(project.projectId);
+  const finding = report.findings.find((item) =>
+    item.type === 'repeated-expression-drift' && item.occurrenceCount === 20);
+  assert.ok(finding);
+  assert.ok(finding.segmentIds.includes('dialogue-20'));
+  assert.equal(finding.segmentIdsTruncated, false);
+
+  const repair = createQualityRepairRun(project.projectId, report.auditId, [], ['dialogue-20']);
+  assert.deepEqual(repair.segmentIds, ['dialogue-20'], 'explicit segment repair must not expand to all repeated occurrences');
+});
+
 test('paired-run evaluation withholds A/B mapping until every sampled segment has an overall blind rating', () => {
   const store = getDocumentProjectStore();
   const project = store.createProject({
