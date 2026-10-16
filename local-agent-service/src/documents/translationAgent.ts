@@ -725,6 +725,7 @@ async function executeRun(projectId: string, runId: string): Promise<void> {
       store.appendEvent(projectId, runId, 'batch.started', {
         batchIndex,
         batchCount: batches.length,
+        chapter: batch[0]?.contextPath || context.project.title,
         segmentIds: batchIds,
         precedingContextCount: precedingSegments.length,
         sessionStrategy: 'independent-per-batch',
@@ -858,7 +859,12 @@ async function executeRun(projectId: string, runId: string): Promise<void> {
       stage: 'validate',
       label: '结果结构与片段映射检查完成',
     });
-    store.finishRun(projectId, runId);
+    const finishedRun = store.finishRun(projectId, runId);
+    store.appendEvent(projectId, runId, 'run.finished', {
+      status: finishedRun.status,
+      counts: finishedRun.counts || {},
+      error: finishedRun.error || null,
+    });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     try {
