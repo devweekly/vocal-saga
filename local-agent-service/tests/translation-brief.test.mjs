@@ -10,7 +10,7 @@ process.env.LOCAL_AGENT_DATABASE = path.join(testDataDir, 'service.sqlite');
 
 const { getDocumentProjectStore } = await import('../src/documents/projectStore.ts');
 const { buildTranslationBrief, MAX_TRANSLATION_BRIEF_CHARS } = await import('../src/documents/translationBrief.ts');
-const { buildBatches } = await import('../src/documents/translationAgent.ts');
+const { buildBatches, buildUserPrompt } = await import('../src/documents/translationAgent.ts');
 
 test('TranslationBrief is revision-pinned, bounded and hashes the source selection', () => {
   const store = getDocumentProjectStore();
@@ -276,6 +276,18 @@ test('both reviewer focuses consume the same bounded TranslationBrief glossary a
   };
   const segments = [{ id: 'current-1', source: 'Mara Voss opened the ledger.', draft: '玛拉打开了账本。', kind: 'paragraph' }];
   const precedingSegments = translationBrief.precedingSegments;
+  const translatorPrompt = buildUserPrompt('', [{
+    id: 'current-1', text: 'Mara Voss opened the ledger.', kind: 'paragraph', contextPath: 'Chapter 2',
+  }], {
+    project: { title: 'Temporal Test', format: 'txt' },
+    run: { sourceLang: 'en', targetLang: 'zh', translationMode: 'literary' },
+    prompt: { config: { glossary: { document_terms: [{ source: 'Queen Ash', target: '灰后' }] } } },
+    memory: {},
+  }, [], translationBrief.contextGraph, translationBrief);
+  assert.ok(translatorPrompt.includes('玛拉·沃斯'));
+  assert.ok(!translatorPrompt.includes('Queen Ash'));
+  assert.ok(!translatorPrompt.includes('灰后'));
+
   for (const reviewFocus of ['accuracy', 'style']) {
     const built = buildLiteraryReviewPrompt({
       body, segments, reviewFocus, translationBrief, precedingSegments,
