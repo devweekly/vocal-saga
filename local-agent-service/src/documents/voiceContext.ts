@@ -44,6 +44,9 @@ function containsEntityName(sourceText: string, candidateName: string): boolean 
   if (/^[a-z0-9 ]+$/.test(name)) {
     const latinSource = source.replace(/[^a-z0-9]+/g, ' ').trim();
     const latinName = name.replace(/[^a-z0-9]+/g, ' ').trim();
+    // A one-letter alias such as "A." is too ambiguous to retrieve a profile:
+    // otherwise every article "a" could inject that character's voice rules.
+    if (latinName.length < 2) return false;
     return (' ' + latinSource + ' ').includes(' ' + latinName + ' ');
   }
   return source.includes(name);
