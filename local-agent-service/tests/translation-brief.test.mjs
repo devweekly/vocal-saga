@@ -187,7 +187,34 @@ test('later identity never enters an earlier brief', () => {
     styleGuide: { narrativeVoice: 'Mara Voss is secretly Queen Ash.' },
     chapterSummaries: [{ chapter: 'Chapter 2', summary: 'Mara Voss is secretly Queen Ash.' }],
     recentExamples: [{ source: 'Mara Voss was secretly Queen Ash.', target: '玛拉其实是灰后。' }],
-    characterVoices: [],
+    characterVoices: [
+      {
+        characterId: 'mara-early', canonicalSourceName: 'Mara Voss', targetName: '玛拉·沃斯',
+        aliases: ['Mara'], status: 'confirmed',
+        voiceCore: { register: 'measured', syntaxRhythm: ['short declarations'] },
+        contrastRules: [],
+        evidence: [{
+          segmentId: 'early-a', sourceQuote: 'Mara Voss is a careful archivist.',
+          observation: 'measured register', dimension: 'register', confidence: 0.9,
+        }],
+      },
+      {
+        characterId: 'mara-mixed', canonicalSourceName: 'Mara Voss', targetName: '玛拉·沃斯',
+        aliases: ['Mara'], status: 'confirmed',
+        voiceCore: { register: 'imperious after her revelation' },
+        contrastRules: [],
+        evidence: [
+          {
+            segmentId: 'early-a', sourceQuote: 'Mara Voss is a careful archivist.',
+            observation: 'measured register', dimension: 'register', confidence: 0.9,
+          },
+          {
+            segmentId: 'late-a', sourceQuote: 'Mara Voss was secretly Queen Ash.',
+            observation: 'imperious register', dimension: 'register', confidence: 0.99,
+          },
+        ],
+      },
+    ],
     relationshipVoiceRules: [],
     voiceAnchors: [],
   };
@@ -204,5 +231,7 @@ test('later identity never enters an earlier brief', () => {
   assert.ok(!JSON.stringify(brief.glossary).includes('Later identity reveal'));
   assert.deepEqual(brief.voiceContext.chapterSummaries, []);
   assert.deepEqual(brief.voiceContext.recentExamples, []);
+  assert.deepEqual(brief.voiceContext.characterVoices.map((profile) => profile.characterId), ['mara-early'],
+    'a profile that combines early and future evidence must not be partially filtered and injected');
   assert.ok(brief.contextChars <= MAX_TRANSLATION_BRIEF_CHARS);
 });
