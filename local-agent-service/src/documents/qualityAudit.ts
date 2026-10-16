@@ -288,7 +288,12 @@ function runMetrics(projectId: string, runId: string): any {
     sourceRevisionId: currentSourceRevisionId,
     promptRevisionId: context.run.promptRevisionId,
     memoryRevisionId: context.run.literaryMemoryRevisionId,
+    sourceLang: context.run.sourceLang,
     targetLang: context.run.targetLang,
+    provider: context.run.provider,
+    model: context.run.model,
+    translationMode: context.run.translationMode,
+    reviewEnabled: context.run.reviewEnabled,
     status: context.run.status,
     segmentIds: segments.map((item) => item.id),
     metrics: {
