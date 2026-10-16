@@ -138,7 +138,7 @@ function numericTokens(value: unknown, allowImplicitChineseClassifierOne = true)
   // number when the source itself contains a numeric value, avoiding false positives such as
   // translating the English article "a" as "一只".
   const source = String(value ?? '').normalize('NFKC').toLocaleLowerCase();
-    '(?:[\s-]+(?:and[\s-]+)?' + englishNumber + ')*[\s-]+' +
+  const matches = Array.from(source.matchAll(/\d+(?:[,.]\d+)*|[零〇一二两三四五六七八九十百千万亿]+|[a-z]+/giu),
     (match) => ({ token: match[0]!, index: match.index ?? 0 }));
   const result: string[] = [];
   let index = 0;
