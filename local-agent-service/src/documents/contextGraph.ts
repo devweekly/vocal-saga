@@ -478,6 +478,20 @@ export function startContextGraphAnalysis(projectId: string): { accepted: boolea
   return { accepted: true, alreadyRunning: false, runId };
 }
 
+export function getContextGraphStatus(projectId: string, runId?: string): Record<string, unknown> {
+  const { db, revisionId } = graphContext(projectId);
+  const row = runId
+    ? db.prepare('SELECT * FROM context_graph_runs WHERE source_revision_id = ? AND run_id = ?').get(revisionId, runId) as any
+    : db.prepare('SELECT * FROM context_graph_runs WHERE source_revision_id = ? ORDER BY started_at DESC LIMIT 1').get(revisionId) as any;
+  if (!row) return { sourceRevisionId: revisionId, status: 'not-started', phase: 'not-started', runId: null };
+  let progress: any = {};
+  try { progress = JSON.parse(row.progress_json); } catch { progress = {}; }
+  return {
+    sourceRevisionId: revisionId, runId: row.run_id, status: row.status, phase: row.phase,
+    progress, startedAt: row.started_at, finishedAt: row.finished_at, error: row.error,
+  };
+}
+
 export function getContextGraph(projectId: string): Record<string, unknown> {
   const { db, revisionId } = graphContext(projectId);
   const segmentCount = Number((db.prepare('SELECT COUNT(*) AS count FROM source_segments WHERE source_revision_id = ?').get(revisionId) as any)?.count || 0);
