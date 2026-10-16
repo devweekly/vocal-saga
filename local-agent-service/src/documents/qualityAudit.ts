@@ -161,10 +161,20 @@ function currentReviewFindings(
     'WHERE rf.run_id = ? AND tr.source_revision_id = ? AND rf.category = \\'style\\' ' +
     'ORDER BY rf.finding_id DESC LIMIT 300'
   ).all(reviewRunId, revisionId) as any[];
-  const findings = rows.map((row) => {
+  const findings = rows.flatMap((row) => {
+    const reviewedTranslation = typeof row.reviewed_translation === 'string' ? row.reviewed_translation : null;
+    // When auditing accepted text (no runId specified), suppress stale style findings from an
+    // older candidate whose translation is no longer the accepted text for this source revision.
+    if (!requestedRunId) {
+      const accepted = db.prepare(
+        'SELECT translation_text FROM translation_results WHERE source_revision_id = ? AND segment_id = ? ' +
+        'AND accepted = 1 ORDER BY rowid DESC LIMIT 1'
+      ).get(revisionId, String(row.segment_id)) as { translation_text?: string } | undefined;
+      if (!accepted || accepted.translation_text !== reviewedTranslation) return [];
+    }
     let finding: any = {};
     try { finding = JSON.parse(row.finding_json); } catch { finding = {}; }
-    return {
+    return [{
       findingId: Number(row.finding_id),
       segmentId: String(row.segment_id),
       category: String(row.category),
@@ -178,9 +188,9 @@ function currentReviewFindings(
       reason: String(finding.reason || ''),
       suggestion: String(finding.suggestion || ''),
       proposedTranslation: typeof finding.proposedTranslation === 'string' ? finding.proposedTranslation : null,
-      reviewedTranslation: typeof row.reviewed_translation === 'string' ? row.reviewed_translation : null,
+      reviewedTranslation,
       createdAt: row.created_at,
-    };
+    }];
   }).reverse();
   return { reviewRunId, findings };
 }
