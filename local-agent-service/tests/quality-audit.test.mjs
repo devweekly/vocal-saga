@@ -120,6 +120,64 @@ test('book consistency audit catches a changed repeated dialogue after the first
   assert.deepEqual(repair.segmentIds, ['dialogue-20'], 'explicit segment repair must not expand to all repeated occurrences');
 });
 
+test('book audit detects numeric drift and records malformed model outputs without changing accepted translations', () => {
+  const store = getDocumentProjectStore();
+  const project = store.createProject({
+    title: 'Numeric and Output Validation Audit Test',
+    format: 'txt',
+    sourceFileName: 'numeric-output-audit.txt',
+    prompt: { translationMode: 'literary', sourceLang: 'en', targetLang: 'zh' },
+    segments: [
+      { id: 'numeric-1', text: 'The vault opens in 7 minutes and requires 2 keys.', kind: 'paragraph', contextPath: 'Chapter 1' },
+      { id: 'plain-1', text: 'The door is heavy.', kind: 'paragraph', contextPath: 'Chapter 1' },
+    ],
+  });
+
+  store.saveManualEdit(project.projectId, 'numeric-1', '人工确认：保险库将在 7 分钟后开启，需要 2 把钥匙。');
+  const run = store.createRun(project.projectId, { scope: { type: 'all' } });
+  store.saveCandidate(project.projectId, run.runId, 'numeric-1', '保险库将在 8 分钟后开启，需要 2 把钥匙。');
+  store.saveCandidate(project.projectId, run.runId, 'plain-1', '这扇门很沉。');
+  store.appendEvent(project.projectId, run.runId, 'batch.output.validation', {
+    stage: 'translate',
+    batchIndex: 0,
+    requestId: 'test-output-shape',
+    duplicateSegmentIds: ['numeric-1'],
+    duplicateCount: 1,
+    unexpectedOutputIds: ['not-in-input'],
+    unexpectedCount: 1,
+    malformedRowCount: 1,
+  });
+  store.finishRun(project.projectId, run.runId);
+
+  const report = runProjectQualityAudit(project.projectId, run.runId);
+  const numeric = report.findings.find((item) => item.type === 'numeric-token-mismatch');
+  assert.ok(numeric);
+  assert.deepEqual(numeric.segmentIds, ['numeric-1']);
+  assert.deepEqual(numeric.sourceNumbers, ['7', '2']);
+  assert.deepEqual(numeric.translatedNumbers, ['8', '2']);
+  assert.equal(numeric.repairable, true);
+
+  const duplicate = report.findings.find((item) => item.type === 'duplicate-output-id');
+  assert.ok(duplicate);
+  assert.deepEqual(duplicate.segmentIds, ['numeric-1']);
+  assert.equal(duplicate.duplicateCount, 1);
+
+  const unexpected = report.findings.find((item) => item.type === 'unexpected-output-id');
+  assert.ok(unexpected);
+  assert.deepEqual(unexpected.unexpectedOutputIds, ['not-in-input']);
+  assert.equal(unexpected.repairable, false);
+
+  const malformed = report.findings.find((item) => item.type === 'malformed-output-row');
+  assert.ok(malformed);
+  assert.equal(malformed.malformedRowCount, 1);
+  assert.equal(report.metrics.numericTokenMismatchCount, 1);
+
+  const afterAudit = store.getSegments(project.projectId, { limit: 10 });
+  assert.equal(afterAudit.find((item) => item.id === 'numeric-1').acceptedTranslation,
+    '人工确认：保险库将在 7 分钟后开启，需要 2 把钥匙。',
+    'audit findings must not overwrite an accepted manual translation');
+});
+
 test('paired-run evaluation withholds A/B mapping until every sampled segment has an overall blind rating', () => {
   const store = getDocumentProjectStore();
   const project = store.createProject({
