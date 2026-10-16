@@ -169,7 +169,7 @@ export function createConcurrencyLimiter(concurrency: number): <T>(task: () => P
 
 const activeRuns = new Set<string>();
 
-function buildBatches(items: TranslationItem[], respectChapterBoundaries = false): TranslationItem[][] {
+export function buildBatches(items: TranslationItem[], respectChapterBoundaries = false): TranslationItem[][] {
   const batches: TranslationItem[][] = [];
   let current: TranslationItem[] = [];
   let chars = 0;
