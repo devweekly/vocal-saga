@@ -559,7 +559,8 @@ export function startContextGraphAnalysis(projectId: string): { accepted: boolea
     } catch (persistError) {
       console.error('[context-graph] unable to persist failure', persistError);
     }
-    console.error('[context-graph] analysis failed', error);
+    // context-graph.failed already writes a concise terminal summary with the same error.
+    // Avoid dumping the same Error object/stack a second time for ordinary failures.
   }).finally(() => activeAnalyses.delete(projectId));
   return { accepted: true, alreadyRunning: false, runId };
 }
