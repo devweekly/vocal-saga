@@ -100,14 +100,8 @@ async function queryWorkbuddyRaw(
     clearTimeout(timer);
   }
   if (timedOut) throw new Error('Workbuddy 调用超时（' + REQUEST_TIMEOUT_MS + ' ms）');
-  // 分段耗时：ttft 前是 CLI 启动+初始化固定开销，ttft 后是模型生成。
-  // structured 标记原生 structured_output 是否到达，用于确认 --json-schema 生效。
-  console.info(
-    '[local-agent][' + requestId + '] workbuddy-timing ttftMs=' + (firstTextAt ? firstTextAt - startedAt : -1) +
-    ' totalMs=' + (Date.now() - startedAt) +
-    ' textChars=' + text.trim().length +
-    ' structured=' + (structuredOutput === undefined ? 'none' : 'native'),
-  );
+  // Provider-level TTFT/JSON implementation details are intentionally not printed here.
+  // The workflow trace records task, batch, total duration and output validity once, at the boundary.
   return { text: text.trim(), structuredOutput };
 }
 
@@ -186,9 +180,8 @@ export async function runWorkbuddyStructured(
     structuredOutput = result.structuredOutput;
   }
   const parsed = resolveWorkbuddyStructured(structuredOutput, text);
-  // json-source 持续验证原生 structured output 是否生效：native 表示 --json-schema
-  // 收口成功，text-parse 表示回退到文本解析（SDK 未透传或模型未调工具）。
-  console.info('[local-agent][' + requestId + '] workbuddy-json json-source=' + ((structuredOutput && typeof structuredOutput === 'object') ? 'native' : 'text-parse'));
+  // Keep the native-vs-text parsing decision available to the caller through shape validation.
+  // Printing it for every model call duplicated the useful workflow summary without explaining the task.
   return parsed;
 }
 
