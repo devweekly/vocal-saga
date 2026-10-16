@@ -254,7 +254,10 @@ function collectRepeatedPhrases(
       text: value.text,
       normalized,
       count: value.segmentIds.length,
+      firstSegmentId: value.segmentIds[0] || null,
+      lastSegmentId: value.segmentIds[value.segmentIds.length - 1] || null,
       segmentIds: value.segmentIds.slice(0, Math.max(1, maxSegmentIds)),
+      segmentIdsTruncated: value.segmentIds.length > Math.max(1, maxSegmentIds),
       chapterKeys: value.chapterKeys.slice(0, 12),
     }))
     .sort((a, b) => b.count - a.count || b.chapterKeys.length - a.chapterKeys.length)
@@ -342,8 +345,9 @@ export function planBookSamples(
     const phrasePhaseLimit = Math.min(limit - 4, 68);
     for (const phrase of scan.repeatedPhrases.slice(0, 12)) {
       if (picked.size >= phrasePhaseLimit) break;
-      add(byId.get(phrase.segmentIds[0] || ''), 'repeated-phrase:first', phrasePhaseLimit);
-      add(byId.get(phrase.segmentIds[phrase.segmentIds.length - 1] || ''), 'repeated-phrase:last', phrasePhaseLimit);
+      add(byId.get(phrase.firstSegmentId || phrase.segmentIds[0] || ''), 'repeated-phrase:first', phrasePhaseLimit);
+      // Keep the full-book last occurrence separately from the bounded ID preview list.
+      add(byId.get(phrase.lastSegmentId || phrase.segmentIds[phrase.segmentIds.length - 1] || ''), 'repeated-phrase:last', phrasePhaseLimit);
     }
 
     const dialogueLimit = Math.min(limit, MAX_SAMPLES);
