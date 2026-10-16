@@ -252,20 +252,18 @@ export function buildProjectVoiceContext(
   const relationships = memory.relationships.filter((relation: any) =>
     names.has(normalizeEntityName(relation.subject)) || names.has(normalizeEntityName(relation.object))).slice(0, 6);
 
-  // Chapter summaries are durable book context, but should not grow into a full-book prompt.
-  // Prefer the current chapter and the two preceding summaries; if this chapter has not
-  // been analyzed yet, use only the latest three summaries as continuity hints.
+  // Chapter summaries are durable book context, but should not grow into a full-book prompt
+  // or leak later chapters into the current one. Include summaries only when the current chapter
+  // can be identified reliably; otherwise the adjacent source segments are safer context.
   const summaries = memory.chapterSummaries as Array<{ chapter: string; summary: string }>;
   const normalizedChapter = normalizeEntityName(chapterTitle || '');
   const currentSummaryIndex = normalizedChapter
     ? summaries.findIndex((item) => normalizeEntityName(item.chapter) === normalizedChapter)
     : -1;
-  const summaryStart = currentSummaryIndex >= 0
-    ? Math.max(0, currentSummaryIndex - 2)
-    : Math.max(0, summaries.length - 3);
+  const summaryStart = currentSummaryIndex >= 0 ? Math.max(0, currentSummaryIndex - 2) : 0;
   const chapterSummaries = currentSummaryIndex >= 0
     ? summaries.slice(summaryStart, currentSummaryIndex + 1)
-    : summaries.slice(summaryStart);
+    : [];
 
   const result = {
     version: 1, policyVersion: 'character-voice-v3',
