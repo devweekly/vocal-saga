@@ -331,7 +331,10 @@ async function runAnalysis(projectId: string, runId: string): Promise<void> {
 
   const scan = scanBookSegments(segments);
   const samplePlan = planBookSamples(segments, scan);
-  const samples = samplePlan.samples.map((item) => item.segment as Segment);
+  const samples: Segment[] = samplePlan.samples.map(({ segment }) => ({
+    id: segment.id, ordinal: segment.ordinal, text: segment.text,
+    kind: segment.kind || 'paragraph', contextPath: segment.contextPath || '',
+  }));
   const sampleReasons = new Map<string, string[]>(samplePlan.samples.map((item) => [item.segment.id, item.reasons] as [string, string[]]));
   const sampleIds = new Set(samples.map((segment) => segment.id));
   const samplesById = new Map(samples.map((segment) => [segment.id, segment]));
@@ -571,7 +574,7 @@ export function getContextGraph(projectId: string): Record<string, unknown> {
     const current = map.get(key) || [];
     if (current.length < 3) current.push({
       segmentId: row.segment_id, quote: row.quote, role: row.role,
-      ...(Number.isInteger(Number(row.source_ordinal)) ? { ordinal: Number(row.source_ordinal) } : {}),
+      ...(row.source_ordinal != null && Number.isInteger(Number(row.source_ordinal)) ? { ordinal: Number(row.source_ordinal) } : {}),
       ...(typeof row.source_context_path === 'string' && row.source_context_path ? { chapter: row.source_context_path } : {}),
     });
     map.set(key, current);
