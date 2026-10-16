@@ -84,6 +84,19 @@ test('Context Graph changes are rejected while a translation run is active', () 
     scope: { type: 'ids', ids: ['chapter-2-seg-1'] },
   });
   assert.equal(run.status, 'queued');
+  store.saveTranslationBriefSnapshot(project.projectId, run.runId, 1, {
+    sourceRevisionId: run.sourceRevisionId,
+    promptRevisionId: run.promptRevisionId,
+    memoryRevisionId: run.literaryMemoryRevisionId,
+    sourceSegmentIds: ['chapter-2-seg-1'],
+    contextHash: 'brief-test-hash',
+    contextChars: 1234,
+    policyVersion: 'translation-brief-v1',
+  });
+  const snapshots = store.listTranslationBriefSnapshots(project.projectId, run.runId, true);
+  assert.equal(snapshots.length, 1);
+  assert.equal(snapshots[0].contextHash, 'brief-test-hash');
+  assert.equal(snapshots[0].brief.sourceRevisionId, run.sourceRevisionId);
   assert.throws(
     () => reviewContextGraphItem(project.projectId, 'node', 'node-alice', 'confirmed'),
     /不能在运行中修改 Context Graph/,
