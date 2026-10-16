@@ -218,7 +218,7 @@ function collectRepeatedPhrases(
   maxSegmentIds = 16,
   maxGroups = 80,
 ): RepeatedPhraseCandidate[] {
-  const seen = new Map<string, { text: string; segmentIds: string[]; chapterKeys: string[] }>();
+  const seen = new Map<string, { text: string; segmentIds: string[]; segmentIdSet: Set<string>; chapterKeys: string[]; chapterKeySet: Set<string> }>();
   for (const segment of segments) {
     const sentences = segment.text.match(/[^.!?\n]+[.!?]?/gu) || [];
     const quotedPhrases = Array.from(
@@ -232,10 +232,19 @@ function collectRepeatedPhrases(
       const normalized = normalizePhrase(text);
       const wordCount = normalized.split(' ').filter(Boolean).length;
       if (normalized.length < 12 || wordCount < 3) continue;
-      const current = seen.get(normalized) || { text: text.slice(0, 180), segmentIds: [], chapterKeys: [] };
-      if (!current.segmentIds.includes(segment.id)) current.segmentIds.push(segment.id);
+      const current = seen.get(normalized) || {
+        text: text.slice(0, 180), segmentIds: [], segmentIdSet: new Set<string>(),
+        chapterKeys: [], chapterKeySet: new Set<string>(),
+      };
+      if (!current.segmentIdSet.has(segment.id)) {
+        current.segmentIds.push(segment.id);
+        current.segmentIdSet.add(segment.id);
+      }
       const key = chapterTitle(segment);
-      if (!current.chapterKeys.includes(key)) current.chapterKeys.push(key);
+      if (!current.chapterKeySet.has(key)) {
+        current.chapterKeys.push(key);
+        current.chapterKeySet.add(key);
+      }
       seen.set(normalized, current);
     }
   }
