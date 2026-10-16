@@ -283,7 +283,7 @@ function nameMap(nodes: Array<{ id: string; name: string; aliases: string[]; kin
   return map;
 }
 
-function graphAnalysisPrompt(projectTitle: string, format: string, samples: Segment[], chapters: Array<{ key: string; title: string; order: number; segments: Segment[] }>, scan: BookScanResult, sampleReasons: Map<string, string[]>): string {
+function graphAnalysisPrompt(projectTitle: string, format: string, sourceLang: string, targetLang: string, samples: Segment[], chapters: Array<{ key: string; title: string; order: number; segments: Segment[] }>, scan: BookScanResult, sampleReasons: Map<string, string[]>): string {
   const chosenChapters = new Set(samples.map((segment) => segment.contextPath));
   const chapterList = chapters.filter((chapter) => chosenChapters.has(chapter.key))
     .map((chapter) => ({ chapter: chapter.title, order: chapter.order }));
@@ -305,6 +305,7 @@ function graphAnalysisPrompt(projectTitle: string, format: string, samples: Segm
   };
   return [
     '你是长篇文学翻译的前置分析器。分析必须以给出的原文片段为证据，不能补全未知剧情，也不能将推测写成确定事实。',
+    '源语言代码：' + sourceLang + '；目标语言代码：' + targetLang + '。所有 suggestedTranslation 必须使用目标语言，不得默认保留源语言拼写。目标语言为 zh 时，请给出稳定、自然的中文规范译名；同一规范名称只能对应一个 target，别名记录在 aliases 中，头衔与姓名分开。证据不足时 target 留空，不要臆造译名。',
     '目标：识别主要人物、别名、可用于后续翻译的说话风格、重要地点/组织/物件/术语、人物关系方向、样本章节摘要和全书叙事风格。每个人物和重要实体都应尽可能提供稳定、自然的目标语言规范译名 suggestedTranslation；译名只针对名称本身，不包含头衔，不确定时留空。',
     '下方 book scan 是对全书的低成本启发式扫描，不是命名实体识别的事实结果。名称候选和重复句候选只能用于决定重点阅读位置；不得仅凭计数、候选列表或未抽样文本创建事实。',
     '抽样覆盖原因是宿主根据全书分布、对白、实体提及和重复表达计算的。请比较同一名称在早期/中段/后期的证据，判断是别名、头衔、同姓/同名还是不同实体；有歧义时保留为候选并提出 open question，不要强行合并。',
@@ -368,20 +369,25 @@ async function runAnalysis(projectId: string, runId: string): Promise<void> {
   const config = prompts[0]?.config || {};
   const provider = safeText(config.provider, 40) || 'workbuddy';
   const modelName = safeText(config.model, 240) || 'auto';
+  const sourceLang = safeText(config.sourceLang, 40) || 'auto';
+  const targetLang = safeText(config.targetLang, 40) || 'zh';
   const agent = parseAgentModel(modelName, provider);
   const prompt = graphAnalysisPrompt(
     store.getProject(projectId)?.title || '未命名文档',
     store.getProject(projectId)?.format || '',
+    sourceLang, targetLang,
     samples, chapters, scan, sampleReasons,
   );
 
   db.prepare('UPDATE context_graph_runs SET phase = \'model-analysis\', progress_json = ? WHERE run_id = ?')
     .run(JSON.stringify({
       sampleCount: samples.length, chapterCount: chapters.length,
+      sourceLang, targetLang,
       provider: agent.provider, model: agent.model, scan: scanSummary,
     }), runId);
   store.appendEvent(projectId, runId, 'context-graph.phase', {
     phase: 'model-analysis', sampleCount: samples.length, chapterCount: chapters.length,
+    sourceLang, targetLang,
     provider: agent.provider, model: agent.model || '<runtime-default>',
     scan: {
       strategyVersion: scanSummary.strategyVersion, nameCandidateCount: scan.nameCandidates.length,
@@ -489,6 +495,7 @@ async function runAnalysis(projectId: string, runId: string): Promise<void> {
     db.prepare('UPDATE context_graph_runs SET status = \'completed\', phase = \'completed\', progress_json = ?, finished_at = ?, error = NULL WHERE run_id = ?')
       .run(JSON.stringify({
         analysisVersion: 'context-graph-v3-name-map',
+        sourceLang, targetLang,
         sampleCount: samples.length, chapterCount: chapters.length,
         characterCount: persistedNodes.filter((node) => node.kind === 'character').length,
         entityCount: persistedNodes.filter((node) => node.kind === 'entity').length,
@@ -507,6 +514,7 @@ async function runAnalysis(projectId: string, runId: string): Promise<void> {
       characterCount: persistedNodes.filter((node) => node.kind === 'character').length,
       entityCount: persistedNodes.filter((node) => node.kind === 'entity').length,
       relationshipCount: savedEdges.size,
+      sourceLang, targetLang,
       analysisVersion: 'context-graph-v3-name-map',
     });
   } catch (error) {
