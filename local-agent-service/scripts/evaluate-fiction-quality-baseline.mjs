@@ -22,13 +22,19 @@ export function translationMap(input) {
   }
   if (input && typeof input === 'object') {
     if (Array.isArray(input.translations)) return translationMap(input.translations);
+    if (Array.isArray(input.segments)) return translationMap(input.segments.map((item) => ({
+      id: item.id ?? item.segmentId,
+      translated_text: item.translated_text ?? item.translation ?? item.acceptedTranslation ?? item.candidateTranslation ?? item.text,
+    })));
     if (input.acceptedTranslations && typeof input.acceptedTranslations === 'object') return translationMap(input.acceptedTranslations);
     return new Map(Object.entries(input).flatMap(([id, value]) => {
       if (typeof value === 'string') return [[id, value]];
       if (value && typeof value === 'object') {
         const text = typeof value.translated_text === 'string' ? value.translated_text
           : typeof value.translation === 'string' ? value.translation
-            : typeof value.text === 'string' ? value.text : '';
+            : typeof value.acceptedTranslation === 'string' ? value.acceptedTranslation
+              : typeof value.candidateTranslation === 'string' ? value.candidateTranslation
+                : typeof value.text === 'string' ? value.text : '';
         return [[id, text]];
       }
       return [];
