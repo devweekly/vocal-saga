@@ -1,10 +1,10 @@
 #!/usr/bin/env node
-import { readFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
-const fixturePath = fileURLToPath(new URL('../tests/fixtures/fiction-quality-baseline.json', import.meta.url));
-const fixture = JSON.parse(readFileSync(fixturePath, 'utf8'));
+const DEFAULT_FIXTURE_PATH = fileURLToPath(new URL('../tests/fixtures/fiction-quality-baseline.json', import.meta.url));
+const REAL_NOVEL_FIXTURE_PATH = fileURLToPath(new URL('../tests/fixtures/alice-adventures-real-novel.json', import.meta.url));
 
 function normalize(value) {
   return String(value ?? '').normalize('NFKC').toLocaleLowerCase().replace(/[^\p{L}\p{N}]+/gu, '');
@@ -48,22 +48,26 @@ function percentage(passed, total) {
 }
 
 export function evaluateTranslations(fixtureInput, translationsInput) {
-  const data = fixtureInput.evaluation;
+  const data = fixtureInput.evaluation || {};
   const translations = translationsInput instanceof Map ? translationsInput : translationMap(translationsInput);
-  const missingIds = data.requiredTranslationIds.filter((id) => !String(translations.get(id) || '').trim());
-  const coveragePassed = data.requiredTranslationIds.length - missingIds.length;
+  const requiredIds = data.requiredTranslationIds || (fixtureInput.segments || []).map((segment) => segment.id);
+  const termChecks = data.termChecks || [];
+  const repeatedExpressions = data.repeatedExpressions || [];
+  const spoilerChecks = data.spoilerChecks || [];
+  const numericChecks = data.numericChecks || [];
+  const voicePairs = data.voicePairs || [];
 
-  const termFailures = data.termChecks.flatMap((check) => {
+  const missingIds = requiredIds.filter((id) => !String(translations.get(id) || '').trim());
+  const coveragePassed = requiredIds.length - missingIds.length;
+
+  const termFailures = termChecks.flatMap((check) => {
     const value = String(translations.get(check.segmentId) || '');
     return normalize(value).includes(normalize(check.expected)) ? [] : [{
-      id: check.id,
-      segmentId: check.segmentId,
-      expected: check.expected,
-      actual: value,
+      id: check.id, segmentId: check.segmentId, expected: check.expected, actual: value,
     }];
   });
 
-  const repeatedPhraseFailures = data.repeatedExpressions.flatMap((group) => {
+  const repeatedPhraseFailures = repeatedExpressions.flatMap((group) => {
     const values = group.segmentIds.map((id) => ({ id, value: String(translations.get(id) || '') }));
     const expected = normalize(group.expectedTranslation);
     const distinct = new Set(values.map((item) => normalize(item.value)));
@@ -80,59 +84,74 @@ export function evaluateTranslations(fixtureInput, translationsInput) {
     }];
   });
 
-  const spoilerFailures = data.spoilerChecks.flatMap((check) => check.beforeSegmentIds.flatMap((segmentId) => {
+  const spoilerFailures = spoilerChecks.flatMap((check) => check.beforeSegmentIds.flatMap((segmentId) => {
     const value = String(translations.get(segmentId) || '');
     const hits = check.forbiddenPhrases.filter((phrase) => normalize(value).includes(normalize(phrase)));
     return hits.length ? [{ id: check.id, segmentId, forbiddenPhraseHits: hits }] : [];
   }));
 
+  // These annotations cover written-out source quantities that an Arabic-digit-only scan would miss.
+  // Expected phrases are curated against the source; this check remains deterministic and auditable.
+  const numericFailures = numericChecks.flatMap((check) => {
+    const value = String(translations.get(check.segmentId) || '');
+    return normalize(value).includes(normalize(check.expected)) ? [] : [{
+      id: check.id, segmentId: check.segmentId, sourceQuantity: check.sourceQuantity,
+      expected: check.expected, actual: value,
+    }];
+  });
+
+  const spoilerTotal = spoilerChecks.reduce((sum, check) => sum + check.beforeSegmentIds.length, 0);
   const scores = {
-    coverage: percentage(coveragePassed, data.requiredTranslationIds.length),
-    terminology: percentage(data.termChecks.length - termFailures.length, data.termChecks.length),
-    repeatedExpressionConsistency: percentage(data.repeatedExpressions.length - repeatedPhraseFailures.length, data.repeatedExpressions.length),
-    spoilerSafety: percentage(data.spoilerChecks.reduce((sum, check) => sum + check.beforeSegmentIds.length, 0) - spoilerFailures.length,
-      data.spoilerChecks.reduce((sum, check) => sum + check.beforeSegmentIds.length, 0)),
+    coverage: percentage(coveragePassed, requiredIds.length),
+    terminology: percentage(termChecks.length - termFailures.length, termChecks.length),
+    repeatedExpressionConsistency: percentage(repeatedExpressions.length - repeatedPhraseFailures.length, repeatedExpressions.length),
+    spoilerSafety: percentage(spoilerTotal - spoilerFailures.length, spoilerTotal),
+    numericFidelity: percentage(numericChecks.length - numericFailures.length, numericChecks.length),
   };
   const score = Math.round(
-    scores.coverage * 0.35 +
-    scores.terminology * 0.25 +
+    scores.coverage * 0.30 +
+    scores.terminology * 0.20 +
     scores.repeatedExpressionConsistency * 0.20 +
-    scores.spoilerSafety * 0.20,
+    scores.spoilerSafety * 0.15 +
+    scores.numericFidelity * 0.15,
   );
+
   return {
     corpus: fixtureInput.title,
     corpusKind: fixtureInput.kind,
     notice: fixtureInput.notice,
+    source: fixtureInput.source || null,
     score,
     scores,
     counts: {
-      requiredSegments: data.requiredTranslationIds.length,
+      requiredSegments: requiredIds.length,
       translatedSegments: coveragePassed,
       missingSegments: missingIds.length,
-      termChecks: data.termChecks.length,
+      termChecks: termChecks.length,
       termFailures: termFailures.length,
-      repeatedExpressionGroups: data.repeatedExpressions.length,
+      repeatedExpressionGroups: repeatedExpressions.length,
       repeatedExpressionFailures: repeatedPhraseFailures.length,
-      spoilerCheckedSegments: data.spoilerChecks.reduce((sum, check) => sum + check.beforeSegmentIds.length, 0),
+      spoilerCheckedSegments: spoilerTotal,
       spoilerFailures: spoilerFailures.length,
+      numericChecks: numericChecks.length,
+      numericFailures: numericFailures.length,
     },
-    findings: {
-      missingIds,
-      termFailures,
-      repeatedPhraseFailures,
-      spoilerFailures,
-    },
-    manualReview: data.voicePairs.map((pair) => ({
+    findings: { missingIds, termFailures, repeatedPhraseFailures, spoilerFailures, numericFailures },
+    manualReview: voicePairs.map((pair) => ({
       ids: pair.ids,
       focus: pair.label,
       dimensions: pair.reviewDimensions,
-      instruction: '自动指标不判断人物声音是否有辨识度；请进行盲选或按项目 rubric 人工审阅。',
+      instruction: '自动指标不判断人物声音是否有辨识度；请按原文进行盲选或人工审阅。',
     })),
   };
 }
 
-function loadTranslations(filePath) {
+function loadJson(filePath) {
   return JSON.parse(readFileSync(path.resolve(process.cwd(), filePath), 'utf8'));
+}
+
+function loadFixture(filePath) {
+  return JSON.parse(readFileSync(filePath, 'utf8'));
 }
 
 function delta(candidate, baseline) {
@@ -148,44 +167,108 @@ function delta(candidate, baseline) {
       terminologyFailures: baseline.counts.termFailures - candidate.counts.termFailures,
       repeatedExpressionFailures: baseline.counts.repeatedExpressionFailures - candidate.counts.repeatedExpressionFailures,
       spoilerFailures: baseline.counts.spoilerFailures - candidate.counts.spoilerFailures,
+      numericFailures: baseline.counts.numericFailures - candidate.counts.numericFailures,
     },
   };
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+function parseArguments(args) {
+  const parsed = { fixturePath: DEFAULT_FIXTURE_PATH, all: false, outputPath: null, positional: [] };
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    if (arg === '--fixture') {
+      if (!args[i + 1]) throw new Error('--fixture 后必须提供 JSON fixture 路径。');
+      parsed.fixturePath = path.resolve(process.cwd(), args[++i]);
+    } else if (arg === '--all') {
+      parsed.all = true;
+    } else if (arg === '--output') {
+      if (!args[i + 1]) throw new Error('--output 后必须提供报告路径。');
+      parsed.outputPath = path.resolve(process.cwd(), args[++i]);
+    } else {
+      parsed.positional.push(arg);
+    }
+  }
+  return parsed;
+}
+
+function evaluateFixtureReport(fixture, fixturePath, positional) {
   const failureControl = evaluateTranslations(fixture, fixture.baselineTranslations);
-  if (process.argv[2] && process.argv[3]) {
-    const before = evaluateTranslations(fixture, loadTranslations(process.argv[2]));
-    const after = evaluateTranslations(fixture, loadTranslations(process.argv[3]));
-    process.stdout.write(JSON.stringify({
+  if (positional.length >= 2) {
+    const before = evaluateTranslations(fixture, loadJson(positional[0]));
+    const after = evaluateTranslations(fixture, loadJson(positional[1]));
+    return {
       fixture: fixture.title,
+      fixturePath,
       notice: fixture.notice,
-      beforeFile: path.resolve(process.cwd(), process.argv[2]),
-      afterFile: path.resolve(process.cwd(), process.argv[3]),
+      source: fixture.source || null,
+      mode: 'paired-deterministic-comparison',
+      beforeFile: path.resolve(process.cwd(), positional[0]),
+      afterFile: path.resolve(process.cwd(), positional[1]),
       before,
       after,
       deltaAfterVsBefore: delta(after, before),
-      syntheticFailureControl: failureControl,
-    }, null, 2) + '\n');
-  } else if (process.argv[2]) {
-    const candidate = evaluateTranslations(fixture, loadTranslations(process.argv[2]));
-    process.stdout.write(JSON.stringify({
+      fixtureFailureControl: failureControl,
+      manualReviewRubric: after.manualReview,
+      blindReviewRequired: true,
+    };
+  }
+  if (positional.length === 1) {
+    const candidate = evaluateTranslations(fixture, loadJson(positional[0]));
+    return {
       fixture: fixture.title,
+      fixturePath,
       notice: fixture.notice,
-      candidateFile: path.resolve(process.cwd(), process.argv[2]),
-      syntheticFailureControl: failureControl,
+      source: fixture.source || null,
+      mode: 'candidate-vs-fixture-control',
+      candidateFile: path.resolve(process.cwd(), positional[0]),
+      fixtureFailureControl: failureControl,
       candidate,
       delta: delta(candidate, failureControl),
-    }, null, 2) + '\n');
-  } else {
-    const example = evaluateTranslations(fixture, fixture.improvedExampleTranslations);
-    process.stdout.write(JSON.stringify({
-      fixture: fixture.title,
-      notice: fixture.notice,
-      syntheticFailureControl: failureControl,
-      improvedExample: example,
-      delta: delta(example, failureControl),
-      manualReviewRubric: example.manualReview,
-    }, null, 2) + '\n');
+      manualReviewRubric: candidate.manualReview,
+      blindReviewRequired: true,
+    };
   }
+  const example = evaluateTranslations(fixture, fixture.improvedExampleTranslations);
+  return {
+    fixture: fixture.title,
+    fixturePath,
+    notice: fixture.notice,
+    source: fixture.source || null,
+    mode: 'fixture-self-test',
+    fixtureFailureControl: failureControl,
+    improvedExample: example,
+    delta: delta(example, failureControl),
+    manualReviewRubric: example.manualReview,
+    blindReviewRequired: true,
+  };
+}
+
+async function main() {
+  const args = parseArguments(process.argv.slice(2));
+  let report;
+  if (args.all) {
+    const reports = [DEFAULT_FIXTURE_PATH, REAL_NOVEL_FIXTURE_PATH].map((fixturePath) => {
+      const fixture = loadFixture(fixturePath);
+      return evaluateFixtureReport(fixture, fixturePath, args.positional);
+    });
+    report = {
+      mode: 'fixture-suite',
+      generatedAt: new Date().toISOString(),
+      notice: 'Fixture reports validate deterministic checks and failure controls. Hand-authored example translations are not measured model outputs; M4 quality claims require matched real runs and human blind review.',
+      reports,
+    };
+  } else {
+    const fixture = loadFixture(args.fixturePath);
+    report = evaluateFixtureReport(fixture, args.fixturePath, args.positional);
+  }
+  const json = JSON.stringify(report, null, 2) + '\n';
+  if (args.outputPath) writeFileSync(args.outputPath, json, 'utf8');
+  process.stdout.write(json);
+}
+
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  main().catch((error) => {
+    process.stderr.write(String(error?.stack || error) + '\n');
+    process.exitCode = 1;
+  });
 }
