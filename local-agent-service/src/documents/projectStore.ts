@@ -557,12 +557,12 @@ export class DocumentProjectStore {
       }
       revision = this.insertSourceRevision(db, projectId, title, format, fileName, segments);
       db.exec('COMMIT');
-      this.catalogDb().prepare('UPDATE document_projects SET title = ?, format = ?, source_file_name = ?, source_fingerprint = ?, updated_at = ? WHERE project_id = ?')
-        .run(title, format, fileName, revision.fingerprint, revision.createdAt, projectId);
     } catch (error) {
-      db.exec('ROLLBACK');
+      try { db.exec('ROLLBACK'); } catch { /* the transaction may already have committed */ }
       throw error;
     }
+    this.catalogDb().prepare('UPDATE document_projects SET title = ?, format = ?, source_file_name = ?, source_fingerprint = ?, updated_at = ? WHERE project_id = ?')
+      .run(title, format, fileName, revision.fingerprint, revision.createdAt, projectId);
     return this.getProject(projectId)!;
   }
 
