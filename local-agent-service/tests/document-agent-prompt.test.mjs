@@ -175,9 +175,15 @@ test('document batch sessions isolate runs, roles, and batch indices while remai
   );
 });
 
-test('document Agent worker budgets fit the Workbuddy pool and prioritize review throughput', async () => {
+test('document Agent budgets use six sessions while reserving reviewer capacity for literary runs', async () => {
   const { resolveDocumentRunConcurrencyBudget } = await import('../src/documents/translationAgent.ts');
 
+  assert.deepEqual(resolveDocumentRunConcurrencyBudget(6, true, 6, 2), {
+    poolSize: 6, translationConcurrency: 4, reviewConcurrency: 2, detachReviews: true,
+  });
+  assert.deepEqual(resolveDocumentRunConcurrencyBudget(6, false, 6, 2), {
+    poolSize: 6, translationConcurrency: 6, reviewConcurrency: 0, detachReviews: false,
+  });
   assert.deepEqual(resolveDocumentRunConcurrencyBudget(4, true, 4, 2), {
     poolSize: 4, translationConcurrency: 2, reviewConcurrency: 2, detachReviews: true,
   });
