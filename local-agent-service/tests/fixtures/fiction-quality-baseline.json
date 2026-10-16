@@ -1,0 +1,439 @@
+{
+  "schemaVersion": 1,
+  "title": "The Lantern Archive",
+  "kind": "synthetic-regression-corpus",
+  "notice": "Synthetic source text authored for regression testing. This is a deterministic failure-control corpus, not a measured output from a particular LLM or real book.",
+  "sourceLanguage": "en",
+  "targetLanguage": "zh",
+  "segments": [
+    {
+      "id": "s01",
+      "contextPath": "Chapter 1",
+      "ordinal": 1,
+      "kind": "paragraph",
+      "text": "Mara Voss unlocked the archive door before dawn."
+    },
+    {
+      "id": "s02",
+      "contextPath": "Chapter 1",
+      "ordinal": 2,
+      "kind": "dialogue",
+      "speaker": "Mara",
+      "text": "\"Keep the western lamp burning.\""
+    },
+    {
+      "id": "s03",
+      "contextPath": "Chapter 1",
+      "ordinal": 3,
+      "kind": "dialogue",
+      "speaker": "Iven",
+      "text": "\"I would advise against entering before we have reviewed the records in full,\" Iven said."
+    },
+    {
+      "id": "s04",
+      "contextPath": "Chapter 2",
+      "ordinal": 4,
+      "kind": "paragraph",
+      "text": "Mara crossed the hall without answering."
+    },
+    {
+      "id": "s05",
+      "contextPath": "Chapter 2",
+      "ordinal": 5,
+      "kind": "dialogue",
+      "speaker": "Mara",
+      "text": "\"No. Not now. Not until the rain stops,\" Mara said."
+    },
+    {
+      "id": "s06",
+      "contextPath": "Chapter 2",
+      "ordinal": 6,
+      "kind": "paragraph",
+      "text": "Captain Vale placed the brass key on the table."
+    },
+    {
+      "id": "s07",
+      "contextPath": "Chapter 3",
+      "ordinal": 7,
+      "kind": "paragraph",
+      "text": "The Archivist, whom the staff called Mara, kept the eastern ledger hidden beneath the floor."
+    },
+    {
+      "id": "s08",
+      "contextPath": "Chapter 3",
+      "ordinal": 8,
+      "kind": "dialogue",
+      "speaker": "Mara",
+      "text": "\"Keep the western lamp burning.\""
+    },
+    {
+      "id": "s09",
+      "contextPath": "Chapter 4",
+      "ordinal": 9,
+      "kind": "paragraph",
+      "text": "Iven inspected the ledger with the careful attention he gave every old record."
+    },
+    {
+      "id": "s10",
+      "contextPath": "Chapter 5",
+      "ordinal": 10,
+      "kind": "paragraph",
+      "text": "Mara told Vale to lower his sword, then left the room."
+    },
+    {
+      "id": "s11",
+      "contextPath": "Chapter 6",
+      "ordinal": 11,
+      "kind": "paragraph",
+      "text": "A hooded Warden watched Iven from the far doorway."
+    },
+    {
+      "id": "s12",
+      "contextPath": "Chapter 6",
+      "ordinal": 12,
+      "kind": "dialogue",
+      "speaker": "Iven",
+      "text": "\"I do not believe this course of action will improve our position,\" Iven replied."
+    },
+    {
+      "id": "s13",
+      "contextPath": "Chapter 7",
+      "ordinal": 13,
+      "kind": "dialogue",
+      "speaker": "Elian",
+      "text": "The Warden removed her hood. \"I am Elian, Iven's younger sister,\" she said to Mara."
+    },
+    {
+      "id": "s14",
+      "contextPath": "Chapter 7",
+      "ordinal": 14,
+      "kind": "paragraph",
+      "text": "Captain Vale lowered his sword when Elian spoke."
+    },
+    {
+      "id": "s15",
+      "contextPath": "Chapter 8",
+      "ordinal": 15,
+      "kind": "dialogue",
+      "speaker": "Mara",
+      "text": "\"Keep the western lamp burning.\""
+    },
+    {
+      "id": "s16",
+      "contextPath": "Chapter 8",
+      "ordinal": 16,
+      "kind": "dialogue",
+      "speaker": "Mara",
+      "text": "Mara looked at Vale. \"Stay here. I will return before midnight.\""
+    },
+    {
+      "id": "s17",
+      "contextPath": "Chapter 8",
+      "ordinal": 17,
+      "kind": "paragraph",
+      "text": "Iven folded the letter carefully and explained, at considerable length, why they should leave the archive in the morning."
+    },
+    {
+      "id": "s18",
+      "contextPath": "Chapter 8",
+      "ordinal": 18,
+      "kind": "paragraph",
+      "text": "The eastern ledger remained beneath the floor, waiting for its next reader."
+    }
+  ],
+  "evaluation": {
+    "requiredTranslationIds": [
+      "s01",
+      "s02",
+      "s03",
+      "s04",
+      "s05",
+      "s06",
+      "s07",
+      "s08",
+      "s09",
+      "s10",
+      "s11",
+      "s12",
+      "s13",
+      "s14",
+      "s15",
+      "s16",
+      "s17",
+      "s18"
+    ],
+    "termChecks": [
+      {
+        "id": "Mara canonical full name",
+        "segmentId": "s01",
+        "expected": "玛拉·沃斯"
+      },
+      {
+        "id": "Mara short name",
+        "segmentId": "s04",
+        "expected": "玛拉"
+      },
+      {
+        "id": "Mara dialogue attribution",
+        "segmentId": "s05",
+        "expected": "玛拉"
+      },
+      {
+        "id": "Archivist is identified as Mara",
+        "segmentId": "s07",
+        "expected": "玛拉"
+      },
+      {
+        "id": "Captain Vale",
+        "segmentId": "s06",
+        "expected": "瓦尔队长"
+      },
+      {
+        "id": "Vale short form",
+        "segmentId": "s10",
+        "expected": "瓦尔"
+      },
+      {
+        "id": "Iven formal dialogue",
+        "segmentId": "s03",
+        "expected": "伊文"
+      },
+      {
+        "id": "Iven narrative mention",
+        "segmentId": "s09",
+        "expected": "伊文"
+      },
+      {
+        "id": "Iven later dialogue",
+        "segmentId": "s12",
+        "expected": "伊文"
+      },
+      {
+        "id": "Elian identity reveal",
+        "segmentId": "s13",
+        "expected": "艾莲"
+      },
+      {
+        "id": "Vale after the reveal",
+        "segmentId": "s14",
+        "expected": "瓦尔队长"
+      },
+      {
+        "id": "Iven final chapter",
+        "segmentId": "s17",
+        "expected": "伊文"
+      }
+    ],
+    "repeatedExpressions": [
+      {
+        "id": "western-lamp-line",
+        "segmentIds": [
+          "s02",
+          "s08",
+          "s15"
+        ],
+        "expectedTranslation": "让西侧的灯一直亮着。"
+      }
+    ],
+    "spoilerChecks": [
+      {
+        "id": "Elian relationship must not leak before Chapter 7",
+        "beforeSegmentIds": [
+          "s01",
+          "s02",
+          "s03",
+          "s04",
+          "s05",
+          "s06",
+          "s07",
+          "s08",
+          "s09",
+          "s10",
+          "s11",
+          "s12"
+        ],
+        "forbiddenPhrases": [
+          "伊文的妹妹艾莲",
+          "伊文的妹妹",
+          "艾莲是伊文的妹妹"
+        ]
+      }
+    ],
+    "voicePairs": [
+      {
+        "ids": [
+          "s03",
+          "s05"
+        ],
+        "label": "Iven formal/qualified phrasing vs Mara concise/direct phrasing",
+        "reviewDimensions": [
+          "register",
+          "syntax_rhythm",
+          "directness",
+          "speaker distinction"
+        ]
+      },
+      {
+        "ids": [
+          "s12",
+          "s16"
+        ],
+        "label": "Iven measured formal speech vs Mara short imperative and first-person commitment",
+        "reviewDimensions": [
+          "register",
+          "syntax_rhythm",
+          "directness",
+          "speaker distinction"
+        ]
+      }
+    ]
+  },
+  "baselineTranslations": [
+    {
+      "id": "s01",
+      "translated_text": "玛丽·沃斯在黎明前打开了档案室的门。"
+    },
+    {
+      "id": "s02",
+      "translated_text": "让西边的灯继续燃烧——伊文的妹妹艾莲正在暗处等着。"
+    },
+    {
+      "id": "s03",
+      "translated_text": ""
+    },
+    {
+      "id": "s04",
+      "translated_text": "玛拉穿过大厅，没有回答。"
+    },
+    {
+      "id": "s05",
+      "translated_text": "不，现在不行。"
+    },
+    {
+      "id": "s06",
+      "translated_text": "瓦莱船长把黄铜钥匙放在桌上。"
+    },
+    {
+      "id": "s07",
+      "translated_text": "玛拉把东边的账册藏在地板下。"
+    },
+    {
+      "id": "s08",
+      "translated_text": "点燃西边那盏灯。"
+    },
+    {
+      "id": "s09",
+      "translated_text": "伊文检查了账册。"
+    },
+    {
+      "id": "s10",
+      "translated_text": "玛丽告诉瓦莱船长放下剑，然后离开房间。"
+    },
+    {
+      "id": "s11",
+      "translated_text": "一个戴兜帽的守卫在远处门口盯着伊文。"
+    },
+    {
+      "id": "s12",
+      "translated_text": "我觉得这样做没什么帮助。"
+    },
+    {
+      "id": "s13",
+      "translated_text": "守卫摘下兜帽。她对玛拉说：我是伊文的妹妹艾莲。"
+    },
+    {
+      "id": "s14",
+      "translated_text": "瓦莱船长在艾莲说话时放下了剑。"
+    },
+    {
+      "id": "s15",
+      "translated_text": "西侧那盏灯不要熄灭。"
+    },
+    {
+      "id": "s16",
+      "translated_text": "玛丽看着瓦尔：留下来，我会在午夜前回来。"
+    },
+    {
+      "id": "s17",
+      "translated_text": "伊文折好信，说他们早晨离开。"
+    },
+    {
+      "id": "s18",
+      "translated_text": "东边的账册仍在地板下，等着下一个读者。"
+    }
+  ],
+  "improvedExampleTranslations": [
+    {
+      "id": "s01",
+      "translated_text": "玛拉·沃斯在黎明前打开了档案室的门。"
+    },
+    {
+      "id": "s02",
+      "translated_text": "让西侧的灯一直亮着。"
+    },
+    {
+      "id": "s03",
+      "translated_text": "“我建议先把所有记录仔细核查一遍，再进去。”伊文说道。"
+    },
+    {
+      "id": "s04",
+      "translated_text": "玛拉一言不发地穿过大厅。"
+    },
+    {
+      "id": "s05",
+      "translated_text": "“不。现在不行。等雨停了再说。”玛拉说。"
+    },
+    {
+      "id": "s06",
+      "translated_text": "瓦尔队长把黄铜钥匙放在桌上。"
+    },
+    {
+      "id": "s07",
+      "translated_text": "档案管理员玛拉把东边的账册藏在地板下，工作人员都叫她“档案官”。"
+    },
+    {
+      "id": "s08",
+      "translated_text": "让西侧的灯一直亮着。"
+    },
+    {
+      "id": "s09",
+      "translated_text": "伊文像对待每一份旧档案那样，仔细检查了账册。"
+    },
+    {
+      "id": "s10",
+      "translated_text": "玛拉叫瓦尔放下剑，随后离开了房间。"
+    },
+    {
+      "id": "s11",
+      "translated_text": "一个戴兜帽的守卫在远处的门口注视着伊文。"
+    },
+    {
+      "id": "s12",
+      "translated_text": "“我不认为这样做会改善我们的处境。”伊文回答。"
+    },
+    {
+      "id": "s13",
+      "translated_text": "守卫摘下兜帽。“我是艾莲，伊文的妹妹。”她对玛拉说。"
+    },
+    {
+      "id": "s14",
+      "translated_text": "艾莲说话时，瓦尔队长放下了剑。"
+    },
+    {
+      "id": "s15",
+      "translated_text": "让西侧的灯一直亮着。"
+    },
+    {
+      "id": "s16",
+      "translated_text": "玛拉看着瓦尔。“留在这里。我会在午夜前回来。”"
+    },
+    {
+      "id": "s17",
+      "translated_text": "伊文仔细折好信，并详细解释他们为什么应该早晨再离开档案室。"
+    },
+    {
+      "id": "s18",
+      "translated_text": "东边的账册仍留在地板下，等待着下一位读者。"
+    }
+  ]
+}
