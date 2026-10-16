@@ -162,7 +162,7 @@ function currentReviewFindings(
     'FROM review_findings rf JOIN translation_runs tr ON tr.run_id = rf.run_id ' +
     'LEFT JOIN run_segments rs ON rs.run_id = rf.run_id AND rs.segment_id = rf.segment_id ' +
     'LEFT JOIN translation_results r ON r.result_id = rs.candidate_result_id ' +
-    'WHERE rf.run_id = ? AND tr.source_revision_id = ? AND rf.category = \\'style\\' ' +
+    "WHERE rf.run_id = ? AND tr.source_revision_id = ? AND rf.category = 'style' " +
     'ORDER BY rf.finding_id DESC LIMIT 300'
   ).all(reviewRunId, revisionId) as any[];
   const findings = rows.flatMap((row) => {
