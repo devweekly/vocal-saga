@@ -925,7 +925,7 @@ export class DocumentProjectStore {
       }
       const preprocessingProgress = parseJson<any>(preprocessing.progress_json, {});
       if (preprocessingProgress.analysisVersion !== 'context-graph-v5-language-pinned') {
-        throw Object.assign(new Error('全书预处理版本过旧，请重新分析后再翻译。'), { status: 409 });
+        throw Object.assign(new Error('全书预处理版本过旧，请重新分析后再翻译：UI 中点击“重新分析全书”，或执行 npm run doc -- context-analyze ' + projectId + '。'), { status: 409 });
       }
       const expectedSourceLang = config.sourceLang || 'auto';
       const expectedTargetLang = config.targetLang || 'zh';
@@ -933,7 +933,7 @@ export class DocumentProjectStore {
         throw Object.assign(new Error(
           '全书预处理语言与当前翻译配置不一致（预处理 ' +
           (preprocessingProgress.sourceLang || 'auto') + '→' + (preprocessingProgress.targetLang || 'zh') +
-          '，当前 ' + expectedSourceLang + '→' + expectedTargetLang + '）。请重新分析全书。',
+          '，当前 ' + expectedSourceLang + '→' + expectedTargetLang + '）。请重新分析全书：UI 中点击“重新分析全书”，或执行 npm run doc -- context-analyze ' + projectId + '。',
         ), { status: 409 });
       }
     }
