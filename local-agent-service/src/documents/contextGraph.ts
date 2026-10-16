@@ -527,7 +527,7 @@ async function runAnalysis(projectId: string, runId: string): Promise<void> {
       canonicalNameMappingCount,
       invalidEvidenceCount,
       sourceLang, targetLang,
-      analysisVersion: 'context-graph-v4-target-language',
+      analysisVersion: 'context-graph-v5-language-pinned',
     });
   } catch (error) {
     db.exec('ROLLBACK');
@@ -915,7 +915,7 @@ export function buildProjectContextGraphBundle(
   }).slice(0, 16);
 
   const result = {
-    policyVersion: 'context-graph-v4-target-language',
+    policyVersion: 'context-graph-v5-language-pinned',
     knowledgeBoundaryOrdinal: knowledgeBoundary,
     nameMappings,
     styleGuide: {
