@@ -452,11 +452,11 @@ export function buildTranslationBrief(
   if (serialized.length > MAX_TRANSLATION_BRIEF_CHARS) {
     // Last-resort safe fallback: keep the batch IDs and a minimal source-near context only.
     brief.contextGraph = null;
+    brief.glossary = { document_terms: [] };
     brief.voiceContext = {
       version: 1,
       policyVersion: TRANSLATION_BRIEF_POLICY_VERSION,
       chapterSummaries: [],
-      glossary: { document_terms: [] },
       entities: [],
       relationships: [],
       characterVoices: [],
@@ -471,6 +471,9 @@ export function buildTranslationBrief(
       ...item, text: item.text.slice(-300),
     }));
     serialized = serializedContext(brief);
+  }
+  if (serialized.length > MAX_TRANSLATION_BRIEF_CHARS) {
+    throw Object.assign(new Error('TranslationBrief 超过上下文字符预算，已拒绝发送不受限上下文。'), { status: 413 });
   }
   brief.contextChars = serialized.length;
   brief.contextHash = createHash('sha256').update(serialized, 'utf8').digest('hex');
