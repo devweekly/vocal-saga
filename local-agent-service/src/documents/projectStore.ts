@@ -1309,7 +1309,7 @@ export class DocumentProjectStore {
   ): any {
     const { db, currentSourceRevisionId } = this.getProjectContext(projectId);
     const row = db.prepare(
-      'SELECT rf.finding_id, rf.segment_id, rf.category, rf.finding_json, tr.source_revision_id, rs.source_hash AS run_source_hash ' +
+      'SELECT rf.finding_id, rf.segment_id, rf.category, rf.finding_json, rf.status AS finding_status, tr.source_revision_id, rs.source_hash AS run_source_hash ' +
       'FROM review_findings rf JOIN translation_runs tr ON tr.run_id = rf.run_id ' +
       'JOIN run_segments rs ON rs.run_id = rf.run_id AND rs.segment_id = rf.segment_id ' +
       'WHERE rf.finding_id = ? AND rf.run_id = ?'
@@ -1320,6 +1320,23 @@ export class DocumentProjectStore {
       throw Object.assign(new Error('这条审校建议属于旧原文版本，不能应用到当前文档'), { status: 409 });
     }
     const finding = parseJson<any>(row.finding_json, {});
+    if (action === 'apply' && finding.applicationStatus === 'applied' && finding.appliedResultId) {
+      const saved = db.prepare(
+        'SELECT translation_text FROM translation_results WHERE result_id = ? AND accepted = 1'
+      ).get(finding.appliedResultId) as { translation_text?: string } | undefined;
+      if (saved?.translation_text) {
+        return {
+          findingId, segmentId: row.segment_id, applicationStatus: 'applied',
+          resultId: finding.appliedResultId, text: saved.translation_text, alreadyApplied: true,
+        };
+      }
+    }
+    if (action === 'dismiss' && finding.applicationStatus === 'dismissed') {
+      return { findingId, segmentId: row.segment_id, applicationStatus: 'dismissed', alreadyDismissed: true };
+    }
+    if (action === 'dismiss' && finding.applicationStatus === 'applied') {
+      throw Object.assign(new Error('文风建议已经应用为人工译文，不能直接撤销；请在正文中手工编辑。'), { status: 409 });
+    }
     if (action === 'apply') {
       const proposed = typeof finding.proposedTranslation === 'string' ? finding.proposedTranslation.trim() : '';
       if (!proposed || proposed.length > 20000) {
