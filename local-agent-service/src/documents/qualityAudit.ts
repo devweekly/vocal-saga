@@ -222,6 +222,15 @@ function terminologyFindings(
   return findings;
 }
 
+function segmentContainsPhrase(sourceText: string, expectedNormalized: string): boolean {
+  const sentences = sourceText.match(/[^.!?\n]+[.!?]?/gu) || [];
+  const quoted = Array.from(sourceText.matchAll(/[“"]([^”"]{8,})[”"]/gu), (match) => match[1] || '');
+  return [...sentences, ...quoted].some((sentence) => {
+    const text = sentence.trim().replace(/^[“”"'‘’\s]+|[“”"'‘’\s]+$/g, '');
+    return normalizedPhrase(text) === expectedNormalized;
+  });
+}
+
 function repeatedExpressionFindings(
   segments: Array<{ id: string; text: string; contextPath: string }>,
   translations: Map<string, string>,
@@ -234,15 +243,14 @@ function repeatedExpressionFindings(
     kind: 'paragraph',
     contextPath: segment.contextPath,
   }));
-  const sourceById = new Map(segments.map((segment) => [segment.id, segment]));
-  const scan = scanBookSegments(scanSegments);
+  const scan = scanBookSegments(scanSegments, { maxRepeatedPhraseGroups: 300 });
   const findings: any[] = [];
   for (const phrase of scan.repeatedPhrases) {
-    const exactIds = phrase.segmentIds.filter((id) => {
-      if (scopedIds && !scopedIds.has(id)) return false;
-      const source = sourceById.get(id);
-      return !!source && normalizedPhrase(source.text) === phrase.normalized;
-    });
+    // Scan every source segment for each candidate phrase. M1 keeps a small ID sample for prompt
+    // planning; M3/M4 must not miss a variant that appears after the first 16 occurrences.
+    const exactIds = segments.filter((segment) =>
+      (!scopedIds || scopedIds.has(segment.id)) && segmentContainsPhrase(segment.text, phrase.normalized)
+    ).map((segment) => segment.id);
     if (exactIds.length < 2) continue;
     const rows = exactIds.map((id) => ({ id, text: translations.get(id) || '' })).filter((item) => item.text.trim());
     if (rows.length < 2) continue;
@@ -254,21 +262,28 @@ function repeatedExpressionFindings(
       variants.set(key, ids);
     }
     if (variants.size <= 1) continue;
+    const maxListedIds = 500;
     findings.push({
-      findingId: stableFindingId('repeated-expression-drift', exactIds, phrase.normalized),
+      findingId: stableFindingId('repeated-expression-drift', exactIds.slice(0, 32), phrase.normalized),
       type: 'repeated-expression-drift',
       category: 'consistency',
       severity: 'warning',
       confidence: 'deterministic-source-match',
-      repairable: true,
-      segmentIds: exactIds,
+      repairable: exactIds.length <= 100,
+      segmentIds: exactIds.slice(0, maxListedIds),
+      occurrenceCount: exactIds.length,
+      segmentIdsTruncated: exactIds.length > maxListedIds,
       sourceExcerpt: phrase.text,
       variants: Array.from(variants.entries()).map(([normalizedTranslation, ids]) => ({
-        segmentIds: ids,
+        segmentIds: ids.slice(0, maxListedIds),
+        occurrenceCount: ids.length,
+        segmentIdsTruncated: ids.length > maxListedIds,
         normalizedTranslation,
-        translations: ids.map((id) => rows.find((row) => row.id === id)?.text || ''),
+        sampleTranslation: (rows.find((row) => row.id === ids[0])?.text || '').slice(0, 320),
       })),
-      explanation: '相同原文片段在不同位置存在不同译法；可能是有意的语境差异，也可能是重复台词或固定表达漂移。',
+      explanation: exactIds.length <= 100
+        ? '相同原文表达在不同位置存在不同译法；可能是有意的语境差异，也可能是重复台词或固定表达漂移。'
+        : '相同原文表达在大量位置存在译法差异。为避免一键扩大返工，报告只列出前 500 个位置；请从报告中选取具体 segmentIds 进行定点返工。',
     });
   }
   return findings;
