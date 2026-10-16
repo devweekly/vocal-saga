@@ -121,7 +121,8 @@ test('paired-run evaluation withholds A/B mapping until every sampled segment ha
   assert.equal(submitted.blindReview.result.beforeWins + submitted.blindReview.result.afterWins,
     ratings.length);
   assert.ok(submitted.deterministic);
-  assert.equal(submitted.deterministic.before.totalModelCalls, 0);
+  assert.equal(submitted.deterministic.before.totalPipelineRequestCount, 0);
+  assert.equal(submitted.deterministic.after.totalPipelineRequestCount, 0);
   assert.equal(submitted.deterministic.after.tokenAndBillingCostsAvailable, false);
 
   const persisted = getProjectQualityEvaluation(project.projectId, created.evaluationId);
