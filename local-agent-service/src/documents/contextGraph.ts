@@ -293,7 +293,8 @@ function graphAnalysisPrompt(projectTitle: string, format: string, samples: Segm
     nameCandidates: scan.nameCandidates.slice(0, 28).map((candidate) => ({
       name: candidate.name, mentions: candidate.mentions, chapterCount: candidate.chapterCount,
       dialogueSegmentCount: candidate.dialogueSegmentCount, regionCount: candidate.regionCount,
-      sampledSegmentIds: candidate.segmentIds.filter((id) => sampleIds.has(id)).slice(0, 8),
+      temporalSampleSegmentIds: [candidate.earlySegmentId, candidate.middleSegmentId, candidate.lateSegmentId]
+        .filter((id): id is string => typeof id === 'string' && sampleIds.has(id)),
       sampledDialogueSegmentIds: candidate.dialogueSegmentIds.filter((id) => sampleIds.has(id)).slice(0, 4),
     })),
     repeatedPhraseCandidates: scan.repeatedPhrases.slice(0, 16).map((phrase) => ({
