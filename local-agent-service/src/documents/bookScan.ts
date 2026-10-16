@@ -97,6 +97,7 @@ const NAME_STOP_WORDS = new Set([
 
 const SPEECH_VERBS = /\b(said|asked|replied|answered|whispered|shouted|murmured|called|cried|snapped|remarked|wondered|added|insisted|began|continued|laughed|sighed)\b/i;
 const NAME_PATTERN = /\b\p{Lu}\p{Ll}{2,}(?:[’'-]\p{Lu}?\p{Ll}+)*\b/gu;
+const FULL_NAME_PATTERN = /\b\p{Lu}\p{Ll}{2,}(?:[’'-]\p{Lu}?\p{Ll}+)?(?:\s+\p{Lu}\p{Ll}{2,}(?:[’'-]\p{Lu}?\p{Ll}+)?)\b/gu;
 
 function normalizeText(value: string): string {
   return value.normalize('NFKC').toLocaleLowerCase().replace(/\s+/g, ' ').trim();
@@ -142,6 +143,13 @@ function collectNameCandidates(segments: BookScanSegment[]): BookNameCandidate[]
   const occurrenceMap = new Map<string, Array<{ name: string; segmentId: string; ordinal: number; chapterKey: string; dialogue: boolean }>>();
   for (const segment of segments) {
     const uniqueInSegment = new Map<string, string>();
+    for (const match of segment.text.matchAll(FULL_NAME_PATTERN)) {
+      const name = match[0].trim();
+      const parts = name.split(/\s+/);
+      const key = normalizeText(name);
+      if (!key || parts.some((part) => NAME_STOP_WORDS.has(normalizeText(part))) || uniqueInSegment.has(key)) continue;
+      uniqueInSegment.set(key, name);
+    }
     for (const match of segment.text.matchAll(NAME_PATTERN)) {
       const name = match[0].trim();
       const key = normalizeText(name);
