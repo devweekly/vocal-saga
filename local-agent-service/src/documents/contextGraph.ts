@@ -494,7 +494,7 @@ async function runAnalysis(projectId: string, runId: string): Promise<void> {
     const now = new Date().toISOString();
     db.prepare('UPDATE context_graph_runs SET status = \'completed\', phase = \'completed\', progress_json = ?, finished_at = ?, error = NULL WHERE run_id = ?')
       .run(JSON.stringify({
-        analysisVersion: 'context-graph-v3-name-map',
+        analysisVersion: 'context-graph-v4-target-language',
         sourceLang, targetLang,
         sampleCount: samples.length, chapterCount: chapters.length,
         characterCount: persistedNodes.filter((node) => node.kind === 'character').length,
@@ -515,7 +515,7 @@ async function runAnalysis(projectId: string, runId: string): Promise<void> {
       entityCount: persistedNodes.filter((node) => node.kind === 'entity').length,
       relationshipCount: savedEdges.size,
       sourceLang, targetLang,
-      analysisVersion: 'context-graph-v3-name-map',
+      analysisVersion: 'context-graph-v4-target-language',
     });
   } catch (error) {
     db.exec('ROLLBACK');
@@ -888,7 +888,7 @@ export function buildProjectContextGraphBundle(
   }).slice(0, 16);
 
   const result = {
-    policyVersion: 'context-graph-v3-name-map',
+    policyVersion: 'context-graph-v4-target-language',
     knowledgeBoundaryOrdinal: knowledgeBoundary,
     nameMappings,
     styleGuide: {
