@@ -509,11 +509,18 @@ async function runAnalysis(projectId: string, runId: string): Promise<void> {
         scan: scanSummary,
       }), now, runId);
     db.exec('COMMIT');
+    const canonicalNameMappingCount = persistedNodes.filter((node) => {
+      const row = db.prepare('SELECT attributes_json FROM context_graph_nodes WHERE node_id = ?').get(node.id) as { attributes_json?: string } | undefined;
+      try { return !!safeText(JSON.parse(row?.attributes_json || '{}').suggestedTranslation, 120); } catch { return false; }
+    }).length;
     store.appendEvent(projectId, runId, 'context-graph.completed', {
       sampleCount: samples.length,
+      chapterCount: chapters.length,
       characterCount: persistedNodes.filter((node) => node.kind === 'character').length,
       entityCount: persistedNodes.filter((node) => node.kind === 'entity').length,
       relationshipCount: savedEdges.size,
+      canonicalNameMappingCount,
+      invalidEvidenceCount,
       sourceLang, targetLang,
       analysisVersion: 'context-graph-v4-target-language',
     });
