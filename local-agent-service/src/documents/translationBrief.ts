@@ -105,11 +105,14 @@ function buildTemporallyVisibleMemory(
   const store = getDocumentProjectStore();
   const projectContext = store.getProjectContext(projectId);
   const empty = {
-    version: 2, entities: [], relationships: [], styleGuide: {},
+    version: 2, entities: [], relationships: [], styleGuide: {}, styleGuideStatus: 'candidate',
     chapterSummaries: [], recentExamples: [], characterVoices: [],
     relationshipVoiceRules: [], voiceAnchors: [], openQuestions: [],
   };
-  if (!projectId || projectContext.currentSourceRevisionId !== revisionId || !items.length) return empty;
+  const sourceRevisionExists = !!revisionId && !!projectContext.db.prepare(
+    'SELECT 1 FROM source_revisions WHERE revision_id = ?'
+  ).get(revisionId);
+  if (!projectId || !sourceRevisionExists || !items.length) return empty;
 
   const rows = projectContext.db.prepare(
     'SELECT segment_id, ordinal, text, context_path FROM source_segments ' +
@@ -179,9 +182,8 @@ function buildTemporallyVisibleMemory(
   rawMemory.relationships = (Array.isArray(rawMemory.relationships) ? rawMemory.relationships : []).filter((relation: any) =>
     relation && sourceNameMatches(relation.evidence, relation.subject) &&
     sourceNameMatches(relation.evidence, relation.object) &&
-    sourceNameMatches(relation.evidence, relation.predicate) &&
     appearedBefore(relation.subject) && appearedBefore(relation.object) &&
-    appearedBefore(relation.predicate) && appearsAsEarlierEvidence(relation.evidence));
+    appearsAsEarlierEvidence(relation.evidence));
 
   rawMemory.characterVoices = (Array.isArray(rawMemory.characterVoices) ? rawMemory.characterVoices : []).flatMap((profile: any) => {
     const rawEvidence = Array.isArray(profile.evidence) ? profile.evidence : [];
@@ -226,7 +228,10 @@ function buildTemporallyVisibleMemory(
 
   // These book-level strings lack source-positioned citations. Do not let whole-book analysis
   // leak a future plot fact through a field labelled "style", "example", or "summary".
-  rawMemory.styleGuide = {};
+  // Free-form whole-book summaries/examples may reveal future plot. A style guide is safe only
+  // after the user explicitly confirms it in the workspace; model suggestions stay out of prompts.
+  rawMemory.styleGuide = rawMemory.styleGuideStatus === 'confirmed' ? rawMemory.styleGuide : {};
+  rawMemory.styleGuideStatus = rawMemory.styleGuideStatus === 'confirmed' ? 'confirmed' : 'candidate';
   rawMemory.chapterSummaries = [];
   rawMemory.recentExamples = [];
   rawMemory.openQuestions = [];
@@ -241,8 +246,11 @@ function filterGlossaryForBatch(context: any, items: BriefSegment[]): unknown {
 
   const projectId = String(context?.project?.projectId || '');
   const revisionId = String(context?.run?.sourceRevisionId || '');
-  const { db, currentSourceRevisionId } = getDocumentProjectStore().getProjectContext(projectId);
-  if (!projectId || currentSourceRevisionId !== revisionId) return empty;
+  const { db } = getDocumentProjectStore().getProjectContext(projectId);
+  const sourceRevisionExists = !!projectId && !!db.prepare(
+    'SELECT 1 FROM source_revisions WHERE revision_id = ?'
+  ).get(revisionId);
+  if (!sourceRevisionExists) return empty;
   const rows = db.prepare(
     'SELECT ordinal FROM source_segments WHERE source_revision_id = ? AND segment_id IN (' +
       items.map(() => '?').join(',') + ')'
@@ -419,10 +427,13 @@ export function buildTranslationBrief(
         projectId,
         items.map((item) => ({ id: item.id, text: item.text, contextPath: item.contextPath })),
         precedingSegments.map((item) => ({ id: item.id, text: item.text, contextPath: item.contextPath })),
+        sourceRevisionId,
+        String(context?.run?.targetLang || 'zh'),
       ) as Record<string, any> | null
     : null;
   if (graph && Array.isArray(graph.nameMappings)) {
     const sourceText = [...precedingSegments.slice(-4), ...items].map((item) => item.text).join('\n');
+    const priorSourceText = precedingSegments.slice(-4).map((item) => item.text).join('\n');
     const projectContext = getDocumentProjectStore().getProjectContext(projectId);
     const batchRows = projectContext.db.prepare(
       'SELECT ordinal FROM source_segments WHERE source_revision_id = ? AND segment_id IN (' +
@@ -443,10 +454,13 @@ export function buildTranslationBrief(
       const evidenceVisible = evidenceOrdinal < firstOrdinal ||
         normalizedSourceText(sourceText).includes(normalizedSourceText(evidence));
       const rawAliases = Array.isArray(entity.aliases) ? entity.aliases : [];
-      const aliasesVisible = rawAliases.every((alias: unknown) => sourceVisible(alias));
+      const aliasesVisible = rawAliases.every((alias: unknown) =>
+        firstMatchingSourceOrdinal(projectContext.db, sourceRevisionId, alias, 'name') < firstOrdinal);
       // A manually confirmed label is not permission to move a later identity reveal backward.
       if (!evidenceVisible || !aliasesVisible) continue;
-      const aliases = rawAliases.filter((alias: unknown) => sourceNameMatches(sourceText, alias));
+      const aliases = rawAliases.filter((alias: unknown) =>
+        firstMatchingSourceOrdinal(projectContext.db, sourceRevisionId, alias, 'name') < firstOrdinal ||
+        sourceNameMatches(priorSourceText, alias));
       const incoming = {
         source, target, aliases,
         kind: String(entity.kind || 'other'),
