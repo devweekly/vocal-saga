@@ -332,7 +332,7 @@ async function runAnalysis(projectId: string, runId: string): Promise<void> {
   const scan = scanBookSegments(segments);
   const samplePlan = planBookSamples(segments, scan);
   const samples = samplePlan.samples.map((item) => item.segment as Segment);
-  const sampleReasons = new Map(samplePlan.samples.map((item) => [item.segment.id, item.reasons]));
+  const sampleReasons = new Map<string, string[]>(samplePlan.samples.map((item) => [item.segment.id, item.reasons] as [string, string[]]));
   const sampleIds = new Set(samples.map((segment) => segment.id));
   const samplesById = new Map(samples.map((segment) => [segment.id, segment]));
   const chapters = chapterMap(segments);
