@@ -105,6 +105,18 @@ function hasQuote(source: string, quote: string): boolean {
   return quoteNorm.length >= 4 && sourceNorm.includes(quoteNorm);
 }
 
+function assertNoActiveTranslation(projectId: string, db: DatabaseSync): void {
+  const active = db.prepare(
+    "SELECT run_id FROM translation_runs WHERE status IN ('queued','running','paused','awaiting_acceptance','partial') LIMIT 1"
+  ).get() as { run_id?: string } | undefined;
+  if (active?.run_id) {
+    throw Object.assign(
+      new Error('翻译运行 ' + active.run_id + ' 尚未完成，不能在运行中修改 Context Graph；请先完成、采纳或取消该运行。'),
+      { status: 409 },
+    );
+  }
+}
+
 function graphContext(projectId: string): { db: DatabaseSync; revisionId: string } {
   const context = getDocumentProjectStore().getProjectContext(projectId);
   ensureSchema(context.db);
@@ -456,6 +468,7 @@ export function startContextGraphAnalysis(projectId: string): { accepted: boolea
   const { db, revisionId } = graphContext(projectId);
   const segmentCount = Number((db.prepare('SELECT COUNT(*) AS count FROM source_segments WHERE source_revision_id = ?').get(revisionId) as any)?.count || 0);
   if (!segmentCount) throw Object.assign(new Error('当前来源版本没有可分析的文档片段。'), { status: 409 });
+  assertNoActiveTranslation(projectId, db);
   const existing = db.prepare(
     'SELECT run_id FROM context_graph_runs WHERE source_revision_id = ? AND status IN (\'queued\', \'running\') ORDER BY started_at DESC LIMIT 1'
   ).get(revisionId) as { run_id?: string } | undefined;
@@ -564,6 +577,7 @@ export function reviewContextGraphItem(
 ): Record<string, unknown> {
   if (!['candidate', 'confirmed', 'rejected'].includes(status)) throw Object.assign(new Error('Context Graph 状态无效。'), { status: 400 });
   const { db, revisionId } = graphContext(projectId);
+  assertNoActiveTranslation(projectId, db);
   const table = type === 'node' ? 'context_graph_nodes' : 'context_graph_edges';
   const key = type === 'node' ? 'node_id' : 'edge_id';
   const row = db.prepare('SELECT status FROM ' + table + ' WHERE ' + key + ' = ? AND source_revision_id = ?').get(id, revisionId) as { status?: string } | undefined;
