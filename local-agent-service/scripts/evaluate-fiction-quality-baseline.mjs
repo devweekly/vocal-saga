@@ -24,7 +24,7 @@ export function translationMap(input) {
     if (Array.isArray(input.translations)) return translationMap(input.translations);
     if (Array.isArray(input.segments)) return translationMap(input.segments.map((item) => ({
       id: item.id ?? item.segmentId,
-      translated_text: item.translated_text ?? item.translation ?? item.acceptedTranslation ?? item.candidateTranslation ?? item.text,
+      translated_text: item.translated_text ?? item.translation ?? item.acceptedTranslation ?? item.candidateTranslation,
     })));
     if (input.acceptedTranslations && typeof input.acceptedTranslations === 'object') return translationMap(input.acceptedTranslations);
     return new Map(Object.entries(input).flatMap(([id, value]) => {
