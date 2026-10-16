@@ -195,6 +195,9 @@ export function buildBatches(items: TranslationItem[], respectChapterBoundaries 
 }
 
 export function buildUserPrompt(template: string, items: TranslationItem[], context: any, precedingSegments: TranslationItem[] = [], contextGraph: Record<string, unknown> | null = null, translationBrief?: TranslationBrief): string {
+  const promptPrecedingSegments = translationBrief?.precedingSegments ?? precedingSegments.slice(-4).map((item) => ({
+    id: item.id, text: item.text, contextPath: item.contextPath || '',
+  }));
   const payload = JSON.stringify({
     document: context.project.title,
     format: context.project.format,
@@ -202,7 +205,7 @@ export function buildUserPrompt(template: string, items: TranslationItem[], cont
     targetLang: context.run.targetLang,
     translationMode: context.run.translationMode,
     // 前文只用于指代/对白轮次解析，不属于本次输出范围；不得重新翻译或输出其 ID。
-    precedingSegments: precedingSegments.slice(-4).map((item) => ({ id: item.id, text: item.text, contextPath: item.contextPath || '' })),
+    precedingSegments: promptPrecedingSegments,
     segments: items.map((item) => ({
       id: item.id,
       text: item.text,
