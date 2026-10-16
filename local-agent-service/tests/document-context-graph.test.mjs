@@ -46,12 +46,18 @@ test('retrieval injects matched graph records and excludes future chapter summar
   insertNode.run('node-future', currentSourceRevisionId, 'entity', 'secret passage', 'secret passage',
     JSON.stringify({ aliases: ['locked door'], entityKind: 'location', significance: 'future reveal', suggestedTranslation: '密道' }),
     'confirmed', now, now);
+  insertNode.run('node-hidden-identity', currentSourceRevisionId, 'entity', 'Queen Ash', 'queen ash',
+    JSON.stringify({ aliases: ['Bob'], entityKind: 'character', significance: 'hidden identity', suggestedTranslation: '灰后' }),
+    'confirmed', now, now);
   const insertEvidence = db.prepare(
     'INSERT INTO context_graph_evidence(source_revision_id, node_id, edge_id, segment_id, quote, role, created_at) VALUES (?, ?, NULL, ?, ?, ?, ?)',
   );
   insertEvidence.run(currentSourceRevisionId, 'node-alice', 'chapter-1-seg-1', 'Alice spoke politely', 'character', now);
   insertEvidence.run(currentSourceRevisionId, 'node-bob', 'chapter-1-seg-1', 'Bob', 'character', now);
   insertEvidence.run(currentSourceRevisionId, 'node-future', 'chapter-3-seg-1', 'secret passage', 'entity', now);
+  // A single early citation cannot make a later-only canonical name safe, even when an alias
+  // matches the current batch (an adversarial fixture for full-book inferred identities).
+  insertEvidence.run(currentSourceRevisionId, 'node-hidden-identity', 'chapter-1-seg-1', 'Bob', 'entity', now);
   const insertChapter = db.prepare(
     'INSERT INTO context_graph_chapters(source_revision_id, chapter_key, chapter_order, chapter_title, summary, summary_kind, segment_ids_json, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
   );
@@ -69,6 +75,9 @@ test('retrieval injects matched graph records and excludes future chapter summar
   assert.ok(!JSON.stringify(bundle).includes('secret passage'));
   assert.ok(!JSON.stringify(bundle).includes('future reveal'));
   assert.ok(!JSON.stringify(bundle).includes('密道'));
+  assert.ok(!JSON.stringify(bundle).includes('Queen Ash'));
+  assert.ok(!JSON.stringify(bundle).includes('hidden identity'));
+  assert.ok(!JSON.stringify(bundle).includes('灰后'));
 
   const graph = getContextGraph(project.projectId);
   const alice = graph.nodes.find((item) => item.id === 'node-alice');
