@@ -241,7 +241,7 @@ function saveNode(
   db.prepare(
     'INSERT INTO context_graph_nodes(node_id, source_revision_id, kind, name, normalized_name, attributes_json, status, created_at, updated_at) ' +
     'VALUES (?, ?, ?, ?, ?, ?, \'candidate\', ?, ?) ON CONFLICT(node_id) DO UPDATE SET ' +
-    'attributes_json=CASE WHEN context_graph_nodes.status IN (\'confirmed\',\'rejected\') AND json_extract(context_graph_nodes.attributes_json, \'$.targetLang\') IS excluded.targetLang THEN context_graph_nodes.attributes_json ELSE excluded.attributes_json END, ' +
+    'attributes_json=CASE WHEN context_graph_nodes.status IN (\'confirmed\',\'rejected\') AND json_extract(context_graph_nodes.attributes_json, \'$.targetLang\') IS json_extract(excluded.attributes_json, \'$.targetLang\') THEN context_graph_nodes.attributes_json ELSE excluded.attributes_json END, ' +
     'status=CASE WHEN context_graph_nodes.status IN (\'confirmed\',\'rejected\') THEN context_graph_nodes.status ELSE \'candidate\' END, updated_at=excluded.updated_at'
   ).run(id, revisionId, kind, safeText(name, 120), normalizedName, JSON.stringify(attributes), now, now);
   const insertEvidence = db.prepare(
