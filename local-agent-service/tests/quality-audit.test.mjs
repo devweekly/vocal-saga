@@ -248,7 +248,11 @@ test('M4 paired-run evaluation uses the real-novel corpus and withholds A/B mapp
     store.finishRun(project.projectId, run.runId);
     return store.getRun(project.projectId, run.runId);
   };
-  const before = createRunWithTranslations(realNovelFixture.baselineTranslations);
+  // The M0 control deliberately contains one missing item. The M4 API requires two completed
+  // comparable runs, so use a non-empty wrong candidate for that one segment in this workflow test.
+  const completeBefore = realNovelFixture.baselineTranslations.map((item) =>
+    item.translated_text.trim() ? item : { ...item, translated_text: '我说不清。' });
+  const before = createRunWithTranslations(completeBefore);
   const after = createRunWithTranslations(realNovelFixture.improvedExampleTranslations);
   assert.equal(before.sourceRevisionId, after.sourceRevisionId);
   assert.equal(before.status, 'awaiting_acceptance');
