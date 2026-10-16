@@ -600,14 +600,17 @@ export function createProjectQualityEvaluation(projectId: string, beforeRunId: s
       runDisclosure: null as null | { beforeRunId: string; afterRunId: string },
     },
     blindReview: {
-      status: 'pending',
+      status: blindPacket.length ? 'pending' : 'not_applicable',
       sampleCount: blindPacket.length,
-      instruction: '请先对照原文盲评 A/B，不要查阅运行 ID；每个样本只比较给定维度，不预设修订版本一定更好。',
+      instruction: blindPacket.length
+        ? '请先对照原文盲评 A/B，不要查阅运行 ID；每个样本只比较给定维度，不预设修订版本一定更好。A/B 位置已按样本独立随机化。'
+        : '前后运行的目标译文完全相同，没有可进行文本偏好盲评的样本；仅报告覆盖率、审校发现与可用成本指标。',
       packet: blindPacket,
-      result: null,
+      result: blindPacket.length ? null : { reason: 'no_translation_differences' },
     },
   };
-  store.saveQualityEvaluation(projectId, report, blindMapping, []);
+  if (!blindPacket.length) report.deterministic.runDisclosure = { beforeRunId, afterRunId };
+  store.saveQualityEvaluation(projectId, report, blindMapping as any, []);
   store.appendEvent(projectId, afterRunId, 'quality-evaluation.created', {
     evaluationId, beforeRunId, afterRunId, sampleCount: blindPacket.length,
     costMetrics: {
@@ -622,7 +625,13 @@ export function createProjectQualityEvaluation(projectId: string, beforeRunId: s
     sourceRevisionId: report.sourceRevisionId,
     comparable: true,
     blindReview: report.blindReview,
-    instruction: '在完成盲评之前不返回 before/after 对照指标或 A/B 对应关系。',
+    ...(blindPacket.length ? {
+      instruction: '在完成盲评之前不返回 before/after 对照指标或 A/B 对应关系。',
+    } : {
+      deterministic: report.deterministic,
+      beforeRunId,
+      afterRunId,
+    }),
   };
 }
 
@@ -638,6 +647,7 @@ export function submitProjectQualityEvaluationReviews(
   const loaded = store.getQualityEvaluation(projectId, evaluationId) as any;
   if (!loaded) fail('找不到质量对照评测：' + evaluationId, 404);
   const report = loaded.report as any;
+  if (report.blindReview?.status !== 'pending') fail('当前质量评测不处于待盲评状态。', 409);
   const allowed = new Set<string>((report.blindReview.packet || []).map((item: any) => String(item.segmentId)));
   const reviews: any[] = Array.isArray(loaded.blindReviews) ? [...loaded.blindReviews] : [];
   const existing = new Map(reviews.map((item) => [item.segmentId + ':' + item.dimension, item]));
@@ -668,8 +678,8 @@ export function submitProjectQualityEvaluationReviews(
         const preference = item.preference;
         if (preference === 'tie') ties++;
         else if (preference === 'cannot_judge') cannotJudge++;
-        else if (mapping[preference] === 'before') beforeWins++;
-        else if (mapping[preference] === 'after') afterWins++;
+        else if (mapping[item.segmentId]?.[preference] === 'before') beforeWins++;
+        else if (mapping[item.segmentId]?.[preference] === 'after') afterWins++;
       }
       const decided = beforeWins + afterWins;
       return {
@@ -709,7 +719,7 @@ export function getProjectQualityEvaluation(projectId: string, evaluationId: str
   const loaded = getDocumentProjectStore().getQualityEvaluation(projectId, evaluationId) as any;
   if (!loaded) fail('找不到质量对照评测：' + evaluationId, 404);
   const report = loaded.report as any;
-  const complete = report.blindReview?.status === 'completed';
+  const complete = ['completed', 'not_applicable'].includes(String(report.blindReview?.status));
   return {
     evaluationId,
     sourceRevisionId: report.sourceRevisionId,
