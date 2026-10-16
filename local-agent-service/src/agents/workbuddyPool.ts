@@ -238,10 +238,6 @@ export class WorkbuddySessionPool {
     // schemaKey 在 acquire 时记录本槽位的模式，用于让日志区分纯文本与结构化调用。
     const structuredMode = slot.schemaKey.length > 0;
     if (!text.trim() && structuredOutput === undefined) {
-      console.error(
-        '[local-agent][' + requestId + '] workbuddy-empty-output mode=' +
-        (structuredMode ? 'structured' : 'text') + ' dropping poisoned session',
-      );
       this.dropSession(index);
       throw new Error(
         'Workbuddy 返回了空内容（mode=' + (structuredMode ? 'structured' : 'text') +
