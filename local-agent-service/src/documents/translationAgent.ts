@@ -212,7 +212,9 @@ export function buildUserPrompt(template: string, items: TranslationItem[], cont
       ...(item.level != null ? { level: item.level } : {}),
       ...(item.marker ? { marker: item.marker } : {}),
     })),
-    glossary: context.prompt.config?.glossary ?? null,
+    glossary: context.run.translationMode === 'literary'
+      ? translationBrief?.glossary ?? { document_terms: [] }
+      : context.prompt.config?.glossary ?? null,
     // 当前批次只注入相关人物声音、关系规则和 approved 锚点，不把整本书的记忆全部塞进上下文。
     // Translator and both reviewers consume this same bounded, source-revision-pinned snapshot.
     translationBrief: translationBrief ? {
@@ -308,7 +310,7 @@ async function translateBatch(context: any, items: TranslationItem[], requestId:
     precedingSegmentCount: precedingSegments.length,
     userPromptChars: userPrompt.length,
     systemPromptChars: systemPrompt.length,
-    glossaryTerms: count(context.prompt.config?.glossary?.document_terms),
+    glossaryTerms: count((translationBrief?.glossary as any)?.document_terms ?? context.prompt.config?.glossary?.document_terms),
     memoryEntities: count(memory.entities),
     memoryRelationships: count(memory.relationships),
     memoryChapterSummaries: count(memory.chapterSummaries),
@@ -395,8 +397,11 @@ async function executeRun(projectId: string, runId: string): Promise<void> {
       sessionStrategy: 'independent-per-batch',
     });
     const memory = context.memory && typeof context.memory === 'object' ? context.memory as Record<string, any> : {};
-    const glossaryTerms = Array.isArray(context.prompt.config?.glossary?.document_terms)
-      ? context.prompt.config.glossary.document_terms.length : 0;
+    const briefGlossary = translationBrief?.glossary as any;
+    const glossaryTerms = Array.isArray(briefGlossary?.document_terms)
+      ? briefGlossary.document_terms.length
+      : Array.isArray(context.prompt.config?.glossary?.document_terms)
+        ? context.prompt.config.glossary.document_terms.length : 0;
     store.appendEvent(projectId, runId, 'run.context.ready', {
       provider: context.run.provider,
       model: context.run.model,
