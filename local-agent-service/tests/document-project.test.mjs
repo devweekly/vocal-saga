@@ -1,4 +1,5 @@
 import test from 'node:test';
+import { ensureTestContextGraph } from './helpers/literary-context-graph.mjs';
 import assert from 'node:assert/strict';
 import { mkdtemp, rm, readFile } from 'node:fs/promises';
 import os from 'node:os';
@@ -34,6 +35,8 @@ test('document projects persist each source segment, Prompt revision and run ind
     assert.equal(project.segmentCount, 2);
     assert.equal(store.listProjects().length, 1);
 
+    ensureTestContextGraph(store, project);
+
     const run = store.createRun(project.projectId, { scope: { type: 'all' } });
     assert.equal(run.status, 'queued');
     assert.equal(run.counts.total, 2);
@@ -55,6 +58,7 @@ test('document projects persist each source segment, Prompt revision and run ind
     assert.equal(current[1].acceptedTranslation, '没有人进来。');
 
     // Identical inputs should plan no stale work after accepting the run.
+    ensureTestContextGraph(store, project);
     const noWork = store.createRun(project.projectId, { scope: { type: 'stale' } });
     assert.equal(noWork.counts.total, 0);
     assert.equal(noWork.status, 'completed');
@@ -64,6 +68,7 @@ test('document projects persist each source segment, Prompt revision and run ind
 test('source revisions retain prior runs and report translations stale when their source changes', async () => {
   await withStore((store) => {
     const project = store.createProject({ title: 'Revision Test', format: 'pdf', segments });
+    ensureTestContextGraph(store, project);
     const run = store.createRun(project.projectId, { scope: { type: 'all' } });
     store.saveCandidate(project.projectId, run.runId, 'ch1-p1', '门开着。');
     store.saveCandidate(project.projectId, run.runId, 'ch1-p2', '没有人进来。');
@@ -126,6 +131,8 @@ test('auto-applying a rerun preserves an existing manual translation for the sam
     const project = store.createProject({ title: 'Preserve Manual Translation', format: 'epub', segments });
     store.saveManualEdit(project.projectId, 'ch1-p1', '用户已经确认的译文。');
 
+    ensureTestContextGraph(store, project);
+
     const run = store.createRun(project.projectId, { scope: { type: 'all' } });
     store.saveCandidate(project.projectId, run.runId, 'ch1-p1', '模型重新生成的译文。');
     store.saveCandidate(project.projectId, run.runId, 'ch1-p2', '第二段的新译文。');
@@ -144,6 +151,7 @@ test('auto-applying a rerun preserves an existing manual translation for the sam
 test('manual acceptance is newer than an older candidate and is not auto-staled by Prompt changes', async () => {
   await withStore((store) => {
     const project = store.createProject({ title: 'Manual Priority', format: 'epub', segments });
+    ensureTestContextGraph(store, project);
     const run = store.createRun(project.projectId, { scope: { type: 'all' } });
     store.saveCandidate(project.projectId, run.runId, 'ch1-p1', '模型候选。');
     store.finishRun(project.projectId, run.runId);
@@ -162,6 +170,7 @@ test('manual acceptance is newer than an older candidate and is not auto-staled 
       provider: 'workbuddy',
       model: 'auto',
     };
+    ensureTestContextGraph(store, project);
     const noAutomaticOverwrite = store.createRun(project.projectId, { prompt: nextPrompt, scope: { type: 'stale' } });
     assert.equal(noAutomaticOverwrite.counts.total, 1, 'only the segment not yet accepted should remain stale');
     assert.equal(store.getSegments(project.projectId, { limit: 10 }).find((item) => item.id === 'ch1-p1')?.acceptedTranslation, '再次人工修订。');
@@ -176,6 +185,7 @@ test('manual acceptance is newer than an older candidate and is not auto-staled 
 test('a manual edit inserted after a candidate wins even when both share one created_at millisecond', async () => {
   await withStore(async (store) => {
     const project = store.createProject({ title: 'Tie Break', format: 'epub', segments });
+    ensureTestContextGraph(store, project);
     const run = store.createRun(project.projectId, { scope: { type: 'all' } });
     store.saveCandidate(project.projectId, run.runId, 'ch1-p1', '模型候选。');
     store.finishRun(project.projectId, run.runId);
@@ -207,6 +217,7 @@ test('a manual edit inserted after a candidate wins even when both share one cre
 test('created_at is strictly increasing across back-to-back writes', async () => {
   await withStore(async (store) => {
     const project = store.createProject({ title: 'Monotonic Clock', format: 'epub', segments });
+    ensureTestContextGraph(store, project);
     const run = store.createRun(project.projectId, { scope: { type: 'all' } });
     const db = new DatabaseSync(path.join(store.rootDir, project.projectId, 'project.sqlite'));
     try {
@@ -248,6 +259,8 @@ test('imports existing reader translations into workspace without overwriting ac
     assert.deepEqual(duplicate, { imported: 0, skipped: 1 });
     assert.equal(store.getSegments(project.projectId, { limit: 10 })[0].acceptedTranslation, '阅读页早先的译文。');
 
+    ensureTestContextGraph(store, project);
+
     const noWork = store.createRun(project.projectId, { scope: { type: 'stale' } });
     assert.equal(noWork.counts.total, 0, 'imported text should be seeded against the current Prompt fingerprint');
   });
@@ -271,6 +284,7 @@ test('literary memory has immutable revisions and each run keeps its original sn
       title: 'Voice Versions', format: 'epub', segments,
       prompt: { systemPrompt: 'same prompt', userPromptTemplate: '{{CONTENT}}', sourceLang: 'en', targetLang: 'zh', provider: 'workbuddy', model: 'auto', translationMode: 'literary', literaryMemory: memoryA },
     });
+    ensureTestContextGraph(store, project);
     const first = store.createRun(project.projectId, { scope: { type: 'ids', ids: ['ch1-p1'] } });
     const firstContext = store.getRunContext(project.projectId, first.runId);
     assert.equal(firstContext.memory.characterVoices[0].voiceCore.syntaxRhythm[0], '短反问');
@@ -280,6 +294,7 @@ test('literary memory has immutable revisions and each run keeps its original sn
     const memoryB = structuredClone(memoryA);
     memoryB.characterVoices[0].voiceCore.syntaxRhythm = ['先给结论，再用完整句解释'];
     const secondMemory = store.saveLiteraryMemory(project.projectId, memoryB);
+    ensureTestContextGraph(store, project);
     const second = store.createRun(project.projectId, { scope: { type: 'ids', ids: ['ch1-p2'] } });
     const secondContext = store.getRunContext(project.projectId, second.runId);
 
@@ -295,6 +310,7 @@ test('literary memory has immutable revisions and each run keeps its original sn
 test('one workspace cannot run two translation jobs concurrently', async () => {
   await withStore((store) => {
     const project = store.createProject({ title: 'Single Run', format: 'epub', segments });
+    ensureTestContextGraph(store, project);
     const first = store.createRun(project.projectId, { scope: { type: 'all' } });
     assert.equal(first.status, 'queued');
     assert.throws(
@@ -303,6 +319,7 @@ test('one workspace cannot run two translation jobs concurrently', async () => {
       'reader and Agent tabs must share one in-flight run lock',
     );
     store.setRunStatus(project.projectId, first.runId, 'paused');
+    ensureTestContextGraph(store, project);
     const next = store.createRun(project.projectId, { scope: { type: 'all' } });
     assert.equal(next.status, 'queued', 'a paused run can be explicitly replaced with a new run');
   });
@@ -317,6 +334,7 @@ test('literary memory confirms only current-source evidence and accepted transla
     ];
     const project = store.createProject({ title: 'Voice Evidence', format: 'epub', segments: source,
       prompt: { translationMode: 'literary', literaryReview: true, sourceLang: 'en', targetLang: 'zh', provider: 'workbuddy', model: 'auto' } });
+    ensureTestContextGraph(store, project);
     const run = store.createRun(project.projectId, { scope: { type: 'all' } });
     store.saveCandidate(project.projectId, run.runId, 'ch1-p1', '艾丽丝问鲍勃：“真的？”');
     store.saveCandidate(project.projectId, run.runId, 'ch1-p2', '鲍勃说不。');
@@ -385,6 +403,7 @@ test('literary Agent retrieves only bounded source context before the current se
       id: 'p' + index, text: 'Source segment ' + index, kind: 'paragraph', contextPath: 'Chapter A',
     }));
     const project = store.createProject({ title: 'Previous Context', format: 'epub', segments: source });
+    ensureTestContextGraph(store, project);
     const run = store.createRun(project.projectId, { scope: { type: 'all' } });
     const preceding = store.getPrecedingSegments(project.projectId, run.runId, 'p7', 4);
     assert.deepEqual(preceding.map((item) => item.id), ['p3', 'p4', 'p5', 'p6']);
