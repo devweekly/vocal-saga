@@ -251,6 +251,14 @@ export async function handleDocumentProjectRequest(req: Request, res: Response, 
     if (pathParts.length === 7 && pathParts[4] === 'runs' && pathParts[6] === 'resume' && method === 'POST') {
       const runId = pathParts[5]!;
       const run = store.getRun(projectId, runId);
+      const currentSourceRevisionId = store.getProjectContext(projectId).currentSourceRevisionId;
+      if (run.sourceRevisionId !== currentSourceRevisionId) {
+        sendJson(res, 409, {
+          error: '这次运行使用的是旧原文版本，不能恢复到当前文档。请基于当前原文创建新的运行。',
+          run,
+        });
+        return true;
+      }
       if (!['paused', 'queued', 'failed', 'partial'].includes(run.status)) {
         sendJson(res, 409, { error: '当前运行状态不允许恢复：' + run.status, run });
         return true;
