@@ -247,16 +247,54 @@ export function buildUserPrompt(template: string, items: TranslationItem[], cont
   ].join('\n\n');
 }
 
-function parseTranslations(value: unknown, expectedIds: Set<string>): Map<string, string> {
+interface TranslationParseDiagnostics {
+  duplicateSegmentIds: string[];
+  duplicateCount: number;
+  unexpectedOutputIds: string[];
+  unexpectedCount: number;
+  malformedRowCount: number;
+}
+
+function parseTranslations(value: unknown, expectedIds: Set<string>): {
+  translations: Map<string, string>;
+  diagnostics: TranslationParseDiagnostics;
+} {
   const outer = value && typeof value === 'object' && !Array.isArray(value)
     ? value as Record<string, unknown>
     : {};
   const rows = Array.isArray(outer.translations) ? outer.translations : Array.isArray(value) ? value : [];
-  const result = new Map<string, string>();
+  const translations = new Map<string, string>();
+  const seenIds = new Set<string>();
+  const duplicateIds = new Set<string>();
+  const unexpectedIds = new Set<string>();
+  let duplicateCount = 0;
+  let unexpectedCount = 0;
+  let malformedRowCount = 0;
+
   for (const raw of rows) {
-    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) continue;
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+      malformedRowCount++;
+      continue;
+    }
     const row = raw as Record<string, unknown>;
-    const id = typeof row.id === 'string' ? row.id : '';
+    const id = typeof row.id === 'string' ? row.id.trim().slice(0, 160) : '';
+    if (!id) {
+      malformedRowCount++;
+      continue;
+    }
+    const duplicate = seenIds.has(id);
+    seenIds.add(id);
+    if (duplicate) {
+      duplicateCount++;
+      if (expectedIds.has(id)) duplicateIds.add(id);
+    }
+    if (!expectedIds.has(id)) {
+      unexpectedCount++;
+      unexpectedIds.add(id);
+      continue;
+    }
+    if (duplicate) continue;
+
     const text = typeof row.translated_text === 'string'
       ? row.translated_text
       : typeof row.translation === 'string'
@@ -264,10 +302,23 @@ function parseTranslations(value: unknown, expectedIds: Set<string>): Map<string
         : typeof row.text === 'string'
           ? row.text
           : '';
-    if (!id || !expectedIds.has(id) || !text.trim() || text.length > 20000 || result.has(id)) continue;
-    result.set(id, text);
+    if (!text.trim() || text.length > 20000) {
+      malformedRowCount++;
+      continue;
+    }
+    translations.set(id, text);
   }
-  return result;
+
+  return {
+    translations,
+    diagnostics: {
+      duplicateSegmentIds: Array.from(duplicateIds).slice(0, 20),
+      duplicateCount,
+      unexpectedOutputIds: Array.from(unexpectedIds).map((id) => id.slice(0, 160)).slice(0, 20),
+      unexpectedCount,
+      malformedRowCount,
+    },
+  };
 }
 
 async function translateBatch(context: any, items: TranslationItem[], requestId: string, batchIndex: number, precedingSegments: TranslationItem[] = [], translationBrief?: TranslationBrief): Promise<Map<string, string>> {
@@ -351,7 +402,21 @@ async function translateBatch(context: any, items: TranslationItem[], requestId:
     });
     throw error;
   }
-  const translations = parseTranslations(value, new Set(items.map((item) => item.id)));
+  const parsed = parseTranslations(value, new Set(items.map((item) => item.id)));
+  const translations = parsed.translations;
+  const outputDiagnostics = parsed.diagnostics;
+  if (outputDiagnostics.duplicateCount || outputDiagnostics.unexpectedCount || outputDiagnostics.malformedRowCount) {
+    store.appendEvent(context.project.projectId, context.run.runId, 'batch.output.validation', {
+      stage: 'translate',
+      batchIndex,
+      requestId,
+      duplicateSegmentIds: outputDiagnostics.duplicateSegmentIds,
+      duplicateCount: outputDiagnostics.duplicateCount,
+      unexpectedOutputIds: outputDiagnostics.unexpectedOutputIds,
+      unexpectedCount: outputDiagnostics.unexpectedCount,
+      malformedRowCount: outputDiagnostics.malformedRowCount,
+    });
+  }
   const missingIds = items.filter((item) => !translations.has(item.id)).map((item) => item.id);
   store.appendEvent(context.project.projectId, context.run.runId, 'batch.model.response', {
     stage: 'translate', batchIndex, requestId,
