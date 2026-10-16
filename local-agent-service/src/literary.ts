@@ -411,6 +411,7 @@ export async function runLiteraryReview(body: any, requestId: string, sessionSco
     missingIds: expectedIds.filter((id) => typeof translations[id] !== 'string'),
     findings: findings.slice(0, 240),
     promptChars: prompt.length,
+    systemPromptChars: systemPrompt.length,
     contextChars: JSON.stringify({ voiceContext, contextGraph, precedingSegments }).length,
     translationBriefHash: translationBrief?.contextHash || null,
   };
