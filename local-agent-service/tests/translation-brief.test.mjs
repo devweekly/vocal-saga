@@ -237,3 +237,57 @@ test('later identity never enters an earlier brief', () => {
     'a profile that combines early and future evidence must not be partially filtered and injected');
   assert.ok(brief.contextChars <= MAX_TRANSLATION_BRIEF_CHARS);
 });
+
+test('both reviewer focuses consume the same bounded TranslationBrief glossary and prior context', async () => {
+  const { buildLiteraryReviewPrompt } = await import('../src/literary.ts');
+  const translationBrief = {
+    policyVersion: 'translation-brief-v1',
+    contextHash: 'brief-hash-123',
+    contextChars: 900,
+    sourceRevisionId: 'source-revision-1',
+    promptRevisionId: 'prompt-revision-1',
+    memoryRevisionId: 'memory-revision-1',
+    chapterPath: 'Chapter 2',
+    glossary: { document_terms: [{ source: 'Mara Voss', target: '玛拉·沃斯' }] },
+    precedingSegments: [{ id: 'prior-1', text: 'Mara Voss entered the archive.', contextPath: 'Chapter 1' }],
+    contextGraph: {
+      policyVersion: 'context-graph-v2-temporal',
+      knowledgeBoundaryOrdinal: 12,
+      characters: [{ name: 'Mara Voss', voice: ['measured'] }],
+      entities: [],
+      relationships: [],
+      chapterSummaries: [{ chapter: 'Chapter 1', summary: 'Mara entered the archive.' }],
+    },
+    voiceContext: {
+      policyVersion: 'character-voice-v3',
+      characterVoices: [{ canonicalSourceName: 'Mara Voss', voiceCore: { register: 'measured' } }],
+      relationshipVoiceRules: [],
+      voiceAnchors: [],
+      chapterSummaries: [{ chapter: 'Chapter 1', summary: 'Mara entered the archive.' }],
+      entities: [],
+      relationships: [],
+    },
+  };
+  const body = {
+    target: 'zh',
+    chapterTitle: 'Chapter 2',
+    glossary: { document_terms: [{ source: 'Queen Ash', target: '灰后' }] },
+    translationBrief,
+  };
+  const segments = [{ id: 'current-1', source: 'Mara Voss opened the ledger.', draft: '玛拉打开了账本。', kind: 'paragraph' }];
+  const precedingSegments = translationBrief.precedingSegments;
+  for (const reviewFocus of ['accuracy', 'style']) {
+    const built = buildLiteraryReviewPrompt({
+      body, segments, reviewFocus, translationBrief, precedingSegments,
+      voiceContext: translationBrief.voiceContext, contextGraph: translationBrief.contextGraph,
+    });
+    assert.ok(built.prompt.includes('brief-hash-123'));
+    assert.ok(built.prompt.includes('玛拉·沃斯'));
+    assert.ok(built.prompt.includes('prior-1'));
+    assert.ok(built.prompt.includes('knowledgeBoundaryOrdinal') && built.prompt.includes('12'));
+    assert.ok(!built.prompt.includes('Queen Ash'));
+    assert.ok(!built.prompt.includes('灰后'));
+    assert.equal(built.contextChars > 0, true);
+    assert.ok(built.systemPrompt.length > 0);
+  }
+});
