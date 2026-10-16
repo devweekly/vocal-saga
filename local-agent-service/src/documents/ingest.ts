@@ -268,7 +268,7 @@ function parseEpub(bytes: Buffer, fileName: string): ProjectSegment[] {
   if (!entries.has('META-INF/container.xml')) fail('EPUB 缺少 META-INF/container.xml。');
   const container = zipRead(bytes, entries, 'META-INF/container.xml').toString('utf8');
   const rootPath = container.match(/<rootfile\b([^>]*)\/?>/i);
-  const opfPath = rootPath ? xmlAttributes(rootPath[1]!).findPath || xmlAttributes(rootPath[1]!)['full-path'] : '';
+  const opfPath = rootPath ? xmlAttributes(rootPath[1]!)['full-path'] : '';
   if (!opfPath) fail('EPUB 元数据中找不到 OPF rootfile。');
   const opf = zipRead(bytes, entries, opfPath).toString('utf8');
   const manifest = new Map<string, { href: string; mediaType: string; properties: string }>();
