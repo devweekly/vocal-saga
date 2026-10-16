@@ -342,6 +342,7 @@ export async function runLiteraryReview(body: any, requestId: string, sessionSco
       memoryRevisionId: translationBrief.memoryRevisionId,
       chapterPath: translationBrief.chapterPath,
     } : null),
+    '共享书籍上下文中的 glossary（术语；受原文知识边界约束）：', JSON.stringify(translationBrief?.glossary ?? body.glossary ?? null),
     '共享书籍上下文中的 voiceContext（只读参考）：', JSON.stringify(voiceContext),
     '共享书籍上下文中的 Context Graph（只读、受原文知识边界约束）：', JSON.stringify(contextGraph),
     '前文上下文（只用于消歧，不输出审校结果）：', JSON.stringify(precedingSegments),
@@ -412,7 +413,7 @@ export async function runLiteraryReview(body: any, requestId: string, sessionSco
     findings: findings.slice(0, 240),
     promptChars: prompt.length,
     systemPromptChars: systemPrompt.length,
-    contextChars: JSON.stringify({ voiceContext, contextGraph, precedingSegments }).length,
+    contextChars: JSON.stringify({ glossary: translationBrief?.glossary ?? body.glossary ?? null, voiceContext, contextGraph, precedingSegments }).length,
     translationBriefHash: translationBrief?.contextHash || null,
   };
 }
