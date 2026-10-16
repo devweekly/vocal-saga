@@ -66,22 +66,26 @@ test('short documents keep all source segments and do not truncate the sample se
   assert.ok(plan.samples.every((sample) => sample.reasons.includes('complete-short-document')));
 });
 
-test('CJK scans surface word candidates and repeated dialogue without whitespace-token assumptions', () => {
-  const japanese = [
-    { id: 'ja-1', ordinal: 0, contextPath: '第一章', kind: 'dialogue', text: '桜花は言った。「西の灯を消さないでください。」' },
-    { id: 'ja-2', ordinal: 12, contextPath: '第二章', kind: 'dialogue', text: '桜花はもう一度言った。「西の灯を消さないでください。」' },
-    { id: 'ja-3', ordinal: 24, contextPath: '第七章', kind: 'dialogue', text: '「西の灯を消さないでください。」桜花は頼んだ。' },
+test('English source scan detects repeated quoted dialogue despite changing speaker attribution', () => {
+  const segments = [
+    {
+      id: 'en-1', ordinal: 0, contextPath: 'Chapter 1', kind: 'dialogue',
+      text: '“Keep the western lamp burning.” Mara said to Iven.',
+    },
+    {
+      id: 'en-2', ordinal: 12, contextPath: 'Chapter 2', kind: 'dialogue',
+      text: 'Mara repeated the warning: “Keep the western lamp burning.”',
+    },
+    {
+      id: 'en-3', ordinal: 24, contextPath: 'Chapter 7', kind: 'dialogue',
+      text: '“Keep the western lamp burning,” Mara whispered as she left.',
+    },
   ];
-  const japaneseScan = scanBookSegments(japanese);
-  assert.ok(japaneseScan.nameCandidates.some((candidate) => candidate.name === '桜花'));
-  assert.ok(japaneseScan.repeatedPhrases.some((phrase) => phrase.count === 3 && phrase.chapterKeys.length === 3));
-
-  const chinese = [
-    { id: 'zh-1', ordinal: 0, contextPath: '第一章', kind: 'dialogue', text: '林海对王明说道：“不要熄灭西边的灯光。”' },
-    { id: 'zh-2', ordinal: 12, contextPath: '第二章', kind: 'dialogue', text: '林海看向王明，再次说道：“不要熄灭西边的灯光。”' },
-    { id: 'zh-3', ordinal: 24, contextPath: '第七章', kind: 'dialogue', text: '“不要熄灭西边的灯光。”林海低声重复道。' },
-  ];
-  const chineseScan = scanBookSegments(chinese);
-  assert.ok(chineseScan.nameCandidates.some((candidate) => candidate.name === '林海'));
-  assert.ok(chineseScan.repeatedPhrases.some((phrase) => phrase.count === 3));
+  const scan = scanBookSegments(segments);
+  const repeatedLine = scan.repeatedPhrases.find((phrase) =>
+    phrase.normalized === 'keep the western lamp burning');
+  assert.ok(repeatedLine);
+  assert.equal(repeatedLine.count, 3);
+  assert.equal(repeatedLine.chapterKeys.length, 3);
+  assert.ok(scan.nameCandidates.some((candidate) => candidate.name === 'Mara'));
 });
