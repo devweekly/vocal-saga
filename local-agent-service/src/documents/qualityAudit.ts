@@ -566,12 +566,10 @@ export function createProjectQualityEvaluation(projectId: string, beforeRunId: s
     if (representative) selected.add(representative);
   }
   const remainingIds = prioritized.filter((id: string) => !selected.has(id));
-  while (selected.size < maxSamples && remainingIds.length) {
-    const slots = maxSamples - selected.size;
-    const index = Math.min(remainingIds.length - 1, Math.floor((remainingIds.length - 1) / 2));
-    selected.add(remainingIds.splice(index, 1)[0]!);
-    // Recompute the center each time to avoid a front-loaded sample after chapter coverage.
-    if (slots <= 1) break;
+  const additionalSlots = Math.min(maxSamples - selected.size, remainingIds.length);
+  for (let i = 0; i < additionalSlots; i++) {
+    const index = Math.floor(i * remainingIds.length / additionalSlots);
+    selected.add(remainingIds[index]!);
   }
   const blindMapping: Record<string, { A: 'before' | 'after'; B: 'before' | 'after' }> = {};
   const blindPacket = Array.from(selected).map((id) => {
