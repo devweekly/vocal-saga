@@ -139,18 +139,18 @@ export function isDialogueSegment(segment: Pick<BookScanSegment, 'text'>): boole
 }
 
 function collectNameCandidates(segments: BookScanSegment[]): BookNameCandidate[] {
-  const occurrenceMap = new Map<string, Array<{ segment: BookScanSegment; dialogue: boolean }>>();
+  const occurrenceMap = new Map<string, Array<{ name: string; segment: BookScanSegment; dialogue: boolean }>>();
   for (const segment of segments) {
-    const uniqueInSegment = new Set<string>();
+    const uniqueInSegment = new Map<string, string>();
     for (const match of segment.text.matchAll(NAME_PATTERN)) {
       const name = match[0].trim();
       const key = normalizeText(name);
       if (!key || key.length < 3 || NAME_STOP_WORDS.has(key) || uniqueInSegment.has(key)) continue;
-      uniqueInSegment.add(key);
+      uniqueInSegment.set(key, name);
     }
-    for (const key of uniqueInSegment) {
+    for (const [key, name] of uniqueInSegment) {
       const existing = occurrenceMap.get(key) || [];
-      existing.push({ segment: { ...segment }, dialogue: isDialogueSegment(segment) });
+      existing.push({ name, segment: { ...segment }, dialogue: isDialogueSegment(segment) });
       occurrenceMap.set(key, existing);
     }
   }
@@ -181,7 +181,7 @@ function collectNameCandidates(segments: BookScanSegment[]): BookNameCandidate[]
       return sorted[0]?.segment.id || null;
     };
     result.push({
-      name: entries[0]!.segment.text.match(NAME_PATTERN)?.[0] || entries[0]!.segment.text,
+      name: entries[0]!.name,
       mentions: entries.length,
       chapterCount: chapterKeys.length,
       dialogueSegmentCount: dialogueEntries.length,
