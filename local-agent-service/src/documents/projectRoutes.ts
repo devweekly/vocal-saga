@@ -9,6 +9,13 @@ import { startProjectTranslationRun, isProjectRunActive } from './translationAge
 import { sendJson } from '../middleware.ts';
 import { parseDocumentFile } from './ingest.ts';
 import { startContextGraphAnalysis, getContextGraph, reviewContextGraphItem } from './contextGraph.ts';
+import {
+  runProjectQualityAudit,
+  createQualityRepairRun,
+  createProjectQualityEvaluation,
+  submitProjectQualityEvaluationReviews,
+  getProjectQualityEvaluation,
+} from './qualityAudit.ts';
 
 function bodyObject(value: unknown): Record<string, any> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
@@ -220,6 +227,12 @@ export async function handleDocumentProjectRequest(req: Request, res: Response, 
       sendJson(res, 201, { ...saved, current: store.getCurrentLiteraryMemory(projectId) });
       return true;
     }
+    if (pathParts.length === 7 && pathParts[4] === 'runs' && pathParts[6] === 'translation-briefs' && method === 'GET') {
+      const runId = pathParts[5]!;
+      // includeContent is explicit here because the API user is requesting this run's auditable retrieval snapshot.
+      sendJson(res, 200, { runId, translationBriefs: store.listTranslationBriefSnapshots(projectId, runId, true) });
+      return true;
+    }
     if (pathParts.length === 5 && pathParts[4] === 'runs' && method === 'GET') {
       sendJson(res, 200, { runs: store.listRuns(projectId, Number.parseInt(url.searchParams.get('limit') || '50', 10)) });
       return true;
@@ -267,6 +280,47 @@ export async function handleDocumentProjectRequest(req: Request, res: Response, 
       const body = bodyObject(req.body || {});
       const run = store.acceptCandidates(projectId, pathParts[5]!, Array.isArray(body.segmentIds) ? body.segmentIds.map(String) : undefined);
       sendJson(res, 200, { run });
+      return true;
+    }
+    if (pathParts.length === 5 && pathParts[4] === 'quality-audit' && method === 'GET') {
+      const auditId = url.searchParams.get('auditId') || undefined;
+      const report = store.getQualityAudit(projectId, auditId);
+      if (!report) { sendJson(res, 404, { error: '尚无质量审计报告，请先执行 POST /quality-audit' }); return true; }
+      sendJson(res, 200, { report });
+      return true;
+    }
+    if (pathParts.length === 5 && pathParts[4] === 'quality-audit' && method === 'POST') {
+      const body = req.body == null ? {} : bodyObject(req.body);
+      const report = runProjectQualityAudit(projectId, typeof body.runId === 'string' ? body.runId : undefined);
+      sendJson(res, 200, { report });
+      return true;
+    }
+    if (pathParts.length === 6 && pathParts[4] === 'quality-audit' && pathParts[5] === 'repair' && method === 'POST') {
+      const body = bodyObject(req.body);
+      const repair = createQualityRepairRun(
+        projectId,
+        String(body.auditId || ''),
+        Array.isArray(body.findingIds) ? body.findingIds.map(String) : [],
+        Array.isArray(body.segmentIds) ? body.segmentIds.map(String) : [],
+      );
+      if (repair.run.counts.total > 0) startProjectTranslationRun(projectId, repair.run.runId);
+      sendJson(res, 202, { repair, started: repair.run.counts.total > 0 });
+      return true;
+    }
+    if (pathParts.length === 5 && pathParts[4] === 'quality-evaluations' && method === 'POST') {
+      const body = bodyObject(req.body);
+      const evaluation = createProjectQualityEvaluation(projectId, String(body.beforeRunId || ''), String(body.afterRunId || ''));
+      sendJson(res, 201, { evaluation });
+      return true;
+    }
+    if (pathParts.length === 6 && pathParts[4] === 'quality-evaluations' && method === 'GET') {
+      sendJson(res, 200, getProjectQualityEvaluation(projectId, pathParts[5]!));
+      return true;
+    }
+    if (pathParts.length === 7 && pathParts[4] === 'quality-evaluations' && pathParts[6] === 'reviews' && method === 'POST') {
+      const body = bodyObject(req.body);
+      const result = submitProjectQualityEvaluationReviews(projectId, pathParts[5]!, body.reviews);
+      sendJson(res, 200, result);
       return true;
     }
     if (pathParts.length === 5 && pathParts[4] === 'verify' && method === 'GET') {
