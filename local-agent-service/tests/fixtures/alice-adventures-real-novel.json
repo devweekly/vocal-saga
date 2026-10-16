@@ -12,7 +12,7 @@
     "sourceLanguage": "English",
     "rightsNote": "Project Gutenberg lists this work as public domain in the United States. Check local legal status before redistribution in other jurisdictions.",
     "retrievedAt": "2026-10-16",
-    "corpusMethod": "Curated sentence and dialogue spans from Chapters I, II, V, VI and VII; chapter paths and source ordinals preserve chronology for context-boundary checks."
+    "corpusMethod": "Curated sentence and dialogue spans from Chapters I, II, V, VI and VII, sorted in chapter chronology; ordinals reflect the source-corpus order for context-boundary regression tests."
   },
   "sourceLanguage": "en",
   "targetLanguage": "zh",
@@ -54,15 +54,14 @@
       "text": "Who in the world am I? Ah, that’s the great puzzle!"
     },
     {
-      "id": "a06",
-      "contextPath": "Chapter V — Advice from a Caterpillar",
+      "id": "a21",
+      "contextPath": "Chapter II — The Pool of Tears",
       "ordinal": 6,
-      "kind": "dialogue",
-      "speaker": "Caterpillar",
-      "text": "Who are you?"
+      "kind": "paragraph",
+      "text": "about four inches deep"
     },
     {
-      "id": "a07",
+      "id": "a06",
       "contextPath": "Chapter V — Advice from a Caterpillar",
       "ordinal": 7,
       "kind": "dialogue",
@@ -70,9 +69,17 @@
       "text": "Who are you?"
     },
     {
-      "id": "a08",
+      "id": "a07",
       "contextPath": "Chapter V — Advice from a Caterpillar",
       "ordinal": 8,
+      "kind": "dialogue",
+      "speaker": "Caterpillar",
+      "text": "Who are you?"
+    },
+    {
+      "id": "a08",
+      "contextPath": "Chapter V — Advice from a Caterpillar",
+      "ordinal": 9,
       "kind": "dialogue",
       "speaker": "Alice",
       "text": "“I can’t explain myself, I’m afraid, sir,” said Alice, “because I’m not myself, you see.”"
@@ -80,7 +87,7 @@
     {
       "id": "a09",
       "contextPath": "Chapter V — Advice from a Caterpillar",
-      "ordinal": 9,
+      "ordinal": 10,
       "kind": "dialogue",
       "speaker": "Alice",
       "text": "three inches is such a wretched height to be."
@@ -88,7 +95,7 @@
     {
       "id": "a10",
       "contextPath": "Chapter V — Advice from a Caterpillar",
-      "ordinal": 10,
+      "ordinal": 11,
       "kind": "dialogue",
       "speaker": "Caterpillar",
       "text": "One side will make you grow taller, and the other side will make you grow shorter."
@@ -96,7 +103,7 @@
     {
       "id": "a11",
       "contextPath": "Chapter VI — Pig and Pepper",
-      "ordinal": 11,
+      "ordinal": 12,
       "kind": "dialogue",
       "speaker": "Alice",
       "text": "“Would you tell me, please, which way I ought to go from here?”"
@@ -104,7 +111,7 @@
     {
       "id": "a12",
       "contextPath": "Chapter VI — Pig and Pepper",
-      "ordinal": 12,
+      "ordinal": 13,
       "kind": "dialogue",
       "speaker": "Cheshire Cat",
       "text": "“That depends a good deal on where you want to get to,” said the Cat."
@@ -112,15 +119,23 @@
     {
       "id": "a13",
       "contextPath": "Chapter VI — Pig and Pepper",
-      "ordinal": 13,
+      "ordinal": 14,
       "kind": "dialogue",
       "speaker": "Cheshire Cat",
       "text": "“Oh, you can’t help that,” said the Cat: “we’re all mad here. I’m mad. You’re mad.”"
     },
     {
+      "id": "a22",
+      "contextPath": "Chapter VI — Pig and Pepper",
+      "ordinal": 15,
+      "kind": "dialogue",
+      "speaker": "Alice",
+      "text": "You see the earth takes twenty-four hours to turn round on its axis"
+    },
+    {
       "id": "a14",
       "contextPath": "Chapter VII — A Mad Tea-Party",
-      "ordinal": 14,
+      "ordinal": 16,
       "kind": "dialogue",
       "speaker": "Hatter and March Hare",
       "text": "“No room! No room!”"
@@ -128,7 +143,7 @@
     {
       "id": "a15",
       "contextPath": "Chapter VII — A Mad Tea-Party",
-      "ordinal": 15,
+      "ordinal": 17,
       "kind": "dialogue",
       "speaker": "Alice",
       "text": "“There’s plenty of room!” said Alice indignantly"
@@ -136,7 +151,7 @@
     {
       "id": "a16",
       "contextPath": "Chapter VII — A Mad Tea-Party",
-      "ordinal": 16,
+      "ordinal": 18,
       "kind": "dialogue",
       "speaker": "March Hare",
       "text": "“Take some more tea,” the March Hare said to Alice, very earnestly."
@@ -144,7 +159,7 @@
     {
       "id": "a17",
       "contextPath": "Chapter VII — A Mad Tea-Party",
-      "ordinal": 17,
+      "ordinal": 19,
       "kind": "dialogue",
       "speaker": "Alice",
       "text": "“I’ve had nothing yet,” Alice replied in an offended tone, “so I can’t take more.”"
@@ -152,7 +167,7 @@
     {
       "id": "a18",
       "contextPath": "Chapter VII — A Mad Tea-Party",
-      "ordinal": 18,
+      "ordinal": 20,
       "kind": "dialogue",
       "speaker": "Hatter",
       "text": "“Why is a raven like a writing-desk?”"
@@ -160,32 +175,17 @@
     {
       "id": "a19",
       "contextPath": "Chapter VII — A Mad Tea-Party",
-      "ordinal": 19,
+      "ordinal": 21,
       "kind": "paragraph",
       "text": "the great concert given by the Queen of Hearts"
     },
     {
       "id": "a20",
       "contextPath": "Chapter VII — A Mad Tea-Party",
-      "ordinal": 20,
+      "ordinal": 22,
       "kind": "dialogue",
       "speaker": "Hatter recounting the Queen’s words",
       "text": "“He’s murdering the time! Off with his head!”"
-    },
-    {
-      "id": "a21",
-      "contextPath": "Chapter II — The Pool of Tears",
-      "ordinal": 21,
-      "kind": "paragraph",
-      "text": "about four inches deep"
-    },
-    {
-      "id": "a22",
-      "contextPath": "Chapter VI — Pig and Pepper",
-      "ordinal": 22,
-      "kind": "dialogue",
-      "speaker": "Alice",
-      "text": "You see the earth takes twenty-four hours to turn round on its axis"
     }
   ],
   "evaluation": {
