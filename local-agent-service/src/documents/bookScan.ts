@@ -173,12 +173,19 @@ function collectNameCandidates(segments: BookScanSegment[]): BookNameCandidate[]
       regions.size * 2.5;
     const closest = (target: number) => {
       const desired = firstOrdinal + ordinalRange * target;
-      const sorted = entries.slice().sort((a, b) => {
-        const aDistance = Math.abs(a.ordinal - desired) + (a.dialogue ? 0 : 0.15);
-        const bDistance = Math.abs(b.ordinal - desired) + (b.dialogue ? 0 : 0.15);
-        return aDistance - bDistance;
-      });
-      return sorted[0]?.segmentId || null;
+      const inRegion = (ordinal: number) => {
+        const position = (ordinal - firstOrdinal) / ordinalRange;
+        if (target < 1 / 3) return position < 1 / 3;
+        if (target > 2 / 3) return position > 2 / 3;
+        return position >= 1 / 3 && position <= 2 / 3;
+      };
+      let candidates = entries.filter((entry) => inRegion(entry.ordinal));
+      if (!candidates.length) candidates = entries;
+      const dialogueCandidates = candidates.filter((entry) => entry.dialogue);
+      if (dialogueCandidates.length) candidates = dialogueCandidates;
+      candidates.sort((a, b) =>
+        Math.abs(a.ordinal - desired) - Math.abs(b.ordinal - desired) || a.ordinal - b.ordinal);
+      return candidates[0]?.segmentId || null;
     };
     result.push({
       name: entries[0]!.name,
