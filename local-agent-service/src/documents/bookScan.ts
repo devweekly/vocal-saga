@@ -45,7 +45,10 @@ export interface RepeatedPhraseCandidate {
   text: string;
   normalized: string;
   count: number;
+  firstSegmentId: string | null;
+  lastSegmentId: string | null;
   segmentIds: string[];
+  segmentIdsTruncated: boolean;
   chapterKeys: string[];
 }
 
