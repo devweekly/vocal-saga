@@ -129,6 +129,31 @@ Before model analysis, `bookScan.ts` deterministically scans all source segments
 The primary quality baseline targets English source text translated into Chinese. The scan uses English title-case name candidates, speech/dialogue markers, repeated English sentences and quoted dialogue, plus chapter/position frequency. These candidates are heuristics: they may include sentence-initial words or miss names, and they only guide sample selection; they never become graph facts by themselves. The model must cite a verbatim quote from one of the sampled source segments, and the service validates that quote before persistence. The source remains the evidence authority.
 
 
+### Unified TranslationBrief, quality audit and paired evaluation (M2–M4)
+
+Literary runs now assemble one bounded `TranslationBrief` for each chapter-scoped batch. The initial translator, accuracy/terminology Reviewer and independent style/character-voice Reviewer receive the same read-only Context Graph and voice-memory selection. The brief is pinned to the run's source, Prompt and literary-memory revisions, has an 18,000-character serialized-context cap, and is persisted by `(runId, batchIndex)`. Run events record context hash/size, evidence boundary, selected item counts and reviewer input sizes; the run API can return the saved snapshot for diagnosis.
+
+Graph facts are eligible only when **all stored evidence for that node/edge occurs before the first source segment in the batch**. This fail-closed policy may defer a fact if a later chapter provides additional evidence, but avoids injecting later evidence into earlier translation. Complete summaries are only used for previous chapters. The current chapter gets an extractive prefix summary built exclusively from source segments before the batch; its full chapter summary is never injected into an earlier batch. Literary batches are split at chapter boundaries.
+
+Book-wide audit detects missing translations, heuristically flags confirmed-term drift, finds exact repeated source passages with varying translations, and surfaces stored Reviewer findings for character voice and style. Heuristics identify locations for review; they do not auto-correct translations. A repair request creates a new selected-ID Run, links it to its parent run where applicable and leaves all accepted/manual translations untouched. The proposed repair stays a candidate and still requires explicit acceptance.
+
+The paired evaluation compares two finished runs on the exact same source revision, language direction and segment ID set. It reports coverage, terminology/repetition warning counts, voice/style findings, model-call counts, known prompt characters and known duration. Token usage and billable currency costs are marked unavailable when a provider does not expose them; character counts/duration are operational proxies, not a substitute for actual billing telemetry. Before revealing the metric deltas or A/B mapping, the API returns a randomly assigned blind-review packet. A human records an overall preference for every sample (and optionally accuracy, terminology, voice or style preferences); only then does the result reveal whether A or B was the before/after run.
+
+Useful endpoints below `/api/documents/projects/:id`:
+
+| Method + path | Purpose |
+|---|---|
+| `GET /runs/:runId/translation-briefs` | Inspect each batch's persisted TranslationBrief including revision IDs, hash, size and selected context. This endpoint explicitly includes the compact saved brief. |
+| `POST /quality-audit` with optional `{"runId":"..."}` | Run a whole-book audit against accepted text, overlaid with that run's candidates when supplied. |
+| `GET /quality-audit?auditId=...` | Read the latest or a specific saved audit report. |
+| `POST /quality-audit/repair` with `{"auditId":"...","findingIds":["..."]}` or `segmentIds` | Create a narrow candidate Run for selected report findings. It does not accept the results automatically. |
+| `POST /quality-evaluations` with `{"beforeRunId":"...","afterRunId":"..." }` | Create a paired-run evaluation and blind A/B packet. The two runs must be finished and comparable. |
+| `POST /quality-evaluations/:evaluationId/reviews` with `{"reviews":[{"segmentId":"...","dimension":"overall","preference":"A"}]}` | Submit human blind ratings; preferences are `A`, `B`, `tie` or `cannot_judge`. Every packet item needs an overall rating before comparison results are disclosed. |
+| `GET /quality-evaluations/:evaluationId` | Get the blind-evaluation status; returns run metric deltas only after overall ratings are complete. |
+
+Typical sequence: run baseline translation on the chosen source; repeat on the identical source and segment scope after a Prompt/context change; create the paired evaluation; have a reviewer compare the blinded packet against the source; finally inspect deterministic deltas and added model-call/prompt/duration cost. Use multiple representative passages and repeat the test before claiming an improvement. Synthetic M0 fixtures prove the evaluator's failure controls, but only matched real model runs plus blind human review can establish translation-quality gains.
+
+
 ### API
 
 All project endpoints live below /api/documents/projects and use the existing Local Agent Token, loopback Host checks and extension-origin CORS rules:
