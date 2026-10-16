@@ -707,7 +707,9 @@ export function buildProjectContextGraphBundle(
   for (const row of nodes) {
     let attributes: any = {};
     try { attributes = JSON.parse(row.attributes_json); } catch { attributes = {}; }
-    const names = [row.name, ...(Array.isArray(attributes.aliases) ? attributes.aliases : [])].map(normalize).filter(Boolean);
+    const safeAliases = (Array.isArray(attributes.aliases) ? attributes.aliases : [])
+      .filter((alias: unknown) => appearedBefore(alias));
+    const names = [row.name, ...safeAliases].map(normalize).filter(Boolean);
     let score = 0;
     for (const name of names) {
       if (name.length < 2) continue;
