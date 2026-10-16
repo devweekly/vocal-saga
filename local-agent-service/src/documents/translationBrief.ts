@@ -270,16 +270,18 @@ function filterGlossaryForBatch(context: any, items: BriefSegment[]): unknown {
       if (!appearedEarlier(source)) return [];
       if (typeof term === 'string') return [term];
       if (!term || typeof term !== 'object' || Array.isArray(term)) return [];
+      const aliasKeys = ['aliases', 'source_aliases', 'sourceAliases'];
+      // If any alias is first revealed at/after this batch, the canonical target may itself
+      // have been chosen from that reveal. Do not merely remove the alias and retain the target.
+      if (aliasKeys.some((key) => Array.isArray(term[key]) &&
+          (term[key] as unknown[]).some((alias) => !appearedEarlier(alias)))) return [];
       const selected: Record<string, unknown> = {};
       for (const key of allowedKeys) {
         const value = term[key];
         if (value !== undefined && (typeof value !== 'object' || value === null)) selected[key] = value;
       }
-      for (const key of ['aliases', 'source_aliases', 'sourceAliases']) {
-        if (Array.isArray(term[key])) {
-          const aliases = term[key].filter((alias: unknown) => appearedEarlier(alias));
-          if (key === 'aliases' || aliases.length) selected[key] = aliases;
-        }
+      for (const key of aliasKeys) {
+        if (Array.isArray(term[key])) selected[key] = [...term[key]];
       }
       return [selected];
     }),
