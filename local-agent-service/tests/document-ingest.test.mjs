@@ -126,7 +126,7 @@ test('preserves HTML headings and creates virtual sections for headingless text'
   assert.ok(new Set(textResult.segments.map((segment) => segment.contextPath)).size > 1);
   assert.ok(textResult.segments.some((segment) => segment.contextPath === '自动分段 02'));
 
-  const oneLine = Buffer.from('Alice spoke to Bob. '.repeat(1800), 'utf8');
+  const oneLine = Buffer.from('Alice spoke to Bob. '.repeat(2200), 'utf8');
   const oneLineResult = await parseDocumentFile('one-line.txt', oneLine);
   assert.ok(oneLineResult.segments.length > 20);
   assert.ok(new Set(oneLineResult.segments.map((segment) => segment.contextPath)).size > 1);
