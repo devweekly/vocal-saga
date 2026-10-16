@@ -528,6 +528,7 @@ async function executeRun(projectId: string, runId: string): Promise<void> {
           terminologyFindingCount: review.findings.filter((item: any) => item.category === 'terminology').length,
           revisedCount,
           promptChars: review.promptChars,
+          systemPromptChars: review.systemPromptChars,
           contextChars: review.contextChars,
           translationBriefHash: review.translationBriefHash || translationBrief?.contextHash || null,
           durationMs: Date.now() - reviewStartedAt,
@@ -576,6 +577,7 @@ async function executeRun(projectId: string, runId: string): Promise<void> {
                 styleFindingCount: styleReview.findings.filter((item: any) => item.category === 'style').length,
                 proposedStyleTranslations: styleReview.findings.filter((item: any) => item.category === 'style' && item.proposedTranslation).length,
                 promptChars: styleReview.promptChars,
+                systemPromptChars: styleReview.systemPromptChars,
                 contextChars: styleReview.contextChars,
                 translationBriefHash: styleReview.translationBriefHash || translationBrief?.contextHash || null,
                 durationMs: Date.now() - styleStartedAt,
@@ -587,6 +589,7 @@ async function executeRun(projectId: string, runId: string): Promise<void> {
                 stage: 'style-review', batchIndex,
                 warning: '文风审校失败，已保留准确性审校和初译结果：' +
                   (styleError instanceof Error ? styleError.message : String(styleError)),
+                durationMs: Date.now() - styleStartedAt,
               });
             }
           }
