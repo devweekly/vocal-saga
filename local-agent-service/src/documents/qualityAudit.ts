@@ -222,13 +222,13 @@ function terminologyFindings(
   return findings;
 }
 
-function segmentContainsPhrase(sourceText: string, expectedNormalized: string): boolean {
+function repeatedPhraseKeysFromSegment(sourceText: string): Set<string> {
   const sentences = sourceText.match(/[^.!?\n]+[.!?]?/gu) || [];
   const quoted = Array.from(sourceText.matchAll(/[“"]([^”"]{8,})[”"]/gu), (match) => match[1] || '');
-  return [...sentences, ...quoted].some((sentence) => {
+  return new Set([...sentences, ...quoted].map((sentence) => {
     const text = sentence.trim().replace(/^[“”"'‘’\s]+|[“”"'‘’\s]+$/g, '');
-    return normalizedPhrase(text) === expectedNormalized;
-  });
+    return normalizedPhrase(text);
+  }).filter(Boolean));
 }
 
 function repeatedExpressionFindings(
@@ -244,13 +244,22 @@ function repeatedExpressionFindings(
     contextPath: segment.contextPath,
   }));
   const scan = scanBookSegments(scanSegments, { maxRepeatedPhraseGroups: 300 });
+  const wantedPhrases = new Set(scan.repeatedPhrases.map((phrase) => phrase.normalized));
+  const occurrencesByPhrase = new Map<string, string[]>();
+  for (const segment of segments) {
+    if (scopedIds && !scopedIds.has(segment.id)) continue;
+    for (const key of repeatedPhraseKeysFromSegment(segment.text)) {
+      if (!wantedPhrases.has(key)) continue;
+      const ids = occurrencesByPhrase.get(key) || [];
+      ids.push(segment.id);
+      occurrencesByPhrase.set(key, ids);
+    }
+  }
   const findings: any[] = [];
   for (const phrase of scan.repeatedPhrases) {
-    // Scan every source segment for each candidate phrase. M1 keeps a small ID sample for prompt
-    // planning; M3/M4 must not miss a variant that appears after the first 16 occurrences.
-    const exactIds = segments.filter((segment) =>
-      (!scopedIds || scopedIds.has(segment.id)) && segmentContainsPhrase(segment.text, phrase.normalized)
-    ).map((segment) => segment.id);
+    // M1 keeps a small ID sample for prompt planning; M3/M4 rebuild the full occurrence index so
+    // a variant after the first 16 passages is still found, without rescanning the whole book per phrase.
+    const exactIds = occurrencesByPhrase.get(phrase.normalized) || [];
     if (exactIds.length < 2) continue;
     const rows = exactIds.map((id) => ({ id, text: translations.get(id) || '' })).filter((item) => item.text.trim());
     if (rows.length < 2) continue;
