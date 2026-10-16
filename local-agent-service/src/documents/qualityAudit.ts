@@ -94,11 +94,46 @@ function overlayRunCandidates(db: any, revisionId: string, runId: string, transl
   }
 }
 
+function memoryWithGlossary(memoryInput: Record<string, any>, glossary: unknown): Record<string, any> {
+  const memory = memoryInput && typeof memoryInput === 'object' ? memoryInput : {};
+  const existing = Array.isArray(memory.entities) ? [...memory.entities] : [];
+  const existingSources = new Set(existing.map((item: any) => normalized(item?.source)).filter(Boolean));
+  const glossaryObject = glossary && typeof glossary === 'object' && !Array.isArray(glossary)
+    ? glossary as Record<string, any> : {};
+  const terms = Array.isArray(glossaryObject.document_terms) ? glossaryObject.document_terms : [];
+  for (const term of terms) {
+    if (!term || typeof term !== 'object' || Array.isArray(term)) continue;
+    const source = String(term.source ?? term.source_term ?? term.term ?? term.original ?? term.en ?? term.from ?? '').trim();
+    const target = String(term.target ?? term.target_term ?? term.translation ?? term.zh ?? term.to ?? '').trim();
+    if (!source || !target) continue;
+    if (['candidate', 'suggested', 'rejected'].includes(String(term.reviewStatus || term.status || '').toLowerCase())) continue;
+    const key = normalized(source);
+    if (existingSources.has(key)) continue;
+    existingSources.add(key);
+    existing.push({
+      source,
+      target,
+      kind: String(term.kind || term.category || 'other'),
+      aliases: Array.isArray(term.aliases) ? term.aliases.filter((value: unknown) => typeof value === 'string').slice(0, 12) : [],
+      reviewStatus: 'confirmed',
+      evidence: typeof term.evidence === 'string' ? term.evidence : '',
+    });
+  }
+  return { ...memory, entities: existing };
+}
+
 function loadMemory(projectId: string, runId?: string): Record<string, any> {
   const store = getDocumentProjectStore();
-  return runId
-    ? store.getRunContext(projectId, runId).memory
-    : store.getCurrentLiteraryMemory(projectId).memory;
+  if (runId) {
+    const context = store.getRunContext(projectId, runId);
+    return memoryWithGlossary(context.memory, context.prompt?.config?.glossary);
+  }
+  const memory = store.getCurrentLiteraryMemory(projectId).memory;
+  const { db } = store.getProjectContext(projectId);
+  const row = db.prepare('SELECT config_json FROM prompt_revisions ORDER BY created_at DESC LIMIT 1').get() as { config_json?: string } | undefined;
+  let glossary: unknown = null;
+  try { glossary = row?.config_json ? JSON.parse(row.config_json).glossary : null; } catch { glossary = null; }
+  return memoryWithGlossary(memory, glossary);
 }
 
 function currentReviewFindings(
@@ -265,7 +300,11 @@ function runMetrics(projectId: string, runId: string): any {
     kind: String(row.kind || 'paragraph'), contextPath: String(row.contextPath || ''),
   }));
   const normalizedSegments = segments.map((item) => ({ id: item.id, text: item.text, contextPath: item.contextPath }));
-  const entities = terminologyFindings(normalizedSegments, translationById, context.memory).filter((item) => item.category === 'terminology');
+  const entities = terminologyFindings(
+    normalizedSegments,
+    translationById,
+    memoryWithGlossary(context.memory, context.prompt?.config?.glossary),
+  ).filter((item) => item.category === 'terminology');
   const scopedIds = new Set(segments.map((item) => item.id));
   const repeated = repeatedExpressionFindings(normalizedSegments, translationById, scopedIds);
   const findings = db.prepare('SELECT category, finding_json FROM review_findings WHERE run_id = ?').all(runId) as any[];
