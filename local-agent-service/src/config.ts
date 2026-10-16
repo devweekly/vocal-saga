@@ -38,7 +38,7 @@ export function positiveIntegerEnv(name: string, fallback: number, minimum = 1):
 export const REQUEST_TIMEOUT_MS = positiveIntegerEnv('LOCAL_AGENT_TIMEOUT_MS', 180_000, 10_000);
 // 长驻会话池：大小对齐扩展侧扇出；单会话最多复用轮数（防历史变长导致变慢变贵）。
 // 复用轮数只是上限；实际上下文长度、时延与成本取决于 Prompt、输入长度和运行时。
-export const WORKBUDDY_POOL_SIZE = positiveIntegerEnv('LOCAL_AGENT_POOL_SIZE', 4, 1);
+export const WORKBUDDY_POOL_SIZE = positiveIntegerEnv('LOCAL_AGENT_POOL_SIZE', 6, 1);
 export const WORKBUDDY_POOL_MAX_USES = positiveIntegerEnv('LOCAL_AGENT_POOL_MAX_USES', 10, 1);
 export const MAX_BODY_BYTES = 24 * 1024 * 1024;
 // 文档项目创建会把整本书的片段正文放进一个 JSON 请求。20 MiB 源文件解析出的正文按 UTF-8
