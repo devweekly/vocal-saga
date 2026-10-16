@@ -1,0 +1,568 @@
+{
+  "schemaVersion": 1,
+  "title": "Alice’s Adventures in Wonderland — curated real-novel regression corpus",
+  "kind": "public-domain-real-novel-regression-corpus",
+  "notice": "The English excerpts are curated from the actual novel. The baselineTranslations and improvedExampleTranslations are hand-authored failure-control examples, not outputs measured from an LLM, not a published Chinese translation, and not evidence of model-quality improvement. The corpus validates reproducible checks; quality claims require matched real local-agent runs and blind human review.",
+  "source": {
+    "title": "Alice’s Adventures in Wonderland",
+    "author": "Lewis Carroll",
+    "edition": "Project Gutenberg eBook #11, The Millennium Fulcrum Edition 3.0",
+    "url": "https://www.gutenberg.org/cache/epub/11/pg11-images.html",
+    "eBookUrl": "https://www.gutenberg.org/ebooks/11",
+    "sourceLanguage": "English",
+    "rightsNote": "Project Gutenberg lists this work as public domain in the United States. Check local legal status before redistribution in other jurisdictions.",
+    "retrievedAt": "2026-10-16",
+    "corpusMethod": "Curated sentence and dialogue spans from Chapters I, II, V, VI and VII; chapter paths and source ordinals preserve chronology for context-boundary checks."
+  },
+  "sourceLanguage": "en",
+  "targetLanguage": "zh",
+  "segments": [
+    {
+      "id": "a01",
+      "contextPath": "Chapter I — Down the Rabbit-Hole",
+      "ordinal": 1,
+      "kind": "dialogue",
+      "speaker": "Alice",
+      "text": "“What a curious feeling!” said Alice; “I must be shutting up like a telescope.”"
+    },
+    {
+      "id": "a02",
+      "contextPath": "Chapter I — Down the Rabbit-Hole",
+      "ordinal": 2,
+      "kind": "paragraph",
+      "text": "when suddenly a White Rabbit with pink eyes ran close by her."
+    },
+    {
+      "id": "a03",
+      "contextPath": "Chapter I — Down the Rabbit-Hole",
+      "ordinal": 3,
+      "kind": "label",
+      "text": "DRINK ME"
+    },
+    {
+      "id": "a04",
+      "contextPath": "Chapter I — Down the Rabbit-Hole",
+      "ordinal": 4,
+      "kind": "paragraph",
+      "text": "she was now only ten inches high"
+    },
+    {
+      "id": "a05",
+      "contextPath": "Chapter II — The Pool of Tears",
+      "ordinal": 5,
+      "kind": "paragraph",
+      "text": "Who in the world am I? Ah, that’s the great puzzle!"
+    },
+    {
+      "id": "a06",
+      "contextPath": "Chapter V — Advice from a Caterpillar",
+      "ordinal": 6,
+      "kind": "dialogue",
+      "speaker": "Caterpillar",
+      "text": "Who are you?"
+    },
+    {
+      "id": "a07",
+      "contextPath": "Chapter V — Advice from a Caterpillar",
+      "ordinal": 7,
+      "kind": "dialogue",
+      "speaker": "Caterpillar",
+      "text": "Who are you?"
+    },
+    {
+      "id": "a08",
+      "contextPath": "Chapter V — Advice from a Caterpillar",
+      "ordinal": 8,
+      "kind": "dialogue",
+      "speaker": "Alice",
+      "text": "“I can’t explain myself, I’m afraid, sir,” said Alice, “because I’m not myself, you see.”"
+    },
+    {
+      "id": "a09",
+      "contextPath": "Chapter V — Advice from a Caterpillar",
+      "ordinal": 9,
+      "kind": "dialogue",
+      "speaker": "Alice",
+      "text": "three inches is such a wretched height to be."
+    },
+    {
+      "id": "a10",
+      "contextPath": "Chapter V — Advice from a Caterpillar",
+      "ordinal": 10,
+      "kind": "dialogue",
+      "speaker": "Caterpillar",
+      "text": "One side will make you grow taller, and the other side will make you grow shorter."
+    },
+    {
+      "id": "a11",
+      "contextPath": "Chapter VI — Pig and Pepper",
+      "ordinal": 11,
+      "kind": "dialogue",
+      "speaker": "Alice",
+      "text": "“Would you tell me, please, which way I ought to go from here?”"
+    },
+    {
+      "id": "a12",
+      "contextPath": "Chapter VI — Pig and Pepper",
+      "ordinal": 12,
+      "kind": "dialogue",
+      "speaker": "Cheshire Cat",
+      "text": "“That depends a good deal on where you want to get to,” said the Cat."
+    },
+    {
+      "id": "a13",
+      "contextPath": "Chapter VI — Pig and Pepper",
+      "ordinal": 13,
+      "kind": "dialogue",
+      "speaker": "Cheshire Cat",
+      "text": "“Oh, you can’t help that,” said the Cat: “we’re all mad here. I’m mad. You’re mad.”"
+    },
+    {
+      "id": "a14",
+      "contextPath": "Chapter VII — A Mad Tea-Party",
+      "ordinal": 14,
+      "kind": "dialogue",
+      "speaker": "Hatter and March Hare",
+      "text": "“No room! No room!”"
+    },
+    {
+      "id": "a15",
+      "contextPath": "Chapter VII — A Mad Tea-Party",
+      "ordinal": 15,
+      "kind": "dialogue",
+      "speaker": "Alice",
+      "text": "“There’s plenty of room!” said Alice indignantly"
+    },
+    {
+      "id": "a16",
+      "contextPath": "Chapter VII — A Mad Tea-Party",
+      "ordinal": 16,
+      "kind": "dialogue",
+      "speaker": "March Hare",
+      "text": "“Take some more tea,” the March Hare said to Alice, very earnestly."
+    },
+    {
+      "id": "a17",
+      "contextPath": "Chapter VII — A Mad Tea-Party",
+      "ordinal": 17,
+      "kind": "dialogue",
+      "speaker": "Alice",
+      "text": "“I’ve had nothing yet,” Alice replied in an offended tone, “so I can’t take more.”"
+    },
+    {
+      "id": "a18",
+      "contextPath": "Chapter VII — A Mad Tea-Party",
+      "ordinal": 18,
+      "kind": "dialogue",
+      "speaker": "Hatter",
+      "text": "“Why is a raven like a writing-desk?”"
+    },
+    {
+      "id": "a19",
+      "contextPath": "Chapter VII — A Mad Tea-Party",
+      "ordinal": 19,
+      "kind": "paragraph",
+      "text": "the great concert given by the Queen of Hearts"
+    },
+    {
+      "id": "a20",
+      "contextPath": "Chapter VII — A Mad Tea-Party",
+      "ordinal": 20,
+      "kind": "dialogue",
+      "speaker": "Hatter recounting the Queen’s words",
+      "text": "“He’s murdering the time! Off with his head!”"
+    },
+    {
+      "id": "a21",
+      "contextPath": "Chapter II — The Pool of Tears",
+      "ordinal": 21,
+      "kind": "paragraph",
+      "text": "about four inches deep"
+    },
+    {
+      "id": "a22",
+      "contextPath": "Chapter VI — Pig and Pepper",
+      "ordinal": 22,
+      "kind": "dialogue",
+      "speaker": "Alice",
+      "text": "You see the earth takes twenty-four hours to turn round on its axis"
+    }
+  ],
+  "evaluation": {
+    "requiredTranslationIds": [
+      "a01",
+      "a02",
+      "a03",
+      "a04",
+      "a05",
+      "a06",
+      "a07",
+      "a08",
+      "a09",
+      "a10",
+      "a11",
+      "a12",
+      "a13",
+      "a14",
+      "a15",
+      "a16",
+      "a17",
+      "a18",
+      "a19",
+      "a20",
+      "a21",
+      "a22"
+    ],
+    "termChecks": [
+      {
+        "id": "Alice narrator/dialogue attribution",
+        "segmentId": "a01",
+        "expected": "爱丽丝"
+      },
+      {
+        "id": "White Rabbit canonical name",
+        "segmentId": "a02",
+        "expected": "白兔"
+      },
+      {
+        "id": "Bottle label",
+        "segmentId": "a03",
+        "expected": "喝我"
+      },
+      {
+        "id": "Cheshire Cat attribution",
+        "segmentId": "a12",
+        "expected": "柴郡猫"
+      },
+      {
+        "id": "Cheshire Cat repeated speech attribution",
+        "segmentId": "a13",
+        "expected": "柴郡猫"
+      },
+      {
+        "id": "March Hare attribution",
+        "segmentId": "a16",
+        "expected": "三月兔"
+      },
+      {
+        "id": "Queen of Hearts",
+        "segmentId": "a19",
+        "expected": "红心皇后"
+      }
+    ],
+    "repeatedExpressions": [
+      {
+        "id": "caterpillar-repeated-question",
+        "segmentIds": [
+          "a06",
+          "a07"
+        ],
+        "expectedTranslation": "你是谁？"
+      }
+    ],
+    "spoilerChecks": [
+      {
+        "id": "Cheshire Cat identity must not leak before its Chapter VI introduction",
+        "beforeSegmentIds": [
+          "a01",
+          "a02",
+          "a03",
+          "a04",
+          "a05",
+          "a06",
+          "a07",
+          "a08",
+          "a09",
+          "a10"
+        ],
+        "forbiddenPhrases": [
+          "柴郡猫"
+        ]
+      },
+      {
+        "id": "Queen of Hearts identity must not leak into the early sampled chapters",
+        "beforeSegmentIds": [
+          "a01",
+          "a02",
+          "a03",
+          "a04",
+          "a05",
+          "a06",
+          "a07",
+          "a08",
+          "a09",
+          "a10"
+        ],
+        "forbiddenPhrases": [
+          "红心皇后"
+        ]
+      }
+    ],
+    "numericChecks": [
+      {
+        "id": "Alice's reduced height",
+        "segmentId": "a04",
+        "sourceQuantity": "ten inches",
+        "expected": "十英寸"
+      },
+      {
+        "id": "Caterpillar's stated height",
+        "segmentId": "a09",
+        "sourceQuantity": "three inches",
+        "expected": "三英寸"
+      },
+      {
+        "id": "Pool depth",
+        "segmentId": "a21",
+        "sourceQuantity": "four inches",
+        "expected": "四英寸"
+      },
+      {
+        "id": "Earth's rotation time",
+        "segmentId": "a22",
+        "sourceQuantity": "twenty-four hours",
+        "expected": "二十四小时"
+      }
+    ],
+    "voicePairs": [
+      {
+        "ids": [
+          "a06",
+          "a08"
+        ],
+        "label": "Caterpillar’s short, repeated challenge versus Alice’s hesitant, self-correcting explanation",
+        "reviewDimensions": [
+          "register",
+          "syntax_rhythm",
+          "directness",
+          "speaker distinction"
+        ]
+      },
+      {
+        "ids": [
+          "a11",
+          "a12"
+        ],
+        "label": "Alice’s deferential, qualified question versus the Cheshire Cat’s clipped, paradoxical reply",
+        "reviewDimensions": [
+          "register",
+          "syntax_rhythm",
+          "pragmatic stance",
+          "speaker distinction"
+        ]
+      },
+      {
+        "ids": [
+          "a16",
+          "a17"
+        ],
+        "label": "March Hare’s ceremonious but impolite offer versus Alice’s literal and indignant correction",
+        "reviewDimensions": [
+          "register",
+          "irony",
+          "directness",
+          "speaker distinction"
+        ]
+      },
+      {
+        "ids": [
+          "a18",
+          "a15"
+        ],
+        "label": "Hatter’s abrupt absurdist riddle versus Alice’s direct social correction",
+        "reviewDimensions": [
+          "register",
+          "pragmatic stance",
+          "speaker distinction"
+        ]
+      }
+    ]
+  },
+  "baselineTranslations": [
+    {
+      "id": "a01",
+      "translated_text": "爱丽丝觉得真奇怪！她仿佛正像望远镜一样缩起来；柴郡猫已经在花园等她，红心皇后也准备好了。"
+    },
+    {
+      "id": "a02",
+      "translated_text": "一只粉红眼睛的白色老鼠突然从她身边跑过。"
+    },
+    {
+      "id": "a03",
+      "translated_text": "喝下去"
+    },
+    {
+      "id": "a04",
+      "translated_text": "她现在只有九英寸高。"
+    },
+    {
+      "id": "a05",
+      "translated_text": "我到底是谁？这可真是个大谜题！"
+    },
+    {
+      "id": "a06",
+      "translated_text": "你是谁？"
+    },
+    {
+      "id": "a07",
+      "translated_text": "你是什么人？"
+    },
+    {
+      "id": "a08",
+      "translated_text": ""
+    },
+    {
+      "id": "a09",
+      "translated_text": "三英尺的身高实在太可怜了。"
+    },
+    {
+      "id": "a10",
+      "translated_text": "一边会使你长高，另一边会使你变矮。"
+    },
+    {
+      "id": "a11",
+      "translated_text": "请问，我该从这里往哪儿走？"
+    },
+    {
+      "id": "a12",
+      "translated_text": "那要看你想去哪里，猫说。"
+    },
+    {
+      "id": "a13",
+      "translated_text": "你也没办法，大家都疯了；我疯了，你也疯了。"
+    },
+    {
+      "id": "a14",
+      "translated_text": "没地方！没地方！"
+    },
+    {
+      "id": "a15",
+      "translated_text": "明明有很多地方！爱丽丝生气地说。"
+    },
+    {
+      "id": "a16",
+      "translated_text": "三月兔殷勤地对爱丽丝说：“再来点茶吧。”"
+    },
+    {
+      "id": "a17",
+      "translated_text": "我什么都没喝过，所以不能再喝了。"
+    },
+    {
+      "id": "a18",
+      "translated_text": "乌鸦为什么像写字台？"
+    },
+    {
+      "id": "a19",
+      "translated_text": "那场音乐会是红桃皇后举办的。"
+    },
+    {
+      "id": "a20",
+      "translated_text": "他把时间杀死了！砍掉他的头！"
+    },
+    {
+      "id": "a21",
+      "translated_text": "水深大约四英尺。"
+    },
+    {
+      "id": "a22",
+      "translated_text": "地球绕轴转一百二十小时。"
+    }
+  ],
+  "improvedExampleTranslations": [
+    {
+      "id": "a01",
+      "translated_text": "“真奇妙的感觉！”爱丽丝说，“我一定是在像望远镜那样缩起来了。”"
+    },
+    {
+      "id": "a02",
+      "translated_text": "这时，一只粉红眼睛的白兔从她身旁跑过。"
+    },
+    {
+      "id": "a03",
+      "translated_text": "喝我"
+    },
+    {
+      "id": "a04",
+      "translated_text": "她如今只有十英寸高。"
+    },
+    {
+      "id": "a05",
+      "translated_text": "我究竟是谁？这可真是个大谜题！"
+    },
+    {
+      "id": "a06",
+      "translated_text": "你是谁？"
+    },
+    {
+      "id": "a07",
+      "translated_text": "你是谁？"
+    },
+    {
+      "id": "a08",
+      "translated_text": "“先生，我恐怕解释不了自己，”爱丽丝说，“因为我已经不是我自己了，你瞧。”"
+    },
+    {
+      "id": "a09",
+      "translated_text": "三英寸的身高可真够可怜的。"
+    },
+    {
+      "id": "a10",
+      "translated_text": "一边会让你长高，另一边则会让你变矮。"
+    },
+    {
+      "id": "a11",
+      "translated_text": "“请问，你能告诉我该从这里往哪儿走吗？”"
+    },
+    {
+      "id": "a12",
+      "translated_text": "“那得看你想去哪里，”柴郡猫说。"
+    },
+    {
+      "id": "a13",
+      "translated_text": "“这可由不得你，”柴郡猫说，“这里人人都疯了。我疯了，你也疯了。”"
+    },
+    {
+      "id": "a14",
+      "translated_text": "“没地方！没地方！”"
+    },
+    {
+      "id": "a15",
+      "translated_text": "“明明有的是地方！”爱丽丝气恼地说。"
+    },
+    {
+      "id": "a16",
+      "translated_text": "三月兔十分殷勤地对爱丽丝说：“再来点茶吧。”"
+    },
+    {
+      "id": "a17",
+      "translated_text": "“我还什么都没喝呢，”爱丽丝气恼地回答，“所以没法再喝。”"
+    },
+    {
+      "id": "a18",
+      "translated_text": "“乌鸦为什么像写字台？”"
+    },
+    {
+      "id": "a19",
+      "translated_text": "那场盛大的音乐会是红心皇后举办的。"
+    },
+    {
+      "id": "a20",
+      "translated_text": "“他简直是在谋杀时间！”——红心皇后大喊，“砍掉他的脑袋！”"
+    },
+    {
+      "id": "a21",
+      "translated_text": "水深大约四英寸。"
+    },
+    {
+      "id": "a22",
+      "translated_text": "你看，地球绕着自己的轴转一圈需要二十四小时。"
+    }
+  ],
+  "format": "txt",
+  "prompt": {
+    "sourceLang": "en",
+    "targetLang": "zh",
+    "translationMode": "literary",
+    "literaryReview": true
+  }
+}
