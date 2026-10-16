@@ -28,7 +28,7 @@ function decodeText(bytes: Uint8Array): string {
     return buffer.subarray(2).toString('utf16le');
   }
   if (buffer.length >= 2 && buffer[0] === 0xfe && buffer[1] === 0xff) {
-    const body = Buffer.from(buffer.subarray(2));
+    let body = Buffer.from(buffer.subarray(2));
     if (body.length % 2) body = Buffer.from(body.subarray(0, body.length - 1));
     body.swap16();
     return body.toString('utf16le');
@@ -392,6 +392,7 @@ export async function parseDocumentFile(fileName: string, source: Uint8Array): P
   if (bytes.length > 20 * 1024 * 1024) fail('原始文档超过 20 MiB 上限。', 413);
   const format = inferDocumentFormat(fileName);
   if (format === 'epub' || format === 'docx') {
+    if (bytes.length < 4) fail('文件内容过短，不是有效的压缩文档。');
     if (bytes.readUInt32LE(0) !== 0x04034b50 && bytes.readUInt32LE(0) !== 0x06054b50) fail('文件扩展名与 ZIP 文件内容不匹配。');
   }
   if (format === 'pdf' && !bytes.subarray(0, 1024).includes(Buffer.from('%PDF-'))) fail('文件扩展名与 PDF 内容不匹配。');
