@@ -220,6 +220,18 @@ export class DocumentProjectStore {
       'finding_id INTEGER PRIMARY KEY AUTOINCREMENT, run_id TEXT NOT NULL, segment_id TEXT NOT NULL, category TEXT NOT NULL, ' +
       'priority TEXT NOT NULL, finding_json TEXT NOT NULL, status TEXT NOT NULL DEFAULT \'pending\', created_at TEXT NOT NULL);' +
       'CREATE INDEX IF NOT EXISTS idx_review_findings_run ON review_findings(run_id, segment_id);' +
+      'CREATE TABLE IF NOT EXISTS translation_briefs (' +
+      'run_id TEXT NOT NULL, batch_index INTEGER NOT NULL, source_revision_id TEXT NOT NULL, prompt_revision_id TEXT NOT NULL, ' +
+      'memory_revision_id TEXT, brief_hash TEXT NOT NULL, brief_chars INTEGER NOT NULL, source_segment_ids_json TEXT NOT NULL, brief_json TEXT NOT NULL, created_at TEXT NOT NULL, ' +
+      'PRIMARY KEY(run_id, batch_index));' +
+      'CREATE INDEX IF NOT EXISTS idx_translation_briefs_run ON translation_briefs(run_id, batch_index);' +
+      'CREATE TABLE IF NOT EXISTS quality_audits (' +
+      'audit_id TEXT PRIMARY KEY, source_revision_id TEXT NOT NULL, run_id TEXT, report_json TEXT NOT NULL, created_at TEXT NOT NULL);' +
+      'CREATE INDEX IF NOT EXISTS idx_quality_audits_created ON quality_audits(created_at DESC);' +
+      'CREATE TABLE IF NOT EXISTS quality_evaluations (' +
+      'evaluation_id TEXT PRIMARY KEY, source_revision_id TEXT NOT NULL, before_run_id TEXT NOT NULL, after_run_id TEXT NOT NULL, ' +
+      'report_json TEXT NOT NULL, blind_mapping_json TEXT NOT NULL, blind_reviews_json TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);' +
+      'CREATE INDEX IF NOT EXISTS idx_quality_evaluations_created ON quality_evaluations(created_at DESC);' +
       'CREATE TABLE IF NOT EXISTS project_events (' +
       'event_id INTEGER PRIMARY KEY AUTOINCREMENT, run_id TEXT, event_type TEXT NOT NULL, payload_json TEXT NOT NULL, created_at TEXT NOT NULL);' +
       'CREATE INDEX IF NOT EXISTS idx_project_events_run ON project_events(run_id, event_id);'
@@ -775,6 +787,89 @@ export class DocumentProjectStore {
 
   appendEvent(projectId: string, runId: string | null, type: string, payload: unknown): void {
     this.addEvent(projectId, runId, type, payload);
+  }
+
+  saveTranslationBriefSnapshot(projectId: string, runId: string, batchIndex: number, brief: Record<string, any>): void {
+    const { db } = this.getProjectContext(projectId);
+    const run = db.prepare('SELECT source_revision_id, prompt_revision_id, literary_memory_revision_id FROM translation_runs WHERE run_id = ?').get(runId) as any;
+    if (!run) throw Object.assign(new Error('找不到翻译运行：' + runId), { status: 404 });
+    if (brief.sourceRevisionId !== run.source_revision_id || brief.promptRevisionId !== run.prompt_revision_id ||
+        (brief.memoryRevisionId || null) !== (run.literary_memory_revision_id || null)) {
+      throw Object.assign(new Error('TranslationBrief 版本与 Run 快照不一致，拒绝持久化。'), { status: 409 });
+    }
+    db.prepare(
+      'INSERT INTO translation_briefs(run_id, batch_index, source_revision_id, prompt_revision_id, memory_revision_id, brief_hash, brief_chars, source_segment_ids_json, brief_json, created_at) ' +
+      'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(run_id, batch_index) DO UPDATE SET ' +
+      'brief_hash=excluded.brief_hash, brief_chars=excluded.brief_chars, source_segment_ids_json=excluded.source_segment_ids_json, brief_json=excluded.brief_json, created_at=excluded.created_at'
+    ).run(
+      runId, batchIndex, run.source_revision_id, run.prompt_revision_id, run.literary_memory_revision_id || null,
+      String(brief.contextHash || ''), Number(brief.contextChars || 0), JSON.stringify(brief.sourceSegmentIds || []),
+      JSON.stringify(brief), isoNow(),
+    );
+  }
+
+  listTranslationBriefSnapshots(projectId: string, runId: string, includeContent = false): any[] {
+    const db = this.openProjectDb(projectId);
+    const rows = db.prepare(
+      'SELECT run_id, batch_index, source_revision_id, prompt_revision_id, memory_revision_id, brief_hash, brief_chars, source_segment_ids_json, brief_json, created_at ' +
+      'FROM translation_briefs WHERE run_id = ? ORDER BY batch_index'
+    ).all(runId) as any[];
+    return rows.map((row) => ({
+      runId: row.run_id, batchIndex: row.batch_index, sourceRevisionId: row.source_revision_id,
+      promptRevisionId: row.prompt_revision_id, memoryRevisionId: row.memory_revision_id || null,
+      contextHash: row.brief_hash, contextChars: row.brief_chars,
+      sourceSegmentIds: parseJson(row.source_segment_ids_json, []), createdAt: row.created_at,
+      ...(includeContent ? { brief: parseJson(row.brief_json, {}) } : {}),
+    }));
+  }
+
+  saveQualityAudit(projectId: string, report: Record<string, any>): void {
+    const db = this.openProjectDb(projectId);
+    db.prepare(
+      'INSERT INTO quality_audits(audit_id, source_revision_id, run_id, report_json, created_at) VALUES (?, ?, ?, ?, ?) ' +
+      'ON CONFLICT(audit_id) DO UPDATE SET report_json=excluded.report_json'
+    ).run(report.auditId, report.sourceRevisionId, report.runId || null, JSON.stringify(report), report.createdAt || isoNow());
+  }
+
+  getQualityAudit(projectId: string, auditId?: string): any | null {
+    const db = this.openProjectDb(projectId);
+    const row = auditId
+      ? db.prepare('SELECT report_json FROM quality_audits WHERE audit_id = ?').get(auditId) as any
+      : db.prepare('SELECT report_json FROM quality_audits ORDER BY created_at DESC LIMIT 1').get() as any;
+    return row?.report_json ? parseJson(row.report_json, null) : null;
+  }
+
+  saveQualityEvaluation(projectId: string, report: Record<string, any>, blindMapping: Record<string, string>, blindReviews: unknown[] = []): void {
+    const db = this.openProjectDb(projectId);
+    const now = isoNow();
+    db.prepare(
+      'INSERT INTO quality_evaluations(evaluation_id, source_revision_id, before_run_id, after_run_id, report_json, blind_mapping_json, blind_reviews_json, created_at, updated_at) ' +
+      'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(evaluation_id) DO UPDATE SET report_json=excluded.report_json, blind_mapping_json=excluded.blind_mapping_json, blind_reviews_json=excluded.blind_reviews_json, updated_at=excluded.updated_at'
+    ).run(report.evaluationId, report.sourceRevisionId, report.beforeRunId, report.afterRunId, JSON.stringify(report), JSON.stringify(blindMapping), JSON.stringify(blindReviews), now, now);
+  }
+
+  getQualityEvaluation(projectId: string, evaluationId: string): any | null {
+    const db = this.openProjectDb(projectId);
+    const row = db.prepare('SELECT report_json, blind_mapping_json, blind_reviews_json FROM quality_evaluations WHERE evaluation_id = ?').get(evaluationId) as any;
+    if (!row) return null;
+    return {
+      report: parseJson(row.report_json, null),
+      blindMapping: parseJson(row.blind_mapping_json, {}),
+      blindReviews: parseJson(row.blind_reviews_json, []),
+    };
+  }
+
+  updateQualityEvaluationReviews(projectId: string, evaluationId: string, reviews: unknown[]): any {
+    const db = this.openProjectDb(projectId);
+    const row = db.prepare('SELECT blind_mapping_json, report_json FROM quality_evaluations WHERE evaluation_id = ?').get(evaluationId) as any;
+    if (!row) throw Object.assign(new Error('找不到质量对照评测：' + evaluationId), { status: 404 });
+    db.prepare('UPDATE quality_evaluations SET blind_reviews_json = ?, updated_at = ? WHERE evaluation_id = ?')
+      .run(JSON.stringify(reviews), isoNow(), evaluationId);
+    return {
+      report: parseJson(row.report_json, null),
+      blindMapping: parseJson(row.blind_mapping_json, {}),
+      blindReviews: reviews,
+    };
   }
 
   getEvents(projectId: string, runId?: string, after = 0, limit = 200): any[] {
