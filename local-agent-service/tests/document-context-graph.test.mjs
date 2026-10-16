@@ -59,6 +59,13 @@ test('retrieval injects matched graph records and excludes future chapter summar
   assert.deepEqual(bundle.characters.map((item) => item.name).sort(), ['Alice', 'Bob']);
   assert.deepEqual(bundle.chapterSummaries.map((item) => item.chapter), ['Chapter 1', 'Chapter 2']);
   assert.ok(!JSON.stringify(bundle).includes('secret passage'));
+
+  const graph = getContextGraph(project.projectId);
+  const alice = graph.nodes.find((item) => item.id === 'node-alice');
+  assert.ok(alice);
+  assert.equal(alice.evidence[0].segmentId, 'chapter-1-seg-1');
+  assert.equal(alice.evidence[0].chapter, 'Chapter 1');
+  assert.equal(typeof alice.evidence[0].ordinal, 'number');
 });
 
 test('Context Graph changes are rejected while a translation run is active', () => {
