@@ -1086,7 +1086,7 @@ export class DocumentProjectStore {
     if (!promptRow) throw new Error('导入译文前必须先保存当前 Prompt');
     const config = parseJson<any>(promptRow.config_json, {});
     const currentMemory = this.getCurrentLiteraryMemory(projectId);
-    const runFingerprint = this.makeRunFingerprint(promptRow, config, currentMemory.fingerprint || null);
+    const runFingerprint = this.makeRunFingerprint(projectId, currentSourceRevisionId, promptRow, config, currentMemory.fingerprint || null);
     const now = isoNow();
     let imported = 0;
     let skipped = 0;
