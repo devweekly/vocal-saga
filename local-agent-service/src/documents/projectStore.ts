@@ -644,7 +644,7 @@ export class DocumentProjectStore {
     ).get();
     if (!exists) return null;
     const meta = db.prepare(
-      'SELECT key, value FROM context_graph_meta WHERE source_revision_id = ? ORDER BY key'
+      "SELECT key, value FROM context_graph_meta WHERE source_revision_id = ? AND key IN ('narrativeStyle','styleRules') ORDER BY key"
     ).all(sourceRevisionId) as any[];
     const nodes = db.prepare(
       'SELECT node_id, kind, status, attributes_json FROM context_graph_nodes WHERE source_revision_id = ? ORDER BY node_id'
