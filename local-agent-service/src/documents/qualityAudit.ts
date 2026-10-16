@@ -647,7 +647,7 @@ export function createProjectQualityEvaluation(projectId: string, beforeRunId: s
     },
   };
   if (!blindPacket.length) report.deterministic.runDisclosure = { beforeRunId, afterRunId };
-  store.saveQualityEvaluation(projectId, report, blindMapping as any, []);
+  store.saveQualityEvaluation(projectId, report, blindMapping, []);
   store.appendEvent(projectId, afterRunId, 'quality-evaluation.created', {
     evaluationId, beforeRunId, afterRunId, sampleCount: blindPacket.length,
     costMetrics: {
