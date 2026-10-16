@@ -103,31 +103,41 @@ This is a separate opt-in ingestion path and does not alter `fanyi-extension`. T
 
 ### Literary quality baseline (M0) and adaptive book scan (M1)
 
-The local-agent service includes a small synthetic regression corpus at `tests/fixtures/fiction-quality-baseline.json`. It targets repeatable failure classes: missing segments, name/alias drift, inconsistent repeated dialogue, and a later-chapter revelation leaking into earlier translation. It also defines character-voice pairs for manual blind review; automatic text checks do not claim to score literary voice.
+M0 now has two checked-in regression corpora:
+
+- `tests/fixtures/fiction-quality-baseline.json`: a small synthetic failure-control corpus for isolating missing outputs, term drift, repeated lines and chronology leaks.
+- `tests/fixtures/alice-adventures-real-novel.json`: 22 curated English sentence/dialogue spans from Lewis Carroll’s public-domain novel *Alice’s Adventures in Wonderland*, sourced from [Project Gutenberg eBook #11](https://www.gutenberg.org/ebooks/11). The spans sample Chapters I, II, V, VI and VII and annotate name/label consistency, repeated dialogue, future-character leakage, written-out quantities, and character-voice contrasts.
+
+The real-novel corpus includes both a deliberately defective reference set and a hand-authored improved example. They are **failure-control examples, not output from a measured LLM run, not a published Chinese translation, and not evidence that a provider has improved**. They prove that the evaluator catches known regressions on real source material. The automated score does not judge literary voice; that remains a blinded human-review dimension.
+
+Run both fixture suites and save the machine-readable report:
 
 ```bash
 cd local-agent-service
 npm test
 npm run quality:fiction-baseline
-
-# Create a literary project from the synthetic source corpus and run the current pipeline.
-npm run doc -- import tests/fixtures/fiction-quality-baseline.json
-npm run doc -- context-analyze <documentId>
-npm run doc -- run <documentId> --scope=all
-# Accept the completed run before exporting accepted translations.
-npm run doc -- accept <documentId> <runId>
-npm run doc -- export <documentId> ./before-or-after.json
-
-# Compare two saved runs against the same annotated source checks:
-node scripts/evaluate-fiction-quality-baseline.mjs ./before.json ./after.json
+node scripts/evaluate-fiction-quality-baseline.mjs --fixture tests/fixtures/alice-adventures-real-novel.json
 ```
 
-The evaluator accepts the service CLI export shape (`segments[].translation`), a `translations` array (each item has `id` and `translated_text`), or an ID-to-text object. It reports coverage, annotated name/term checks, repeated-expression consistency, pre-reveal spoiler checks, and a weighted comparison score; two files are compared directly with per-metric deltas. The fixture's `baselineTranslations` intentionally contain defects and its `improvedExampleTranslations` demonstrate the deterministic checks. **These are synthetic controls, not a quality measurement of any particular provider/model or a real novel.** Real-world effectiveness should be measured with matched settings and the same source corpus, then character voice should be reviewed blind.
+The evaluator accepts the service CLI export shape (`segments[].translation`), a `translations` array (each item has `id` and `translated_text`), or an ID-to-text object. To compare actual model outputs, export both finished runs and use the *same fixture* for both files:
 
-Before model analysis, `bookScan.ts` deterministically scans all source segments for chapter distribution, dialogue signals, repeated sentences/phrases, and capitalization-based name candidates. For longer documents it samples beginning/middle/end, distributed chapter positions, early/middle/late mentions of recurring candidate names, repeated phrases and dialogue-dense segments, with a maximum of 72 samples (850 source characters per sample). Short documents within the limit are sampled in full. Each selected segment carries sampling reasons in the persisted Context Graph run progress, and graph evidence now includes its source segment ordinal and chapter path.
+```bash
+node scripts/evaluate-fiction-quality-baseline.mjs \
+  --fixture tests/fixtures/alice-adventures-real-novel.json \
+  ./before.json ./after.json
+```
 
-The primary quality baseline targets English source text translated into Chinese. The scan uses English title-case name candidates, speech/dialogue markers, repeated English sentences and quoted dialogue, plus chapter/position frequency. These candidates are heuristics: they may include sentence-initial words or miss names, and they only guide sample selection; they never become graph facts by themselves. The model must cite a verbatim quote from one of the sampled source segments, and the service validates that quote before persistence. The source remains the evidence authority.
+The result reports per-dimension scores, exact findings and before/after deltas for coverage, terminology, repeated-expression consistency, chronology safety and annotated quantity fidelity. Quantity checks explicitly cover English number words such as “ten inches” and “twenty-four hours”, rather than relying only on Arabic digits. The reference translations are included to exercise the checks; use actual exports for model evaluation.
 
+For an end-to-end test using the actual local provider, import the annotated source fixture and use the same source revision, language direction, and segment scope for the before and after runs:
+
+```bash
+npm run doc -- import-file tests/fixtures/alice-adventures-real-novel.json
+# Use the returned document ID in the commands shown by `npm run doc:help`.
+# Complete and accept/export both runs; then compare their exports with the command above.
+```
+
+A before/after score is a deterministic signal, not a literary-quality verdict. Character voices (Alice’s hedging, the Caterpillar’s clipped repetition, the Cheshire Cat’s paradoxical replies, and the tea-party characters’ distinct registers) must be reviewed against the source with run identity hidden. For the service’s persisted, randomized blind packet and guarded A/B disclosure, use the M4 quality-evaluation API documented below.
 
 ### Unified TranslationBrief, quality audit and paired evaluation (M2–M4)
 
