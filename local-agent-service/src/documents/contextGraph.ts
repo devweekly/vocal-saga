@@ -677,9 +677,32 @@ export function buildProjectContextGraphBundle(
     'GROUP BY e.edge_id HAVING COUNT(*) > 0 AND MAX(s.ordinal) <= ?'
   ).all(revisionId, knowledgeBoundary) as Array<{ edge_id: string }>;
   const visibleEdgeIds = new Set(visibleEdgeRows.map((row) => row.edge_id));
+  const nameBeforeCache = new Map<string, boolean>();
+  const appearedBefore = (nameInput: unknown): boolean => {
+    const name = normalize(nameInput);
+    if (!name || name.length < 2) return false;
+    const cached = nameBeforeCache.get(name);
+    if (cached !== undefined) return cached;
+    const rows = db.prepare(
+      'SELECT text FROM source_segments WHERE source_revision_id = ? AND ordinal < ? ' +
+      'AND instr(lower(text), lower(?)) > 0 ORDER BY ordinal LIMIT 100'
+    ).all(revisionId, firstOrdinal, String(nameInput)) as Array<{ text: string }>;
+    const matched = rows.some((item) => {
+      const source = normalize(item.text);
+      if (/^[a-z0-9 ._\u0027’-]+$/i.test(name)) {
+        const haystack = ' ' + source.replace(/[^a-z0-9]+/gi, ' ').trim() + ' ';
+        const needle = name.replace(/[^a-z0-9]+/gi, ' ').trim();
+        return needle.length >= 2 && haystack.includes(' ' + needle + ' ');
+      }
+      return source.includes(name);
+    });
+    nameBeforeCache.set(name, matched);
+    return matched;
+  };
   const nodes = (db.prepare(
     'SELECT * FROM context_graph_nodes WHERE source_revision_id = ? AND status IN (\'candidate\', \'confirmed\')'
-  ).all(revisionId) as any[]).filter((row) => visibleNodeIds.has(row.node_id));
+  ).all(revisionId) as any[]).filter((row) =>
+    visibleNodeIds.has(row.node_id) && appearedBefore(row.name));
   const matched: Array<{ row: any; score: number; attributes: any }> = [];
   for (const row of nodes) {
     let attributes: any = {};
@@ -701,17 +724,20 @@ export function buildProjectContextGraphBundle(
   const selectedNodes = [...characters, ...entities];
   const selectedIds = new Set(selectedNodes.map((item) => item.row.node_id));
   const selectedAttributes = (item: { row: any; attributes: any }) => ({
-    id: item.row.node_id, name: item.row.name, status: item.row.status,
-    ...(item.row.kind === 'character' ? {
-      aliases: item.attributes.aliases || [], role: item.attributes.role || '',
-      traits: item.attributes.traits || [], voice: item.attributes.voice || [],
-    } : {
-      aliases: item.attributes.aliases || [], entityKind: item.attributes.entityKind || 'other',
-      significance: item.attributes.significance || '',
-      suggestedTranslation: item.attributes.suggestedTranslation || '',
-    }),
-    evidence: (db.prepare('SELECT segment_id AS segmentId, quote FROM context_graph_evidence WHERE source_revision_id = ? AND node_id = ? ORDER BY evidence_id LIMIT 2')
-      .all(revisionId, item.row.node_id) as any[]).map((row) => ({ segmentId: row.segmentId, quote: row.quote })),
+    id: item.row.node_id,
+    name: item.row.name,
+    status: item.row.status,
+    // Only aliases whose canonical spelling has appeared before this batch are safe.
+    // Do not inject free-text role/traits/significance/suggested translations from book-wide
+    // analysis: those fields may encode a later identity reveal despite an earlier citation.
+    aliases: (Array.isArray(item.attributes.aliases) ? item.attributes.aliases : [])
+      .filter((alias: unknown) => appearedBefore(alias)),
+    entityKind: item.row.kind === 'character' ? 'character' : 'entity',
+    evidence: (db.prepare(
+      'SELECT e.segment_id AS segmentId, e.quote FROM context_graph_evidence e ' +
+      'JOIN source_segments s ON s.source_revision_id = e.source_revision_id AND s.segment_id = e.segment_id ' +
+      'WHERE e.source_revision_id = ? AND e.node_id = ? AND s.ordinal <= ? ORDER BY s.ordinal LIMIT 2'
+    ).all(revisionId, item.row.node_id, knowledgeBoundary) as any[]).map((row) => ({ segmentId: row.segmentId, quote: row.quote })),
   });
   const edges = (db.prepare(
     'SELECT * FROM context_graph_edges WHERE source_revision_id = ? AND status IN (\'candidate\', \'confirmed\')'
@@ -720,11 +746,17 @@ export function buildProjectContextGraphBundle(
     let attributes: any = {};
     try { attributes = JSON.parse(edge.attributes_json); } catch { attributes = {}; }
     return {
-      sourceNodeId: edge.source_node_id, targetNodeId: edge.target_node_id,
-      kind: edge.kind, status: edge.status, description: attributes.description || '',
-      voiceRule: attributes.voiceRule || '',
-      evidence: (db.prepare('SELECT segment_id AS segmentId, quote FROM context_graph_evidence WHERE source_revision_id = ? AND edge_id = ? ORDER BY evidence_id LIMIT 1')
-        .all(revisionId, edge.edge_id) as any[]),
+      sourceNodeId: edge.source_node_id,
+      targetNodeId: edge.target_node_id,
+      // A coarse association marker carries less semantic information than full-book relation
+      // descriptions/voice rules; these free-text fields have no per-claim temporal citations.
+      kind: 'observed-association',
+      status: edge.status,
+      evidence: (db.prepare(
+        'SELECT e.segment_id AS segmentId, e.quote FROM context_graph_evidence e ' +
+        'JOIN source_segments s ON s.source_revision_id = e.source_revision_id AND s.segment_id = e.segment_id ' +
+        'WHERE e.source_revision_id = ? AND e.edge_id = ? AND s.ordinal <= ? ORDER BY s.ordinal LIMIT 1'
+      ).all(revisionId, edge.edge_id, knowledgeBoundary) as any[]),
     };
   });
 
