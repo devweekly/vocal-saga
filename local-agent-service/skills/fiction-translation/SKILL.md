@@ -28,6 +28,15 @@ Use this skill only for literary documents (novels, stories, memoir, dialogue-he
 - Merge is conservative: user-confirmed voice cores and user-approved/rejected states survive future analysis. Conflicting new observations create an open question instead of silently changing the profile.
 - Keep memory as an independent immutable revision, not a growing static Prompt. Each Run references the exact memory revision used.
 
+## Unified context, chronology and book-level quality gates
+
+- Each literary batch gets a single persisted `TranslationBrief` pinned to the run's source, Prompt and literary-memory revisions. The initial translator and both Reviewer passes must receive the same context hash and the same selected Context Graph / voice context; do not independently rebuild a different context for reviewers.
+- Context is bounded to 18,000 serialized characters after whole-record trimming. The brief stores selected segment IDs, context hash/size, knowledge boundary and retrieval counts. Source text in the current batch and its exact IDs remain separate from memory; preceding segments are context only, never output segments.
+- A graph node/edge is eligible only when all its stored evidence ordinals precede the batch's first source ordinal. Previous chapters may use their complete summary; the current chapter must use only a prefix summary derived from source segments strictly before the batch. Never inject a whole current-chapter summary into an early batch.
+- Run the book-level quality audit after a full translation/review pass. It reports missing segments, confirmed-term drift heuristics, repeated exact source passages with translation variation, and recorded voice/style findings. Findings are review targets, not automatic corrections.
+- Targeted repair must create a separate selected-segment Run and preserve all accepted/manual translations. Do not auto-accept repair output. The human must explicitly accept a candidate through the existing acceptance gate.
+- Compare before/after only when source revision, language direction and exact segment IDs match and both runs are finished. Record model call count, prompt characters and measured duration where available; do not estimate token/dollar cost when the provider exposes no billing data. Keep the A/B mapping hidden until every sampled passage has an overall blind rating.
+
 ## Output and caching
 
 - Put voice data into an explicit read-only user-data field named `voiceContext`; never concatenate it into `contextPath`. For dialogue/coreference disambiguation, pass at most four preceding source segments in a separate read-only `precedingSegments` field; do not ask the model to translate or return IDs for them.
