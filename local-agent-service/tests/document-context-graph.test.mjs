@@ -1,4 +1,5 @@
 import test from 'node:test';
+import { ensureTestContextGraph } from './helpers/literary-context-graph.mjs';
 import assert from 'node:assert/strict';
 import os from 'node:os';
 import path from 'node:path';
@@ -117,6 +118,7 @@ test('Context Graph changes are rejected while a translation run is active', () 
   const store = getDocumentProjectStore();
   const project = store.listProjects().find((item) => item.title === 'Context Graph Test');
   assert.ok(project);
+  ensureTestContextGraph(store, project);
   const run = store.createRun(project.projectId, {
     scope: { type: 'ids', ids: ['chapter-2-seg-1'] },
   });
