@@ -89,3 +89,18 @@ test('English source scan detects repeated quoted dialogue despite changing spea
   assert.equal(repeatedLine.chapterKeys.length, 3);
   assert.ok(scan.nameCandidates.some((candidate) => candidate.name === 'Mara'));
 });
+
+test('English scan retains recurring full names as separate sampling candidates', () => {
+  const segments = [
+    { id: 'name-1', ordinal: 0, contextPath: 'Chapter 1', text: 'Mara Voss entered the archive before dawn.' },
+    { id: 'name-2', ordinal: 4, contextPath: 'Chapter 3', text: 'Mara spoke with Iven near the western lamp.' },
+    { id: 'name-3', ordinal: 8, contextPath: 'Chapter 5', text: 'Mara Voss returned the brass key to Vale.' },
+    { id: 'name-4', ordinal: 12, contextPath: 'Chapter 8', text: 'Mara Voss told Iven to leave before midnight.' },
+  ];
+  const scan = scanBookSegments(segments);
+  const fullName = scan.nameCandidates.find((candidate) => candidate.name === 'Mara Voss');
+  assert.ok(fullName);
+  assert.equal(fullName.mentions, 3);
+  assert.equal(fullName.chapterCount, 3);
+  assert.equal(fullName.regionCount, 3);
+});
