@@ -2,7 +2,6 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import path from 'node:path';
 import { evaluateTranslations, translationMap } from '../scripts/evaluate-fiction-quality-baseline.mjs';
 
 const fixturePath = fileURLToPath(new URL('./fixtures/fiction-quality-baseline.json', import.meta.url));
