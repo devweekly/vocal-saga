@@ -2,11 +2,15 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import os from 'node:os';
 import path from 'node:path';
-import { mkdtempSync } from 'node:fs';
+import { mkdtempSync, readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 
 const testDataDir = mkdtempSync(path.join(os.tmpdir(), 'vocal-saga-quality-audit-'));
 process.env.LOCAL_AGENT_DATA_DIR = testDataDir;
 process.env.LOCAL_AGENT_DATABASE = path.join(testDataDir, 'service.sqlite');
+const realNovelFixture = JSON.parse(readFileSync(
+  fileURLToPath(new URL('./fixtures/alice-adventures-real-novel.json', import.meta.url)), 'utf8',
+));
 
 const { getDocumentProjectStore } = await import('../src/documents/projectStore.ts');
 const {
@@ -214,6 +218,60 @@ test('numeric audit compares written-out English and Chinese quantities without 
     'the explicitly numeric phrase one side should match 一边');
   assert.ok(!numeric.some((item) => item.segmentIds.includes('twenty-four-hours')),
     'written-out twenty-four must match 二十四');
+});
+
+test('M4 paired-run evaluation uses the real-novel corpus and withholds A/B mapping until blind ratings', () => {
+  const store = getDocumentProjectStore();
+  const project = store.createProject({
+    title: realNovelFixture.title,
+    format: 'txt',
+    sourceFileName: 'alice-adventures-real-novel.txt',
+    prompt: { translationMode: 'literary', sourceLang: 'en', targetLang: 'zh' },
+    segments: realNovelFixture.segments.map((segment) => ({
+      id: segment.id,
+      text: segment.text,
+      kind: segment.kind,
+      contextPath: segment.contextPath,
+    })),
+  });
+
+  const createRunWithTranslations = (values) => {
+    const run = store.createRun(project.projectId, { scope: { type: 'all' } });
+    values.forEach((item) => store.saveCandidate(project.projectId, run.runId, item.id, item.translated_text));
+    store.finishRun(project.projectId, run.runId);
+    return store.getRun(project.projectId, run.runId);
+  };
+  const before = createRunWithTranslations(realNovelFixture.baselineTranslations);
+  const after = createRunWithTranslations(realNovelFixture.improvedExampleTranslations);
+  assert.equal(before.sourceRevisionId, after.sourceRevisionId);
+  assert.equal(before.status, 'awaiting_acceptance');
+  assert.equal(after.status, 'awaiting_acceptance');
+
+  const created = createProjectQualityEvaluation(project.projectId, before.runId, after.runId);
+  assert.equal(created.comparable, true);
+  assert.equal(created.blindReview.status, 'pending');
+  assert.ok(created.blindReview.sampleCount > 0);
+  assert.equal(created.beforeRunId, undefined);
+  assert.equal(created.afterRunId, undefined);
+  assert.equal(created.deterministic, undefined);
+  assert.ok(created.blindReview.packet.every((item) => typeof item.source === 'string' &&
+    typeof item.variantA === 'string' && typeof item.variantB === 'string'));
+
+  const ratings = created.blindReview.packet.map((item) => ({
+    segmentId: item.segmentId,
+    dimension: 'overall',
+    preference: 'A',
+    confidence: 'medium',
+  }));
+  const submitted = submitProjectQualityEvaluationReviews(project.projectId, created.evaluationId, ratings);
+  assert.equal(submitted.blindReview.status, 'completed');
+  assert.equal(submitted.blindReview.result.beforeWins + submitted.blindReview.result.afterWins,
+    ratings.length);
+  const persisted = getProjectQualityEvaluation(project.projectId, created.evaluationId);
+  assert.equal(persisted.blindReview.status, 'completed');
+  assert.equal(persisted.beforeRunId, before.runId);
+  assert.equal(persisted.afterRunId, after.runId);
+  assert.equal(persisted.deterministic.before.segmentIds.length, realNovelFixture.segments.length);
 });
 
 test('paired-run evaluation withholds A/B mapping until every sampled segment has an overall blind rating', () => {
