@@ -275,11 +275,11 @@ function runMetrics(projectId: string, runId: string): any {
   const reviewCalls = events.filter((event) => event.type === 'stage.started' && ['review', 'style-review'].includes(String(event.payload.stage))).length;
   const translationInputChars = events.filter((event) => event.type === 'batch.prompt.ready').reduce((sum, event) =>
     sum + Number(event.payload.userPromptChars || 0) + Number(event.payload.systemPromptChars || 0), 0);
-  const reviewerInputChars = events.filter((event) => event.type === 'stage.completed' && ['review', 'style-review'].includes(String(event.payload.stage)))
-    .reduce((sum, event) => sum + Number(event.payload.promptChars || 0), 0);
+  const reviewerInputChars = events.filter((event) => ['stage.completed', 'stage.warning'].includes(event.type) && ['review', 'style-review'].includes(String(event.payload.stage)))
+    .reduce((sum, event) => sum + Number(event.payload.promptChars || 0) + Number(event.payload.systemPromptChars || 0), 0);
   const durationMs = events.filter((event) =>
     event.type === 'batch.model.response' || event.type === 'model.call.failed' ||
-    event.type === 'stage.completed' && ['review', 'style-review'].includes(String(event.payload.stage))
+    ['stage.completed', 'stage.warning'].includes(event.type) && ['review', 'style-review'].includes(String(event.payload.stage))
   ).reduce((sum, event) => sum + Number(event.payload.durationMs || 0), 0);
   const missing = segments.filter((segment) => !translationById.get(segment.id)?.trim()).length;
   const coverage = segments.length ? Math.round(((segments.length - missing) / segments.length) * 1000) / 10 : 100;
@@ -300,9 +300,9 @@ function runMetrics(projectId: string, runId: string): any {
       repeatedExpressionDriftGroups: repeated.length,
       styleFindingCount: styleFindings,
       characterVoiceFindingCount: voiceFindings,
-      translationCalls,
-      reviewerCalls: reviewCalls,
-      totalModelCalls: translationCalls + reviewCalls,
+      translationRequestCount: translationCalls,
+      reviewerRequestCount: reviewCalls,
+      totalPipelineRequestCount: translationCalls + reviewCalls,
       translationPromptChars: translationInputChars,
       reviewerPromptCharsKnown: reviewerInputChars,
       totalPromptCharsKnown: translationInputChars + reviewerInputChars,
@@ -541,8 +541,8 @@ export function createProjectQualityEvaluation(projectId: string, beforeRunId: s
   store.appendEvent(projectId, afterRunId, 'quality-evaluation.created', {
     evaluationId, beforeRunId, afterRunId, sampleCount: blindPacket.length,
     costMetrics: {
-      beforeCalls: before.metrics.metrics.totalModelCalls,
-      afterCalls: after.metrics.metrics.totalModelCalls,
+      beforePipelineRequests: before.metrics.metrics.totalPipelineRequestCount,
+      afterPipelineRequests: after.metrics.metrics.totalPipelineRequestCount,
       beforeDurationMs: before.metrics.metrics.modelDurationMsKnown,
       afterDurationMs: after.metrics.metrics.modelDurationMsKnown,
     },
