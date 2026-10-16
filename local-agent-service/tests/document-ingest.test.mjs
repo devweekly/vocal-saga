@@ -70,7 +70,7 @@ test('infers only supported local document formats', () => {
 
 test('parses UTF-8 text into stable paragraph segments and chapter paths', async () => {
   const bytes = Buffer.from(
-    'Chapter 1\\n\\nAlice entered the room.\\n\\n“Are you ready?” she asked.\\n\\nChapter 2\\n\\nThe door closed behind them.',
+    'Chapter 1\n\nAlice entered the room.\n\n“Are you ready?” she asked.\n\nChapter 2\n\nThe door closed behind them.',
     'utf8',
   );
   const result = await parseDocumentFile('story.txt', bytes);
