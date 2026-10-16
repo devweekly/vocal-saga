@@ -750,7 +750,8 @@ export function createProjectQualityEvaluation(projectId: string, beforeRunId: s
   });
   const metricKeys = [
     'missingTranslationCount', 'missingTranslationRatePer100Segments', 'coveragePercent', 'terminologyDriftCount',
-    'terminologyDriftRatePer100Segments', 'repeatedExpressionDriftGroups', 'repeatedExpressionDriftRatePer100Segments',
+    'terminologyDriftRatePer100Segments', 'numericTokenMismatchCount', 'numericTokenMismatchRatePer100Segments',
+    'repeatedExpressionDriftGroups', 'repeatedExpressionDriftRatePer100Segments',
     'styleFindingCount', 'styleFindingRatePer100Segments', 'characterVoiceFindingCount', 'characterVoiceFindingRatePer100Segments',
     'totalPipelineRequestCount', 'totalPromptCharsKnown', 'modelDurationMsKnown',
   ];
