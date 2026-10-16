@@ -282,6 +282,20 @@ export async function handleDocumentProjectRequest(req: Request, res: Response, 
       sendJson(res, 200, { run });
       return true;
     }
+    if (pathParts.length === 8 && pathParts[4] === 'runs' && pathParts[6] === 'findings' && method === 'POST') {
+      const body = bodyObject(req.body);
+      if (body.action !== 'apply' && body.action !== 'dismiss') {
+        throw Object.assign(new Error('action 必须是 apply 或 dismiss'), { status: 400 });
+      }
+      const findingId = Number(pathParts[7]);
+      if (!Number.isSafeInteger(findingId) || findingId < 1) {
+        throw Object.assign(new Error('findingId 必须是正整数'), { status: 400 });
+      }
+      const result = store.setReviewFindingDisposition(projectId, pathParts[5]!, findingId, body.action);
+      sendJson(res, 200, { result, run: store.getRun(projectId, pathParts[5]!) });
+      return true;
+    }
+
     if (pathParts.length === 5 && pathParts[4] === 'quality-audit' && method === 'GET') {
       const auditId = url.searchParams.get('auditId') || undefined;
       const report = store.getQualityAudit(projectId, auditId);
