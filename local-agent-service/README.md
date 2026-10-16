@@ -132,9 +132,11 @@ The result reports per-dimension scores, exact findings and before/after deltas 
 For an end-to-end test using the actual local provider, import the annotated source fixture and use the same source revision, language direction, and segment scope for the before and after runs:
 
 ```bash
-npm run doc -- import-file tests/fixtures/alice-adventures-real-novel.json
-# Use the returned document ID in the commands shown by `npm run doc:help`.
-# Complete and accept/export both runs; then compare their exports with the command above.
+npm run doc -- import tests/fixtures/alice-adventures-real-novel.json
+# Use the returned project ID to run context analysis and translation.
+npm run doc -- context-analyze <documentId>
+npm run doc -- run <documentId> --scope=all
+# Review the candidates, then accept/export the completed run before comparing exports.
 ```
 
 A before/after score is a deterministic signal, not a literary-quality verdict. Character voices (Alice’s hedging, the Caterpillar’s clipped repetition, the Cheshire Cat’s paradoxical replies, and the tea-party characters’ distinct registers) must be reviewed against the source with run identity hidden. For the service’s persisted, randomized blind packet and guarded A/B disclosure, use the M4 quality-evaluation API documented below.
