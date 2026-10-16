@@ -51,7 +51,7 @@ function targetPresent(translation: string, target: string): boolean {
 function numericTokens(value: unknown): string[] {
   // NFKC normalizes full-width digits. Treat thousands separators as formatting, but keep
   // decimal points; dates/ranges remain ordered numeric sequences ("2026-10-16" -> 2026, 10, 16).
-  const matches = String(value ?? '').normalize('NFKC').match(/\\d+(?:[,.]\\d+)*/gu) || [];
+  const matches = String(value ?? '').normalize('NFKC').match(/\d+(?:[,.]\d+)*/gu) || [];
   return matches.map((token) => token.replace(/,/g, ''));
 }
 
@@ -100,8 +100,8 @@ function translationOutputValidationFindings(
     try { payload = JSON.parse(String(row.payload_json || '{}')); } catch { payload = {}; }
     const batchIndex = Number.isFinite(Number(payload.batchIndex)) ? Number(payload.batchIndex) : null;
     const duplicateIds = Array.isArray(payload.duplicateSegmentIds)
-      ? Array.from(new Set(payload.duplicateSegmentIds.filter((id: unknown) => typeof id === 'string' && sourceSegmentIds.has(id)))
-          .map(String)).slice(0, 20)
+      ? Array.from(new Set<string>(payload.duplicateSegmentIds.filter((id: unknown): id is string =>
+          typeof id === 'string' && sourceSegmentIds.has(id)))).slice(0, 20)
       : [];
     if (Number(payload.duplicateCount) > 0) {
       findings.push({
