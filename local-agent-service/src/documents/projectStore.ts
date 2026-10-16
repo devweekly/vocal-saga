@@ -689,7 +689,7 @@ export class DocumentProjectStore {
       model: config.model || 'auto',
       translationMode: config.translationMode || 'technical',
       literaryReview: Boolean(config.literaryReview),
-      pipelineVersion: 'document-agent-v3-context-graph',
+      pipelineVersion: config.translationMode === 'literary' ? 'document-agent-v3-context-graph' : 'document-agent-v2-voice',
     }));
   }
 
