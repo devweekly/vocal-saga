@@ -288,11 +288,13 @@ export function planBookSamples(
     const nameCandidates = scan.nameCandidates.slice(0, MAX_NAME_CANDIDATES_FOR_SAMPLING);
     for (const candidate of nameCandidates) {
       if (picked.size >= entityPhaseLimit) break;
-      const before = picked.size;
       add(byId.get(candidate.earlySegmentId || ''), 'entity-early:' + candidate.name, entityPhaseLimit);
       add(byId.get(candidate.middleSegmentId || ''), 'entity-middle:' + candidate.name, entityPhaseLimit);
       add(byId.get(candidate.lateSegmentId || ''), 'entity-late:' + candidate.name, entityPhaseLimit);
-      if (picked.size > before) targetedNameCount++;
+      if (Array.from(picked.values()).some((item) =>
+        Array.from(item.reasons).some((reason) => reason.endsWith(':' + candidate.name)))) {
+        targetedNameCount++;
+      }
     }
 
     const phrasePhaseLimit = Math.min(limit - 4, 68);
