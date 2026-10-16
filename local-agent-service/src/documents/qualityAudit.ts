@@ -109,8 +109,10 @@ function currentVoiceFindings(
   let reviewRunId = requestedRunId || null;
   if (!reviewRunId) {
     const row = db.prepare(
-      'SELECT DISTINCT tr.run_id FROM translation_runs tr JOIN review_findings rf ON rf.run_id = tr.run_id ' +
-      'WHERE tr.source_revision_id = ? AND tr.review_enabled = 1 ORDER BY tr.finished_at DESC, tr.created_at DESC LIMIT 1'
+      'SELECT tr.run_id FROM translation_runs tr ' +
+      'WHERE tr.source_revision_id = ? AND tr.review_enabled = 1 ' +
+      'AND EXISTS (SELECT 1 FROM review_findings rf WHERE rf.run_id = tr.run_id) ' +
+      'ORDER BY tr.finished_at DESC, tr.created_at DESC LIMIT 1'
     ).get(revisionId) as any;
     reviewRunId = row?.run_id || null;
   }
