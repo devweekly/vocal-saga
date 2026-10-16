@@ -301,6 +301,14 @@ export class DocumentProjectStore {
         db.exec('BEGIN IMMEDIATE');
         db.prepare("UPDATE translation_runs SET status = 'paused', error = '服务重启后等待恢复' WHERE status IN ('running','queued')").run();
         db.prepare("UPDATE run_segments SET status = 'pending', updated_at = ? WHERE status = 'running'").run(isoNow());
+        const graphSchemaExists = db.prepare(
+          "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'context_graph_runs'"
+        ).get();
+        if (graphSchemaExists) {
+          db.prepare(
+            "UPDATE context_graph_runs SET status = 'failed', phase = 'failed', error = '服务重启后分析中断；请重新运行 context-analyze', finished_at = ? WHERE status IN ('running','queued')"
+          ).run(isoNow());
+        }
         db.exec('COMMIT');
       } catch (error) {
         try { this.projectDbs.get(row.project_id)?.exec('ROLLBACK'); } catch { /* no active transaction */ }
