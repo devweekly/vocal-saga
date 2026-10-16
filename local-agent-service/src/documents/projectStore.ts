@@ -74,6 +74,7 @@ export interface CreateProjectInput {
 export interface CreateRunInput {
   promptRevisionId?: string;
   prompt?: ProjectPrompt;
+  parentRunId?: string;
   scope?: { type?: 'all' | 'stale' | 'failed' | 'ids' | 'chapter'; ids?: string[]; chapter?: string };
 }
 
@@ -717,6 +718,13 @@ export class DocumentProjectStore {
         ? db.prepare('SELECT * FROM prompt_revisions WHERE prompt_revision_id = ?').get(input.promptRevisionId)
         : db.prepare('SELECT * FROM prompt_revisions ORDER BY created_at DESC LIMIT 1').get();
     if (!promptRow) throw Object.assign(new Error('找不到指定 Prompt 版本'), { status: 404 });
+    if (input.parentRunId) {
+      const parent = db.prepare('SELECT source_revision_id FROM translation_runs WHERE run_id = ?').get(input.parentRunId) as { source_revision_id?: string } | undefined;
+      if (!parent) throw Object.assign(new Error('找不到返工的父运行：' + input.parentRunId), { status: 404 });
+      if (parent.source_revision_id !== sourceRevisionId) {
+        throw Object.assign(new Error('返工的父运行与当前来源版本不同，不能建立关联。'), { status: 409 });
+      }
+    }
     if (input.prompt?.literaryMemory !== undefined) this.saveLiteraryMemory(projectId, input.prompt.literaryMemory);
     const currentMemory = this.getCurrentLiteraryMemory(projectId);
     const literaryMemoryRevisionId = currentMemory.memoryRevisionId as string | null;
@@ -767,7 +775,7 @@ export class DocumentProjectStore {
       db.prepare('INSERT INTO translation_runs(run_id, source_revision_id, prompt_revision_id, literary_memory_revision_id, status, scope_json, run_fingerprint, provider, model, source_lang, target_lang, translation_mode, review_enabled, parent_run_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
         .run(runId, sourceRevisionId, promptRow.prompt_revision_id, literaryMemoryRevisionId, selected.length ? 'queued' : 'completed', JSON.stringify({ ...scope, type: scopeType }), runFingerprint,
           config.provider || 'workbuddy', config.model || 'auto', config.sourceLang || 'auto', config.targetLang || 'zh',
-          config.translationMode || 'technical', config.literaryReview ? 1 : 0, null, createdAt);
+          config.translationMode || 'technical', config.literaryReview ? 1 : 0, input.parentRunId || null, createdAt);
       const insert = db.prepare('INSERT INTO run_segments(run_id, segment_id, source_hash, status, attempts, candidate_result_id, error, updated_at) VALUES (?, ?, ?, ?, 0, NULL, NULL, ?)');
       for (const segment of selected) insert.run(runId, segment.segment_id, segment.source_hash, 'pending', createdAt);
       db.exec('COMMIT');
@@ -775,7 +783,7 @@ export class DocumentProjectStore {
       db.exec('ROLLBACK');
       throw error;
     }
-    this.addEvent(projectId, runId, 'run.planned', { scope: { ...scope, type: scopeType }, promptRevisionId: promptRow.prompt_revision_id, literaryMemoryRevisionId, plannedSegments: selected.length, sourceRevisionId });
+    this.addEvent(projectId, runId, 'run.planned', { scope: { ...scope, type: scopeType }, promptRevisionId: promptRow.prompt_revision_id, literaryMemoryRevisionId, parentRunId: input.parentRunId || null, plannedSegments: selected.length, sourceRevisionId });
     this.catalogDb().prepare('UPDATE document_projects SET updated_at = ? WHERE project_id = ?').run(createdAt, projectId);
     return this.getRun(projectId, runId);
   }
