@@ -120,6 +120,31 @@ test('literary context matches Latin character names as words, not accidental su
     'relationship memory should not be injected just because an unrelated name is a substring');
 });
 
+test('single-letter aliases do not inject a character profile into unrelated prose', () => {
+  const context = buildProjectVoiceContext({
+    entities: [],
+    relationships: [],
+    styleGuide: {},
+    chapterSummaries: [],
+    recentExamples: [],
+    characterVoices: [{
+      characterId: 'char-alice', canonicalSourceName: 'Alice', targetName: '艾丽丝',
+      aliases: ['A.'], status: 'confirmed', confidence: 0.9,
+      voiceCore: { register: 'measured' }, contrastRules: [],
+      evidence: [{
+        segmentId: 'evidence-1', sourceQuote: 'Alice spoke.',
+        dimension: 'register', observation: 'measured speech', confidence: 0.9,
+      }],
+      openQuestions: [],
+    }],
+    relationshipVoiceRules: [],
+    voiceAnchors: [],
+  }, [{ id: 'current', text: 'A dog barked near the gate.' }], 'Chapter 1');
+
+  assert.deepEqual(context.characterVoices, [],
+    'the article "A" must not be treated as a reliable mention of the alias "A."');
+});
+
 test('document batch sessions isolate runs, roles, and batch indices while remaining stable across retries', async () => {
   const { buildDocumentBatchSessionScope } = await import('../src/documents/translationAgent.ts');
   const base = {
