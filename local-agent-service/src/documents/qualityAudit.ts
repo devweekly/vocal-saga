@@ -210,7 +210,7 @@ function numericQuantityUnits(value: unknown): string[] {
   const found: Array<{ index: number; unit: string }> = [];
   const englishNumber = '(?:\\d+(?:[,.]\\d+)*|zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred|thousand|million|billion)';
   const englishPattern = new RegExp('\\b' + englishNumber +
-    '(?:[\\\\s-]+(?:and[\\\\s-]+)?' + englishNumber + ')*[\\\\s-]+' +
+    '(?:[\\s-]+(?:and[\\s-]+)?' + englishNumber + ')*[\\s-]+' +
     '(inches?|feet|foot|miles?|hours?|minutes?|seconds?|days?|weeks?|months?|years?|degrees?|meters?|metres?|centimeters?|centimetres?|millimeters?|millimetres?|kilometers?|kilometres?|pounds?|kilograms?|ounces?|liters?|litres?|sides?)\\b', 'giu');
   for (const match of source.matchAll(englishPattern)) {
     const unit = QUANTITY_UNIT_CANONICAL[String(match[1] || '').toLocaleLowerCase()];
