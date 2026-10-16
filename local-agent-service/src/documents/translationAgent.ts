@@ -462,6 +462,7 @@ async function executeRun(projectId: string, runId: string): Promise<void> {
           memory: context.memory,
           precedingSegments,
           voiceContext: reviewVoiceContext,
+          reviewFocus: 'accuracy',
           segments: reviewedItems.map((item) => ({
             id: item.id, source: item.text, draft: translations.get(item.id)!,
             kind: item.kind, contextPath: item.contextPath,
@@ -481,6 +482,7 @@ async function executeRun(projectId: string, runId: string): Promise<void> {
           const draft = translations.get(id);
           if (!draft || typeof revised !== 'string' || !revised.trim() || revised === draft) continue;
           store.saveCandidate(projectId, runId, id, revised);
+          translations.set(id, revised);
           revisedCount++;
         }
         for (const finding of review.findings) {
@@ -493,10 +495,64 @@ async function executeRun(projectId: string, runId: string): Promise<void> {
           findingCount: review.findings.length,
           accuracyFindingCount: review.findings.filter((item: any) => item.category === 'accuracy').length,
           terminologyFindingCount: review.findings.filter((item: any) => item.category === 'terminology').length,
-          styleFindingCount: review.findings.filter((item: any) => item.category === 'style').length,
           revisedCount,
           durationMs: Date.now() - reviewStartedAt,
         });
+
+        // A distinct style pass keeps voice, register, rhythm and narrative texture visible
+        // without allowing subjective style preferences to overwrite the factual review.
+        if (store.getRunStatus(projectId, runId) !== 'cancelled') {
+          const styleStartedAt = Date.now();
+          store.appendEvent(projectId, runId, 'stage.started', {
+            stage: 'style-review', batchIndex, label: '人物声音与文风审校',
+          });
+          try {
+            const styleScope = buildDocumentBatchSessionScope({
+              projectId,
+              runId: runId + '-style',
+              promptRevisionId: context.run.promptRevisionId,
+              role: 'review',
+              batchIndex,
+              translationMode: context.run.translationMode,
+              memoryRevisionId: context.memoryRevisionId || 'no-memory',
+            });
+            const styleReview = await runLiteraryReview({
+              chapterTitle: batch[0]?.contextPath || context.project.title,
+              target: context.run.targetLang,
+              provider: context.run.provider,
+              model: context.run.model,
+              memory: context.memory,
+              precedingSegments,
+              voiceContext: reviewVoiceContext,
+              reviewFocus: 'style',
+              segments: reviewedItems.map((item) => ({
+                id: item.id, source: item.text, draft: translations.get(item.id)!,
+                kind: item.kind, contextPath: item.contextPath,
+              })),
+            }, runId + '-style-review-' + batchIndex, styleScope);
+
+            if (store.getRunStatus(projectId, runId) !== 'cancelled') {
+              for (const finding of styleReview.findings) {
+                if (finding.category === 'style') store.saveFinding(projectId, runId, finding.id, finding);
+              }
+              store.appendEvent(projectId, runId, 'stage.completed', {
+                stage: 'style-review', batchIndex,
+                reviewedIds: styleReview.reviewedIds,
+                styleFindingCount: styleReview.findings.filter((item: any) => item.category === 'style').length,
+                proposedStyleTranslations: styleReview.findings.filter((item: any) => item.category === 'style' && item.proposedTranslation).length,
+                durationMs: Date.now() - styleStartedAt,
+              });
+            }
+          } catch (styleError) {
+            if (store.getRunStatus(projectId, runId) !== 'cancelled') {
+              store.appendEvent(projectId, runId, 'stage.warning', {
+                stage: 'style-review', batchIndex,
+                warning: '文风审校失败，已保留准确性审校和初译结果：' +
+                  (styleError instanceof Error ? styleError.message : String(styleError)),
+              });
+            }
+          }
+        }
       } catch (error) {
         // Review is a quality improvement, not a gate on translation progress.
         try {
