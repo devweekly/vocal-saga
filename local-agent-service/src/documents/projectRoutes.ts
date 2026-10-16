@@ -7,6 +7,8 @@ import type { Request, Response } from 'express';
 import { getDocumentProjectStore, MAX_DOCUMENT_SOURCE_BYTES } from './projectStore.ts';
 import { startProjectTranslationRun, isProjectRunActive } from './translationAgent.ts';
 import { sendJson } from '../middleware.ts';
+import { parseDocumentFile } from './ingest.ts';
+import { startContextGraphAnalysis, getContextGraph, reviewContextGraphItem } from './contextGraph.ts';
 
 function bodyObject(value: unknown): Record<string, any> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
@@ -65,8 +67,39 @@ export async function handleDocumentProjectRequest(req: Request, res: Response, 
       sendJson(res, 404, { error: '未知文档项目端点' });
       return true;
     }
-    const projectId = pathParts[3]!;
     const store = getDocumentProjectStore();
+    // Import raw files within the local service. The extension does not parse or split documents.
+    if (pathParts.length === 4 && pathParts[3] === 'import-file' && method === 'POST') {
+      const contentType = String(req.headers['content-type'] || '').split(';')[0]!.trim().toLowerCase();
+      if (!['application/octet-stream', 'application/epub+zip', 'application/pdf', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'text/plain', 'text/markdown', 'text/html'].includes(contentType)) {
+        sendJson(res, 415, { error: '文件导入需要使用 application/octet-stream 或与文件格式匹配的 Content-Type' });
+        return true;
+      }
+      const encodedName = String(req.headers['x-source-file-name'] || '');
+      let fileName = encodedName;
+      try { if (encodedName) fileName = decodeURIComponent(encodedName); }
+      catch { throw Object.assign(new Error('X-Source-File-Name 编码无效'), { status: 400 }); }
+      if (!fileName || fileName.includes('/') || fileName.includes('\\')) throw Object.assign(new Error('X-Source-File-Name 必须是文件名，不得包含路径'), { status: 400 });
+      const bytes = await readRawSourceBody(req, MAX_DOCUMENT_SOURCE_BYTES);
+      const parsed = await parseDocumentFile(fileName, bytes);
+      const encodedTitle = String(req.headers['x-project-title'] || '');
+      let title = parsed.title;
+      try { if (encodedTitle) title = decodeURIComponent(encodedTitle).trim().slice(0, 500) || title; }
+      catch { throw Object.assign(new Error('X-Project-Title 编码无效'), { status: 400 }); }
+      const project = store.createProject({
+        title, format: parsed.format, sourceFileName: fileName, segments: parsed.segments,
+      });
+      try {
+        const sourceFile = await store.storeSourceFile(project.projectId, fileName, bytes);
+        const preprocessing = startContextGraphAnalysis(project.projectId);
+        sendJson(res, 201, { project, sourceFile, preprocessing });
+      } catch (error) {
+        try { store.archiveProject(project.projectId); } catch { /* preserve the original error */ }
+        throw error;
+      }
+      return true;
+    }
+    const projectId = pathParts[3]!;
     // Every nested route, including run resume/accept/cancel, must reject archived projects.
     // The per-process SQLite connection cache must not turn an archived project into a live one.
     if (!store.getProject(projectId)) {
@@ -155,6 +188,23 @@ export async function handleDocumentProjectRequest(req: Request, res: Response, 
         literaryMemory: body.literaryMemory,
       });
       sendJson(res, 201, { prompt, literaryMemory: store.getCurrentLiteraryMemory(projectId) });
+      return true;
+    }
+    if (pathParts.length === 5 && pathParts[4] === 'context-graph' && method === 'GET') {
+      sendJson(res, 200, { contextGraph: getContextGraph(projectId) });
+      return true;
+    }
+    if (pathParts.length === 6 && pathParts[4] === 'context-graph' && pathParts[5] === 'analyze' && method === 'POST') {
+      sendJson(res, 202, { preprocessing: startContextGraphAnalysis(projectId) });
+      return true;
+    }
+    if (pathParts.length === 6 && pathParts[4] === 'context-graph' && pathParts[5] === 'review' && method === 'POST') {
+      const body = bodyObject(req.body);
+      if (!['node', 'edge'].includes(body.type) || typeof body.id !== 'string' ||
+          !['candidate', 'confirmed', 'rejected'].includes(body.status)) {
+        throw Object.assign(new Error('review 需要 type=node|edge、id 和 status=candidate|confirmed|rejected'), { status: 400 });
+      }
+      sendJson(res, 200, { review: reviewContextGraphItem(projectId, body.type, body.id, body.status) });
       return true;
     }
     if (pathParts.length === 5 && pathParts[4] === 'literary-memory' && method === 'GET') {
