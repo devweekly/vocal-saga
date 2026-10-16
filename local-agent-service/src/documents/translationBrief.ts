@@ -46,6 +46,37 @@ function sourceQuoteMatches(source: unknown, quote: unknown): boolean {
   return quoteText.length >= 8 && sourceText.includes(quoteText);
 }
 
+const firstSourceOccurrenceCache = new Map<string, number>();
+
+function firstMatchingSourceOrdinal(
+  db: any,
+  revisionId: string,
+  termInput: unknown,
+  kind: 'name' | 'quote',
+): number {
+  const term = String(termInput || '').trim();
+  const normalizedTerm = normalizedSourceText(term);
+  if (!normalizedTerm || (kind === 'quote' && normalizedTerm.length < 8)) return Number.POSITIVE_INFINITY;
+  const cacheKey = revisionId + '\u0000' + kind + '\u0000' + normalizedTerm;
+  const cached = firstSourceOccurrenceCache.get(cacheKey);
+  if (cached !== undefined) return cached;
+  const rows = db.prepare(
+    'SELECT ordinal, text FROM source_segments WHERE source_revision_id = ? ' +
+      'AND instr(lower(text), lower(?)) > 0 ORDER BY ordinal'
+  ).all(revisionId, term) as Array<{ ordinal: number; text: string }>;
+  const match = rows.find((row) => kind === 'quote'
+    ? sourceQuoteMatches(row.text, term)
+    : sourceNameMatches(row.text, term));
+  const ordinal = match ? Number(match.ordinal) : Number.POSITIVE_INFINITY;
+  firstSourceOccurrenceCache.set(cacheKey, ordinal);
+  while (firstSourceOccurrenceCache.size > 5000) {
+    const oldest = firstSourceOccurrenceCache.keys().next().value;
+    if (oldest) firstSourceOccurrenceCache.delete(oldest);
+    else break;
+  }
+  return ordinal;
+}
+
 function sourceNameMatches(source: unknown, nameInput: unknown): boolean {
   const sourceText = normalizedSourceText(source);
   const name = normalizedSourceText(nameInput);
@@ -132,31 +163,10 @@ function buildTemporallyVisibleMemory(
     const source = typeof id === 'string' ? sourceById.get(id) : undefined;
     return !!source && Number.isFinite(source.ordinal) && source.ordinal < firstOrdinal;
   };
-  const nameCache = new Map<string, boolean>();
-  const appearedBefore = (nameInput: unknown): boolean => {
-    const name = String(nameInput || '').trim();
-    const key = normalizedSourceText(name);
-    if (!key) return false;
-    const cached = nameCache.get(key);
-    if (cached !== undefined) return cached;
-    // SQL narrows the scan; JS enforces whole-name matching for Latin names.
-    const candidates = projectContext.db.prepare(
-      'SELECT text FROM source_segments WHERE source_revision_id = ? AND ordinal < ? ' +
-      'AND instr(lower(text), lower(?)) > 0 ORDER BY ordinal LIMIT 100'
-    ).all(revisionId, firstOrdinal, name) as Array<{ text: string }>;
-    const matched = candidates.some((row) => sourceNameMatches(row.text, name));
-    nameCache.set(key, matched);
-    return matched;
-  };
-  const appearsAsEarlierEvidence = (quoteInput: unknown): boolean => {
-    const quote = String(quoteInput || '').trim();
-    if (normalizedSourceText(quote).length < 8) return false;
-    const candidates = projectContext.db.prepare(
-      'SELECT text FROM source_segments WHERE source_revision_id = ? AND ordinal < ? ' +
-      'AND instr(lower(text), lower(?)) > 0 ORDER BY ordinal LIMIT 100'
-    ).all(revisionId, firstOrdinal, quote) as Array<{ text: string }>;
-    return candidates.some((row) => sourceQuoteMatches(row.text, quote));
-  };
+  const appearedBefore = (nameInput: unknown): boolean =>
+    firstMatchingSourceOrdinal(projectContext.db, revisionId, nameInput, 'name') < firstOrdinal;
+  const appearsAsEarlierEvidence = (quoteInput: unknown): boolean =>
+    firstMatchingSourceOrdinal(projectContext.db, revisionId, quoteInput, 'quote') < firstOrdinal;
 
   rawMemory.entities = (Array.isArray(rawMemory.entities) ? rawMemory.entities : []).flatMap((entity: any) => {
     if (!entity || !appearedBefore(entity.source) || !appearsAsEarlierEvidence(entity.evidence)) return [];
