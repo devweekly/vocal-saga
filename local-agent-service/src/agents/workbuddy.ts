@@ -59,16 +59,13 @@ async function queryWorkbuddyRaw(
   prompt: string,
   systemPrompt: string,
   options: Record<string, any>,
-  requestId = 'unknown',
+  _requestId = 'unknown',
 ): Promise<{ text: string; structuredOutput: unknown }> {
   const sdk = await import('@tencent-ai/agent-sdk');
   const combinedPrompt = buildCombinedPrompt(prompt, systemPrompt);
   const query = sdk.query({ prompt: combinedPrompt, options });
-  const startedAt = Date.now();
   let text = '';
   let structuredOutput: unknown;
-  // 首个正文 token 到达时间：区分 CLI 启动/初始化（ttft 之前）与模型生成（ttft 之后）。
-  let firstTextAt = 0;
   let timedOut = false;
   const timer = setTimeout(() => {
     timedOut = true;
@@ -81,7 +78,6 @@ async function queryWorkbuddyRaw(
       if (raw.type === 'assistant' && raw.message && Array.isArray(raw.message.content)) {
         for (const part of raw.message.content) {
           if (part?.type === 'text' && typeof part.text === 'string' && part.text.trim()) {
-            if (!firstTextAt) firstTextAt = Date.now();
             text += (text ? '\n' : '') + part.text;
           }
         }
