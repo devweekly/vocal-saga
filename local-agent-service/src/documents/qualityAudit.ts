@@ -527,6 +527,7 @@ export function createProjectQualityEvaluation(projectId: string, beforeRunId: s
         repeatedExpressionWarningsDecreased: delta.repeatedExpressionDriftGroups < 0,
         coverageIncreased: delta.coveragePercent > 0,
       },
+      runDisclosure: null as null | { beforeRunId: string; afterRunId: string },
     },
     blindReview: {
       status: 'pending',
