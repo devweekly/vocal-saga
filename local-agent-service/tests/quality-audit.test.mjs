@@ -135,8 +135,6 @@ test('paired-run evaluation withholds A/B mapping until every sampled segment ha
   assert.equal(persisted.blindReview.status, 'completed');
   assert.equal(persisted.beforeRunId, before.runId);
   assert.equal(persisted.afterRunId, after.runId);
-});
-
 
   const identical = createRunWithTranslations([
     ['eval-1', '玛丽·沃斯进入了档案室。'],
@@ -153,4 +151,5 @@ test('paired-run evaluation withholds A/B mapping until every sampled segment ha
     ]),
     /不处于待盲评状态/,
   );
+});
 
