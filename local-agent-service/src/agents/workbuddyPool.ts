@@ -191,11 +191,8 @@ export class WorkbuddySessionPool {
     const slot = this.slots[index];
     const session = slot.session;
     if (!session) throw new Error('会话槽位没有可用会话');
-    const startedAt = Date.now();
     let text = '';
     let structuredOutput: unknown;
-    // 首个正文 token 到达时间：之前是排队+模型首 token，之后是生成。
-    let firstTextAt = 0;
     let timedOut = false;
     const timer = setTimeout(() => {
       timedOut = true;
@@ -209,7 +206,6 @@ export class WorkbuddySessionPool {
         if (raw.type === 'assistant' && raw.message && Array.isArray(raw.message.content)) {
           for (const part of raw.message.content) {
             if (part?.type === 'text' && typeof part.text === 'string' && part.text.trim()) {
-              if (!firstTextAt) firstTextAt = Date.now();
               text += (text ? '\n' : '') + part.text;
             }
           }
