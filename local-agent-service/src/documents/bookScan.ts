@@ -133,7 +133,7 @@ function getChapters(segments: BookScanSegment[]): BookScanChapter[] {
 
 export function isDialogueSegment(segment: Pick<BookScanSegment, 'text'>): boolean {
   const text = segment.text || '';
-  const quoteCount = (text.match(/[“”"'‘’「」『』]/g) || []).length;
+  const quoteCount = (text.match(/[“”"]/g) || []).length;
   const emDashDialogue = /(?:^|\s)[—–]\s*\p{Lu}/u.test(text);
   return quoteCount >= 2 || emDashDialogue || SPEECH_VERBS.test(text);
 }
@@ -216,7 +216,7 @@ function collectRepeatedPhrases(segments: BookScanSegment[]): RepeatedPhraseCand
     // Extract quoted English dialogue separately so identical lines remain comparable when
     // punctuation or speaker attribution differs between occurrences.
     for (const sentence of [...sentences, ...quotedPhrases]) {
-      const text = sentence.trim().replace(/^[“”"'‘’「」『』\s]+|[“”"'‘’「」『』\s]+$/g, '');
+      const text = sentence.trim().replace(/^[“”"'‘’\s]+|[“”"'‘’\s]+$/g, '');
       const normalized = normalizePhrase(text);
       const wordCount = normalized.split(' ').filter(Boolean).length;
       if (normalized.length < 12 || wordCount < 3) continue;
@@ -322,7 +322,7 @@ export function planBookSamples(
     const dialogueByChapter = new Map<string, Array<{ segment: BookScanSegment; score: number }>>();
     for (const segment of segments) {
       if (!isDialogueSegment(segment)) continue;
-      const quoteCount = (segment.text.match(/[“”"'‘’「」『』]/g) || []).length;
+      const quoteCount = (segment.text.match(/[“”"]/g) || []).length;
       const score = Math.min(10, quoteCount) +
         (SPEECH_VERBS.test(segment.text) ? 2 : 0) +
         (/(?:^|\s)[—–]\s*\p{Lu}/u.test(segment.text) ? 2 : 0);
