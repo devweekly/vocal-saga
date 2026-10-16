@@ -46,7 +46,10 @@ const ANALYSIS_SCHEMA: Record<string, unknown> = {
 
 const activeAnalyses = new Set<string>();
 
+const initializedDbs = new WeakSet<DatabaseSync>();
+
 function ensureSchema(db: DatabaseSync): void {
+  if (initializedDbs.has(db)) return;
   db.exec(
     'CREATE TABLE IF NOT EXISTS context_graph_meta (' +
       'source_revision_id TEXT NOT NULL, key TEXT NOT NULL, value TEXT NOT NULL, updated_at TEXT NOT NULL, ' +
@@ -74,6 +77,7 @@ function ensureSchema(db: DatabaseSync): void {
       'progress_json TEXT NOT NULL, started_at TEXT NOT NULL, finished_at TEXT, error TEXT);' +
     'CREATE INDEX IF NOT EXISTS idx_context_runs_started ON context_graph_runs(started_at DESC);'
   );
+  initializedDbs.add(db);
 }
 
 function normalize(value: unknown): string {
