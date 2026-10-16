@@ -112,6 +112,21 @@ test('parses DOCX paragraphs without a browser-side parser', async () => {
   assert.match(result.segments[1].text, /Alice read/);
 });
 
+test('preserves HTML headings and creates virtual sections for headingless text', async () => {
+  const html = Buffer.from(
+    '<html><head><title>HTML Story</title></head><body><h1>Chapter One</h1><p>Alice met Bob.</p><h1>Chapter Two</h1><p>They left together.</p></body></html>',
+    'utf8',
+  );
+  const htmlResult = await parseDocumentFile('story.html', html);
+  assert.ok(htmlResult.segments.some((segment) => segment.kind === 'heading' && segment.text === 'Chapter One'));
+  assert.ok(htmlResult.segments.some((segment) => segment.contextPath === 'Chapter Two'));
+
+  const plainText = Buffer.from(Array.from({ length: 45 }, (_, index) => 'Paragraph ' + index + ' describes a quiet conversation.').join('\n\n'), 'utf8');
+  const textResult = await parseDocumentFile('unstructured.txt', plainText);
+  assert.ok(new Set(textResult.segments.map((segment) => segment.contextPath)).size > 1);
+  assert.ok(textResult.segments.some((segment) => segment.contextPath === '自动分段 02'));
+});
+
 test('splits oversized paragraphs even when the text has no blank-line boundaries', async () => {
   const source = Buffer.from('Alice spoke to Bob. '.repeat(300), 'utf8');
   const result = await parseDocumentFile('long.txt', source);
