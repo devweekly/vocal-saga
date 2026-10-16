@@ -150,7 +150,7 @@ export function sanitizeProjectLiteraryMemory(input: unknown): Record<string, an
       if (!ev || typeof ev !== 'object' || Array.isArray(ev)) return [];
       const segmentId = text(ev.segmentId, 160); const sourceQuote = text(ev.sourceQuote, 240);
       const observation = text(ev.observation, 240); const dimension = text(ev.dimension, 32);
-      if (!segmentId || !sourceQuote || !observation || !['register','syntax_rhythm','lexicon','discourse','stance','humor_irony','disfluency','relationship'].includes(dimension)) return [];
+      if (!segmentId || !sourceQuote || !observation || !['register','syntax_rhythm','lexicon','discourse','stance','humor_irony','disfluency','relationship','role_traits'].includes(dimension)) return [];
       const confidence = Number(ev.confidence);
       return [{ segmentId, sourceQuote, observation, dimension, confidence: Number.isFinite(confidence) ? Math.max(0, Math.min(1, confidence)) : 0.4 }];
     }) : [];
