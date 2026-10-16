@@ -624,18 +624,64 @@ export class DocumentProjectStore {
     return (db.prepare('SELECT * FROM prompt_revisions ORDER BY created_at DESC').all() as any[]).map((row) => this.publicPrompt(row));
   }
 
-  private makeRunFingerprint(promptRow: any, config: any, literaryMemoryFingerprint: string | null): string {
+  /**
+   * Hash the exact graph state used by literary retrieval. A graph update must invalidate
+   * accepted output just like a Prompt or voice-memory revision. Older project DBs may not
+   * have Context Graph tables yet; those remain valid projects without an artificial failure.
+   */
+  private contextGraphFingerprint(projectId: string, sourceRevisionId: string): string | null {
+    const db = this.openProjectDb(projectId);
+    const exists = db.prepare(
+      "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'context_graph_nodes'"
+    ).get();
+    if (!exists) return null;
+    const meta = db.prepare(
+      'SELECT key, value FROM context_graph_meta WHERE source_revision_id = ? ORDER BY key'
+    ).all(sourceRevisionId) as any[];
+    const nodes = db.prepare(
+      'SELECT node_id, kind, status, attributes_json FROM context_graph_nodes WHERE source_revision_id = ? ORDER BY node_id'
+    ).all(sourceRevisionId) as any[];
+    const edges = db.prepare(
+      'SELECT edge_id, source_node_id, target_node_id, kind, status, attributes_json FROM context_graph_edges WHERE source_revision_id = ? ORDER BY edge_id'
+    ).all(sourceRevisionId) as any[];
+    const evidence = db.prepare(
+      'SELECT node_id, edge_id, segment_id, quote, role FROM context_graph_evidence WHERE source_revision_id = ? ORDER BY evidence_id'
+    ).all(sourceRevisionId) as any[];
+    const chapters = db.prepare(
+      'SELECT chapter_key, summary, summary_kind FROM context_graph_chapters WHERE source_revision_id = ? ORDER BY chapter_order, chapter_key'
+    ).all(sourceRevisionId) as any[];
+    return hash(JSON.stringify({ meta, nodes, edges, evidence, chapters }));
+  }
+
+  private contextGraphIsRunning(projectId: string, sourceRevisionId: string): string | null {
+    const db = this.openProjectDb(projectId);
+    const exists = db.prepare(
+      "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'context_graph_runs'"
+    ).get();
+    if (!exists) return null;
+    const row = db.prepare(
+      "SELECT run_id FROM context_graph_runs WHERE source_revision_id = ? AND status IN ('queued','running') ORDER BY started_at DESC LIMIT 1"
+    ).get(sourceRevisionId) as { run_id?: string } | undefined;
+    return row?.run_id || null;
+  }
+
+  private makeRunFingerprint(
+    projectId: string, sourceRevisionId: string, promptRow: any,
+    config: any, literaryMemoryFingerprint: string | null,
+  ): string {
     return hash(JSON.stringify({
       promptFingerprint: promptRow.fingerprint,
       // 人物声音/关系/锚点变化必须让文学批次变 stale，但不应虚增一个静态 Prompt revision。
       literaryMemoryFingerprint: config.translationMode === 'literary' ? literaryMemoryFingerprint : null,
+      contextGraphFingerprint: config.translationMode === 'literary'
+        ? this.contextGraphFingerprint(projectId, sourceRevisionId) : null,
       sourceLang: config.sourceLang || 'auto',
       targetLang: config.targetLang || 'zh',
       provider: config.provider || 'workbuddy',
       model: config.model || 'auto',
       translationMode: config.translationMode || 'technical',
       literaryReview: Boolean(config.literaryReview),
-      pipelineVersion: 'document-agent-v2-voice',
+      pipelineVersion: 'document-agent-v3-context-graph',
     }));
   }
 
@@ -673,7 +719,13 @@ export class DocumentProjectStore {
     const failedIds = new Set(failedRows.map((row) => row.segment_id));
     const idSet = new Set((scope.ids || []).map(String));
     const chapter = (scope.chapter || '').trim();
-    const runFingerprint = this.makeRunFingerprint(promptRow, config, currentMemory.fingerprint || null);
+    const graphRunId = config.translationMode === 'literary'
+      ? this.contextGraphIsRunning(projectId, sourceRevisionId)
+      : null;
+    if (graphRunId) {
+      throw Object.assign(new Error('本书的 Context Graph 预处理仍在运行（' + graphRunId + '），请等待完成后再启动翻译。'), { status: 409 });
+    }
+    const runFingerprint = this.makeRunFingerprint(projectId, sourceRevisionId, promptRow, config, currentMemory.fingerprint || null);
     const selected = currentSegments.filter((segment) => {
       if (scopeType === 'all') return true;
       if (scopeType === 'ids') return idSet.has(segment.segment_id);
@@ -1103,7 +1155,7 @@ export class DocumentProjectStore {
     const latestPrompt = db.prepare('SELECT * FROM prompt_revisions ORDER BY created_at DESC LIMIT 1').get() as any;
     const currentMemory = this.getCurrentLiteraryMemory(projectId);
     const currentFingerprint = latestPrompt
-      ? this.makeRunFingerprint(latestPrompt, parseJson<any>(latestPrompt.config_json, {}), currentMemory.fingerprint || null)
+      ? this.makeRunFingerprint(projectId, currentSourceRevisionId, latestPrompt, parseJson<any>(latestPrompt.config_json, {}), currentMemory.fingerprint || null)
       : '';
     const missing: string[] = [];
     const stale: string[] = [];
