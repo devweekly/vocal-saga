@@ -847,7 +847,7 @@ export class DocumentProjectStore {
     return row?.report_json ? parseJson(row.report_json, null) : null;
   }
 
-  saveQualityEvaluation(projectId: string, report: Record<string, any>, blindMapping: Record<string, string>, blindReviews: unknown[] = []): void {
+  saveQualityEvaluation(projectId: string, report: Record<string, any>, blindMapping: Record<string, unknown>, blindReviews: unknown[] = []): void {
     const db = this.openProjectDb(projectId);
     const now = isoNow();
     db.prepare(
