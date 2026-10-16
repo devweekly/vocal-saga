@@ -101,6 +101,25 @@ Before each literary translation batch, retrieval matches names and aliases in t
 
 This is a separate opt-in ingestion path and does not alter `fanyi-extension`. To use it end to end, import a book through `npm run doc -- import-file` or the service API, inspect/review the graph, then start translation. The existing extension reader flow continues to work as before.
 
+### Literary quality baseline (M0) and adaptive book scan (M1)
+
+The local-agent service includes a small synthetic regression corpus at `tests/fixtures/fiction-quality-baseline.json`. It targets repeatable failure classes: missing segments, name/alias drift, inconsistent repeated dialogue, and a later-chapter revelation leaking into earlier translation. It also defines character-voice pairs for manual blind review; automatic text checks do not claim to score literary voice.
+
+```bash
+cd local-agent-service
+npm test
+npm run quality:fiction-baseline
+# Compare an exported/collected candidate JSON file with the intentional failure-control baseline:
+node scripts/evaluate-fiction-quality-baseline.mjs ./candidate-translations.json
+```
+
+The evaluator accepts a `translations` array (each item has `id` and `translated_text`), or an ID-to-text object. It reports coverage, annotated name/term checks, repeated-expression consistency, pre-reveal spoiler checks, and a weighted comparison score. The fixture's baseline translations intentionally contain defects and its improved example is a known-good control for the deterministic checks. **These are synthetic controls, not a quality measurement of any particular provider/model or a real novel.** Real-world effectiveness still needs the same source sample translated with the actual local configuration and reviewed blind.
+
+Before model analysis, `bookScan.ts` deterministically scans all source segments for chapter distribution, dialogue signals, repeated sentences/phrases, and capitalization-based name candidates. For longer documents it samples beginning/middle/end, distributed chapter positions, early/middle/late mentions of recurring candidate names, repeated phrases and dialogue-dense segments, with a maximum of 72 samples (850 source characters per sample). Short documents within the limit are sampled in full. Each selected segment carries sampling reasons in the persisted Context Graph run progress, and graph evidence now includes its source segment ordinal and chapter path.
+
+The lexical name scan is a heuristic, not multilingual NER: it is more useful for Latin-script title-case names than for languages without capitalization. Candidates and counts never become graph facts by themselves. The model must cite a verbatim quote from one of the sampled source segments, and the service validates that quote before persistence. The source remains the evidence authority.
+
+
 ### API
 
 All project endpoints live below /api/documents/projects and use the existing Local Agent Token, loopback Host checks and extension-origin CORS rules:
