@@ -1,8 +1,8 @@
 /**
  * Deterministic, dependency-free book scan for literary pre-analysis.
  *
- * This is a sampling planner, not an NER system. Capitalization-based and Intl.Segmenter-based
- * word candidates are lexical hints; model conclusions still require quotes from an actually sampled source segment.
+ * This is a sampling planner, not an NER system. English capitalization/name patterns are lexical
+ * hints; model conclusions still require quotes from an actually sampled source segment.
  * SQLite source segment IDs remain the canonical evidence pointers.
  */
 
@@ -95,24 +95,8 @@ const NAME_STOP_WORDS = new Set([
   'warden', 'archivist',
 ]);
 
-const CJK_STOP_WORDS = new Set([
-  'それ', 'これ', 'あれ', 'ここ', 'そこ', 'どこ', 'だれ', '誰', '何', '私', '僕', '俺',
-  '彼', '彼女', 'あなた', '自分', 'みんな', 'こと', 'もの', 'ため', 'よう', 'そう',
-  'いる', 'ある', 'なる', 'する', 'した', 'して', 'です', 'ます', 'だった', 'ない',
-  'しかし', 'そして', 'つまり', 'ところ', 'あと', '今', '時', '人', '日', '月', '年', 'くだ', 'さい', '言っ', 'もう一度', 'お願い', 'ください', 'ものの', 'など',
-  'さん', 'ちゃん', 'くん', '君', '様', '先生', '博士', '隊長', '閣下',
-  '这个', '那个', '这些', '那些', '什么', '怎么', '为什么', '我们', '你们', '他们', '她们',
-  '自己', '因为', '所以', '但是', '如果', '然后', '已经', '没有', '不是', '可以', '说道', '不要', '熄灭', '再次', '重复', '低声',
-  '觉得', '知道', '看到', '看着', '听到', '时候', '现在', '这里', '那里', '东西', '一个',
-  '西边', '东边', '灯光',
-]);
-
 const SPEECH_VERBS = /\b(said|asked|replied|answered|whispered|shouted|murmured|called|cried|snapped|remarked|wondered|added|insisted|began|continued|laughed|sighed)\b/i;
 const NAME_PATTERN = /\b\p{Lu}\p{Ll}{2,}(?:[’'-]\p{Lu}?\p{Ll}+)*\b/gu;
-const HAS_CJK_SCRIPT = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}]/u;
-const HAS_JAPANESE_KANA = /[\p{Script=Hiragana}\p{Script=Katakana}]/u;
-const JAPANESE_SEGMENTER = new Intl.Segmenter('ja', { granularity: 'word' });
-const CHINESE_SEGMENTER = new Intl.Segmenter('zh', { granularity: 'word' });
 
 function normalizeText(value: string): string {
   return value.normalize('NFKC').toLocaleLowerCase().replace(/\s+/g, ' ').trim();
@@ -163,19 +147,6 @@ function collectNameCandidates(segments: BookScanSegment[]): BookNameCandidate[]
       const key = normalizeText(name);
       if (!key || key.length < 3 || NAME_STOP_WORDS.has(key) || uniqueInSegment.has(key)) continue;
       uniqueInSegment.set(key, name);
-    }
-    // ICU word segmentation provides a low-cost CJK fallback where capitalization cannot signal
-    // names. Its terms remain hypotheses and are ranked by document/chapter/dialogue spread.
-    if (HAS_CJK_SCRIPT.test(segment.text)) {
-      const segmenter = HAS_JAPANESE_KANA.test(segment.text) ? JAPANESE_SEGMENTER : CHINESE_SEGMENTER;
-      for (const token of segmenter.segment(segment.text)) {
-        const name = token.segment.trim();
-        const key = normalizeText(name);
-        const length = Array.from(name).length;
-        if (!token.isWordLike || length < 2 || length > 6 || !HAS_CJK_SCRIPT.test(name) ||
-            CJK_STOP_WORDS.has(key) || uniqueInSegment.has(key)) continue;
-        uniqueInSegment.set(key, name);
-      }
     }
     for (const [key, name] of uniqueInSegment) {
       const existing = occurrenceMap.get(key) || [];
@@ -237,21 +208,18 @@ function collectNameCandidates(segments: BookScanSegment[]): BookNameCandidate[]
 function collectRepeatedPhrases(segments: BookScanSegment[]): RepeatedPhraseCandidate[] {
   const seen = new Map<string, { text: string; segmentIds: string[]; chapterKeys: string[] }>();
   for (const segment of segments) {
-    const sentences = segment.text.match(/[^.!?。！？\n]+[.!?。！？]?/gu) || [];
+    const sentences = segment.text.match(/[^.!?\n]+[.!?]?/gu) || [];
     const quotedPhrases = Array.from(
-      segment.text.matchAll(/[“"「『]([^”"」』]{8,})[”"」』]/gu),
+      segment.text.matchAll(/[“"]([^”"]{8,})[”"]/gu),
       (match) => match[1] || '',
     );
-    // Extract quote contents separately: punctuation inside CJK quotation marks often means a
-    // repeated line is not a standalone sentence in the surrounding narration.
+    // Extract quoted English dialogue separately so identical lines remain comparable when
+    // punctuation or speaker attribution differs between occurrences.
     for (const sentence of [...sentences, ...quotedPhrases]) {
       const text = sentence.trim().replace(/^[“”"'‘’「」『』\s]+|[“”"'‘’「」『』\s]+$/g, '');
       const normalized = normalizePhrase(text);
-      const cjkPhrase = HAS_CJK_SCRIPT.test(text);
-      const normalizedLength = Array.from(normalized).length;
-      if (cjkPhrase
-        ? normalizedLength < 8
-        : normalizedLength < 24 || normalized.split(' ').filter(Boolean).length < 4) continue;
+      const wordCount = normalized.split(' ').filter(Boolean).length;
+      if (normalized.length < 12 || wordCount < 3) continue;
       const current = seen.get(normalized) || { text: text.slice(0, 180), segmentIds: [], chapterKeys: [] };
       if (!current.segmentIds.includes(segment.id)) current.segmentIds.push(segment.id);
       const key = chapterTitle(segment);
