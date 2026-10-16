@@ -1,7 +1,7 @@
 ---
 name: fiction-translation
 description: Evidence-based literary translation with stable character voices, directional relationship speech rules, approved original-translation anchors, and independent reviewer checks.
-version: 2
+version: 3
 ---
 
 # Fiction Translation Workflow
@@ -11,12 +11,13 @@ Use this skill only for literary documents (novels, stories, memoir, dialogue-he
 ## Required order
 
 1. **Read source structure.** Keep each stable segment ID, source text, chapter path, and page/layout markers. Never put book memory into `contextPath`; that field is source-document structure only.
-2. **Load the immutable memory snapshot.** A run pins a `literary_memory_revision_id`. Use its confirmed entity mappings, confirmed character profiles, confirmed directional relationship rules, and approved voice anchors as read-only data.
-3. **Translate the batch.** Select a compact, batch-relevant `voiceContext`, including the matching chapter summary and up to two preceding summaries only when the current chapter can be identified reliably. If chapter names do not align, omit chapter summaries rather than risk leaking unrelated or later plot events. Do not send the entire novel, entire memory, or all voice anchors for every batch. Never infer a speaker merely because a name appears nearby. Current source segments always outrank summaries; summaries must not add facts to the translation.
-4. **Validate the result.** Preserve one output per input ID, order/segment boundaries, negation, tense, viewpoint, referents, ambiguity, and plot facts. Do not add catchphrases, dialect, swearing, emotions, metaphors, or facts absent from the source merely to make a character sound distinctive.
-5. **Review separately.** Check meaning/plot accuracy, terminology, narrative style, and character voice. Character-voice findings should cite the exact source/draft evidence and the relevant confirmed profile or directional relationship rule. If speaker/addressee attribution is uncertain, report the uncertainty instead of forcing a profile.
-6. **Gate changes.** Accuracy and terminology findings may follow the existing must-fix workflow. Style and character-voice revisions remain candidate proposals until explicitly accepted. Model output cannot mark a profile or anchor as user-approved.
-7. **Persist evidence and outcome.** Save candidates, findings, source/Prompt/memory revision IDs, run events, and explicit user acceptance in the document project. Do not overwrite a confirmed profile or approved anchor when new chapter analysis disagrees.
+2. **Scan the whole book before selecting deep-read samples.** Use the local deterministic scan for chapter coverage, dialogue signals, repeated phrases, and name candidates; sample beginning/middle/end and representative chapters, then use candidate mentions to add early/middle/late evidence for recurring characters. Treat lexical candidates as sampling hints, not entity truth. The planner's sampling reasons and source positions must remain inspectable.
+3. **Load the immutable memory snapshot.** A run pins a `literary_memory_revision_id`. Use its confirmed entity mappings, confirmed character profiles, confirmed directional relationship rules, and approved voice anchors as read-only data.
+4. **Translate the batch.** Select a compact, batch-relevant `voiceContext`, including the matching chapter summary and up to two preceding summaries only when the current chapter can be identified reliably. If chapter names do not align, omit chapter summaries rather than risk leaking unrelated or later plot events. Do not send the entire novel, entire memory, or all voice anchors for every batch. Never infer a speaker merely because a name appears nearby. Current source segments always outrank summaries; summaries must not add facts to the translation.
+5. **Validate the result.** Preserve one output per input ID, order/segment boundaries, negation, tense, viewpoint, referents, ambiguity, and plot facts. Do not add catchphrases, dialect, swearing, emotions, metaphors, or facts absent from the source merely to make a character sound distinctive.
+6. **Review separately.** Check meaning/plot accuracy, terminology, narrative style, and character voice. Character-voice findings should cite the exact source/draft evidence and the relevant confirmed profile or directional relationship rule. If speaker/addressee attribution is uncertain, report the uncertainty instead of forcing a profile.
+7. **Gate changes.** Accuracy and terminology findings may follow the existing must-fix workflow. Style and character-voice revisions remain candidate proposals until explicitly accepted. Model output cannot mark a profile or anchor as user-approved.
+8. **Persist evidence and outcome.** Save candidates, findings, source/Prompt/memory revision IDs, run events, and explicit user acceptance in the document project. Do not overwrite a confirmed profile or approved anchor when new chapter analysis disagrees.
 
 ## Memory contract
 
