@@ -263,8 +263,78 @@ async function translateBatch(context: any, items: TranslationItem[], requestId:
     batchIndex,
     translationMode: context.run.translationMode,
   });
-  const value = await runAgentStructured(agent, userPrompt, systemPrompt, TRANSLATION_SCHEMA, requestId, sessionScope);
-  return parseTranslations(value, new Set(items.map((item) => item.id)));
+
+  const store = getDocumentProjectStore();
+  const memory = context.memory && typeof context.memory === 'object' ? context.memory as Record<string, any> : {};
+  const voiceContext = context.run.translationMode === 'literary'
+    ? buildProjectVoiceContext(
+        context.memory,
+        items.map((item) => ({ id: item.id, text: item.text, contextPath: item.contextPath })),
+        items[0]?.contextPath || context.project.title,
+        precedingSegments,
+      )
+    : undefined;
+  const count = (value: unknown) => Array.isArray(value) ? value.length : 0;
+  const requestStartedAt = Date.now();
+  // 只记录本批实际请求的上下文规模，不记录小说原文、完整 Prompt 或译文。
+  store.appendEvent(context.project.projectId, context.run.runId, 'batch.prompt.ready', {
+    stage: 'translate',
+    batchIndex,
+    requestId,
+    provider: agent.provider,
+    model: agent.model || '<runtime-default>',
+    translationMode: context.run.translationMode,
+    sourceLang: context.run.sourceLang,
+    targetLang: context.run.targetLang,
+    promptRevisionId: context.run.promptRevisionId,
+    sessionScope,
+    segmentCount: items.length,
+    sourceChars: items.reduce((sum, item) => sum + item.text.length, 0),
+    segmentIds: items.map((item) => item.id).slice(0, 12),
+    precedingSegmentCount: precedingSegments.length,
+    userPromptChars: userPrompt.length,
+    systemPromptChars: systemPrompt.length,
+    glossaryTerms: count(context.prompt.config?.glossary?.document_terms),
+    memoryEntities: count(memory.entities),
+    memoryRelationships: count(memory.relationships),
+    memoryChapterSummaries: count(memory.chapterSummaries),
+    memoryCharacterVoices: count(memory.characterVoices),
+    memoryRelationshipVoiceRules: count(memory.relationshipVoiceRules),
+    memoryVoiceAnchors: count(memory.voiceAnchors),
+    voiceContextIncluded: !!voiceContext,
+    injectedEntities: count(voiceContext?.entities),
+    injectedRelationships: count(voiceContext?.relationships),
+    injectedChapterSummaries: count(voiceContext?.chapterSummaries),
+    injectedCharacterVoices: count(voiceContext?.characterVoices),
+    injectedRelationshipVoiceRules: count(voiceContext?.relationshipVoiceRules),
+    injectedVoiceAnchors: count(voiceContext?.voiceAnchors),
+    contextPolicyVersion: typeof voiceContext?.policyVersion === 'string' ? voiceContext.policyVersion : undefined,
+  });
+
+  let value: unknown;
+  try {
+    value = await runAgentStructured(agent, userPrompt, systemPrompt, TRANSLATION_SCHEMA, requestId, sessionScope);
+  } catch (error) {
+    store.appendEvent(context.project.projectId, context.run.runId, 'model.call.failed', {
+      stage: 'translate', batchIndex, requestId,
+      provider: agent.provider, model: agent.model || '<runtime-default>',
+      durationMs: Date.now() - requestStartedAt,
+      error: (error instanceof Error ? error.message : String(error)).slice(0, 500),
+    });
+    throw error;
+  }
+  const translations = parseTranslations(value, new Set(items.map((item) => item.id)));
+  const missingIds = items.filter((item) => !translations.has(item.id)).map((item) => item.id);
+  store.appendEvent(context.project.projectId, context.run.runId, 'batch.model.response', {
+    stage: 'translate', batchIndex, requestId,
+    provider: agent.provider, model: agent.model || '<runtime-default>',
+    durationMs: Date.now() - requestStartedAt,
+    requestedSegments: items.length,
+    returnedSegments: translations.size,
+    missingIds: missingIds.slice(0, 12),
+    missingCount: missingIds.length,
+  });
+  return translations;
 }
 
 async function executeRun(projectId: string, runId: string): Promise<void> {
@@ -301,6 +371,31 @@ async function executeRun(projectId: string, runId: string): Promise<void> {
       poolSize,
       sessionStrategy: 'independent-per-batch',
     });
+    const memory = context.memory && typeof context.memory === 'object' ? context.memory as Record<string, any> : {};
+    const glossaryTerms = Array.isArray(context.prompt.config?.glossary?.document_terms)
+      ? context.prompt.config.glossary.document_terms.length : 0;
+    store.appendEvent(projectId, runId, 'run.context.ready', {
+      provider: context.run.provider,
+      model: context.run.model,
+      translationMode: context.run.translationMode,
+      sourceLang: context.run.sourceLang,
+      targetLang: context.run.targetLang,
+      reviewEnabled,
+      promptRevisionId: context.run.promptRevisionId,
+      memoryRevisionId: context.memoryRevisionId || null,
+      systemPromptChars: typeof context.prompt.systemPrompt === 'string' ? context.prompt.systemPrompt.length : 0,
+      userPromptTemplateChars: typeof context.prompt.userPromptTemplate === 'string' ? context.prompt.userPromptTemplate.length : 0,
+      glossaryTerms,
+      memoryEntities: Array.isArray(memory.entities) ? memory.entities.length : 0,
+      confirmedEntities: Array.isArray(memory.entities) ? memory.entities.filter((item: any) => item?.reviewStatus === 'confirmed').length : 0,
+      memoryRelationships: Array.isArray(memory.relationships) ? memory.relationships.length : 0,
+      chapterSummaries: Array.isArray(memory.chapterSummaries) ? memory.chapterSummaries.length : 0,
+      characterVoices: Array.isArray(memory.characterVoices) ? memory.characterVoices.length : 0,
+      confirmedCharacterVoices: Array.isArray(memory.characterVoices) ? memory.characterVoices.filter((item: any) => item?.status === 'confirmed').length : 0,
+      relationshipVoiceRules: Array.isArray(memory.relationshipVoiceRules) ? memory.relationshipVoiceRules.length : 0,
+      voiceAnchors: Array.isArray(memory.voiceAnchors) ? memory.voiceAnchors.length : 0,
+      promptFingerprint: context.prompt.fingerprint || null,
+    });
 
     const reviewLimiter = createConcurrencyLimiter(reviewConcurrency);
     const reviewTasks: Promise<void>[] = [];
@@ -329,6 +424,26 @@ async function executeRun(projectId: string, runId: string): Promise<void> {
       store.appendEvent(projectId, runId, 'stage.started', {
         stage: 'review', batchIndex, label: '文学审校',
       });
+      const reviewStartedAt = Date.now();
+      const reviewVoiceContext = buildProjectVoiceContext(
+        context.memory,
+        reviewedItems.map((item) => ({ id: item.id, text: item.text, contextPath: item.contextPath })),
+        batch[0]?.contextPath || context.project.title,
+        precedingSegments,
+      );
+      const reviewCount = (value: unknown) => Array.isArray(value) ? value.length : 0;
+      store.appendEvent(projectId, runId, 'review.context.ready', {
+        batchIndex, segmentCount: reviewedItems.length,
+        precedingSegmentCount: precedingSegments.length,
+        memoryRevisionId: context.memoryRevisionId || null,
+        injectedEntities: reviewCount(reviewVoiceContext.entities),
+        injectedRelationships: reviewCount(reviewVoiceContext.relationships),
+        injectedChapterSummaries: reviewCount(reviewVoiceContext.chapterSummaries),
+        injectedCharacterVoices: reviewCount(reviewVoiceContext.characterVoices),
+        injectedRelationshipVoiceRules: reviewCount(reviewVoiceContext.relationshipVoiceRules),
+        injectedVoiceAnchors: reviewCount(reviewVoiceContext.voiceAnchors),
+        contextPolicyVersion: reviewVoiceContext.policyVersion,
+      });
       try {
         const reviewScope = buildDocumentBatchSessionScope({
           projectId,
@@ -346,14 +461,7 @@ async function executeRun(projectId: string, runId: string): Promise<void> {
           model: context.run.model,
           memory: context.memory,
           precedingSegments,
-          voiceContext: buildProjectVoiceContext(
-            context.memory,
-            reviewedItems.map((item) => ({
-              id: item.id, text: item.text, contextPath: item.contextPath,
-            })),
-            batch[0]?.contextPath || context.project.title,
-            precedingSegments,
-          ),
+          voiceContext: reviewVoiceContext,
           segments: reviewedItems.map((item) => ({
             id: item.id, source: item.text, draft: translations.get(item.id)!,
             kind: item.kind, contextPath: item.contextPath,
@@ -383,7 +491,11 @@ async function executeRun(projectId: string, runId: string): Promise<void> {
           batchIndex,
           reviewedIds: review.reviewedIds,
           findingCount: review.findings.length,
+          accuracyFindingCount: review.findings.filter((item: any) => item.category === 'accuracy').length,
+          terminologyFindingCount: review.findings.filter((item: any) => item.category === 'terminology').length,
+          styleFindingCount: review.findings.filter((item: any) => item.category === 'style').length,
           revisedCount,
+          durationMs: Date.now() - reviewStartedAt,
         });
       } catch (error) {
         // Review is a quality improvement, not a gate on translation progress.
