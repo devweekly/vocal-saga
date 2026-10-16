@@ -139,7 +139,7 @@ export function isDialogueSegment(segment: Pick<BookScanSegment, 'text'>): boole
 }
 
 function collectNameCandidates(segments: BookScanSegment[]): BookNameCandidate[] {
-  const occurrenceMap = new Map<string, Array<{ name: string; segment: BookScanSegment; dialogue: boolean }>>();
+  const occurrenceMap = new Map<string, Array<{ name: string; segmentId: string; ordinal: number; chapterKey: string; dialogue: boolean }>>();
   for (const segment of segments) {
     const uniqueInSegment = new Map<string, string>();
     for (const match of segment.text.matchAll(NAME_PATTERN)) {
@@ -150,7 +150,7 @@ function collectNameCandidates(segments: BookScanSegment[]): BookNameCandidate[]
     }
     for (const [key, name] of uniqueInSegment) {
       const existing = occurrenceMap.get(key) || [];
-      existing.push({ name, segment: { ...segment }, dialogue: isDialogueSegment(segment) });
+      existing.push({ name, segmentId: segment.id, ordinal: segment.ordinal, chapterKey: chapterTitle(segment), dialogue: isDialogueSegment(segment) });
       occurrenceMap.set(key, existing);
     }
   }
@@ -161,10 +161,10 @@ function collectNameCandidates(segments: BookScanSegment[]): BookNameCandidate[]
   const result: BookNameCandidate[] = [];
   for (const [key, entries] of occurrenceMap) {
     if (entries.length < 2 && !entries.some((entry) => entry.dialogue)) continue;
-    const chapterKeys = Array.from(new Set(entries.map((entry) => chapterTitle(entry.segment))));
+    const chapterKeys = Array.from(new Set(entries.map((entry) => entry.chapterKey)));
     const dialogueEntries = entries.filter((entry) => entry.dialogue);
-    const regions = new Set(entries.map(({ segment }) => {
-      const position = (segment.ordinal - firstOrdinal) / ordinalRange;
+    const regions = new Set(entries.map(({ ordinal }) => {
+      const position = (ordinal - firstOrdinal) / ordinalRange;
       return position < 1 / 3 ? 'early' : position > 2 / 3 ? 'late' : 'middle';
     }));
     const score = Math.log2(entries.length + 1) +
@@ -174,11 +174,11 @@ function collectNameCandidates(segments: BookScanSegment[]): BookNameCandidate[]
     const closest = (target: number) => {
       const desired = firstOrdinal + ordinalRange * target;
       const sorted = entries.slice().sort((a, b) => {
-        const aDistance = Math.abs(a.segment.ordinal - desired) + (a.dialogue ? 0 : 0.15);
-        const bDistance = Math.abs(b.segment.ordinal - desired) + (b.dialogue ? 0 : 0.15);
+        const aDistance = Math.abs(a.ordinal - desired) + (a.dialogue ? 0 : 0.15);
+        const bDistance = Math.abs(b.ordinal - desired) + (b.dialogue ? 0 : 0.15);
         return aDistance - bDistance;
       });
-      return sorted[0]?.segment.id || null;
+      return sorted[0]?.segmentId || null;
     };
     result.push({
       name: entries[0]!.name,
@@ -188,8 +188,8 @@ function collectNameCandidates(segments: BookScanSegment[]): BookNameCandidate[]
       regionCount: regions.size,
       score: Math.round(score * 100) / 100,
       chapterKeys,
-      segmentIds: entries.map((entry) => entry.segment.id).slice(0, 24),
-      dialogueSegmentIds: dialogueEntries.map((entry) => entry.segment.id).slice(0, 12),
+      segmentIds: entries.map((entry) => entry.segmentId).slice(0, 24),
+      dialogueSegmentIds: dialogueEntries.map((entry) => entry.segmentId).slice(0, 12),
       earlySegmentId: closest(0.12),
       middleSegmentId: closest(0.5),
       lateSegmentId: closest(0.88),
