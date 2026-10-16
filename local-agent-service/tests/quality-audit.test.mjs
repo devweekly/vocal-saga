@@ -1,4 +1,5 @@
 import test from 'node:test';
+import { ensureTestContextGraph } from './helpers/literary-context-graph.mjs';
 import assert from 'node:assert/strict';
 import os from 'node:os';
 import path from 'node:path';
@@ -60,6 +61,8 @@ test('book audit finds missing translations, confirmed-name drift and repeated-l
   store.saveManualEdit(project.projectId, 'repeat-1', '让西侧的灯一直亮着。');
   store.saveManualEdit(project.projectId, 'repeat-2', '西边的灯不要熄灭。');
 
+  ensureTestContextGraph(store, project);
+
   const report = runProjectQualityAudit(project.projectId);
   assert.equal(report.metrics.missingTranslationCount, 1);
   assert.ok(report.findings.some((item) => item.type === 'missing-translation' && item.segmentIds.includes('missing-1')));
@@ -113,6 +116,8 @@ test('book consistency audit catches a changed repeated dialogue after the first
       index === 19 ? '别让西边的灯熄灭。' : '让西边的灯一直亮着。');
   });
 
+  ensureTestContextGraph(store, project);
+
   const report = runProjectQualityAudit(project.projectId);
   const finding = report.findings.find((item) =>
     item.type === 'repeated-expression-drift' && item.occurrenceCount === 20);
@@ -138,6 +143,7 @@ test('book audit detects numeric drift and records malformed model outputs witho
   });
 
   store.saveManualEdit(project.projectId, 'numeric-1', '人工确认：保险库将在 7 分钟后开启，需要 2 把钥匙。');
+  ensureTestContextGraph(store, project);
   const run = store.createRun(project.projectId, { scope: { type: 'all' } });
   store.saveCandidate(project.projectId, run.runId, 'numeric-1', '保险库将在 8 分钟后开启，需要 2 把钥匙。');
   store.saveCandidate(project.projectId, run.runId, 'plain-1', '这扇门很沉。');
@@ -152,6 +158,8 @@ test('book audit detects numeric drift and records malformed model outputs witho
     malformedRowCount: 1,
   });
   store.finishRun(project.projectId, run.runId);
+
+  ensureTestContextGraph(store, project);
 
   const report = runProjectQualityAudit(project.projectId, run.runId);
   const numeric = report.findings.find((item) => item.type === 'numeric-token-mismatch');
@@ -207,6 +215,8 @@ test('numeric audit compares written-out English and Chinese quantities without 
   store.saveManualEdit(project.projectId, 'digit-mismatch', '这扇门有五英寸高。');
   store.saveManualEdit(project.projectId, 'unit-mismatch', '这张桌子有三英尺高。');
 
+  ensureTestContextGraph(store, project);
+
   const report = runProjectQualityAudit(project.projectId);
   const numeric = report.findings.filter((item) => item.type === 'numeric-token-mismatch');
   assert.deepEqual(new Set(numeric.flatMap((item) => item.segmentIds)),
@@ -243,6 +253,7 @@ test('M4 paired-run evaluation uses the real-novel corpus and withholds A/B mapp
   });
 
   const createRunWithTranslations = (values) => {
+    ensureTestContextGraph(store, project);
     const run = store.createRun(project.projectId, { scope: { type: 'all' } });
     values.forEach((item) => store.saveCandidate(project.projectId, run.runId, item.id, item.translated_text));
     store.finishRun(project.projectId, run.runId);
@@ -299,6 +310,7 @@ test('paired-run evaluation withholds A/B mapping until every sampled segment ha
     ],
   });
   const createRunWithTranslations = (values) => {
+    ensureTestContextGraph(store, project);
     const run = store.createRun(project.projectId, { scope: { type: 'all' } });
     values.forEach(([id, translation]) => store.saveCandidate(project.projectId, run.runId, id, translation));
     store.finishRun(project.projectId, run.runId);
