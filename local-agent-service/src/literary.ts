@@ -283,6 +283,61 @@ export async function runLiteraryAnalysis(body: any, requestId: string, sessionS
   };
 }
 
+export function buildLiteraryReviewPrompt(input: {
+  body: any;
+  segments: Array<Record<string, any>>;
+  reviewFocus: 'accuracy' | 'style';
+  translationBrief: Record<string, any> | null;
+  precedingSegments: Array<Record<string, any>>;
+  voiceContext: Record<string, any>;
+  contextGraph: Record<string, any> | null;
+}): { systemPrompt: string; prompt: string; contextChars: number } {
+  const { body, segments, reviewFocus, translationBrief, precedingSegments, voiceContext, contextGraph } = input;
+  const systemPrompt = [
+    '你是文学翻译的第二道工序：独立文学编辑。请对照原文，将 draft 修订为准确、自然、有质感、适合目标语言阅读的文学译文；不要只做校对，也不要改写成你自己的作品。',
+    'precedingSegments 是少量前文，仅供判断指代、说话人/听话人、对话轮次与场景；不需要审校它，不得为它生成结果。只对待审校片段的 id 返回 results。',
+    '每个片段包含 source（原文）、draft（初译）和 kind；随请求提供的书籍记忆是只读数据。优先使用有原文证据且 status=confirmed 的 characterVoices、relationshipVoiceRules 和 approved voiceAnchors。candidate 规则只能作为弱参考。',
+    '第一优先级是原意和情节准确：不能漏译、误译、添写、改变否定/时态/视角/指代/人物关系，不能替作者解释悬念或抹掉歧义。第二优先级是沿用已建立的实体译名。第三优先级是修正文学表达上的问题。',
+    '核对同一人物是否因全名、简称或别名出现多个译名；存在明确 alias 关系时统一使用书籍记忆中的规范 target。英文 Lady 不得机械翻译成“大人”，应按语境译成“夫人/女士/小姐”或省略；称谓不能代替人名。',
+    '检查翻译腔、按英文语序硬译、别扭搭配、僵硬连接词、无来由的解释、同质化对白、情绪词不准、节奏被抹平等。允许适度调整语序、句长、停顿、语气和措辞，让译文自然并有美感；不能为追求华丽新增比喻、意象、情绪、信息或修辞。',
+    '尊重作品自身风格：简洁不必润饰成华丽，有意的重复不要随便删，冷峻不应煽情，粗粝不应文雅化，幽默与反讽不能磨平。人物声音审校必须先说明说话人/听话人归属是否可靠，再指出与具体画像/人物对规则的偏离，并用同批其他人物的语言差异作对照；不能只说“声音不鲜明”。如果 attribution uncertain，报告该不确定性，不强行套用画像。',
+    'finding category 只能为 accuracy（可核验的意义/事实错误）、terminology（实体规范译名错误）、style（具体的翻译腔、不自然搭配或语气/节奏/人物声音问题）。accuracy 与 terminology 的 priority 必须是 must_fix；style 的 priority 必须是 optional。style 必须指出具体文本问题，不能只是审校者个人偏好。',
+    'finalTranslation 必须是完整可阅读的修订译文。发现明确错误要纠正，发现有依据的文风问题应作适度修订；如果原稿已妥当则原样返回。保留初译可取之处，禁止添加原文不存在的内容。',
+    'style finding 可以带可选字段 dimension=character_voice|register|narrative_style|pacing、characterId、relatedCharacterId、evidenceSegmentIds。人物声音 finding 必须给出具体 source/draft 片段与画像或人物对证据；不允许凭空增加口头禅、方言、粗口、情绪或修辞。',
+    reviewFocus === 'style'
+      ? '本次是独立文风审校阶段：只输出 category=style 的 findings，重点检查人物声音差异、叙述声音、语域、节奏、翻译腔和不自然表达；不要输出 accuracy/terminology findings。finalTranslation 如有文风改进，应给出完整修订译文，但不得改变事实或新增原文没有的信息。'
+      : '本次是准确性与专名审校阶段：只输出 accuracy 或 terminology findings，修复可核验的误译、漏译、增译、否定/指代错误和规范译名不一致；不要输出 style findings，也不要做纯润色。文风由独立阶段处理。',
+    '只返回严格 JSON：{ "results": [{ "id": "...", "finalTranslation": "...", "findings": [{ "category": "accuracy|terminology|style", "priority": "must_fix|optional", "dimension": "character_voice", "characterId": "...", "relatedCharacterId": "...", "evidenceSegmentIds": [], "sourceExcerpt": "...", "draftExcerpt": "...", "reason": "...", "suggestion": "..." }] }] }。',
+  ].join('\n');
+  const prompt = [
+    '目标语言：' + (body.target || 'zh'),
+    '章节：' + (typeof body.chapterTitle === 'string' ? body.chapterTitle : ''),
+    'TranslationBrief 元数据（只用于来源/策略追溯）：', JSON.stringify(translationBrief ? {
+      policyVersion: translationBrief.policyVersion,
+      contextHash: translationBrief.contextHash,
+      contextChars: translationBrief.contextChars,
+      sourceRevisionId: translationBrief.sourceRevisionId,
+      promptRevisionId: translationBrief.promptRevisionId,
+      memoryRevisionId: translationBrief.memoryRevisionId,
+      chapterPath: translationBrief.chapterPath,
+      knowledgeBoundaryOrdinal: translationBrief.contextGraph?.knowledgeBoundaryOrdinal ?? null,
+    } : null),
+    '共享书籍上下文中的 glossary（术语；受原文知识边界约束）：', JSON.stringify(translationBrief?.glossary ?? body.glossary ?? null),
+    '共享书籍上下文中的 voiceContext（只读参考）：', JSON.stringify(voiceContext),
+    '共享书籍上下文中的 Context Graph（只读、受原文知识边界约束）：', JSON.stringify(contextGraph),
+    '前文上下文（只用于消歧，不输出审校结果）：', JSON.stringify(precedingSegments),
+    '待审校片段：', JSON.stringify(segments),
+  ].join('\n\n');
+  return {
+    systemPrompt,
+    prompt,
+    contextChars: JSON.stringify({
+      glossary: translationBrief?.glossary ?? body.glossary ?? null,
+      voiceContext, contextGraph, precedingSegments,
+    }).length,
+  };
+}
+
 export async function runLiteraryReview(body: any, requestId: string, sessionScope?: string) {
   const segments = validateSegments(body.segments, 32, 'review');
   const memory = body.memory && typeof body.memory === 'object' ? body.memory : {};
@@ -325,39 +380,9 @@ export async function runLiteraryReview(body: any, requestId: string, sessionSco
     ? translationBrief.contextGraph
     : null;
   const reviewFocus = body.reviewFocus === 'style' ? 'style' : 'accuracy';
-  const systemPrompt = [
-    '你是文学翻译的第二道工序：独立文学编辑。请对照原文，将 draft 修订为准确、自然、有质感、适合目标语言阅读的文学译文；不要只做校对，也不要改写成你自己的作品。',
-    'precedingSegments 是少量前文，仅供判断指代、说话人/听话人、对话轮次与场景；不需要审校它，不得为它生成结果。只对待审校片段的 id 返回 results。',
-    '每个片段包含 source（原文）、draft（初译）和 kind；随请求提供的书籍记忆是只读数据。优先使用有原文证据且 status=confirmed 的 characterVoices、relationshipVoiceRules 和 approved voiceAnchors。candidate 规则只能作为弱参考。',
-    '第一优先级是原意和情节准确：不能漏译、误译、添写、改变否定/时态/视角/指代/人物关系，不能替作者解释悬念或抹掉歧义。第二优先级是沿用已建立的实体译名。第三优先级是修正文学表达上的问题。',
-    '核对同一人物是否因全名、简称或别名出现多个译名；存在明确 alias 关系时统一使用书籍记忆中的规范 target。英文 Lady 不得机械翻译成“大人”，应按语境译成“夫人/女士/小姐”或省略；称谓不能代替人名。',
-    '检查翻译腔、按英文语序硬译、别扭搭配、僵硬连接词、无来由的解释、同质化对白、情绪词不准、节奏被抹平等。允许适度调整语序、句长、停顿、语气和措辞，让译文自然并有美感；不能为追求华丽新增比喻、意象、情绪、信息或修辞。',
-    '尊重作品自身风格：简洁不必润饰成华丽，有意的重复不要随便删，冷峻不应煽情，粗粝不应文雅化，幽默与反讽不能磨平。人物声音审校必须先说明说话人/听话人归属是否可靠，再指出与具体画像/人物对规则的偏离，并用同批其他人物的语言差异作对照；不能只说“声音不鲜明”。如果 attribution uncertain，报告该不确定性，不强行套用画像。',
-    'finding category 只能为 accuracy（可核验的意义/事实错误）、terminology（实体规范译名错误）、style（具体的翻译腔、不自然搭配或语气/节奏/人物声音问题）。accuracy 与 terminology 的 priority 必须是 must_fix；style 的 priority 必须是 optional。style 必须指出具体文本问题，不能只是审校者个人偏好。',
-    'finalTranslation 必须是完整可阅读的修订译文。发现明确错误要纠正，发现有依据的文风问题应作适度修订；如果原稿已妥当则原样返回。保留初译可取之处，禁止添加原文不存在的内容。',
-    'style finding 可以带可选字段 dimension=character_voice|register|narrative_style|pacing、characterId、relatedCharacterId、evidenceSegmentIds。人物声音 finding 必须给出具体 source/draft 片段与画像或人物对证据；不允许凭空增加口头禅、方言、粗口、情绪或修辞。',
-    reviewFocus === 'style'
-      ? '本次是独立文风审校阶段：只输出 category=style 的 findings，重点检查人物声音差异、叙述声音、语域、节奏、翻译腔和不自然表达；不要输出 accuracy/terminology findings。finalTranslation 如有文风改进，应给出完整修订译文，但不得改变事实或新增原文没有的信息。'
-      : '本次是准确性与专名审校阶段：只输出 accuracy 或 terminology findings，修复可核验的误译、漏译、增译、否定/指代错误和规范译名不一致；不要输出 style findings，也不要做纯润色。文风由独立阶段处理。',
-    '只返回严格 JSON：{ "results": [{ "id": "...", "finalTranslation": "...", "findings": [{ "category": "accuracy|terminology|style", "priority": "must_fix|optional", "dimension": "character_voice", "characterId": "...", "relatedCharacterId": "...", "evidenceSegmentIds": [], "sourceExcerpt": "...", "draftExcerpt": "...", "reason": "...", "suggestion": "..." }] }] }。',
-  ].join('\n');
-  const prompt = [
-    '目标语言：' + (body.target || 'zh'),
-    '章节：' + (typeof body.chapterTitle === 'string' ? body.chapterTitle : ''),
-    'TranslationBrief 元数据（只用于来源/策略追溯）：', JSON.stringify(translationBrief ? {
-      policyVersion: translationBrief.policyVersion,
-      contextHash: translationBrief.contextHash,
-      sourceRevisionId: translationBrief.sourceRevisionId,
-      promptRevisionId: translationBrief.promptRevisionId,
-      memoryRevisionId: translationBrief.memoryRevisionId,
-      chapterPath: translationBrief.chapterPath,
-    } : null),
-    '共享书籍上下文中的 glossary（术语；受原文知识边界约束）：', JSON.stringify(translationBrief?.glossary ?? body.glossary ?? null),
-    '共享书籍上下文中的 voiceContext（只读参考）：', JSON.stringify(voiceContext),
-    '共享书籍上下文中的 Context Graph（只读、受原文知识边界约束）：', JSON.stringify(contextGraph),
-    '前文上下文（只用于消歧，不输出审校结果）：', JSON.stringify(precedingSegments),
-    '待审校片段：', JSON.stringify(segments),
-  ].join('\n\n');
+  const { systemPrompt, prompt, contextChars } = buildLiteraryReviewPrompt({
+    body, segments, reviewFocus, translationBrief, precedingSegments, voiceContext, contextGraph,
+  });
   const agent = parseAgentModel(body.model || 'auto', body.runtime || body.provider || '');
   const parsed = await runAgentJson(agent, prompt, systemPrompt, LITERARY_REVIEW_SCHEMA, requestId, sessionScope);
   if (!Array.isArray(parsed.results)) throw new Error('Reviewer 返回格式异常；请重试，扩展端会保留初译');
@@ -423,7 +448,7 @@ export async function runLiteraryReview(body: any, requestId: string, sessionSco
     findings: findings.slice(0, 240),
     promptChars: prompt.length,
     systemPromptChars: systemPrompt.length,
-    contextChars: JSON.stringify({ glossary: translationBrief?.glossary ?? body.glossary ?? null, voiceContext, contextGraph, precedingSegments }).length,
+    contextChars,
     translationBriefHash: translationBrief?.contextHash || null,
   };
 }
