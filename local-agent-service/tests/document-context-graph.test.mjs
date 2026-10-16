@@ -24,10 +24,10 @@ test('retrieval injects matched graph records and excludes future chapter summar
     sourceFileName: 'context-test.txt',
     prompt: { translationMode: 'literary' },
     segments: [
-      { id: 'chapter-1-seg-1', text: 'Alice spoke politely to Bob.', kind: 'paragraph', contextPath: 'Chapter 1' },
+      { id: 'chapter-1-seg-1', text: 'Alice spoke politely to Bob. Ishido stood nearby.', kind: 'paragraph', contextPath: 'Chapter 1' },
       { id: 'chapter-2-seg-1', text: 'Alice asked Bob about the locked door.', kind: 'paragraph', contextPath: 'Chapter 2' },
       { id: 'chapter-2-seg-2', text: 'Alice later found the hidden staircase behind the locked door.', kind: 'paragraph', contextPath: 'Chapter 2' },
-      { id: 'chapter-3-seg-1', text: 'Alice revealed the secret passage.', kind: 'paragraph', contextPath: 'Chapter 3' },
+      { id: 'chapter-3-seg-1', text: 'Alice revealed the secret passage to Ishido.', kind: 'paragraph', contextPath: 'Chapter 3' },
     ],
   });
   const { db, currentSourceRevisionId } = store.getProjectContext(project.projectId);
@@ -49,6 +49,9 @@ test('retrieval injects matched graph records and excludes future chapter summar
   insertNode.run('node-hidden-identity', currentSourceRevisionId, 'entity', 'Queen Ash', 'queen ash',
     JSON.stringify({ aliases: ['Bob'], entityKind: 'character', significance: 'hidden identity', suggestedTranslation: '灰后' }),
     'confirmed', now, now);
+  insertNode.run('node-ishido', currentSourceRevisionId, 'character', 'Ishido', 'ishido',
+    JSON.stringify({ aliases: [], suggestedTranslation: '石堂', role: 'military governor', traits: [], voice: ['formal'] }),
+    'candidate', now, now);
   const insertEvidence = db.prepare(
     'INSERT INTO context_graph_evidence(source_revision_id, node_id, edge_id, segment_id, quote, role, created_at) VALUES (?, ?, NULL, ?, ?, ?, ?)',
   );
@@ -58,6 +61,9 @@ test('retrieval injects matched graph records and excludes future chapter summar
   // A single early citation cannot make a later-only canonical name safe, even when an alias
   // matches the current batch (an adversarial fixture for full-book inferred identities).
   insertEvidence.run(currentSourceRevisionId, 'node-hidden-identity', 'chapter-1-seg-1', 'Bob', 'entity', now);
+  // The canonical name is present early, but its analyzed supporting evidence is later.
+  // The target name may be reused as a glossary mapping without importing later plot facts.
+  insertEvidence.run(currentSourceRevisionId, 'node-ishido', 'chapter-3-seg-1', 'Ishido', 'character', now);
   const insertChapter = db.prepare(
     'INSERT INTO context_graph_chapters(source_revision_id, chapter_key, chapter_order, chapter_title, summary, summary_kind, segment_ids_json, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
   );
@@ -78,6 +84,17 @@ test('retrieval injects matched graph records and excludes future chapter summar
   assert.ok(!JSON.stringify(bundle).includes('Queen Ash'));
   assert.ok(!JSON.stringify(bundle).includes('hidden identity'));
   assert.ok(!JSON.stringify(bundle).includes('灰后'));
+
+  const earlyNameBundle = buildProjectContextGraphBundle(project.projectId, [
+    { id: 'chapter-1-seg-1', text: 'Alice spoke politely to Bob. Ishido stood nearby.', contextPath: 'Chapter 1' },
+  ]);
+  assert.ok(earlyNameBundle);
+  assert.ok(earlyNameBundle.nameMappings.some((item) =>
+    item.source === 'Ishido' && item.target === '石堂'));
+  // The name mapping is allowed, but later narrative facts and summaries must remain excluded.
+  assert.ok(!JSON.stringify(earlyNameBundle).includes('military governor'));
+  assert.ok(!JSON.stringify(earlyNameBundle).includes('secret passage'));
+  assert.ok(!JSON.stringify(earlyNameBundle).includes('Queen Ash'));
 
   const graph = getContextGraph(project.projectId);
   const alice = graph.nodes.find((item) => item.id === 'node-alice');
