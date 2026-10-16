@@ -41,7 +41,14 @@ jobs:
         run: npm run typecheck --prefix local-agent-service
       - name: Test local-agent-service
         run: npm test --prefix local-agent-service
-      - name: Evaluate fiction quality regression fixture
-        run: npm run quality:fiction-baseline --prefix local-agent-service
+      - name: Evaluate fiction quality regression fixtures
+        run: npm run quality:fiction-baseline --prefix local-agent-service -- --output ${{ runner.temp }}/fiction-quality-baseline-report.json
+      - name: Upload fiction quality regression report
+        uses: actions/upload-artifact@v4
+        with:
+          name: fiction-quality-baseline-${{ github.sha }}
+          path: ${{ runner.temp }}/fiction-quality-baseline-report.json
+          if-no-files-found: error
+          retention-days: 30
       - name: Build library
         run: npm run build
