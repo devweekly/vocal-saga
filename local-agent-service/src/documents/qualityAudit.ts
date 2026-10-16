@@ -532,7 +532,7 @@ export function createProjectQualityEvaluation(projectId: string, beforeRunId: s
     delta[key] = Math.round((b - a) * 100) / 100;
   }
   const evaluationId = randomUUID();
-  const report = {
+  const report: any = {
     evaluationId,
     projectId,
     sourceRevisionId: before.metrics.sourceRevisionId,
@@ -648,7 +648,7 @@ export function submitProjectQualityEvaluationReviews(
         afterWinRateAmongDecided: beforeWins + afterWins ? Math.round(afterWins / (beforeWins + afterWins) * 1000) / 10 : null,
       },
     };
-    report.blindReview.packet = undefined;
+    report.blindReview.packet = [];
     report.deterministic.runDisclosure = { beforeRunId: report.beforeRunId, afterRunId: report.afterRunId };
   } else {
     report.blindReview = { ...report.blindReview, status: 'pending', completedOverallRatings: overallBySegment.size };
