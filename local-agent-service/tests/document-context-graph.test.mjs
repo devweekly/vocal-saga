@@ -102,6 +102,15 @@ test('retrieval injects matched graph records and excludes future chapter summar
   assert.equal(alice.evidence[0].segmentId, 'chapter-1-seg-1');
   assert.equal(alice.evidence[0].chapter, 'Chapter 1');
   assert.equal(typeof alice.evidence[0].ordinal, 'number');
+
+  // The Agent trajectory tab starts from the most recent persisted events, then polls by cursor.
+  store.appendEvent(project.projectId, 'trajectory-test-run', 'trajectory.test', { sequence: 1 });
+  store.appendEvent(project.projectId, 'trajectory-test-run', 'trajectory.test', { sequence: 2 });
+  store.appendEvent(project.projectId, 'trajectory-test-run', 'trajectory.test', { sequence: 3 });
+  const recent = store.getEvents(project.projectId, 'trajectory-test-run', 0, 2, true);
+  assert.deepEqual(recent.map((item) => item.payload.sequence), [2, 3]);
+  const incremental = store.getEvents(project.projectId, 'trajectory-test-run', recent[0].eventId, 10);
+  assert.deepEqual(incremental.map((item) => item.payload.sequence), [3]);
 });
 
 test('Context Graph changes are rejected while a translation run is active', () => {
