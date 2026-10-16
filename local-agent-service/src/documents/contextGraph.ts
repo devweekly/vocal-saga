@@ -488,10 +488,15 @@ async function runAnalysis(projectId: string, runId: string): Promise<void> {
     const now = new Date().toISOString();
     db.prepare('UPDATE context_graph_runs SET status = \'completed\', phase = \'completed\', progress_json = ?, finished_at = ?, error = NULL WHERE run_id = ?')
       .run(JSON.stringify({
+        analysisVersion: 'context-graph-v3-name-map',
         sampleCount: samples.length, chapterCount: chapters.length,
         characterCount: persistedNodes.filter((node) => node.kind === 'character').length,
         entityCount: persistedNodes.filter((node) => node.kind === 'entity').length,
         relationshipCount: savedEdges.size,
+        canonicalNameMappingCount: persistedNodes.filter((node) => {
+          const row = db.prepare('SELECT attributes_json FROM context_graph_nodes WHERE node_id = ?').get(node.id) as { attributes_json?: string } | undefined;
+          try { return !!safeText(JSON.parse(row?.attributes_json || '{}').suggestedTranslation, 120); } catch { return false; }
+        }).length,
         openQuestions: uniqueStrings(data.openQuestions, 24, 200),
         invalidEvidenceCount,
         scan: scanSummary,
@@ -502,6 +507,7 @@ async function runAnalysis(projectId: string, runId: string): Promise<void> {
       characterCount: persistedNodes.filter((node) => node.kind === 'character').length,
       entityCount: persistedNodes.filter((node) => node.kind === 'entity').length,
       relationshipCount: savedEdges.size,
+      analysisVersion: 'context-graph-v3-name-map',
     });
   } catch (error) {
     db.exec('ROLLBACK');
