@@ -232,15 +232,27 @@ function getMeta(db: DatabaseSync, revisionId: string, key: string): any {
   try { return JSON.parse(row.value); } catch { return null; }
 }
 
-function validateEvidence(raw: unknown, samplesById: Map<string, Segment>): Evidence[] {
-  if (!Array.isArray(raw)) return [];
+function validateEvidence(
+  raw: unknown,
+  samplesById: Map<string, Segment>,
+  onInvalid?: () => void,
+): Evidence[] {
+  if (!Array.isArray(raw) || raw.length === 0) {
+    onInvalid?.();
+    return [];
+  }
   const result: Evidence[] = [];
   for (const item of raw.slice(0, 8)) {
     const segmentId = safeText((item as any)?.segmentId, 200);
     const quote = safeText((item as any)?.quote, 240);
     const sample = samplesById.get(segmentId);
-    if (!sample || !quote || !hasQuote(sample.text, quote)) continue;
-    if (!result.some((prior) => prior.segmentId === segmentId && normalize(prior.quote) === normalize(quote))) result.push({ segmentId, quote });
+    if (!sample || !quote || !hasQuote(sample.text, quote)) {
+      onInvalid?.();
+      continue;
+    }
+    if (!result.some((prior) => prior.segmentId === segmentId && normalize(prior.quote) === normalize(quote))) {
+      result.push({ segmentId, quote });
+    }
   }
   return result;
 }
@@ -369,6 +381,8 @@ async function runAnalysis(projectId: string, runId: string): Promise<void> {
     if (segment) allowedEvidence.set(id, segment);
   }
 
+  let invalidEvidenceCount = 0;
+  const evidenceFromModel = (raw: unknown) => validateEvidence(raw, allowedEvidence, () => { invalidEvidenceCount++; });
   db.exec('BEGIN IMMEDIATE');
   try {
     saveMeta(db, revisionId, 'bookSummary', safeText(data.bookSummary, 4000));
@@ -379,7 +393,7 @@ async function runAnalysis(projectId: string, runId: string): Promise<void> {
     for (const raw of (Array.isArray(data.characters) ? data.characters : []).slice(0, 40)) {
       const name = safeText(raw?.name, 120);
       if (!name) continue;
-      const evidence = validateEvidence(raw.evidence, allowedEvidence);
+      const evidence = evidenceFromModel(raw.evidence);
       if (!evidence.length) continue;
       const aliases = uniqueStrings(raw.aliases, 12, 100).filter((item) => normalize(item) !== normalize(name));
       const attributes = {
@@ -449,7 +463,7 @@ async function runAnalysis(projectId: string, runId: string): Promise<void> {
         entityCount: persistedNodes.filter((node) => node.kind === 'entity').length,
         relationshipCount: savedEdges.size,
         openQuestions: uniqueStrings(data.openQuestions, 24, 200),
-        invalidEvidenceCount: 0,
+        invalidEvidenceCount,
       }), now, runId);
     db.exec('COMMIT');
     store.appendEvent(projectId, runId, 'context-graph.completed', {
