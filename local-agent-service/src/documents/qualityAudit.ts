@@ -138,7 +138,7 @@ function numericTokens(value: unknown, allowImplicitChineseClassifierOne = true)
   // number when the source itself contains a numeric value, avoiding false positives such as
   // translating the English article "a" as "一只".
   const source = String(value ?? '').normalize('NFKC').toLocaleLowerCase();
-  const matches = Array.from(source.matchAll(/\d+(?:[,.]\d+)*|[零〇一二两三四五六七八九十百千万亿]+|[a-z]+/giu),
+    '(?:[\s-]+(?:and[\s-]+)?' + englishNumber + ')*[\s-]+' +
     (match) => ({ token: match[0]!, index: match.index ?? 0 }));
   const result: string[] = [];
   let index = 0;
@@ -209,14 +209,14 @@ function numericQuantityUnits(value: unknown): string[] {
   const source = String(value ?? '').normalize('NFKC').toLocaleLowerCase();
   const found: Array<{ index: number; unit: string }> = [];
   const englishNumber = '(?:\\d+(?:[,.]\\d+)*|zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred|thousand|million|billion)';
-  const englishPattern = new RegExp('\\\\b' + englishNumber +
+  const englishPattern = new RegExp('\\b' + englishNumber +
     '(?:[\\\\s-]+(?:and[\\\\s-]+)?' + englishNumber + ')*[\\\\s-]+' +
-    '(inches?|feet|foot|miles?|hours?|minutes?|seconds?|days?|weeks?|months?|years?|degrees?|meters?|metres?|centimeters?|centimetres?|millimeters?|millimetres?|kilometers?|kilometres?|pounds?|kilograms?|ounces?|liters?|litres?|sides?)\\\\b', 'giu');
+    '(inches?|feet|foot|miles?|hours?|minutes?|seconds?|days?|weeks?|months?|years?|degrees?|meters?|metres?|centimeters?|centimetres?|millimeters?|millimetres?|kilometers?|kilometres?|pounds?|kilograms?|ounces?|liters?|litres?|sides?)\\b', 'giu');
   for (const match of source.matchAll(englishPattern)) {
     const unit = QUANTITY_UNIT_CANONICAL[String(match[1] || '').toLocaleLowerCase()];
     if (unit) found.push({ index: match.index ?? 0, unit });
   }
-  const chinesePattern = /(?:\\d+(?:[,.]\\d+)*|[零〇一二两三四五六七八九十百千万亿]+)(英寸|寸|英尺|尺|英里|公里|千米|厘米|毫米|米|小时|分钟|秒钟|秒|天|周|星期|个月|月|年|岁|公斤|千克|克|升|毫升|度|边)/gu;
+  const chinesePattern = /(?:\d+(?:[,.]\d+)*|[零〇一二两三四五六七八九十百千万亿]+)(英寸|寸|英尺|尺|英里|公里|千米|厘米|毫米|米|小时|分钟|秒钟|秒|天|周|星期|个月|月|年|岁|公斤|千克|克|升|毫升|度|边)/gu;
   for (const match of source.matchAll(chinesePattern)) {
     const rawUnit = String(match[1] || '');
     const unit = QUANTITY_UNIT_CANONICAL[rawUnit];
