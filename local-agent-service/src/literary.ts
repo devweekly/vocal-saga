@@ -303,6 +303,7 @@ export async function runLiteraryReview(body: any, requestId: string, sessionSco
     segments[0]?.contextPath || (typeof body.chapterTitle === 'string' ? body.chapterTitle : ''),
     precedingSegments,
   );
+  const reviewFocus = body.reviewFocus === 'style' ? 'style' : 'accuracy';
   const systemPrompt = [
     '你是文学翻译的第二道工序：独立文学编辑。请对照原文，将 draft 修订为准确、自然、有质感、适合目标语言阅读的文学译文；不要只做校对，也不要改写成你自己的作品。',
     'precedingSegments 是少量前文，仅供判断指代、说话人/听话人、对话轮次与场景；不需要审校它，不得为它生成结果。只对待审校片段的 id 返回 results。',
@@ -314,6 +315,9 @@ export async function runLiteraryReview(body: any, requestId: string, sessionSco
     'finding category 只能为 accuracy（可核验的意义/事实错误）、terminology（实体规范译名错误）、style（具体的翻译腔、不自然搭配或语气/节奏/人物声音问题）。accuracy 与 terminology 的 priority 必须是 must_fix；style 的 priority 必须是 optional。style 必须指出具体文本问题，不能只是审校者个人偏好。',
     'finalTranslation 必须是完整可阅读的修订译文。发现明确错误要纠正，发现有依据的文风问题应作适度修订；如果原稿已妥当则原样返回。保留初译可取之处，禁止添加原文不存在的内容。',
     'style finding 可以带可选字段 dimension=character_voice|register|narrative_style|pacing、characterId、relatedCharacterId、evidenceSegmentIds。人物声音 finding 必须给出具体 source/draft 片段与画像或人物对证据；不允许凭空增加口头禅、方言、粗口、情绪或修辞。',
+    reviewFocus === 'style'
+      ? '本次是独立文风审校阶段：只输出 category=style 的 findings，重点检查人物声音差异、叙述声音、语域、节奏、翻译腔和不自然表达；不要输出 accuracy/terminology findings。finalTranslation 如有文风改进，应给出完整修订译文，但不得改变事实或新增原文没有的信息。'
+      : '本次是准确性与专名审校阶段：只输出 accuracy 或 terminology findings，修复可核验的误译、漏译、增译、否定/指代错误和规范译名不一致；不要输出 style findings，也不要做纯润色。文风由独立阶段处理。',
     '只返回严格 JSON：{ "results": [{ "id": "...", "finalTranslation": "...", "findings": [{ "category": "accuracy|terminology|style", "priority": "must_fix|optional", "dimension": "character_voice", "characterId": "...", "relatedCharacterId": "...", "evidenceSegmentIds": [], "sourceExcerpt": "...", "draftExcerpt": "...", "reason": "...", "suggestion": "..." }] }] }。',
   ].join('\n');
   const prompt = [
@@ -339,7 +343,9 @@ export async function runLiteraryReview(body: any, requestId: string, sessionSco
     if (Array.isArray(raw.findings)) {
       for (const item of raw.findings.slice(0, 12)) {
         // 准确性/实体错误必须修复；具体文风问题作为可选的受控修订依据。
-        if (!item || !['accuracy', 'terminology', 'style'].includes(item.category)) continue;
+        if (!item || (reviewFocus === 'style'
+          ? item.category !== 'style'
+          : !['accuracy', 'terminology'].includes(item.category))) continue;
         const priority = item.category === 'style' ? 'optional' : 'must_fix';
         const finding = {
           id: raw.id, category: item.category, priority,
