@@ -435,5 +435,14 @@
       "id": "s18",
       "translated_text": "东边的账册仍留在地板下，等待着下一位读者。"
     }
-  ]
+  ],
+  "format": "txt",
+  "prompt": {
+    "sourceLang": "en",
+    "targetLang": "zh",
+    "provider": "workbuddy",
+    "model": "auto",
+    "translationMode": "literary",
+    "literaryReview": true
+  }
 }
