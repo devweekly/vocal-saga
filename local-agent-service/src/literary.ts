@@ -110,7 +110,7 @@ export function stabilizeVoiceAnalysis(
       if (typeof raw.characterId === 'string') oldToStable.set(raw.characterId, characterId);
       const evidence = Array.isArray(raw.evidence) ? raw.evidence.slice(0, 12).flatMap((item: any) => {
         if (!item || typeof item !== 'object' || !normalizeQuote(item.segmentId, item.sourceQuote)) return [];
-        const dimension = ['register','syntax_rhythm','lexicon','discourse','stance','humor_irony','disfluency','relationship'].includes(item.dimension) ? item.dimension : '';
+        const dimension = ['register','syntax_rhythm','lexicon','discourse','stance','humor_irony','disfluency','relationship','role_traits'].includes(item.dimension) ? item.dimension : '';
         const observation = typeof item.observation === 'string' ? item.observation.trim().slice(0, 240) : '';
         if (!dimension || !observation) return [];
         return [{ ...item, segmentId: String(item.segmentId).slice(0, 160), sourceQuote: String(item.sourceQuote).slice(0, 240), dimension, observation, confidence: Number.isFinite(Number(item.confidence)) ? Math.max(0, Math.min(1, Number(item.confidence))) : 0.4 }];
@@ -130,6 +130,12 @@ export function stabilizeVoiceAnalysis(
         analysisConflictWithConfirmed,
         ...raw, characterId, canonicalSourceName: name,
         targetName: existingProfile?.targetName || raw.targetName,
+        role: existingProfile?.status === 'confirmed'
+          ? existingProfile.role
+          : typeof raw.role === 'string' ? raw.role.trim().slice(0, 360) : undefined,
+        traits: existingProfile?.status === 'confirmed'
+          ? existingProfile.traits
+          : Array.isArray(raw.traits) ? raw.traits.filter((item: unknown) => typeof item === 'string').slice(0, 10).map((item: string) => item.slice(0, 160)) : undefined,
         aliases: Array.from(new Set([...(existingProfile?.aliases || []), ...aliases])).slice(0, 12),
         // 旧画像一旦由用户确认后，新章节只能增加证据/提出冲突，不得覆盖画像核心。
         voiceCore: existingProfile?.status === 'confirmed' ? existingProfile.voiceCore : raw.voiceCore,
