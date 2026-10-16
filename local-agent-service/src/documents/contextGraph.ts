@@ -342,7 +342,7 @@ async function runAnalysis(projectId: string, runId: string): Promise<void> {
   const scanSummary = {
     strategyVersion: 'adaptive-book-scan-v1',
     segmentCount: scan.segmentCount,
-    characterCount: scan.charCount,
+    sourceCharCount: scan.charCount,
     chapterCount: scan.chapterCount,
     dialogueSegmentCount: scan.dialogueSegmentCount,
     nameCandidateCount: scan.nameCandidates.length,
