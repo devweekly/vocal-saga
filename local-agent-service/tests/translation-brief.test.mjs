@@ -163,7 +163,10 @@ test('later identity never enters an earlier brief', () => {
     title: 'Temporal Boundary',
     format: 'txt',
     sourceFileName: 'temporal.txt',
-    prompt: { translationMode: 'literary', sourceLang: 'en', targetLang: 'zh' },
+    prompt: { translationMode: 'literary', sourceLang: 'en', targetLang: 'zh', glossary: { document_terms: [
+      { source: 'Mara Voss', target: '玛拉·沃斯', aliases: ['Mara'] },
+      { source: 'Queen Ash', target: '灰后', aliases: ['Liora Vale'], description: 'Later identity reveal' },
+    ] } },
     segments: [
       { id: 'early-a', text: 'Mara Voss is a careful archivist.', contextPath: 'Chapter 1' },
       { id: 'early-b', text: 'Mara Voss said, Keep the western lamp burning.', contextPath: 'Chapter 1' },
@@ -192,6 +195,9 @@ test('later identity never enters an earlier brief', () => {
   assert.ok(injected.includes('Mara Voss'));
   assert.ok(!injected.includes('Queen Ash'));
   assert.ok(!injected.includes('灰后'));
+  assert.deepEqual(brief.glossary.document_terms.map((term) => term.source), ['Mara Voss']);
+  assert.ok(!JSON.stringify(brief.glossary).includes('Queen Ash'));
+  assert.ok(!JSON.stringify(brief.glossary).includes('Later identity reveal'));
   assert.deepEqual(brief.voiceContext.chapterSummaries, []);
   assert.deepEqual(brief.voiceContext.recentExamples, []);
   assert.ok(brief.contextChars <= MAX_TRANSLATION_BRIEF_CHARS);
