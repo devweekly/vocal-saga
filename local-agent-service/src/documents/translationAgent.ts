@@ -602,6 +602,7 @@ async function executeRun(projectId: string, runId: string): Promise<void> {
               stage: 'review', batchIndex,
               warning: '审校失败，已保留有效初译，不影响本批翻译候选：' +
                 (error instanceof Error ? error.message : String(error)),
+              durationMs: Date.now() - reviewStartedAt,
             });
           }
         } catch (persistError) {
