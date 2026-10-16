@@ -87,7 +87,7 @@ export async function handleDocumentProjectRequest(req: Request, res: Response, 
       try { if (encodedTitle) title = decodeURIComponent(encodedTitle).trim().slice(0, 500) || title; }
       catch { throw Object.assign(new Error('X-Project-Title 编码无效'), { status: 400 }); }
       const project = store.createProject({
-        title, format: parsed.format, sourceFileName: fileName, segments: parsed.segments,
+        title, format: parsed.format, sourceFileName: fileName, segments: parsed.segments, prompt: { translationMode: 'literary' },
       });
       try {
         const sourceFile = await store.storeSourceFile(project.projectId, fileName, bytes);
