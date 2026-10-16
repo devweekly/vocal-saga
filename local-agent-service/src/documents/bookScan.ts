@@ -213,7 +213,11 @@ function collectNameCandidates(segments: BookScanSegment[]): BookNameCandidate[]
   return result.sort((a, b) => b.score - a.score || b.mentions - a.mentions || a.name.localeCompare(b.name)).slice(0, 120);
 }
 
-function collectRepeatedPhrases(segments: BookScanSegment[]): RepeatedPhraseCandidate[] {
+function collectRepeatedPhrases(
+  segments: BookScanSegment[],
+  maxSegmentIds = 16,
+  maxGroups = 80,
+): RepeatedPhraseCandidate[] {
   const seen = new Map<string, { text: string; segmentIds: string[]; chapterKeys: string[] }>();
   for (const segment of segments) {
     const sentences = segment.text.match(/[^.!?\n]+[.!?]?/gu) || [];
@@ -241,14 +245,17 @@ function collectRepeatedPhrases(segments: BookScanSegment[]): RepeatedPhraseCand
       text: value.text,
       normalized,
       count: value.segmentIds.length,
-      segmentIds: value.segmentIds.slice(0, 16),
+      segmentIds: value.segmentIds.slice(0, Math.max(1, maxSegmentIds)),
       chapterKeys: value.chapterKeys.slice(0, 12),
     }))
     .sort((a, b) => b.count - a.count || b.chapterKeys.length - a.chapterKeys.length)
-    .slice(0, 80);
+    .slice(0, Math.max(1, maxGroups));
 }
 
-export function scanBookSegments(segmentsInput: BookScanSegment[]): BookScanResult {
+export function scanBookSegments(
+  segmentsInput: BookScanSegment[],
+  options: { maxRepeatedPhraseSegmentIds?: number; maxRepeatedPhraseGroups?: number } = {},
+): BookScanResult {
   const segments = segmentsInput.slice().sort((a, b) => a.ordinal - b.ordinal);
   const chapters = getChapters(segments);
   return {
@@ -258,7 +265,11 @@ export function scanBookSegments(segmentsInput: BookScanSegment[]): BookScanResu
     dialogueSegmentCount: segments.filter(isDialogueSegment).length,
     chapters,
     nameCandidates: collectNameCandidates(segments),
-    repeatedPhrases: collectRepeatedPhrases(segments),
+    repeatedPhrases: collectRepeatedPhrases(
+      segments,
+      options.maxRepeatedPhraseSegmentIds ?? 16,
+      options.maxRepeatedPhraseGroups ?? 80,
+    ),
   };
 }
 
