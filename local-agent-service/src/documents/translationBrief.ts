@@ -378,7 +378,7 @@ function removeLowestPriorityContext(brief: TranslationBrief): boolean {
     return true;
   }
   if (voice.styleGuide && typeof voice.styleGuide === 'object') {
-    for (const key of ['avoid', 'diction', 'dialogue', 'rhythm', 'register', 'narrativeVoice']) {
+    for (const key of ['rules', 'avoid', 'diction', 'dialogue', 'rhythm', 'register', 'narrativeVoice']) {
       const value = voice.styleGuide[key];
       if (Array.isArray(value) && value.length) {
         value.pop();
