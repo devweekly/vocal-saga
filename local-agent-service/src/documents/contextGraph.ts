@@ -863,9 +863,12 @@ export function buildProjectContextGraphBundle(
       'SELECT 1 FROM context_graph_evidence WHERE source_revision_id = ? AND node_id = ? LIMIT 1'
     ).get(revisionId, row.node_id);
     if (!hasEvidence) return [];
-    const aliases = uniqueStrings(attributes.aliases, 12, 100)
-      .filter((alias) => appearedBefore(alias) || appearsInContext(alias))
+    const allAliases = uniqueStrings(attributes.aliases, 12, 100)
       .filter((alias) => normalize(alias) !== normalize(row.name));
+    // A later alias can change the canonical target itself (identity reveal). Do not use a
+    // whole-book target early until its complete known alias set is temporally visible.
+    if (allAliases.some((alias) => !appearedBefore(alias) && !appearsInContext(alias))) return [];
+    const aliases = allAliases.filter((alias) => appearedBefore(alias) || appearsInContext(alias));
     return [{
       source: safeText(row.name, 120),
       target,
