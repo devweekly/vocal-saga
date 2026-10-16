@@ -12,32 +12,32 @@
     "sourceLanguage": "English",
     "rightsNote": "Project Gutenberg lists this work as public domain in the United States. Check local legal status before redistribution in other jurisdictions.",
     "retrievedAt": "2026-10-16",
-    "corpusMethod": "Curated sentence and dialogue spans from Chapters I, II, V, VI and VII, sorted in chapter chronology; ordinals reflect the source-corpus order for context-boundary regression tests."
+    "corpusMethod": "Curated source excerpts from Chapters I, II, V, VI and VII in source chronology: White Rabbit/bottle/shrinking, the pool and identity puzzle, Caterpillar, the Duchess passage preceding Cheshire Cat, then the Mad Tea-Party. Ordinals reflect the curated source order for chronology-boundary tests."
   },
   "sourceLanguage": "en",
   "targetLanguage": "zh",
   "segments": [
     {
-      "id": "a01",
-      "contextPath": "Chapter I — Down the Rabbit-Hole",
-      "ordinal": 1,
-      "kind": "dialogue",
-      "speaker": "Alice",
-      "text": "“What a curious feeling!” said Alice; “I must be shutting up like a telescope.”"
-    },
-    {
       "id": "a02",
       "contextPath": "Chapter I — Down the Rabbit-Hole",
-      "ordinal": 2,
+      "ordinal": 1,
       "kind": "paragraph",
       "text": "when suddenly a White Rabbit with pink eyes ran close by her."
     },
     {
       "id": "a03",
       "contextPath": "Chapter I — Down the Rabbit-Hole",
-      "ordinal": 3,
+      "ordinal": 2,
       "kind": "label",
       "text": "DRINK ME"
+    },
+    {
+      "id": "a01",
+      "contextPath": "Chapter I — Down the Rabbit-Hole",
+      "ordinal": 3,
+      "kind": "dialogue",
+      "speaker": "Alice",
+      "text": "“What a curious feeling!” said Alice; “I must be shutting up like a telescope.”"
     },
     {
       "id": "a04",
@@ -47,18 +47,18 @@
       "text": "she was now only ten inches high"
     },
     {
-      "id": "a05",
+      "id": "a21",
       "contextPath": "Chapter II — The Pool of Tears",
       "ordinal": 5,
       "kind": "paragraph",
-      "text": "Who in the world am I? Ah, that’s the great puzzle!"
+      "text": "about four inches deep"
     },
     {
-      "id": "a21",
+      "id": "a05",
       "contextPath": "Chapter II — The Pool of Tears",
       "ordinal": 6,
       "kind": "paragraph",
-      "text": "about four inches deep"
+      "text": "Who in the world am I? Ah, that’s the great puzzle!"
     },
     {
       "id": "a06",
@@ -101,9 +101,17 @@
       "text": "One side will make you grow taller, and the other side will make you grow shorter."
     },
     {
-      "id": "a11",
+      "id": "a22",
       "contextPath": "Chapter VI — Pig and Pepper",
       "ordinal": 12,
+      "kind": "dialogue",
+      "speaker": "Alice",
+      "text": "You see the earth takes twenty-four hours to turn round on its axis"
+    },
+    {
+      "id": "a11",
+      "contextPath": "Chapter VI — Pig and Pepper",
+      "ordinal": 13,
       "kind": "dialogue",
       "speaker": "Alice",
       "text": "“Would you tell me, please, which way I ought to go from here?”"
@@ -111,7 +119,7 @@
     {
       "id": "a12",
       "contextPath": "Chapter VI — Pig and Pepper",
-      "ordinal": 13,
+      "ordinal": 14,
       "kind": "dialogue",
       "speaker": "Cheshire Cat",
       "text": "“That depends a good deal on where you want to get to,” said the Cat."
@@ -119,18 +127,10 @@
     {
       "id": "a13",
       "contextPath": "Chapter VI — Pig and Pepper",
-      "ordinal": 14,
+      "ordinal": 15,
       "kind": "dialogue",
       "speaker": "Cheshire Cat",
       "text": "“Oh, you can’t help that,” said the Cat: “we’re all mad here. I’m mad. You’re mad.”"
-    },
-    {
-      "id": "a22",
-      "contextPath": "Chapter VI — Pig and Pepper",
-      "ordinal": 15,
-      "kind": "dialogue",
-      "speaker": "Alice",
-      "text": "You see the earth takes twenty-four hours to turn round on its axis"
     },
     {
       "id": "a14",
