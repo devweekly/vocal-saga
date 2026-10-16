@@ -454,6 +454,9 @@ export function createProjectQualityEvaluation(projectId: string, beforeRunId: s
   if (before.metrics.targetLang !== after.metrics.targetLang || before.context.run.sourceLang !== after.context.run.sourceLang) {
     fail('前后运行的源语言或目标语言不同，不能作有效对照。', 409);
   }
+  if (before.metrics.translationMode !== after.metrics.translationMode) {
+    fail('前后运行的翻译模式不同，不能作有效对照。', 409);
+  }
   const comparableStatuses = new Set(['completed', 'awaiting_acceptance']);
   if (!comparableStatuses.has(before.metrics.status) || !comparableStatuses.has(after.metrics.status)) {
     fail('前后运行必须已完成翻译和审校并进入 completed 或 awaiting_acceptance；不能比较仍在运行、暂停或取消的结果。', 409);
@@ -531,6 +534,22 @@ export function createProjectQualityEvaluation(projectId: string, beforeRunId: s
     createdAt: new Date().toISOString(),
     comparable: true,
     deterministic: {
+      configuration: {
+        before: {
+          sourceLang: before.metrics.sourceLang, targetLang: before.metrics.targetLang,
+          provider: before.metrics.provider, model: before.metrics.model,
+          translationMode: before.metrics.translationMode, reviewEnabled: before.metrics.reviewEnabled,
+          promptRevisionId: before.metrics.promptRevisionId, memoryRevisionId: before.metrics.memoryRevisionId,
+          status: before.metrics.status,
+        },
+        after: {
+          sourceLang: after.metrics.sourceLang, targetLang: after.metrics.targetLang,
+          provider: after.metrics.provider, model: after.metrics.model,
+          translationMode: after.metrics.translationMode, reviewEnabled: after.metrics.reviewEnabled,
+          promptRevisionId: after.metrics.promptRevisionId, memoryRevisionId: after.metrics.memoryRevisionId,
+          status: after.metrics.status,
+        },
+      },
       before: before.metrics.metrics,
       after: after.metrics.metrics,
       deltaAfterMinusBefore: delta,
