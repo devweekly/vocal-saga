@@ -735,12 +735,35 @@ export function buildProjectContextGraphBundle(
   ).all(revisionId) as any[];
   const currentIndex = chapterRows.findIndex((chapter) =>
     normalize(chapter.chapter_key) === normalize(currentChapter) || normalize(chapter.chapter_title) === normalize(currentChapter));
-  const chapterSummaries = currentIndex >= 0
-    ? chapterRows.slice(Math.max(0, currentIndex - 2), currentIndex + 1).map((chapter) => ({
+  // Only complete summaries for previous chapters are eligible. A full summary of the current
+  // chapter can include its final paragraph, which is future context when translating early batches.
+  const priorChapterSummaries = currentIndex >= 0
+    ? chapterRows.slice(Math.max(0, currentIndex - 2), currentIndex).map((chapter) => ({
         chapter: chapter.chapter_title, summary: String(chapter.summary).slice(0, 520),
         summaryKind: chapter.summary_kind,
       }))
     : [];
+  const currentPrefixRows = currentIndex >= 0 && currentChapter
+    ? db.prepare(
+        'SELECT segment_id, ordinal, text, kind FROM source_segments ' +
+        'WHERE source_revision_id = ? AND context_path = ? AND ordinal < ? ORDER BY ordinal DESC LIMIT 16'
+      ).all(revisionId, currentChapter, firstOrdinal) as any[]
+    : [];
+  const currentPrefixSegments = currentPrefixRows.reverse().map((row) => ({
+    id: String(row.segment_id), ordinal: Number(row.ordinal), text: String(row.text),
+    kind: String(row.kind || 'paragraph'), contextPath: currentChapter,
+  }));
+  const currentPrefixSummary = currentPrefixSegments.length
+    ? extractiveSummary(currentPrefixSegments)
+    : '';
+  const chapterSummaries = [
+    ...priorChapterSummaries,
+    ...(currentPrefixSummary ? [{
+      chapter: currentChapter,
+      summary: currentPrefixSummary.slice(0, 420),
+      summaryKind: 'prefix-extractive',
+    }] : []),
+  ];
 
   const result = {
     policyVersion: 'context-graph-v1',
