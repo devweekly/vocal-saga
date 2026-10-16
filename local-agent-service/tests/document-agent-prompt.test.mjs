@@ -91,7 +91,7 @@ test('literary context matches Latin character names as words, not accidental su
       { source: 'Alice', target: '艾丽丝', kind: 'person', aliases: ['A.'] },
     ],
     relationships: [
-      { subject: 'A.', predicate: 'trusts', object: 'Ann', reviewStatus: 'confirmed' },
+      { subject: 'Ann', predicate: 'trusts', object: 'Unknown', reviewStatus: 'confirmed' },
     ],
     styleGuide: {},
     chapterSummaries: [],
