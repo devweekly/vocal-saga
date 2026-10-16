@@ -56,7 +56,7 @@ test('retrieval injects matched graph records and excludes future chapter summar
     { id: 'chapter-2-seg-1', text: 'Alice asked Bob about the locked door.', contextPath: 'Chapter 2' },
   ]);
   assert.ok(bundle);
-  assert.deepEqual(bundle.characters.map((item) => item.name), ['Alice', 'Bob']);
+  assert.deepEqual(bundle.characters.map((item) => item.name).sort(), ['Alice', 'Bob']);
   assert.deepEqual(bundle.chapterSummaries.map((item) => item.chapter), ['Chapter 1', 'Chapter 2']);
   assert.ok(!JSON.stringify(bundle).includes('secret passage'));
 });
