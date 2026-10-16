@@ -5,6 +5,7 @@
 import { createHash } from 'node:crypto';
 import { buildProjectVoiceContext } from './voiceContext.ts';
 import { buildProjectContextGraphBundle } from './contextGraph.ts';
+import { getDocumentProjectStore } from './projectStore.ts';
 
 export const TRANSLATION_BRIEF_POLICY_VERSION = 'translation-brief-v1';
 export const MAX_TRANSLATION_BRIEF_CHARS = 18_000;
