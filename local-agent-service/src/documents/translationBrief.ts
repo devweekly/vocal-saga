@@ -205,11 +205,19 @@ function buildTemporallyVisibleMemory(
     return [{ ...profile, aliases, evidence: rawEvidence, contrastRules }];
   });
   const visibleCharacterIds = new Set(rawMemory.characterVoices.map((profile: any) => profile.characterId));
-  rawMemory.relationshipVoiceRules = (Array.isArray(rawMemory.relationshipVoiceRules) ? rawMemory.relationshipVoiceRules : []).filter((rule: any) => {
-    const evidenceIds = Array.isArray(rule.evidenceSegmentIds) ? rule.evidenceSegmentIds : [];
-    return evidenceIds.length > 0 && evidenceIds.every(isPrior) &&
-      visibleCharacterIds.has(rule.speakerId) && visibleCharacterIds.has(rule.addresseeId);
-  });
+  rawMemory.relationshipVoiceRules = (Array.isArray(rawMemory.relationshipVoiceRules) ? rawMemory.relationshipVoiceRules : [])
+    .filter((rule: any) => {
+      const evidenceIds = Array.isArray(rule.evidenceSegmentIds) ? rule.evidenceSegmentIds : [];
+      return evidenceIds.length > 0 && evidenceIds.every(isPrior) &&
+        visibleCharacterIds.has(rule.speakerId) && visibleCharacterIds.has(rule.addresseeId);
+    })
+    .map((rule: any) => ({
+      ...rule,
+      addressTerms: (Array.isArray(rule.addressTerms) ? rule.addressTerms : [])
+        .filter((term: unknown) => appearedBefore(term)),
+      // Scene-dependent register changes often summarize a later arc without segment-level quotes.
+      sceneDependentShift: '',
+    }));
   rawMemory.voiceAnchors = (Array.isArray(rawMemory.voiceAnchors) ? rawMemory.voiceAnchors : []).filter((voiceAnchor: any) => {
     const source = sourceById.get(String(voiceAnchor?.segmentId || ''));
     return !!source && source.ordinal < firstOrdinal &&
