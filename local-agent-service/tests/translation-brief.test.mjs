@@ -178,6 +178,9 @@ test('later identity never enters an earlier brief', () => {
   context.memory = {
     entities: [
       { source: 'Mara Voss', target: '玛拉·沃斯', aliases: ['Mara'], reviewStatus: 'confirmed', evidence: 'Mara Voss is a careful archivist.' },
+      // Adversarial case: the canonical source and quote are early, but a later alias may
+      // have contaminated the canonical target. Fail closed on the whole entity.
+      { source: 'Mara Voss', target: '灰后', aliases: ['Queen Ash'], reviewStatus: 'confirmed', evidence: 'Mara Voss is a careful archivist.' },
       { source: 'Queen Ash', target: '灰后', aliases: [], reviewStatus: 'confirmed', evidence: 'Mara Voss was secretly Queen Ash.' },
     ],
     relationships: [],
@@ -195,6 +198,7 @@ test('later identity never enters an earlier brief', () => {
   assert.ok(injected.includes('Mara Voss'));
   assert.ok(!injected.includes('Queen Ash'));
   assert.ok(!injected.includes('灰后'));
+  assert.ok(!JSON.stringify(brief.voiceContext).includes('Queen Ash'));
   assert.deepEqual(brief.glossary.document_terms.map((term) => term.source), ['Mara Voss']);
   assert.ok(!JSON.stringify(brief.glossary).includes('Queen Ash'));
   assert.ok(!JSON.stringify(brief.glossary).includes('Later identity reveal'));
