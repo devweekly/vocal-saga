@@ -296,13 +296,24 @@ export async function runLiteraryReview(body: any, requestId: string, sessionSco
         }];
       })
     : [];
-  // 前文只用于指代、对白轮次和场景识别，不是待审校输出；由服务端重新检索限额上下文。
-  const voiceContext = buildProjectVoiceContext(
-    memory,
-    segments.map((segment) => ({ id: segment.id, text: segment.source, contextPath: segment.contextPath })),
-    segments[0]?.contextPath || (typeof body.chapterTitle === 'string' ? body.chapterTitle : ''),
-    precedingSegments,
-  );
+  // Project translation passes the exact immutable TranslationBrief used by initial translation.
+  // Standalone review requests fall back to the bounded legacy retrieval path.
+  const translationBrief = body.translationBrief && typeof body.translationBrief === 'object'
+    ? body.translationBrief as Record<string, any>
+    : null;
+  const voiceContext = translationBrief?.voiceContext && typeof translationBrief.voiceContext === 'object'
+    ? translationBrief.voiceContext
+    : body.voiceContext && typeof body.voiceContext === 'object'
+      ? body.voiceContext
+      : buildProjectVoiceContext(
+          memory,
+          segments.map((segment) => ({ id: segment.id, text: segment.source, contextPath: segment.contextPath })),
+          segments[0]?.contextPath || (typeof body.chapterTitle === 'string' ? body.chapterTitle : ''),
+          precedingSegments,
+        );
+  const contextGraph = translationBrief?.contextGraph && typeof translationBrief.contextGraph === 'object'
+    ? translationBrief.contextGraph
+    : null;
   const reviewFocus = body.reviewFocus === 'style' ? 'style' : 'accuracy';
   const systemPrompt = [
     '你是文学翻译的第二道工序：独立文学编辑。请对照原文，将 draft 修订为准确、自然、有质感、适合目标语言阅读的文学译文；不要只做校对，也不要改写成你自己的作品。',
@@ -323,7 +334,16 @@ export async function runLiteraryReview(body: any, requestId: string, sessionSco
   const prompt = [
     '目标语言：' + (body.target || 'zh'),
     '章节：' + (typeof body.chapterTitle === 'string' ? body.chapterTitle : ''),
-    '当前批次 voiceContext（只读参考，按角色/关系筛选）：', JSON.stringify(voiceContext),
+    'TranslationBrief 元数据（只用于来源/策略追溯）：', JSON.stringify(translationBrief ? {
+      policyVersion: translationBrief.policyVersion,
+      contextHash: translationBrief.contextHash,
+      sourceRevisionId: translationBrief.sourceRevisionId,
+      promptRevisionId: translationBrief.promptRevisionId,
+      memoryRevisionId: translationBrief.memoryRevisionId,
+      chapterPath: translationBrief.chapterPath,
+    } : null),
+    '共享书籍上下文中的 voiceContext（只读参考）：', JSON.stringify(voiceContext),
+    '共享书籍上下文中的 Context Graph（只读、受原文知识边界约束）：', JSON.stringify(contextGraph),
     '前文上下文（只用于消歧，不输出审校结果）：', JSON.stringify(precedingSegments),
     '待审校片段：', JSON.stringify(segments),
   ].join('\n\n');
@@ -390,5 +410,8 @@ export async function runLiteraryReview(body: any, requestId: string, sessionSco
     reviewedIds: expectedIds.filter((id) => typeof translations[id] === 'string'),
     missingIds: expectedIds.filter((id) => typeof translations[id] !== 'string'),
     findings: findings.slice(0, 240),
+    promptChars: prompt.length,
+    contextChars: JSON.stringify({ voiceContext, contextGraph, precedingSegments }).length,
+    translationBriefHash: translationBrief?.contextHash || null,
   };
 }
