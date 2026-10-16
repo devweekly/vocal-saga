@@ -67,3 +67,92 @@ test('literary batch planner never crosses a chapter boundary', () => {
     ['Chapter 2'],
   ]);
 });
+
+
+test('future-supported glossary, character profile, anchor, examples and style text are excluded from an early TranslationBrief', () => {
+  const store = getDocumentProjectStore();
+  const project = store.createProject({
+    title: 'Temporal Knowledge Boundary Test',
+    format: 'txt',
+    sourceFileName: 'temporal-boundary.txt',
+    prompt: { translationMode: 'literary', sourceLang: 'en', targetLang: 'zh' },
+    segments: [
+      { id: 'early-1', text: 'Mara Voss entered the archive and touched the old key.', kind: 'paragraph', contextPath: 'Chapter 1' },
+      { id: 'future-1', text: 'Mara Voss was the secret Queen of Ash, keeper of the hidden passage.', kind: 'paragraph', contextPath: 'Chapter 8' },
+    ],
+  });
+  store.saveManualEdit(project.projectId, 'future-1', '玛拉·沃斯其实是灰烬女王，也是密道的守护者。');
+  store.saveLiteraryMemory(project.projectId, {
+    entities: [{
+      source: 'Mara Voss',
+      target: '灰烬女王',
+      aliases: ['Queen of Ash'],
+      kind: 'character',
+      reviewStatus: 'confirmed',
+      evidence: 'Mara Voss was the secret Queen of Ash, keeper of the hidden passage.',
+    }],
+    relationships: [{
+      subject: 'Mara Voss',
+      predicate: 'guards',
+      object: 'hidden passage',
+      reviewStatus: 'confirmed',
+      evidence: 'Mara Voss was the secret Queen of Ash, keeper of the hidden passage.',
+    }],
+    styleGuide: {
+      narrativeVoice: 'The narrator gradually reveals that Mara is the Queen of Ash.',
+      register: 'Literary',
+      rhythm: 'Measured',
+      dialogue: 'Restrained',
+      diction: 'Gothic',
+      avoid: [],
+    },
+    chapterSummaries: [{ chapter: 'Chapter 8', summary: 'Mara is the Queen of Ash.' }],
+    recentExamples: [{ source: 'Mara Voss was the secret Queen of Ash.', target: '玛拉·沃斯其实是灰烬女王。', chapter: 'Chapter 8' }],
+    characterVoices: [{
+      characterId: 'mara-voss',
+      canonicalSourceName: 'Mara Voss',
+      targetName: '玛拉·沃斯',
+      aliases: ['Queen of Ash'],
+      status: 'confirmed',
+      confidence: 0.95,
+      voiceCore: { register: 'Cold and commanding', syntaxRhythm: [], lexicalPreferences: ['kneel'], discourseHabits: [], stanceModality: [], humorIrony: '', disfluency: '', avoid: [] },
+      evidence: [{
+        segmentId: 'future-1',
+        sourceQuote: 'Mara Voss was the secret Queen of Ash',
+        observation: 'Uses royal imperatives',
+        dimension: 'register',
+        confidence: 0.95,
+      }],
+      contrastRules: [],
+      openQuestions: [],
+    }],
+    relationshipVoiceRules: [],
+    voiceAnchors: [{
+      anchorId: 'future-anchor',
+      speakerId: 'mara-voss',
+      source: 'keeper of the hidden passage',
+      target: '密道守护者',
+      chapter: 'Chapter 8',
+      segmentId: 'future-1',
+      attributionEvidence: 'Mara Voss was the secret Queen of Ash',
+      attributionConfidence: 0.95,
+      status: 'approved',
+    }],
+    openQuestions: [],
+  });
+  const run = store.createRun(project.projectId, { scope: { type: 'ids', ids: ['early-1'] } });
+  const context = store.getRunContext(project.projectId, run.runId);
+  const source = store.getSegments(project.projectId, { limit: 10 }).find((item) => item.id === 'early-1');
+  const brief = buildTranslationBrief(context, [source], []);
+  const serialized = JSON.stringify(brief);
+
+  assert.ok(!serialized.includes('Queen of Ash'));
+  assert.ok(!serialized.includes('hidden passage'));
+  assert.ok(!serialized.includes('灰烬女王'));
+  assert.ok(!serialized.includes('密道守护者'));
+  assert.ok(!serialized.includes('gradually reveals'));
+  assert.deepEqual(brief.voiceContext.entities, []);
+  assert.deepEqual(brief.voiceContext.characterVoices, []);
+  assert.deepEqual(brief.voiceContext.voiceAnchors, []);
+  assert.deepEqual(brief.voiceContext.chapterSummaries, []);
+});
