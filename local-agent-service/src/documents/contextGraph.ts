@@ -407,7 +407,7 @@ async function runAnalysis(projectId: string, runId: string): Promise<void> {
     for (const raw of (Array.isArray(data.entities) ? data.entities : []).slice(0, 120)) {
       const name = safeText(raw?.name, 120);
       if (!name) continue;
-      const evidence = validateEvidence(raw.evidence, allowedEvidence);
+      const evidence = evidenceFromModel(raw.evidence);
       if (!evidence.length) continue;
       const aliases = uniqueStrings(raw.aliases, 12, 100).filter((item) => normalize(item) !== normalize(name));
       const attributes = {
@@ -426,7 +426,7 @@ async function runAnalysis(projectId: string, runId: string): Promise<void> {
       const fromId = identities.get(normalize(raw?.from));
       const toId = identities.get(normalize(raw?.to));
       if (!fromId || !toId || fromId === toId) continue;
-      const evidence = validateEvidence(raw.evidence, allowedEvidence);
+      const evidence = evidenceFromModel(raw.evidence);
       if (!evidence.length) continue;
       const edge = saveEdge(db, revisionId, fromId, toId, safeText(raw.kind, 80) || 'relationship', {
         description: safeText(raw.description, 500), voiceRule: safeText(raw.voiceRule, 500), evidenceCount: evidence.length,
@@ -444,7 +444,7 @@ async function runAnalysis(projectId: string, runId: string): Promise<void> {
       const matchingChapter = chapterRows.find((chapter) =>
         normalize(chapter.chapter_title) === normalize(title) || normalize(chapter.chapter_key) === normalize(title));
       if (!matchingChapter) continue;
-      const evidence = validateEvidence(raw.evidence, allowedEvidence);
+      const evidence = evidenceFromModel(raw.evidence);
       if (!evidence.length) continue;
       const evidenceBelongsToChapter = evidence.some((item) => {
         const segment = sourceById.get(item.segmentId);
