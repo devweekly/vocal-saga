@@ -331,7 +331,8 @@ export async function handleDocumentProjectRequest(req: Request, res: Response, 
       const after = Number.parseInt(url.searchParams.get('after') || '0', 10);
       const runId = url.searchParams.get('runId') || undefined;
       const limit = Number.parseInt(url.searchParams.get('limit') || '200', 10);
-      sendJson(res, 200, { events: store.getEvents(projectId, runId, after, limit) });
+      const latest = url.searchParams.get('latest') === 'true';
+      sendJson(res, 200, { events: store.getEvents(projectId, runId, after, limit, latest) });
       return true;
     }
     if (pathParts.length === 6 && pathParts[4] === 'runs' && method === 'GET') {
