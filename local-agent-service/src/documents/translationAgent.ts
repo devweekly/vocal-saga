@@ -400,11 +400,9 @@ async function executeRun(projectId: string, runId: string): Promise<void> {
       sessionStrategy: 'independent-per-batch',
     });
     const memory = context.memory && typeof context.memory === 'object' ? context.memory as Record<string, any> : {};
-    const briefGlossary = translationBrief?.glossary as any;
-    const glossaryTerms = Array.isArray(briefGlossary?.document_terms)
-      ? briefGlossary.document_terms.length
-      : Array.isArray(context.prompt.config?.glossary?.document_terms)
-        ? context.prompt.config.glossary.document_terms.length : 0;
+    const configuredGlossary = context.prompt.config?.glossary as any;
+    const glossaryTerms = Array.isArray(configuredGlossary?.document_terms)
+      ? configuredGlossary.document_terms.length : 0;
     store.appendEvent(projectId, runId, 'run.context.ready', {
       provider: context.run.provider,
       model: context.run.model,
