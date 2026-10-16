@@ -29,7 +29,7 @@ function safeHash(value: string): string {
 }
 
 function normalizeEntityName(value: string): string {
-  return value.normalize('NFKC').toLocaleLowerCase().replace(/[\\s._'’\\-]+/g, ' ').trim();
+  return value.normalize('NFKC').toLocaleLowerCase().replace(/[\s._'’\-]+/g, ' ').trim();
 }
 
 /**
