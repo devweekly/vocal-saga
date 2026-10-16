@@ -528,6 +528,15 @@ export class DocumentProjectStore {
     const format = normalizeFormat(input.format || current.format);
     const fileName = (input.sourceFileName || current.sourceFileName).trim().slice(0, 500);
     const db = this.openProjectDb(projectId);
+    const activeRun = db.prepare(
+      "SELECT run_id, status FROM translation_runs WHERE status IN ('queued','running','paused','awaiting_acceptance','partial') LIMIT 1"
+    ).get() as { run_id?: string; status?: string } | undefined;
+    if (activeRun?.run_id) {
+      throw Object.assign(
+        new Error('翻译运行 ' + activeRun.run_id + ' 仍处于 ' + activeRun.status + ' 状态，不能切换原文版本。请先完成、取消或明确处理本次运行。'),
+        { status: 409 },
+      );
+    }
     db.exec('BEGIN IMMEDIATE');
     try {
       const revision = this.insertSourceRevision(db, projectId, title, format, fileName, segments);
@@ -774,7 +783,7 @@ export class DocumentProjectStore {
 
   listPrompts(projectId: string): any[] {
     const db = this.openProjectDb(projectId);
-    return (db.prepare('SELECT * FROM prompt_revisions ORDER BY created_at DESC').all() as any[]).map((row) => this.publicPrompt(row));
+    return (db.prepare('SELECT * FROM prompt_revisions ORDER BY created_at DESC, rowid DESC').all() as any[]).map((row) => this.publicPrompt(row));
   }
 
   /**
@@ -880,12 +889,6 @@ export class DocumentProjectStore {
     const failedIds = new Set(failedRows.map((row) => row.segment_id));
     const idSet = new Set((scope.ids || []).map(String));
     const chapter = (scope.chapter || '').trim();
-    const graphRunId = config.translationMode === 'literary'
-      ? this.contextGraphIsRunning(projectId, sourceRevisionId)
-      : null;
-    if (graphRunId) {
-      throw Object.assign(new Error('本书的 Context Graph 预处理仍在运行（' + graphRunId + '），请等待完成后再启动翻译。'), { status: 409 });
-    }
     const runFingerprint = this.makeRunFingerprint(projectId, sourceRevisionId, promptRow, config, currentMemory.fingerprint || null);
     const selected = currentSegments.filter((segment) => {
       if (scopeType === 'all') return true;
@@ -895,6 +898,41 @@ export class DocumentProjectStore {
       const accepted = latestAccepted.get(segment.segment_id);
       return !accepted || accepted.source_hash !== segment.source_hash || (accepted.origin !== 'manual' && accepted.run_fingerprint !== runFingerprint);
     });
+    // A literary run may start only from a completed Context Graph for this exact source and language.
+    // Missing/failed preprocessing must never silently degrade into a context-free translation.
+    if (selected.length && config.translationMode === 'literary') {
+      const graphTable = db.prepare(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'context_graph_runs'"
+      ).get();
+      if (!graphTable) {
+        throw Object.assign(new Error('文学翻译的全书预处理尚未运行。请先在“人物与预处理”中启动预处理。'), { status: 409 });
+      }
+      const preprocessing = db.prepare(
+        'SELECT run_id, status, progress_json, error FROM context_graph_runs WHERE source_revision_id = ? ORDER BY started_at DESC, rowid DESC LIMIT 1'
+      ).get(sourceRevisionId) as { run_id?: string; status?: string; progress_json?: string; error?: string } | undefined;
+      if (!preprocessing) {
+        throw Object.assign(new Error('当前原文版本还没有 Context Graph 预处理记录。请先完成全书预处理再翻译。'), { status: 409 });
+      }
+      if (preprocessing.status === 'queued' || preprocessing.status === 'running') {
+        throw Object.assign(new Error('全书预处理仍在运行（' + preprocessing.run_id + '），完成后再启动翻译。'), { status: 409 });
+      }
+      if (preprocessing.status !== 'completed') {
+        throw Object.assign(new Error('全书预处理未成功：' + (preprocessing.error || preprocessing.status) + '。请在“人物与预处理”中重新分析。'), { status: 409 });
+      }
+      const preprocessingProgress = parseJson<any>(preprocessing.progress_json, {});
+      if (preprocessingProgress.analysisVersion !== 'context-graph-v4-target-language') {
+        throw Object.assign(new Error('全书预处理版本过旧，请重新分析后再翻译。'), { status: 409 });
+      }
+      const expectedSourceLang = config.sourceLang || 'auto';
+      const expectedTargetLang = config.targetLang || 'zh';
+      if (preprocessingProgress.sourceLang !== expectedSourceLang || preprocessingProgress.targetLang !== expectedTargetLang) {
+        throw Object.assign(new Error(
+          '全书预处理语言与当前翻译配置不一致（预处理 ' +
+          (preprocessingProgress.sourceLang || 'auto') + '→' + (preprocessingProgress.targetLang || 'zh') +
+          '，当前 ' + expectedSourceLang + '→' + expectedTargetLang + '）。请重新分析全书。',
+        ), { status: 409 });
+      }
+    }
     const runId = randomUUID();
     const createdAt = isoNow();
     db.exec('BEGIN IMMEDIATE');
@@ -1253,6 +1291,71 @@ export class DocumentProjectStore {
     const priority = category === 'style' ? 'optional' : 'must_fix';
     db.prepare('INSERT INTO review_findings(run_id, segment_id, category, priority, finding_json, status, created_at) VALUES (?, ?, ?, ?, ?, \'pending\', ?)')
       .run(runId, segmentId, category, priority, JSON.stringify({ ...finding, id: segmentId, category, priority }), isoNow());
+  }
+
+  /**
+   * Apply or dismiss an optional style proposal. Applying is an explicit user decision and
+   * records a new accepted manual translation only when the finding still targets the current source.
+   */
+  setReviewFindingDisposition(
+    projectId: string,
+    runId: string,
+    findingId: number,
+    action: 'apply' | 'dismiss',
+  ): any {
+    const { db, currentSourceRevisionId } = this.getProjectContext(projectId);
+    const row = db.prepare(
+      'SELECT rf.finding_id, rf.segment_id, rf.category, rf.finding_json, tr.source_revision_id, rs.source_hash AS run_source_hash ' +
+      'FROM review_findings rf JOIN translation_runs tr ON tr.run_id = rf.run_id ' +
+      'JOIN run_segments rs ON rs.run_id = rf.run_id AND rs.segment_id = rf.segment_id ' +
+      'WHERE rf.finding_id = ? AND rf.run_id = ?'
+    ).get(findingId, runId) as any;
+    if (!row) throw Object.assign(new Error('找不到这条审校建议'), { status: 404 });
+    if (row.category !== 'style') throw Object.assign(new Error('只有文风建议支持手动采纳或保留'), { status: 400 });
+    if (row.source_revision_id !== currentSourceRevisionId) {
+      throw Object.assign(new Error('这条审校建议属于旧原文版本，不能应用到当前文档'), { status: 409 });
+    }
+    const finding = parseJson<any>(row.finding_json, {});
+    if (action === 'apply') {
+      const proposed = typeof finding.proposedTranslation === 'string' ? finding.proposedTranslation.trim() : '';
+      if (!proposed || proposed.length > 20000) {
+        throw Object.assign(new Error('这条文风建议没有可用的完整候选译文'), { status: 400 });
+      }
+      const source = db.prepare(
+        'SELECT source_hash FROM source_segments WHERE source_revision_id = ? AND segment_id = ?'
+      ).get(currentSourceRevisionId, row.segment_id) as { source_hash?: string } | undefined;
+      if (!source || source.source_hash !== row.run_source_hash) {
+        throw Object.assign(new Error('原文片段已变化，拒绝应用基于旧文本生成的文风建议'), { status: 409 });
+      }
+      const latestPrompt = db.prepare(
+        'SELECT prompt_revision_id FROM prompt_revisions ORDER BY created_at DESC, rowid DESC LIMIT 1'
+      ).get() as { prompt_revision_id?: string } | undefined;
+      const now = isoNow();
+      const resultId = randomUUID();
+      db.exec('BEGIN IMMEDIATE');
+      try {
+        db.prepare(
+          'INSERT INTO translation_results(result_id, run_id, source_revision_id, prompt_revision_id, segment_id, source_hash, run_fingerprint, translation_text, origin, accepted, created_at, accepted_at) ' +
+          'VALUES (?, NULL, ?, ?, ?, ?, \'manual\', ?, \'manual\', 1, ?, ?)'
+        ).run(resultId, currentSourceRevisionId, latestPrompt?.prompt_revision_id || null, row.segment_id, source.source_hash, proposed, now, now);
+        finding.applicationStatus = 'applied';
+        finding.appliedResultId = resultId;
+        db.prepare('UPDATE review_findings SET status = \'applied\', finding_json = ? WHERE finding_id = ? AND run_id = ?')
+          .run(JSON.stringify(finding), findingId, runId);
+        db.exec('COMMIT');
+      } catch (error) {
+        db.exec('ROLLBACK');
+        throw error;
+      }
+      this.addEvent(projectId, runId, 'review-finding.applied', { findingId, segmentId: row.segment_id, resultId });
+      this.catalogDb().prepare('UPDATE document_projects SET updated_at = ? WHERE project_id = ?').run(now, projectId);
+      return { findingId, segmentId: row.segment_id, applicationStatus: 'applied', resultId, text: proposed };
+    }
+    finding.applicationStatus = 'dismissed';
+    db.prepare('UPDATE review_findings SET status = \'dismissed\', finding_json = ? WHERE finding_id = ? AND run_id = ?')
+      .run(JSON.stringify(finding), findingId, runId);
+    this.addEvent(projectId, runId, 'review-finding.dismissed', { findingId, segmentId: row.segment_id });
+    return { findingId, segmentId: row.segment_id, applicationStatus: 'dismissed' };
   }
 
   finishRun(projectId: string, runId: string): any {
