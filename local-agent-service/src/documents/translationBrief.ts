@@ -234,25 +234,8 @@ function filterGlossaryForBatch(context: any, items: BriefSegment[]): unknown {
   if (!ordinals.length) return empty;
   const firstOrdinal = Math.min(...ordinals);
 
-  const normalize = (value: unknown) =>
-    String(value || '').normalize('NFKC').toLocaleLowerCase().replace(/\s+/g, ' ').trim();
-  const appearedEarlier = (value: unknown): boolean => {
-    const term = String(value || '').trim();
-    const key = normalize(term);
-    if (key.length < 2) return false;
-    const candidates = db.prepare(
-      'SELECT text FROM source_segments WHERE source_revision_id = ? AND ordinal < ? ' +
-        'AND instr(lower(text), lower(?)) > 0 ORDER BY ordinal LIMIT 100'
-    ).all(revisionId, firstOrdinal, term) as Array<{ text: string }>;
-    if (/^[a-z0-9 ._'’-]+$/i.test(term)) {
-      const needle = key.replace(/[^a-z0-9]+/gi, ' ').trim();
-      return needle.length >= 2 && candidates.some((row) => {
-        const haystack = ' ' + normalize(row.text).replace(/[^a-z0-9]+/gi, ' ').trim() + ' ';
-        return haystack.includes(' ' + needle + ' ');
-      });
-    }
-    return candidates.some((row) => normalize(row.text).includes(key));
-  };
+  const appearedEarlier = (value: unknown): boolean =>
+    firstMatchingSourceOrdinal(db, revisionId, value, 'name') < firstOrdinal;
 
   const allowedKeys = [
     'source', 'source_term', 'term', 'original', 'en', 'from',
