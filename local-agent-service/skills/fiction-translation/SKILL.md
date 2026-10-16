@@ -12,7 +12,7 @@ Use this skill only for literary documents (novels, stories, memoir, dialogue-he
 
 1. **Read source structure.** Keep each stable segment ID, source text, chapter path, and page/layout markers. Never put book memory into `contextPath`; that field is source-document structure only.
 2. **Load the immutable memory snapshot.** A run pins a `literary_memory_revision_id`. Use its confirmed entity mappings, confirmed character profiles, confirmed directional relationship rules, and approved voice anchors as read-only data.
-3. **Translate the batch.** Select a compact, batch-relevant `voiceContext`. Do not send the entire novel, entire memory, or all voice anchors for every batch. Never infer a speaker merely because a name appears nearby.
+3. **Translate the batch.** Select a compact, batch-relevant `voiceContext`, including the matching chapter summary and up to two preceding summaries when chapter names align; if the current chapter has not been summarized, use only the newest three available summaries as continuity hints. Do not send the entire novel, entire memory, or all voice anchors for every batch. Never infer a speaker merely because a name appears nearby. Current source segments always outrank summaries; summaries must not add facts to the translation.
 4. **Validate the result.** Preserve one output per input ID, order/segment boundaries, negation, tense, viewpoint, referents, ambiguity, and plot facts. Do not add catchphrases, dialect, swearing, emotions, metaphors, or facts absent from the source merely to make a character sound distinctive.
 5. **Review separately.** Check meaning/plot accuracy, terminology, narrative style, and character voice. Character-voice findings should cite the exact source/draft evidence and the relevant confirmed profile or directional relationship rule. If speaker/addressee attribution is uncertain, report the uncertainty instead of forcing a profile.
 6. **Gate changes.** Accuracy and terminology findings may follow the existing must-fix workflow. Style and character-voice revisions remain candidate proposals until explicitly accepted. Model output cannot mark a profile or anchor as user-approved.
@@ -31,7 +31,7 @@ Use this skill only for literary documents (novels, stories, memoir, dialogue-he
 
 - Put voice data into an explicit read-only user-data field named `voiceContext`; never concatenate it into `contextPath`. For dialogue/coreference disambiguation, pass at most four preceding source segments in a separate read-only `precedingSegments` field; do not ask the model to translate or return IDs for them.
 - Bound by removing lower-priority complete records, not by slicing serialized JSON.
-- Include the voice-context and preceding-context/policy hash in the literary translation cache key, including caller-supplied keys. The current policy version is `character-voice-v2`. Keep non-literary/web cache keys unchanged.
+- Include the voice-context and preceding-context/policy hash in the literary translation cache key, including caller-supplied keys. The current policy version is `character-voice-v3`. Keep non-literary/web cache keys unchanged.
 - Record policy version and memory revision with each run. Never reuse a candidate produced with a different source hash, static Prompt, or voice context when deciding whether a result is current.
 
 ## Review checklist
