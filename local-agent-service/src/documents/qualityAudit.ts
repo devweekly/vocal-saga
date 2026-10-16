@@ -101,7 +101,7 @@ function loadMemory(projectId: string, runId?: string): Record<string, any> {
     : store.getCurrentLiteraryMemory(projectId).memory;
 }
 
-function currentVoiceFindings(
+function currentReviewFindings(
   db: any,
   revisionId: string,
   requestedRunId?: string,
@@ -132,11 +132,14 @@ function currentVoiceFindings(
     return {
       findingId: Number(row.finding_id),
       segmentId: String(row.segment_id),
-      category: 'style',
+      category: String(row.category),
       priority: String(row.priority),
       status: String(row.status),
       dimension: typeof finding.dimension === 'string' ? finding.dimension : null,
       characterId: typeof finding.characterId === 'string' ? finding.characterId : null,
+      sourceExcerpt: String(finding.sourceExcerpt || ''),
+      draftExcerpt: String(finding.draftExcerpt || ''),
+      evidenceSegmentIds: Array.isArray(finding.evidenceSegmentIds) ? finding.evidenceSegmentIds.filter((id: unknown) => typeof id === 'string').slice(0, 8) : [],
       reason: String(finding.reason || ''),
       suggestion: String(finding.suggestion || ''),
       proposedTranslation: typeof finding.proposedTranslation === 'string' ? finding.proposedTranslation : null,
@@ -352,12 +355,16 @@ export function runProjectQualityAudit(projectId: string, runId?: string): Recor
   }));
   const termFindings = terminologyFindings(segments, translations, memory);
   const repeatedFindings = repeatedExpressionFindings(segments, translations);
-  const review = currentVoiceFindings(context.db, context.currentSourceRevisionId, runId);
+  const review = currentReviewFindings(context.db, context.currentSourceRevisionId, runId);
   const presentIds = new Set(segments.map((segment) => segment.id));
-  const voiceFindings = review.findings.filter((finding) => presentIds.has(finding.segmentId)).map((finding) => ({
+  const reviewFindings = review.findings.filter((finding) => presentIds.has(finding.segmentId)).map((finding) => ({
     findingId: 'review_' + finding.findingId,
-    type: finding.dimension === 'character_voice' ? 'character-voice-review' : 'style-review',
-    category: 'style',
+    type: finding.category === 'accuracy'
+      ? 'accuracy-review'
+      : finding.category === 'terminology'
+        ? 'reviewer-terminology-review'
+        : finding.dimension === 'character_voice' ? 'character-voice-review' : 'style-review',
+    category: finding.category,
     severity: finding.priority === 'must_fix' ? 'must-fix' : 'review',
     repairable: true,
     segmentIds: [finding.segmentId],
@@ -365,11 +372,14 @@ export function runProjectQualityAudit(projectId: string, runId?: string): Recor
     status: finding.status,
     dimension: finding.dimension,
     characterId: finding.characterId,
+    sourceExcerpt: finding.sourceExcerpt,
+    draftExcerpt: finding.draftExcerpt || finding.reviewedTranslation,
+    evidenceSegmentIds: finding.evidenceSegmentIds,
     reason: finding.reason,
     suggestion: finding.suggestion,
     proposedTranslation: finding.proposedTranslation,
   }));
-  const findings = [...missing, ...termFindings, ...repeatedFindings, ...voiceFindings];
+  const findings = [...missing, ...termFindings, ...repeatedFindings, ...reviewFindings];
   const auditId = randomUUID();
   const translatedCount = segments.length - missing.length;
   const report = {
@@ -386,15 +396,17 @@ export function runProjectQualityAudit(projectId: string, runId?: string): Recor
       coveragePercent: segments.length ? Math.round(translatedCount / segments.length * 1000) / 10 : 100,
       terminologyDriftCount: termFindings.length,
       repeatedExpressionDriftGroups: repeatedFindings.length,
-      styleReviewFindingCount: voiceFindings.filter((item) => item.category === 'style').length,
-      characterVoiceFindingCount: voiceFindings.filter((item) => item.type === 'character-voice-review').length,
+      accuracyReviewFindingCount: reviewFindings.filter((item) => item.category === 'accuracy').length,
+      reviewerTerminologyFindingCount: reviewFindings.filter((item) => item.category === 'terminology').length,
+      styleReviewFindingCount: reviewFindings.filter((item) => item.category === 'style').length,
+      characterVoiceFindingCount: reviewFindings.filter((item) => item.type === 'character-voice-review').length,
       repairableFindingCount: findings.filter((item) => item.repairable).length,
     },
     interpretation: [
       '遗漏检查为确定性检查。',
       '术语漂移是基于已确认规范译名的启发式提示；未出现规范译名不一定代表错误。',
       '重复表达只对重复源文片段的译文差异提示复核，不自动统一。',
-      '人物声音与文风问题来自已有 Reviewer 发现；若没有运行文风审校，报告不能证明整本书没有声线问题。',
+      '准确性/遗漏、术语、人物声线与文风提示来自已有 Reviewer 发现；若没有运行相应审校，报告不能证明该类问题不存在。',
       '所有修订都进入新的候选 Run，不自动覆盖已采纳或人工修改的译文。',
     ],
     findings,
