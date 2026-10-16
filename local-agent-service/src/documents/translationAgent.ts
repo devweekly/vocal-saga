@@ -13,7 +13,7 @@ import { runAgentStructured } from '../agents/runner.ts';
 import { runLiteraryReview } from '../literary.ts';
 import { getDocumentProjectStore } from './projectStore.ts';
 import { buildProjectVoiceContext } from './voiceContext.ts';
-import { buildProjectContextGraphBundle } from './contextGraph.ts';
+import { buildTranslationBrief, summarizeTranslationBrief, type TranslationBrief } from './translationBrief.ts';
 
 const TRANSLATION_SCHEMA: Record<string, unknown> = {
   type: 'object',
@@ -169,13 +169,15 @@ export function createConcurrencyLimiter(concurrency: number): <T>(task: () => P
 
 const activeRuns = new Set<string>();
 
-function buildBatches(items: TranslationItem[]): TranslationItem[][] {
+function buildBatches(items: TranslationItem[], respectChapterBoundaries = false): TranslationItem[][] {
   const batches: TranslationItem[][] = [];
   let current: TranslationItem[] = [];
   let chars = 0;
   for (const item of items) {
     const size = item.text.length + (item.contextPath?.length || 0);
-    if (current.length && (current.length >= 12 || chars + size > 6000)) {
+    const chapterBoundary = respectChapterBoundaries && current.length > 0 &&
+      (current[0]?.contextPath || '') !== (item.contextPath || '');
+    if (current.length && (chapterBoundary || current.length >= 12 || chars + size > 6000)) {
       batches.push(current);
       current = [];
       chars = 0;
@@ -192,7 +194,7 @@ function buildBatches(items: TranslationItem[]): TranslationItem[][] {
   return batches;
 }
 
-export function buildUserPrompt(template: string, items: TranslationItem[], context: any, precedingSegments: TranslationItem[] = [], contextGraph: Record<string, unknown> | null = null): string {
+export function buildUserPrompt(template: string, items: TranslationItem[], context: any, precedingSegments: TranslationItem[] = [], contextGraph: Record<string, unknown> | null = null, translationBrief?: TranslationBrief): string {
   const payload = JSON.stringify({
     document: context.project.title,
     format: context.project.format,
@@ -212,11 +214,23 @@ export function buildUserPrompt(template: string, items: TranslationItem[], cont
     })),
     glossary: context.prompt.config?.glossary ?? null,
     // 当前批次只注入相关人物声音、关系规则和 approved 锚点，不把整本书的记忆全部塞进上下文。
+    // Translator and both reviewers consume this same bounded, source-revision-pinned snapshot.
+    translationBrief: translationBrief ? {
+      policyVersion: translationBrief.policyVersion,
+      contextHash: translationBrief.contextHash,
+      contextChars: translationBrief.contextChars,
+      sourceRevisionId: translationBrief.sourceRevisionId,
+      promptRevisionId: translationBrief.promptRevisionId,
+      memoryRevisionId: translationBrief.memoryRevisionId,
+      chapterPath: translationBrief.chapterPath || null,
+      knowledgeBoundaryOrdinal: (translationBrief.contextGraph as any)?.knowledgeBoundaryOrdinal ?? null,
+    } : null,
     voiceContext: context.run.translationMode === 'literary'
-      ? buildProjectVoiceContext(context.memory, items, items[0]?.contextPath || context.project.title, precedingSegments)
+      ? translationBrief?.voiceContext ?? buildProjectVoiceContext(context.memory, items, items[0]?.contextPath || context.project.title, precedingSegments)
       : null,
-    // Select only graph evidence matching the current batch; the complete graph never enters a prompt.
-    contextGraph: context.run.translationMode === 'literary' ? contextGraph : null,
+    // Select only temporally visible graph evidence matching this chapter-scoped batch.
+    contextGraph: context.run.translationMode === 'literary'
+      ? translationBrief?.contextGraph ?? contextGraph : null,
   });
   if (template.includes('{{CONTENT}}')) return template.replaceAll('{{CONTENT}}', payload);
   if (template.includes('{{CONTENT_JSON}}')) return template.replaceAll('{{CONTENT_JSON}}', payload);
@@ -251,16 +265,12 @@ function parseTranslations(value: unknown, expectedIds: Set<string>): Map<string
   return result;
 }
 
-async function translateBatch(context: any, items: TranslationItem[], requestId: string, batchIndex: number, precedingSegments: TranslationItem[] = []): Promise<Map<string, string>> {
+async function translateBatch(context: any, items: TranslationItem[], requestId: string, batchIndex: number, precedingSegments: TranslationItem[] = [], translationBrief?: TranslationBrief): Promise<Map<string, string>> {
   const agent = parseAgentModel(context.run.model || 'auto', context.run.provider || 'workbuddy');
-  const contextGraph = context.run.translationMode === 'literary'
-    ? buildProjectContextGraphBundle(
-        context.project.projectId,
-        items.map((item) => ({ id: item.id, text: item.text, contextPath: item.contextPath })),
-        precedingSegments.map((item) => ({ id: item.id, text: item.text, contextPath: item.contextPath })),
-      )
-    : null;
-  const userPrompt = buildUserPrompt(context.prompt.userPromptTemplate || '', items, context, precedingSegments, contextGraph);
+  const contextGraph = translationBrief?.contextGraph ?? null;
+  const userPrompt = buildUserPrompt(
+    context.prompt.userPromptTemplate || '', items, context, precedingSegments, contextGraph, translationBrief,
+  );
   const systemPrompt = [
     context.prompt.systemPrompt || '',
     context.run.translationMode === 'literary' ? LITERARY_TRANSLATION_CONTRACT : '',
@@ -277,14 +287,7 @@ async function translateBatch(context: any, items: TranslationItem[], requestId:
 
   const store = getDocumentProjectStore();
   const memory = context.memory && typeof context.memory === 'object' ? context.memory as Record<string, any> : {};
-  const voiceContext = context.run.translationMode === 'literary'
-    ? buildProjectVoiceContext(
-        context.memory,
-        items.map((item) => ({ id: item.id, text: item.text, contextPath: item.contextPath })),
-        items[0]?.contextPath || context.project.title,
-        precedingSegments,
-      )
-    : undefined;
+  const voiceContext = translationBrief?.voiceContext;
   const count = (value: unknown) => Array.isArray(value) ? value.length : 0;
   const requestStartedAt = Date.now();
   // 只记录本批实际请求的上下文规模，不记录小说原文、完整 Prompt 或译文。
@@ -325,6 +328,10 @@ async function translateBatch(context: any, items: TranslationItem[], requestId:
     injectedRelationshipVoiceRules: count(voiceContext?.relationshipVoiceRules),
     injectedVoiceAnchors: count(voiceContext?.voiceAnchors),
     contextPolicyVersion: typeof voiceContext?.policyVersion === 'string' ? voiceContext.policyVersion : undefined,
+    translationBriefHash: translationBrief?.contextHash || null,
+    translationBriefChars: translationBrief?.contextChars || 0,
+    translationBriefPolicyVersion: translationBrief?.policyVersion || null,
+    graphKnowledgeBoundaryOrdinal: (contextGraph as any)?.knowledgeBoundaryOrdinal ?? null,
   });
 
   let value: unknown;
@@ -368,7 +375,7 @@ async function executeRun(projectId: string, runId: string): Promise<void> {
       store.finishRun(projectId, runId);
       return;
     }
-    const batches = buildBatches(items);
+    const batches = buildBatches(items, context.run.translationMode === 'literary');
 
     const reviewEnabled = context.run.translationMode === 'literary' && context.run.reviewEnabled;
     const { poolSize, translationConcurrency, reviewConcurrency, detachReviews } =
@@ -422,6 +429,7 @@ async function executeRun(projectId: string, runId: string): Promise<void> {
       translations: Map<string, string>,
       precedingSegments: TranslationItem[],
       failedIds: string[],
+      translationBrief: TranslationBrief | null,
     ): Promise<void> => {
       if (store.getRunStatus(projectId, runId) === 'cancelled') {
         store.appendEvent(projectId, runId, 'review.discarded', {
@@ -441,7 +449,7 @@ async function executeRun(projectId: string, runId: string): Promise<void> {
         stage: 'review', batchIndex, label: '文学审校',
       });
       const reviewStartedAt = Date.now();
-      const reviewVoiceContext = buildProjectVoiceContext(
+      const reviewVoiceContext = translationBrief?.voiceContext || buildProjectVoiceContext(
         context.memory,
         reviewedItems.map((item) => ({ id: item.id, text: item.text, contextPath: item.contextPath })),
         batch[0]?.contextPath || context.project.title,
@@ -459,6 +467,12 @@ async function executeRun(projectId: string, runId: string): Promise<void> {
         injectedRelationshipVoiceRules: reviewCount(reviewVoiceContext.relationshipVoiceRules),
         injectedVoiceAnchors: reviewCount(reviewVoiceContext.voiceAnchors),
         contextPolicyVersion: reviewVoiceContext.policyVersion,
+        translationBriefHash: translationBrief?.contextHash || null,
+        translationBriefChars: translationBrief?.contextChars || 0,
+        contextGraphIncluded: !!translationBrief?.contextGraph,
+        contextGraphCharacters: reviewCount((translationBrief?.contextGraph as any)?.characters),
+        contextGraphEntities: reviewCount((translationBrief?.contextGraph as any)?.entities),
+        contextGraphRelationships: reviewCount((translationBrief?.contextGraph as any)?.relationships),
       });
       try {
         const reviewScope = buildDocumentBatchSessionScope({
@@ -478,6 +492,7 @@ async function executeRun(projectId: string, runId: string): Promise<void> {
           memory: context.memory,
           precedingSegments,
           voiceContext: reviewVoiceContext,
+          translationBrief: translationBrief || undefined,
           reviewFocus: 'accuracy',
           segments: reviewedItems.map((item) => ({
             id: item.id, source: item.text, draft: translations.get(item.id)!,
@@ -540,6 +555,7 @@ async function executeRun(projectId: string, runId: string): Promise<void> {
               memory: context.memory,
               precedingSegments,
               voiceContext: reviewVoiceContext,
+              translationBrief: translationBrief || undefined,
               reviewFocus: 'style',
               segments: reviewedItems.map((item) => ({
                 id: item.id, source: item.text, draft: translations.get(item.id)!,
@@ -605,6 +621,15 @@ async function executeRun(projectId: string, runId: string): Promise<void> {
       const precedingSegments = context.run.translationMode === 'literary' && batch[0]
         ? store.getPrecedingSegments(projectId, runId, batch[0].id, 4) as TranslationItem[]
         : [];
+      const translationBrief = context.run.translationMode === 'literary'
+        ? buildTranslationBrief(context, batch, precedingSegments)
+        : null;
+      if (translationBrief) {
+        store.saveTranslationBriefSnapshot(projectId, runId, batchIndex, translationBrief as unknown as Record<string, any>);
+        store.appendEvent(projectId, runId, 'translation-brief.ready', {
+          batchIndex, ...summarizeTranslationBrief(translationBrief),
+        });
+      }
       store.markRunSegments(projectId, runId, batchIds, 'running');
       store.appendEvent(projectId, runId, 'batch.started', {
         batchIndex,
@@ -635,6 +660,7 @@ async function executeRun(projectId: string, runId: string): Promise<void> {
             runId + '-b' + batchIndex + '-a' + attempt,
             batchIndex,
             precedingSegments,
+            translationBrief || undefined,
           );
           if (store.getRunStatus(projectId, runId) === 'cancelled') {
             store.appendEvent(projectId, runId, 'batch.discarded', {
@@ -694,7 +720,7 @@ async function executeRun(projectId: string, runId: string): Promise<void> {
         });
         return;
       }
-      const job = () => reviewBatch(batchIndex, batch, translations, precedingSegments, failedIds);
+      const job = () => reviewBatch(batchIndex, batch, translations, precedingSegments, failedIds, translationBrief);
       if (detachReviews) {
         // Do not await here: another translation batch can start while this review is in flight.
         reviewTasks.push(reviewLimiter(job));
