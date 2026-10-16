@@ -169,15 +169,20 @@ function buildTemporallyVisibleMemory(
     firstMatchingSourceOrdinal(projectContext.db, revisionId, quoteInput, 'quote') < firstOrdinal;
 
   rawMemory.entities = (Array.isArray(rawMemory.entities) ? rawMemory.entities : []).flatMap((entity: any) => {
-    if (!entity || !appearedBefore(entity.source) || !appearsAsEarlierEvidence(entity.evidence)) return [];
-    return [{
-      ...entity,
-      aliases: (Array.isArray(entity.aliases) ? entity.aliases : []).filter((alias: unknown) => appearedBefore(alias)),
-    }];
+    const aliases = Array.isArray(entity?.aliases) ? entity.aliases : [];
+    // A later alias may have changed the canonical translation itself (e.g. a hidden identity).
+    // Rather than dropping only the alias but keeping a target derived from that reveal, exclude
+    // the entire entity until all of its known aliases are established before this batch.
+    if (!entity || !appearedBefore(entity.source) || !sourceNameMatches(entity.evidence, entity.source) ||
+        !appearsAsEarlierEvidence(entity.evidence) || aliases.some((alias: unknown) => !appearedBefore(alias))) return [];
+    return [{ ...entity, aliases }];
   });
   rawMemory.relationships = (Array.isArray(rawMemory.relationships) ? rawMemory.relationships : []).filter((relation: any) =>
-    relation && appearedBefore(relation.subject) && appearedBefore(relation.object) &&
-    appearsAsEarlierEvidence(relation.evidence));
+    relation && sourceNameMatches(relation.evidence, relation.subject) &&
+    sourceNameMatches(relation.evidence, relation.object) &&
+    sourceNameMatches(relation.evidence, relation.predicate) &&
+    appearedBefore(relation.subject) && appearedBefore(relation.object) &&
+    appearedBefore(relation.predicate) && appearsAsEarlierEvidence(relation.evidence));
 
   rawMemory.characterVoices = (Array.isArray(rawMemory.characterVoices) ? rawMemory.characterVoices : []).flatMap((profile: any) => {
     const evidence = (Array.isArray(profile.evidence) ? profile.evidence : []).filter((item: any) => {
