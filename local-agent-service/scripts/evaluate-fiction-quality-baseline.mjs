@@ -153,24 +153,38 @@ function delta(candidate, baseline) {
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  const baseline = evaluateTranslations(fixture, fixture.baselineTranslations);
-  if (process.argv[2]) {
+  const failureControl = evaluateTranslations(fixture, fixture.baselineTranslations);
+  if (process.argv[2] && process.argv[3]) {
+    const before = evaluateTranslations(fixture, loadTranslations(process.argv[2]));
+    const after = evaluateTranslations(fixture, loadTranslations(process.argv[3]));
+    process.stdout.write(JSON.stringify({
+      fixture: fixture.title,
+      notice: fixture.notice,
+      beforeFile: path.resolve(process.cwd(), process.argv[2]),
+      afterFile: path.resolve(process.cwd(), process.argv[3]),
+      before,
+      after,
+      deltaAfterVsBefore: delta(after, before),
+      syntheticFailureControl: failureControl,
+    }, null, 2) + '\n');
+  } else if (process.argv[2]) {
     const candidate = evaluateTranslations(fixture, loadTranslations(process.argv[2]));
     process.stdout.write(JSON.stringify({
       fixture: fixture.title,
+      notice: fixture.notice,
       candidateFile: path.resolve(process.cwd(), process.argv[2]),
-      baseline,
+      syntheticFailureControl: failureControl,
       candidate,
-      delta: delta(candidate, baseline),
+      delta: delta(candidate, failureControl),
     }, null, 2) + '\n');
   } else {
     const example = evaluateTranslations(fixture, fixture.improvedExampleTranslations);
     process.stdout.write(JSON.stringify({
       fixture: fixture.title,
       notice: fixture.notice,
-      baseline,
+      syntheticFailureControl: failureControl,
       improvedExample: example,
-      delta: delta(example, baseline),
+      delta: delta(example, failureControl),
       manualReviewRubric: example.manualReview,
     }, null, 2) + '\n');
   }
