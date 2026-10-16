@@ -815,18 +815,6 @@ export class DocumentProjectStore {
     return hash(JSON.stringify({ meta, nodes, edges, evidence, chapters }));
   }
 
-  private contextGraphIsRunning(projectId: string, sourceRevisionId: string): string | null {
-    const db = this.openProjectDb(projectId);
-    const exists = db.prepare(
-      "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'context_graph_runs'"
-    ).get();
-    if (!exists) return null;
-    const row = db.prepare(
-      "SELECT run_id FROM context_graph_runs WHERE source_revision_id = ? AND status IN ('queued','running') ORDER BY started_at DESC LIMIT 1"
-    ).get(sourceRevisionId) as { run_id?: string } | undefined;
-    return row?.run_id || null;
-  }
-
   private makeRunFingerprint(
     projectId: string, sourceRevisionId: string, promptRow: any,
     config: any, literaryMemoryFingerprint: string | null,
@@ -844,7 +832,7 @@ export class DocumentProjectStore {
       model: config.model || 'auto',
       translationMode: config.translationMode || 'technical',
       literaryReview: Boolean(config.literaryReview),
-      pipelineVersion: config.translationMode === 'literary' ? 'document-agent-v3-context-graph' : 'document-agent-v2-voice',
+      pipelineVersion: config.translationMode === 'literary' ? 'document-agent-v4-context-preconditions' : 'document-agent-v2-voice',
     }));
   }
 
@@ -920,7 +908,7 @@ export class DocumentProjectStore {
         throw Object.assign(new Error('全书预处理未成功：' + (preprocessing.error || preprocessing.status) + '。请在“人物与预处理”中重新分析。'), { status: 409 });
       }
       const preprocessingProgress = parseJson<any>(preprocessing.progress_json, {});
-      if (preprocessingProgress.analysisVersion !== 'context-graph-v4-target-language') {
+      if (preprocessingProgress.analysisVersion !== 'context-graph-v5-language-pinned') {
         throw Object.assign(new Error('全书预处理版本过旧，请重新分析后再翻译。'), { status: 409 });
       }
       const expectedSourceLang = config.sourceLang || 'auto';
