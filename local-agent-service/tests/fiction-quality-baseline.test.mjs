@@ -31,6 +31,7 @@ test('evaluator accepts common project export shapes', () => {
   const byId = Object.fromEntries(fixture.improvedExampleTranslations.map((item) => [item.id, item.translated_text]));
   assert.equal(translationMap({ translations: fixture.improvedExampleTranslations }).size, fixture.evaluation.requiredTranslationIds.length);
   assert.equal(translationMap(byId).size, fixture.evaluation.requiredTranslationIds.length);
+  assert.equal(translationMap({ segments: [{ id: 'empty', text: 'source text must not count as a translation', translation: null }] }).get('empty'), '');
   assert.equal(translationMap({
     project: { title: fixture.title },
     segments: fixture.improvedExampleTranslations.map((item) => ({
