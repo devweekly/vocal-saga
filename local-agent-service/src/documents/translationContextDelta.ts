@@ -287,8 +287,19 @@ export function combineTranslationContextDeltas(
   return combined;
 }
 
+function normalizedEntityKind(value: unknown): string {
+  const kind = text(value, 40).toLocaleLowerCase();
+  // The model may label a person's textual reference as an epithet, nickname or title,
+  // while the Context Graph and project memory classify the same entity as "person".
+  // Normalize these presentation-level forms before alias matching so they cannot bypass
+  // conflict protection and create a second, competing mapping.
+  if (['character', 'person', 'character_epithet', 'nickname', 'role', 'title'].includes(kind)) return 'person';
+  if (['place', 'object', 'organization', 'group'].includes(kind)) return kind;
+  return 'other';
+}
+
 function sameKind(a: unknown, b: unknown): boolean {
-  const left = text(a, 40); const right = text(b, 40);
+  const left = normalizedEntityKind(a); const right = normalizedEntityKind(b);
   return left === right || left === 'other' || right === 'other';
 }
 
