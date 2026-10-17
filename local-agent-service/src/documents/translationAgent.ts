@@ -1015,7 +1015,13 @@ async function executeRun(projectId: string, runId: string): Promise<void> {
     if (!context.prompt) throw new Error('找不到本次运行使用的 Prompt 版本');
     const initialStatus = context.run.status;
     if (initialStatus === 'completed' || initialStatus === 'cancelled' || initialStatus === 'awaiting_acceptance') return;
-    store.setRunStatus(projectId, runId, 'running', null);
+    if (!store.setRunStatus(projectId, runId, 'running', null) ||
+        store.getRunStatus(projectId, runId) !== 'running') {
+      store.appendEvent(projectId, runId, 'run.start-discarded', {
+        reason: 'Run entered a terminal state before the execution worker acquired it',
+      });
+      return;
+    }
     store.appendEvent(projectId, runId, 'stage.started', { stage: 'translate', label: '开始翻译' });
 
     const items = store.getRunSegmentsForExecution(projectId, runId) as TranslationItem[];
