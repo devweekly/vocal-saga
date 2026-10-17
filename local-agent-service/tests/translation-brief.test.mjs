@@ -487,13 +487,13 @@ test('explicit confirmed glossary mappings without AI evidence activate on first
     sourceFileName: 'manual-canonical.txt',
     prompt: { translationMode: 'literary', sourceLang: 'en', targetLang: 'zh' },
     segments: [
-      { id: 'king-current', text: 'Timsen was taken up by the King.', kind: 'paragraph', contextPath: 'Chapter 1' },
+      { id: 'king-current', text: 'Timsen noticed King near the door.', kind: 'paragraph', contextPath: 'Chapter 1' },
       { id: 'king-future', text: 'The King spoke again.', kind: 'paragraph', contextPath: 'Chapter 2' },
     ],
   });
   ensureTestContextGraph(store, project);
   buildProjectContextGraphBundle(project.projectId, [
-    { id: 'king-current', text: 'Timsen was taken up by the King.', contextPath: 'Chapter 1' },
+    { id: 'king-current', text: 'Timsen noticed King near the door.', contextPath: 'Chapter 1' },
   ]);
   store.saveLiteraryMemory(project.projectId, {
     entities: [{
