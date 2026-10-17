@@ -784,3 +784,22 @@ test('style proposal cannot overwrite a newer accepted Agent translation', async
     );
   });
 });
+
+
+test('Run status transitions cannot revive cancelled or completed runs', async () => {
+  await withStore((store) => {
+    const project = store.createProject({ title: 'Monotonic Run Status', format: 'epub', segments });
+    const cancelled = store.createRun(project.projectId, { scope: { type: 'ids', ids: ['ch1-p1'] } });
+    assert.equal(store.setRunStatus(project.projectId, cancelled.runId, 'cancelled', '用户请求停止'), true);
+    assert.equal(store.setRunStatus(project.projectId, cancelled.runId, 'running', null), false);
+    store.finishRun(project.projectId, cancelled.runId);
+    assert.equal(store.getRunStatus(project.projectId, cancelled.runId), 'cancelled',
+      'finishRun must not overwrite a cancellation that already committed');
+
+    const completed = store.createRun(project.projectId, { scope: { type: 'ids', ids: ['ch1-p2'] } });
+    assert.equal(store.setRunStatus(project.projectId, completed.runId, 'completed', null), true);
+    assert.equal(store.setRunStatus(project.projectId, completed.runId, 'running', null), false);
+    assert.equal(store.getRunStatus(project.projectId, completed.runId), 'completed',
+      'a stale resume/worker call must not reopen a completed Run');
+  });
+});
