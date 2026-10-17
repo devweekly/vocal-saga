@@ -17,6 +17,7 @@ const {
   startContextGraphAnalysis,
   persistSourceFeatureIndex,
   readSourceFeatureIndex,
+  ensureSourceFeatureIndex,
 } = await import('../src/documents/contextGraph.ts');
 const { scanBookSegments } = await import('../src/documents/bookScan.ts');
 
@@ -193,4 +194,30 @@ test('preprocessing persists source-revision-scoped feature index with exact sou
 
   assert.equal(readSourceFeatureIndex(db, 'missing-source-revision'), null,
     'feature index must never be read across source revisions');
+});
+
+
+test('legacy project gets a deterministic source index without re-running Context Graph model analysis', () => {
+  const store = getDocumentProjectStore();
+  const project = store.createProject({
+    title: 'Lazy Source Feature Index Upgrade',
+    format: 'txt',
+    sourceFileName: 'lazy-source-index.txt',
+    segments: [
+      { id: 'lazy-1', text: 'The King Rat watched Max. “Stay here.”', kind: 'paragraph', contextPath: 'Chapter 1' },
+      { id: 'lazy-2', text: 'Captain Vale said: “Stay here.” It lasted twelve hours.', kind: 'paragraph', contextPath: 'Chapter 2' },
+    ],
+  });
+  const { db, currentSourceRevisionId } = store.getProjectContext(project.projectId);
+  assert.equal(readSourceFeatureIndex(db, currentSourceRevisionId), null);
+
+  const summary = ensureSourceFeatureIndex(project.projectId, currentSourceRevisionId);
+  assert.equal(summary.indexVersion, 'book-scan-index-v2');
+  assert.equal(summary.sourceSegmentCount, 2);
+  assert.ok(readSourceFeatureIndex(db, currentSourceRevisionId));
+  const events = store.getEvents(project.projectId);
+  const ready = events.find((event) => event.type === 'context-graph.source-index.ready');
+  assert.ok(ready, 'index upgrade should be observable and durable');
+  assert.equal(ready.payload.upgrade, true);
+  assert.equal(ready.payload.sourceRevisionId, currentSourceRevisionId);
 });
