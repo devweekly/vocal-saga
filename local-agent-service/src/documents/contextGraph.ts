@@ -788,7 +788,7 @@ export function getContextGraphStatus(projectId: string, runId?: string): Record
   const { db, revisionId } = graphContext(projectId);
   const row = runId
     ? db.prepare('SELECT * FROM context_graph_runs WHERE source_revision_id = ? AND run_id = ?').get(revisionId, runId) as any
-    : db.prepare('SELECT * FROM context_graph_runs WHERE source_revision_id = ? ORDER BY started_at DESC LIMIT 1').get(revisionId) as any;
+    : db.prepare('SELECT * FROM context_graph_runs WHERE source_revision_id = ? ORDER BY started_at DESC, rowid DESC LIMIT 1').get(revisionId) as any;
   if (!row) return { sourceRevisionId: revisionId, status: 'not-started', phase: 'not-started', runId: null };
   let progress: any = {};
   try { progress = JSON.parse(row.progress_json); } catch { progress = {}; }
@@ -803,7 +803,7 @@ export function getContextGraph(projectId: string): Record<string, unknown> {
   const segmentCount = Number((db.prepare('SELECT COUNT(*) AS count FROM source_segments WHERE source_revision_id = ?').get(revisionId) as any)?.count || 0);
   const nodes = db.prepare('SELECT * FROM context_graph_nodes WHERE source_revision_id = ? ORDER BY kind, name LIMIT 500').all(revisionId) as any[];
   const edges = db.prepare('SELECT * FROM context_graph_edges WHERE source_revision_id = ? ORDER BY kind LIMIT 800').all(revisionId) as any[];
-  const runs = db.prepare('SELECT * FROM context_graph_runs WHERE source_revision_id = ? ORDER BY started_at DESC LIMIT 10').all(revisionId) as any[];
+  const runs = db.prepare('SELECT * FROM context_graph_runs WHERE source_revision_id = ? ORDER BY started_at DESC, rowid DESC LIMIT 10').all(revisionId) as any[];
   // The completion event is written only after the analysis transaction commits. If a stale
   // running status survives a crash/restart, reconcile it when the UI refreshes the graph.
   for (const run of runs) {
