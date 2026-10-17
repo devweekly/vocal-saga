@@ -604,13 +604,20 @@ function translationContextDeltaFindings(db: any, runId: string | undefined, val
   return findings;
 }
 
-function repeatedPhraseKeysFromSegment(sourceText: string): Set<string> {
-  const sentences = sourceText.match(/[^.!?\n]+[.!?]?/gu) || [];
-  const quoted = Array.from(sourceText.matchAll(/[“"]([^”"]{8,})[”"]/gu), (match) => match[1] || '');
-  return new Set([...sentences, ...quoted].map((sentence) => {
-    const text = sentence.trim().replace(/^[“”"'‘’\s]+|[“”"'‘’\s]+$/g, '');
-    return normalizedPhrase(text);
-  }).filter(Boolean));
+function targetQuotationSpans(text: string): Array<{ start: number; end: number; text: string }> {
+  const patterns = [
+    /“([^”]{1,3000})”/gu,
+    /"([^"]{1,3000})"/gu,
+    /「([^」]{1,3000})」/gu,
+    /『([^』]{1,3000})』/gu,
+  ];
+  const spans: Array<{ start: number; end: number; text: string }> = [];
+  for (const pattern of patterns) for (const match of text.matchAll(pattern)) {
+    const value = match[1] || '';
+    const start = (match.index ?? 0) + match[0].indexOf(value);
+    if (value.trim()) spans.push({ start, end: start + value.length, text: value.trim() });
+  }
+  return spans.sort((a, b) => a.start - b.start);
 }
 
 function repeatedExpressionFindings(
@@ -626,56 +633,117 @@ function repeatedExpressionFindings(
     contextPath: segment.contextPath,
   }));
   const scan = scanBookSegments(scanSegments, { maxRepeatedPhraseGroups: MAX_REPEATED_EXPRESSION_GROUPS });
-  const wantedPhrases = new Set(scan.repeatedPhrases.map((phrase) => phrase.normalized));
-  const occurrencesByPhrase = new Map<string, string[]>();
-  for (const segment of segments) {
-    if (scopedIds && !scopedIds.has(segment.id)) continue;
-    for (const key of repeatedPhraseKeysFromSegment(segment.text)) {
-      if (!wantedPhrases.has(key)) continue;
-      const ids = occurrencesByPhrase.get(key) || [];
-      ids.push(segment.id);
-      occurrencesByPhrase.set(key, ids);
-    }
+  const sourceById = new Map(segments.map((segment) => [segment.id, segment]));
+  const quoteUnitsBySegment = new Map<string, number>();
+  for (const unit of scan.textUnits) {
+    if (unit.unitType === 'quotation') quoteUnitsBySegment.set(unit.segmentId, (quoteUnitsBySegment.get(unit.segmentId) || 0) + 1);
   }
+
+  type AlignedRow = { id: string; text: string };
+  type AlignmentGroup = { method: 'whole-segment' | 'quoted-span'; rows: AlignedRow[] };
   const findings: any[] = [];
   for (const phrase of scan.repeatedPhrases) {
-    // M1 keeps a small ID sample for prompt planning; M3/M4 rebuild the full occurrence index so
-    // a variant after the first 16 passages is still found, without rescanning the whole book per phrase.
-    const exactIds = occurrencesByPhrase.get(phrase.normalized) || [];
-    if (exactIds.length < 2) continue;
-    const rows = exactIds.map((id) => ({ id, text: translations.get(id) || '' })).filter((item) => item.text.trim());
-    if (rows.length < 2) continue;
-    const variants = new Map<string, string[]>();
-    for (const row of rows) {
-      const key = normalizedPhrase(row.text);
-      const ids = variants.get(key) || [];
-      ids.push(row.id);
-      variants.set(key, ids);
+    const occurrenceUnits = scan.textUnits.filter((unit) =>
+      unit.unitType === phrase.unitType && unit.normalized === phrase.normalized &&
+      (!scopedIds || scopedIds.has(unit.segmentId)));
+    const ids = Array.from(new Set(occurrenceUnits.map((unit) => unit.segmentId)));
+    if (ids.length < 2) continue;
+    const groups = new Map<AlignmentGroup['method'], AlignmentGroup>();
+    const unresolvedIds: string[] = [];
+
+    for (const id of ids) {
+      const source = sourceById.get(id);
+      const translation = translations.get(id) || '';
+      if (!source || !translation.trim()) continue;
+      let alignedText = '';
+      let method: AlignmentGroup['method'] | null = null;
+
+      // Comparing full translations is valid only when the repeated sentence is the whole source
+      // segment. Embedded source sentences must not inherit differences from their surrounding prose.
+      if (phrase.unitType === 'sentence' && normalizedPhrase(source.text) === phrase.normalized) {
+        alignedText = translation;
+        method = 'whole-segment';
+      } else if (phrase.unitType === 'quotation') {
+        const translatedQuotes = targetQuotationSpans(translation);
+        if (translatedQuotes.length === 1) {
+          alignedText = translatedQuotes[0]!.text;
+          method = 'quoted-span';
+        } else if (translatedQuotes.length === 0 && quoteUnitsBySegment.get(id) === 1 &&
+          /\b(said|asked|replied|answered|whispered|shouted|murmured|called|cried|remarked|added|insisted|told)\b/i.test(source.text) &&
+          !/(?:说道|说着|说|问道|答道|低声|大喊|喊道|回答|whispered|said|asked|replied)/i.test(translation)) {
+          // Some translation styles omit quotation marks while omitting source-language speaker
+          // attribution entirely. Only use the entire target as the quote when that structure is clear.
+          alignedText = translation;
+          method = 'quoted-span';
+        }
+      }
+      if (!method || !alignedText.trim()) {
+        unresolvedIds.push(id);
+        continue;
+      }
+      const group = groups.get(method) || { method, rows: [] };
+      group.rows.push({ id, text: alignedText });
+      groups.set(method, group);
     }
-    if (variants.size <= 1) continue;
-    const maxListedIds = MAX_REPEATED_EXPRESSION_LOCATIONS_PER_FINDING;
-    findings.push({
-      findingId: stableFindingId('repeated-expression-drift', exactIds.slice(0, 32), phrase.normalized),
-      type: 'repeated-expression-drift',
-      category: 'consistency',
-      severity: 'warning',
-      confidence: 'deterministic-source-match',
-      repairable: exactIds.length <= MAX_BULK_REPAIR_SEGMENTS,
-      segmentIds: exactIds.slice(0, maxListedIds),
-      occurrenceCount: exactIds.length,
-      segmentIdsTruncated: exactIds.length > maxListedIds,
-      sourceExcerpt: phrase.text,
-      variants: Array.from(variants.entries()).map(([normalizedTranslation, ids]) => ({
-        segmentIds: ids.slice(0, maxListedIds),
-        occurrenceCount: ids.length,
-        segmentIdsTruncated: ids.length > maxListedIds,
-        normalizedTranslation,
-        sampleTranslation: (rows.find((row) => row.id === ids[0])?.text || '').slice(0, 320),
-      })),
-      explanation: exactIds.length <= MAX_BULK_REPAIR_SEGMENTS
-        ? '相同原文表达在不同位置存在不同译法；可能是有意的语境差异，也可能是重复台词或固定表达漂移。'
-        : '相同原文表达在大量位置存在译法差异。为避免一键扩大返工，报告只列出前 500 个位置；请从报告中选取具体 segmentIds 进行定点返工。',
-    });
+
+    for (const group of groups.values()) {
+      if (group.rows.length < 2) continue;
+      const variants = new Map<string, string[]>();
+      for (const row of group.rows) {
+        const key = normalizedPhrase(row.text);
+        const variantIds = variants.get(key) || [];
+        variantIds.push(row.id);
+        variants.set(key, variantIds);
+      }
+      if (variants.size <= 1) continue;
+
+      const alignedIds = group.rows.map((row) => row.id);
+      const maxListedIds = MAX_REPEATED_EXPRESSION_LOCATIONS_PER_FINDING;
+      const uniqueKey = phrase.normalized + ':' + group.method;
+      findings.push({
+        findingId: stableFindingId('repeated-expression-drift', alignedIds.slice(0, 32), uniqueKey),
+        type: 'repeated-expression-drift',
+        category: 'consistency',
+        severity: 'warning',
+        confidence: group.method === 'whole-segment' ? 'deterministic-whole-segment-match' : 'deterministic-quoted-span-match',
+        repairable: alignedIds.length <= MAX_BULK_REPAIR_SEGMENTS,
+        segmentIds: alignedIds.slice(0, maxListedIds),
+        occurrenceCount: alignedIds.length,
+        segmentIdsTruncated: alignedIds.length > maxListedIds,
+        sourceExcerpt: phrase.text,
+        alignmentMethod: group.method,
+        alignedOccurrenceCount: group.rows.length,
+        unresolvedOccurrenceCount: unresolvedIds.length,
+        variants: Array.from(variants.entries()).map(([normalizedTranslation, variantIds]) => ({
+          segmentIds: variantIds.slice(0, maxListedIds),
+          occurrenceCount: variantIds.length,
+          segmentIdsTruncated: variantIds.length > maxListedIds,
+          normalizedTranslation,
+          sampleTranslation: (group.rows.find((row) => variantIds.includes(row.id))?.text || '').slice(0, 320),
+        })),
+        explanation: group.method === 'whole-segment'
+          ? '相同原文句子本身在不同位置存在不同译法；请判断差异是否由语境驱动。'
+          : '相同原文引语在不同位置的对应译文引语存在差异；只比较了可定位的引语内容，没有比较周围叙述。',
+      });
+    }
+
+    // Embedded, unquoted phrases cannot be aligned to target text reliably using string heuristics.
+    // Keep them visible as a review task, but do not call whole-paragraph variation a proven drift.
+    if (!groups.size && unresolvedIds.length >= 2) {
+      findings.push({
+        findingId: stableFindingId('repeated-expression-alignment-review', unresolvedIds.slice(0, 32), phrase.normalized),
+        type: 'repeated-expression-alignment-review',
+        category: 'consistency',
+        severity: 'info',
+        confidence: 'source-match-target-alignment-unavailable',
+        repairable: false,
+        segmentIds: unresolvedIds.slice(0, MAX_REPEATED_EXPRESSION_LOCATIONS_PER_FINDING),
+        occurrenceCount: unresolvedIds.length,
+        segmentIdsTruncated: unresolvedIds.length > MAX_REPEATED_EXPRESSION_LOCATIONS_PER_FINDING,
+        sourceExcerpt: phrase.text,
+        explanation: '原文中存在重复句子，但它嵌入了不同上下文，系统无法可靠定位对应译文片段。为避免误报，没有将完整段落译文的差异判定为重复表达漂移；建议人工复核或在未来使用经过验证的句段对齐。',
+      });
+    }
   }
   return findings;
 }
