@@ -1286,16 +1286,23 @@ async function executeRun(projectId: string, runId: string): Promise<void> {
         };
         // 上下文记忆属于初译的附属产物。即使其序列化/持久化失败，也不撤销前面成功保存的译文候选。
         try {
-          store.saveTranslationContextDelta(
+          const deltaPersisted = store.saveTranslationContextDelta(
             projectId, runId, batchIndex, batch[0].id, batchIds,
             contextDelta as unknown as Record<string, any>, validation,
           );
-          store.appendEvent(projectId, runId, 'translation.context-delta.saved', {
-            batchIndex, firstSegmentId: batch[0].id,
-            sourceSegmentCount: batchIds.length,
-            ...validation,
-            availableToLaterWaves: true,
-          });
+          if (deltaPersisted) {
+            store.appendEvent(projectId, runId, 'translation.context-delta.saved', {
+              batchIndex, firstSegmentId: batch[0].id,
+              sourceSegmentCount: batchIds.length,
+              ...validation,
+              availableToLaterWaves: true,
+            });
+          } else {
+            store.appendEvent(projectId, runId, 'translation.context-delta.discarded', {
+              batchIndex, firstSegmentId: batch[0].id,
+              reason: 'Run entered a non-active state before context-delta commit',
+            });
+          }
         } catch (error) {
           const warning = error instanceof Error ? error.message : String(error);
           try {
