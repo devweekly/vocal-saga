@@ -472,7 +472,8 @@ test('source-ordered dynamic memory replaces conflicting unconfirmed Context Gra
   const brief = buildTranslationBrief(context, [later], []);
 
   const mappings = (brief.contextGraph?.nameMappings || []).filter((mapping) => mapping.source === 'The King');
-  expect(mappings).toHaveLength(1);
-  expect(mappings[0]?.target).toBe('国王',
+  assert.equal(mappings.length, 1,
+    'there must be only one canonical mapping for the explicitly linked entity');
+  assert.equal(mappings[0]?.target, '国王',
     'source-ordered dynamic memory should replace an unconfirmed, conflicting book-wide candidate');
 });
