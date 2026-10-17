@@ -1176,17 +1176,20 @@ export function buildProjectContextGraphBundle(
     if (!hasEvidence) return [];
     const allAliases = uniqueStrings(attributes.aliases, 12, 100)
       .filter((alias) => normalize(alias) !== normalize(row.name));
-    // A later alias can change the canonical target itself (identity reveal). Do not use a
-    // whole-book target early until its complete known alias set is temporally visible.
-    if (allAliases.some((alias) => !appearedBefore(alias) && !appearsInPriorContext(alias))) return [];
-    const aliases = allAliases.filter((alias) => appearedBefore(alias) || appearsInPriorContext(alias));
+    // Do not leak aliases that appear only in later chapters. An alias visible in the current
+    // batch is already part of the source being translated and must not suppress the mapping.
+    if (allAliases.some((alias) => !appearedBefore(alias) && !appearsInContext(alias))) return [];
+    const aliases = allAliases.filter((alias) => appearedBefore(alias) || appearsInContext(alias));
     return [{
       source: safeText(row.name, 120),
       target,
       kind: row.kind === 'character' ? 'person' : safeText(attributes.entityKind, 40) || 'other',
       aliases,
       evidenceBacked: true,
-      sourceStatus: row.status,
+      // Evidence-backed suggestions are operational defaults, not items requiring a click.
+      // The UI may still let the reader edit/remove a mapping, but translation must use a
+      // unique, temporally visible target as soon as preprocessing has produced it.
+      sourceStatus: row.status === 'confirmed' ? 'confirmed' : 'auto',
     }];
   }).slice(0, 16);
 
