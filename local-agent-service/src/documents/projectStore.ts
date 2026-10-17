@@ -974,76 +974,77 @@ export class DocumentProjectStore {
       throw Object.assign(new Error('全书预处理仍在运行（' + preprocessing.run_id + '），完成后再启动翻译。'), { status: 409 });
     }
     if (preprocessing.status !== 'completed') {
-      throw Object.assign(new Error('全书预处理未成功：' + (preprocessing.error || preprocessing.status) + '。请在 UI 的“人物与预处理”中重新分析，或执行 npm run doc -- context-analyze ' + p    // A literary run may start only from a completed Context Graph for this exact source and language.
+      throw Object.assign(new Error('全书预处理未成功：' + (preprocessing.error || preprocessing.status) + '。请在 UI 的“人物与预处理”中重新分析，或执行 npm run doc -- context-analyze ' + projectId + '。'), { status: 409 });
+    }
+    const preprocessingProgress = parseJson<any>(preprocessing.progress_json, {});
+    if (preprocessingProgress.analysisVersion !== 'context-graph-v5-language-pinned') {
+      throw Object.assign(new Error('全书预处理版本过旧，请重新分析后再翻译：UI 中点击“重新分析全书”，或执行 npm run doc -- context-analyze ' + projectId + '。'), { status: 409 });
+    }
+    const expectedSourceLang = sourceLang || 'auto';
+    const expectedTargetLang = targetLang || 'zh';
+    if (preprocessingProgress.sourceLang !== expectedSourceLang || preprocessingProgress.targetLang !== expectedTargetLang) {
+      throw Object.assign(new Error(
+        '全书预处理语言与当前翻译配置不一致（预处理 ' +
+        (preprocessingProgress.sourceLang || 'auto') + '→' + (preprocessingProgress.targetLang || 'zh') +
+        '，当前 ' + expectedSourceLang + '→' + expectedTargetLang + '）。请重新分析全书：UI 中点击“重新分析全书”，或执行 npm run doc -- context-analyze ' + projectId + '。',
+      ), { status: 409 });
+    }
+  }
+
+  createRun(projectId: string, input: CreateRunInput = {}): any {
+    const db = this.openProjectDb(projectId);
+    const project = this.getProject(projectId)!;
+    const meta = new Map((db.prepare('SELECT key, value FROM project_meta').all() as Array<{ key: string; value: string }>).map((row) => [row.key, row.value]));
+    const sourceRevisionId = meta.get('current_source_revision_id') || '';
+    const promptRow = input.prompt
+      ? this.savePromptRevision(projectId, input.prompt)
+      : input.promptRevisionId
+        ? db.prepare('SELECT * FROM prompt_revisions WHERE prompt_revision_id = ?').get(input.promptRevisionId)
+        : db.prepare('SELECT * FROM prompt_revisions ORDER BY created_at DESC LIMIT 1').get();
+    if (!promptRow) throw Object.assign(new Error('找不到指定 Prompt 版本'), { status: 404 });
+    if (input.parentRunId) {
+      const parent = db.prepare('SELECT source_revision_id FROM translation_runs WHERE run_id = ?').get(input.parentRunId) as { source_revision_id?: string } | undefined;
+      if (!parent) throw Object.assign(new Error('找不到返工的父运行：' + input.parentRunId), { status: 404 });
+      if (parent.source_revision_id !== sourceRevisionId) {
+        throw Object.assign(new Error('返工的父运行与当前来源版本不同，不能建立关联。'), { status: 409 });
+      }
+    }
+    const currentMemory = this.getCurrentLiteraryMemory(projectId);
+    const literaryMemoryRevisionId = currentMemory.memoryRevisionId as string | null;
+    const config = parseJson<any>(promptRow.config_json, {});
+    const scope = input.scope || { type: 'stale' };
+    const scopeType = scope.type || 'stale';
+    if (!['all', 'stale', 'failed', 'ids', 'chapter'].includes(scopeType)) {
+      throw Object.assign(new Error('不支持的运行范围：' + scopeType), { status: 400 });
+    }
+    const currentSegments = db.prepare('SELECT * FROM source_segments WHERE source_revision_id = ? ORDER BY ordinal').all(sourceRevisionId) as any[];
+    const acceptedRows = db.prepare('SELECT * FROM translation_results WHERE accepted = 1 ORDER BY COALESCE(accepted_at, created_at) DESC, created_at DESC, rowid DESC').all() as any[];
+    const currentHashById = new Map<string, string>(currentSegments.map((segment) => [segment.segment_id, segment.source_hash]));
+    const latestAccepted = new Map<string, any>();
+    // Source revision 变更后保留旧译文供追溯，但新旧来源的同 ID 片段不可混用。
+    for (const row of acceptedRows) {
+      if (row.source_hash === currentHashById.get(row.segment_id) && !latestAccepted.has(row.segment_id)) {
+        latestAccepted.set(row.segment_id, row);
+      }
+    }
+    const failedRows = db.prepare("SELECT segment_id FROM run_segments WHERE status = 'failed' ORDER BY updated_at DESC").all() as Array<{ segment_id: string }>;
+    const failedIds = new Set(failedRows.map((row) => row.segment_id));
+    const idSet = new Set((scope.ids || []).map(String));
+    const chapter = (scope.chapter || '').trim();
+    const runFingerprint = this.makeRunFingerprint(projectId, sourceRevisionId, promptRow, config, currentMemory.fingerprint || null);
+    const selected = currentSegments.filter((segment) => {
+      if (scopeType === 'all') return true;
+      if (scopeType === 'ids') return idSet.has(segment.segment_id);
+      if (scopeType === 'chapter') return !!chapter && (segment.context_path === chapter || segment.context_path.startsWith(chapter + ' >'));
+      if (scopeType === 'failed') return failedIds.has(segment.segment_id);
+      const accepted = latestAccepted.get(segment.segment_id);
+      return !accepted || accepted.source_hash !== segment.source_hash || (accepted.origin !== 'manual' && accepted.run_fingerprint !== runFingerprint);
+    });
+    // One shared guard also protects resumed literary runs from bypassing preprocessing.
     if (selected.length && config.translationMode === 'literary') {
       this.assertLiteraryPreprocessingReady(
         projectId, sourceRevisionId, config.sourceLang || 'auto', config.targetLang || 'zh',
       );
-    }
-egment_id);
-      const accepted = latestAccepted.get(segment.segment_id);
-      return !accepted || accepted.source_hash !== segment.source_hash || (accepted.origin !== 'manual' && accepted.run_fingerprint !== runFingerprint);
-    });
-    // A literary run may start only from a completed Context Graph for this exact source and language.
-    // Missing/failed preprocessing must never silently degrade into a context-free translation.
-    if (selected.length && config.translationMode === 'literary') {
-      const graphTable = db.prepare(
-        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'context_graph_runs'"
-      ).get();
-      if (!graphTable) {
-        throw Object.assign(new Error('文学翻译的全书预处理尚未运行。请先在 UI 的“人物与预处理”中启动，或执行 npm run doc -- context-analyze ' + projectId + '。'), { status: 409 });
-      }
-      let preprocessing = db.prepare(
-        'SELECT run_id, status, progress_json, error FROM context_graph_runs WHERE source_revision_id = ? ORDER BY started_at DESC, rowid DESC LIMIT 1'
-      ).get(sourceRevisionId) as { run_id?: string; status?: string; progress_json?: string; error?: string } | undefined;
-      // Recover a terminal-state write that was lost after the completion event was durably
-      // recorded. The event is emitted only after runAnalysis commits its completed payload.
-      if (preprocessing && (preprocessing.status === 'queued' || preprocessing.status === 'running') && preprocessing.run_id) {
-        const completion = db.prepare(
-          "SELECT payload_json FROM project_events WHERE run_id = ? AND event_type = 'context-graph.completed' ORDER BY created_at DESC LIMIT 1"
-        ).get(preprocessing.run_id) as { payload_json?: string } | undefined;
-        let completionPayload: any = {};
-        try { completionPayload = JSON.parse(completion?.payload_json || '{}'); } catch { completionPayload = {}; }
-        const expectedSourceLang = config.sourceLang || 'auto';
-        const expectedTargetLang = config.targetLang || 'zh';
-        if (completionPayload.analysisVersion === 'context-graph-v5-language-pinned' &&
-            completionPayload.sourceLang === expectedSourceLang &&
-            completionPayload.targetLang === expectedTargetLang) {
-          const completedAt = isoNow();
-          db.prepare(
-            "UPDATE context_graph_runs SET status = 'completed', phase = 'completed', finished_at = COALESCE(finished_at, ?), error = NULL WHERE run_id = ? AND status IN ('queued','running')"
-          ).run(completedAt, preprocessing.run_id);
-          preprocessing = db.prepare(
-            'SELECT run_id, status, progress_json, error FROM context_graph_runs WHERE run_id = ?'
-          ).get(preprocessing.run_id) as { run_id?: string; status?: string; progress_json?: string; error?: string } | undefined;
-          this.addEvent(projectId, preprocessing?.run_id || null, 'context-graph.recovered', {
-            reason: 'completion-event-with-stale-running-status',
-            sourceRevisionId,
-          });
-        }
-      }
-      if (!preprocessing) {
-        throw Object.assign(new Error('当前原文版本还没有 Context Graph 预处理记录。请先完成全书预处理再翻译。'), { status: 409 });
-      }
-      if (preprocessing.status === 'queued' || preprocessing.status === 'running') {
-        throw Object.assign(new Error('全书预处理仍在运行（' + preprocessing.run_id + '），完成后再启动翻译。'), { status: 409 });
-      }
-      if (preprocessing.status !== 'completed') {
-        throw Object.assign(new Error('全书预处理未成功：' + (preprocessing.error || preprocessing.status) + '。请在 UI 的“人物与预处理”中重新分析，或执行 npm run doc -- context-analyze ' + projectId + '。'), { status: 409 });
-      }
-      const preprocessingProgress = parseJson<any>(preprocessing.progress_json, {});
-      if (preprocessingProgress.analysisVersion !== 'context-graph-v5-language-pinned') {
-        throw Object.assign(new Error('全书预处理版本过旧，请重新分析后再翻译：UI 中点击“重新分析全书”，或执行 npm run doc -- context-analyze ' + projectId + '。'), { status: 409 });
-      }
-      const expectedSourceLang = config.sourceLang || 'auto';
-      const expectedTargetLang = config.targetLang || 'zh';
-      if (preprocessingProgress.sourceLang !== expectedSourceLang || preprocessingProgress.targetLang !== expectedTargetLang) {
-        throw Object.assign(new Error(
-          '全书预处理语言与当前翻译配置不一致（预处理 ' +
-          (preprocessingProgress.sourceLang || 'auto') + '→' + (preprocessingProgress.targetLang || 'zh') +
-          '，当前 ' + expectedSourceLang + '→' + expectedTargetLang + '）。请重新分析全书：UI 中点击“重新分析全书”，或执行 npm run doc -- context-analyze ' + projectId + '。',
-        ), { status: 409 });
-      }
     }
     const runId = randomUUID();
     const createdAt = isoNow();
