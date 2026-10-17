@@ -391,8 +391,6 @@ test('book audit reports conflicting context-delta name proposals across source-
   const run = store.createRun(project.projectId, { scope: { type: 'all' } });
   store.saveCandidate(project.projectId, run.runId, 'king-early', '国王看了马克斯一眼，没有说话。');
   store.saveCandidate(project.projectId, run.runId, 'king-later', '大王离开前对马克斯说了话。');
-  store.finishRun(project.projectId, run.runId);
-
   store.saveTranslationContextDelta(project.projectId, run.runId, 1, 'king-early', ['king-early'], {
     entityCandidates: [{
       localId: 'king-a', canonicalSource: 'The King', aliases: ['King'], kind: 'character_epithet',
