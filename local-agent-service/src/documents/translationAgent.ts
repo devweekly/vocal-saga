@@ -1195,6 +1195,8 @@ async function executeRun(projectId: string, runId: string): Promise<void> {
             memoryRevisionId: batchContext.memoryRevisionId || 'no-memory',
           });
           const styleReview = await runLiteraryReviewWithMissingRetry({
+            projectId, runId,
+            reviewType: 'style',
             chapterTitle: batch[0]?.contextPath || batchContext.project.title,
             target: batchContext.run.targetLang,
             provider: batchContext.run.provider,
@@ -1272,6 +1274,8 @@ async function executeRun(projectId: string, runId: string): Promise<void> {
           memoryRevisionId: batchContext.memoryRevisionId || 'no-memory',
         });
         const review = await runLiteraryReviewWithMissingRetry({
+          projectId, runId,
+          reviewType: 'accuracy-terminology',
           chapterTitle: batch[0]?.contextPath || batchContext.project.title,
           target: batchContext.run.targetLang,
           provider: batchContext.run.provider,
