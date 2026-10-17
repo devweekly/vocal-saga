@@ -548,7 +548,7 @@ export function buildTranslationBrief(
     }));
     serialized = serializedContext(brief);
   }
-  if (serialized.length > MAX_TRANSLATION_BRIEF_CHARS) {
+  if (serialized.length > maxBriefChars) {
     throw Object.assign(new Error('TranslationBrief 超过当前上下文预算（' + maxBriefChars + ' 字符），已拒绝发送不受限上下文。'), { status: 413 });
   }
   brief.contextChars = serialized.length;
