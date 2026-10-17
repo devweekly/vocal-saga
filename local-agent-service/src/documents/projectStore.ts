@@ -1081,23 +1081,37 @@ export class DocumentProjectStore {
     logWorkflowEvent(runId, type, payload);
   }
 
-  saveTranslationBriefSnapshot(projectId: string, runId: string, batchIndex: number, brief: Record<string, any>): void {
+  saveTranslationBriefSnapshot(projectId: string, runId: string, batchIndex: number, brief: Record<string, any>): boolean {
     const { db } = this.getProjectContext(projectId);
-    const run = db.prepare('SELECT source_revision_id, prompt_revision_id, literary_memory_revision_id FROM translation_runs WHERE run_id = ?').get(runId) as any;
-    if (!run) throw Object.assign(new Error('找不到翻译运行：' + runId), { status: 404 });
-    if (brief.sourceRevisionId !== run.source_revision_id || brief.promptRevisionId !== run.prompt_revision_id ||
-        (brief.memoryRevisionId || null) !== (run.literary_memory_revision_id || null)) {
-      throw Object.assign(new Error('TranslationBrief 版本与 Run 快照不一致，拒绝持久化。'), { status: 409 });
+    db.exec('BEGIN IMMEDIATE');
+    try {
+      const run = db.prepare(
+        'SELECT status, source_revision_id, prompt_revision_id, literary_memory_revision_id FROM translation_runs WHERE run_id = ?',
+      ).get(runId) as any;
+      if (!run) throw Object.assign(new Error('找不到翻译运行：' + runId), { status: 404 });
+      if (!['queued', 'running'].includes(String(run.status))) {
+        db.exec('ROLLBACK');
+        return false;
+      }
+      if (brief.sourceRevisionId !== run.source_revision_id || brief.promptRevisionId !== run.prompt_revision_id ||
+          (brief.memoryRevisionId || null) !== (run.literary_memory_revision_id || null)) {
+        throw Object.assign(new Error('TranslationBrief 版本与 Run 快照不一致，拒绝持久化。'), { status: 409 });
+      }
+      db.prepare(
+        'INSERT INTO translation_briefs(run_id, batch_index, source_revision_id, prompt_revision_id, memory_revision_id, brief_hash, brief_chars, source_segment_ids_json, brief_json, created_at) ' +
+        'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(run_id, batch_index) DO UPDATE SET ' +
+        'brief_hash=excluded.brief_hash, brief_chars=excluded.brief_chars, source_segment_ids_json=excluded.source_segment_ids_json, brief_json=excluded.brief_json, created_at=excluded.created_at',
+      ).run(
+        runId, batchIndex, run.source_revision_id, run.prompt_revision_id, run.literary_memory_revision_id || null,
+        String(brief.contextHash || ''), Number(brief.contextChars || 0), JSON.stringify(brief.sourceSegmentIds || []),
+        JSON.stringify(brief), isoNow(),
+      );
+      db.exec('COMMIT');
+      return true;
+    } catch (error) {
+      try { db.exec('ROLLBACK'); } catch { /* already rolled back */ }
+      throw error;
     }
-    db.prepare(
-      'INSERT INTO translation_briefs(run_id, batch_index, source_revision_id, prompt_revision_id, memory_revision_id, brief_hash, brief_chars, source_segment_ids_json, brief_json, created_at) ' +
-      'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(run_id, batch_index) DO UPDATE SET ' +
-      'brief_hash=excluded.brief_hash, brief_chars=excluded.brief_chars, source_segment_ids_json=excluded.source_segment_ids_json, brief_json=excluded.brief_json, created_at=excluded.created_at'
-    ).run(
-      runId, batchIndex, run.source_revision_id, run.prompt_revision_id, run.literary_memory_revision_id || null,
-      String(brief.contextHash || ''), Number(brief.contextChars || 0), JSON.stringify(brief.sourceSegmentIds || []),
-      JSON.stringify(brief), isoNow(),
-    );
   }
 
   /**
