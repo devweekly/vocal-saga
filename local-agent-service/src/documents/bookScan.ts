@@ -448,8 +448,8 @@ function assembleBookScan(
 }
 
 const MAX_BOOK_SCAN_WORKERS = 4;
-const MIN_PARALLEL_SCAN_SEGMENTS = 1_200;
-const MIN_PARALLEL_SCAN_CHARS = 500_000;
+const MIN_PARALLEL_SCAN_SEGMENTS = 12_000;
+const MIN_PARALLEL_SCAN_CHARS = 1_000_000;
 
 function configuredBookScanWorkers(): number {
   const raw = process.env.VOCAL_SAGA_BOOK_SCAN_WORKERS;

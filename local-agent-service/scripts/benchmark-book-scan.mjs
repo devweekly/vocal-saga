@@ -2,8 +2,8 @@ import { performance } from 'node:perf_hooks';
 import { isDeepStrictEqual } from 'node:util';
 import { scanBookSegments, scanBookSegmentsConcurrent } from '../src/documents/bookScan.ts';
 
-const requestedSegments = Number.parseInt(process.argv[2] || '3200', 10);
-const requestedWorkers = Number.parseInt(process.argv[3] || '3', 10);
+const requestedSegments = Number.parseInt(process.argv[2] || '20000', 10);
+const requestedWorkers = Number.parseInt(process.argv[3] || '4', 10);
 if (!Number.isInteger(requestedSegments) || requestedSegments < 1) {
   throw new Error('Usage: npm run benchmark:book-scan -- [segment-count>=1] [worker-count=2..4]');
 }

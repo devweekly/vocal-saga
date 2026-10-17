@@ -44,7 +44,7 @@ flowchart TD
 ## 已落地的控制与一致性约束
 
 - 默认最多使用 4 个书籍扫描 Worker，实际默认并发不超过 `availableParallelism() - 1`。
-- 对不足 1,200 个片段且总字符数低于 500,000 的书籍，默认使用串行扫描；显式设置 Worker 环境变量或测试覆盖参数时可强制执行并行路径。
+- 对不足 12,000 个片段且总字符数低于 1,000,000 的书籍，默认使用串行扫描；显式设置 Worker 环境变量或测试覆盖参数时可强制执行并行路径。
 - `VOCAL_SAGA_BOOK_SCAN_WORKERS=0` 关闭 Worker；设置为 `1` 强制串行；设置为 `2` 至 `4` 指定并行 Worker 数。
 - Worker 只计算片段级特征，不读写 SQLite，也不修改项目状态。全书名称候选、重复短语和采样在主线程汇总。
 - 合并按原文片段顺序执行，保留来源 UTF-16 偏移、采样理由、截断上限和确定性结果。测试比较串行与 Worker 输出的完整对象。
@@ -57,10 +57,19 @@ flowchart TD
 ```bash
 npm run typecheck --prefix local-agent-service
 npm test --prefix local-agent-service
-npm run benchmark:book-scan --prefix local-agent-service -- 3200 3
+npm run benchmark:book-scan --prefix local-agent-service -- 20000 4
 ```
 
 基准脚本会对同一合成语料跑串行和 Worker 扫描，报告两者耗时、比值及结构结果是否完全一致。合成语料仅用于快速回归，不代表真实书籍加速结果。上线评估还应使用小、中、大三类实际来源版本，在相同 Node.js/机器环境下至少重复多轮，比较中位耗时、峰值内存、Event Loop Delay 和结果哈希。
+
+### 当前 CI 的单次合成基准记录
+
+| 输入 | 串行 | Worker 并行 | 串行/并行耗时比 | 结果一致 |
+|---|---:|---:|---:|---|
+| 3,200 片段 / 291,026 字符 / 3 Workers | 180.76 ms | 386.54 ms | 0.47×（并行更慢） | 是 |
+| 20,000 片段 / 1,818,866 字符 / 4 Workers | 1,719.44 ms | 1,270.23 ms | 1.35× | 是 |
+
+数据来自 GitHub Actions 的 Node.js v22.13.0 各一次合成运行，未多轮取中位数。基于两组数据，默认阈值调整为 12,000 片段或 1,000,000 字符；显式 `VOCAL_SAGA_BOOK_SCAN_WORKERS` 设置仍可用于诊断与人工调优。应使用实际书籍重复测量后再调整阈值。
 
 ## 下一阶段建议
 
