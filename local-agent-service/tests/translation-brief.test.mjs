@@ -492,6 +492,10 @@ test('explicit confirmed glossary mappings without AI evidence activate on first
     ],
   });
   ensureTestContextGraph(store, project);
+  const { buildProjectContextGraphBundle } = await import('../src/documents/contextGraph.ts');
+  buildProjectContextGraphBundle(project.projectId, [
+    { id: 'king-current', text: 'Timsen was taken up by the King.', contextPath: 'Chapter 1' },
+  ]);
   store.saveLiteraryMemory(project.projectId, {
     entities: [{
       source: 'the King', target: '国王', aliases: ['King'], kind: 'person',
@@ -544,6 +548,10 @@ test('canonical mappings survive the TranslationBrief last-resort budget fallbac
     ],
   });
   ensureTestContextGraph(store, project);
+  const { buildProjectContextGraphBundle } = await import('../src/documents/contextGraph.ts');
+  buildProjectContextGraphBundle(project.projectId, [
+    { id: 'names-heavy', text: sourceParts.join(' and ') + '.', contextPath: 'Chapter 1' },
+  ]);
   store.saveLiteraryMemory(project.projectId, {
     entities,
     relationships: [], styleGuide: {}, chapterSummaries: [], recentExamples: [],
