@@ -46,6 +46,107 @@ const ANALYSIS_SCHEMA: Record<string, unknown> = {
   required: ['bookSummary', 'narrativeStyle', 'styleRules', 'characters', 'entities', 'relationships', 'chapterSummaries', 'openQuestions'],
 };
 
+
+export const BOOK_SCAN_INDEX_VERSION = 'book-scan-index-v2';
+
+export interface StoredSegmentFeatures {
+  entityMentions: Array<{ surface: string; normalized: string; start: number; end: number; kind: string; dialogue: boolean }>;
+  textUnits: Array<{ unitType: 'sentence' | 'quotation'; normalized: string; start: number; end: number }>;
+  dialogue: { isDialogue: boolean; quoteCount: number; signals: string[]; quoteSpans: Array<{ start: number; end: number }>; score: number };
+  quantityMentions: Array<{ surface: string; normalized: string; start: number; end: number; unit: string; unitFamily: string }>;
+}
+export interface StoredSourceFeatureIndex {
+  sourceRevisionId: string;
+  indexVersion: string;
+  sourceSegmentCount: number;
+  diagnostics: Record<string, unknown>;
+  segments: Map<string, StoredSegmentFeatures>;
+}
+
+/** Persist lexical source features once per immutable source revision. Offsets use source UTF-16 positions. */
+function persistSourceFeatureIndex(db: DatabaseSync, revisionId: string, segments: Segment[], scan: BookScanResult): void {
+  ensureSchema(db);
+  const entityById = new Map<string, BookScanResult['entityMentions']>();
+  const unitsById = new Map<string, BookScanResult['textUnits']>();
+  const dialogueById = new Map<string, BookScanResult['dialogueIndex'][number]>();
+  const quantitiesById = new Map<string, BookScanResult['quantityMentions']>();
+  for (const item of scan.entityMentions) { const list = entityById.get(item.segmentId) || []; list.push(item); entityById.set(item.segmentId, list); }
+  for (const item of scan.textUnits) { const list = unitsById.get(item.segmentId) || []; list.push(item); unitsById.set(item.segmentId, list); }
+  for (const item of scan.dialogueIndex) dialogueById.set(item.segmentId, item);
+  for (const item of scan.quantityMentions) { const list = quantitiesById.get(item.segmentId) || []; list.push(item); quantitiesById.set(item.segmentId, list); }
+  const now = new Date().toISOString();
+  const statement = db.prepare(
+    'INSERT INTO context_graph_source_features(source_revision_id, segment_id, ordinal, chapter_key, features_json, index_version, updated_at) ' +
+    'VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(source_revision_id, segment_id) DO UPDATE SET ' +
+    'ordinal=excluded.ordinal, chapter_key=excluded.chapter_key, features_json=excluded.features_json, index_version=excluded.index_version, updated_at=excluded.updated_at'
+  );
+  db.exec('BEGIN IMMEDIATE');
+  try {
+    db.prepare('DELETE FROM context_graph_source_features WHERE source_revision_id = ?').run(revisionId);
+    for (const segment of segments) {
+      const dialogue = dialogueById.get(segment.id);
+      const features: StoredSegmentFeatures = {
+        entityMentions: (entityById.get(segment.id) || []).map((item) => ({
+          surface: item.surface, normalized: item.normalized, start: item.start, end: item.end, kind: item.kind, dialogue: item.dialogue,
+        })),
+        textUnits: (unitsById.get(segment.id) || []).map((item) => ({
+          unitType: item.unitType, normalized: item.normalized, start: item.start, end: item.end,
+        })),
+        dialogue: dialogue ? {
+          isDialogue: dialogue.isDialogue, quoteCount: dialogue.quoteCount, signals: dialogue.signals,
+          quoteSpans: dialogue.quoteSpans, score: dialogue.score,
+        } : { isDialogue: false, quoteCount: 0, signals: [], quoteSpans: [], score: 0 },
+        quantityMentions: (quantitiesById.get(segment.id) || []).map((item) => ({
+          surface: item.surface, normalized: item.normalized, start: item.start, end: item.end, unit: item.unit, unitFamily: item.unitFamily,
+        })),
+      };
+      statement.run(revisionId, segment.id, segment.ordinal, segment.contextPath || '正文', JSON.stringify(features), BOOK_SCAN_INDEX_VERSION, now);
+    }
+    const summary = {
+      indexVersion: BOOK_SCAN_INDEX_VERSION, sourceSegmentCount: segments.length,
+      entityMentionCount: scan.indexDiagnostics.entityMentionCount, entityMentionLimit: scan.indexDiagnostics.entityMentionLimit,
+      entityMentionsTruncated: scan.indexDiagnostics.entityMentionsTruncated,
+      textUnitCount: scan.indexDiagnostics.textUnitCount, textUnitLimit: scan.indexDiagnostics.textUnitLimit,
+      textUnitsTruncated: scan.indexDiagnostics.textUnitsTruncated,
+      quantityMentionCount: scan.indexDiagnostics.quantityMentionCount, quantityMentionLimit: scan.indexDiagnostics.quantityMentionLimit,
+      quantityMentionsTruncated: scan.indexDiagnostics.quantityMentionsTruncated,
+    };
+    db.prepare(
+      'INSERT INTO context_graph_meta(source_revision_id, key, value, updated_at) VALUES (?, ?, ?, ?) ' +
+      'ON CONFLICT(source_revision_id, key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at'
+    ).run(revisionId, 'sourceFeatureIndex', JSON.stringify(summary), now);
+    db.exec('COMMIT');
+  } catch (error) {
+    try { db.exec('ROLLBACK'); } catch { /* preserve the indexing error */ }
+    throw error;
+  }
+}
+
+/** Return a complete, version-matched index or null if it is absent/incomplete. */
+export function readSourceFeatureIndex(db: DatabaseSync, revisionId: string): StoredSourceFeatureIndex | null {
+  ensureSchema(db);
+  const metaRow = db.prepare('SELECT value FROM context_graph_meta WHERE source_revision_id = ? AND key = ?')
+    .get(revisionId, 'sourceFeatureIndex') as { value?: string } | undefined;
+  if (!metaRow?.value) return null;
+  let meta: any;
+  try { meta = JSON.parse(metaRow.value); } catch { return null; }
+  if (meta?.indexVersion !== BOOK_SCAN_INDEX_VERSION) return null;
+  const rows = db.prepare(
+    'SELECT segment_id, features_json FROM context_graph_source_features WHERE source_revision_id = ? AND index_version = ? ORDER BY ordinal'
+  ).all(revisionId, BOOK_SCAN_INDEX_VERSION) as Array<{ segment_id: string; features_json: string }>;
+  if (rows.length !== Number(meta.sourceSegmentCount)) return null;
+  const indexed = new Map<string, StoredSegmentFeatures>();
+  for (const row of rows) {
+    try {
+      const features = JSON.parse(row.features_json) as StoredSegmentFeatures;
+      if (!features || !Array.isArray(features.entityMentions) || !Array.isArray(features.textUnits) ||
+          !Array.isArray(features.quantityMentions) || !features.dialogue) return null;
+      indexed.set(row.segment_id, features);
+    } catch { return null; }
+  }
+  return { sourceRevisionId: revisionId, indexVersion: BOOK_SCAN_INDEX_VERSION, sourceSegmentCount: rows.length, diagnostics: meta, segments: indexed };
+}
+
 const activeAnalyses = new Set<string>();
 
 const initializedDbs = new WeakSet<DatabaseSync>();
@@ -77,7 +178,13 @@ function ensureSchema(db: DatabaseSync): void {
     'CREATE TABLE IF NOT EXISTS context_graph_runs (' +
       'run_id TEXT PRIMARY KEY, source_revision_id TEXT NOT NULL, status TEXT NOT NULL, phase TEXT NOT NULL, ' +
       'progress_json TEXT NOT NULL, started_at TEXT NOT NULL, finished_at TEXT, error TEXT);' +
-    'CREATE INDEX IF NOT EXISTS idx_context_runs_started ON context_graph_runs(started_at DESC);'
+    'CREATE INDEX IF NOT EXISTS idx_context_runs_started ON context_graph_runs(started_at DESC);' +
+    'CREATE TABLE IF NOT EXISTS context_graph_source_features (' +
+      'source_revision_id TEXT NOT NULL, segment_id TEXT NOT NULL, ordinal INTEGER NOT NULL, chapter_key TEXT NOT NULL, ' +
+      'features_json TEXT NOT NULL, index_version TEXT NOT NULL, updated_at TEXT NOT NULL, ' +
+      'PRIMARY KEY(source_revision_id, segment_id));' +
+    'CREATE INDEX IF NOT EXISTS idx_source_features_ordinal ON context_graph_source_features(source_revision_id, ordinal);' +
+    'CREATE INDEX IF NOT EXISTS idx_source_features_chapter ON context_graph_source_features(source_revision_id, chapter_key, ordinal);'
   );
   initializedDbs.add(db);
 }
@@ -340,6 +447,7 @@ async function runAnalysis(projectId: string, runId: string): Promise<void> {
   writeChapterSnapshots(db, revisionId, segments);
 
   const scan = scanBookSegments(segments);
+  persistSourceFeatureIndex(db, revisionId, segments, scan);
   const samplePlan = planBookSamples(segments, scan);
   const samples: Segment[] = samplePlan.samples.map(({ segment }) => ({
     id: segment.id, ordinal: segment.ordinal, text: segment.text,
@@ -350,13 +458,19 @@ async function runAnalysis(projectId: string, runId: string): Promise<void> {
   const samplesById = new Map(samples.map((segment) => [segment.id, segment]));
   const chapters = chapterMap(segments);
   const scanSummary = {
-    strategyVersion: 'adaptive-book-scan-v1',
+    strategyVersion: 'adaptive-book-scan-v2-source-index',
     segmentCount: scan.segmentCount,
     sourceCharCount: scan.charCount,
     chapterCount: scan.chapterCount,
     dialogueSegmentCount: scan.dialogueSegmentCount,
     nameCandidateCount: scan.nameCandidates.length,
     repeatedPhraseCandidateCount: scan.repeatedPhrases.length,
+    entityMentionCount: scan.indexDiagnostics.entityMentionCount,
+    entityMentionsTruncated: scan.indexDiagnostics.entityMentionsTruncated,
+    sentenceAndQuoteUnitCount: scan.indexDiagnostics.textUnitCount,
+    textUnitsTruncated: scan.indexDiagnostics.textUnitsTruncated,
+    quantityMentionCount: scan.indexDiagnostics.quantityMentionCount,
+    quantityMentionsTruncated: scan.indexDiagnostics.quantityMentionsTruncated,
     ...samplePlan.diagnostics,
     samplePlan: samplePlan.samples.map((item) => ({
       segmentId: item.segment.id, ordinal: item.segment.ordinal, chapter: item.segment.contextPath,
@@ -371,6 +485,15 @@ async function runAnalysis(projectId: string, runId: string): Promise<void> {
     repeatedPhraseCandidateCount: scan.repeatedPhrases.length,
     sampleCount: samples.length, sampleLimit: samplePlan.diagnostics.sampleLimit,
     targetedNameCount: samplePlan.diagnostics.targetedNameCount,
+    entityMentionCount: scan.indexDiagnostics.entityMentionCount,
+    sentenceAndQuoteUnitCount: scan.indexDiagnostics.textUnitCount,
+    quantityMentionCount: scan.indexDiagnostics.quantityMentionCount,
+    indexVersion: BOOK_SCAN_INDEX_VERSION,
+    indexTruncation: {
+      entityMentions: scan.indexDiagnostics.entityMentionsTruncated,
+      textUnits: scan.indexDiagnostics.textUnitsTruncated,
+      quantityMentions: scan.indexDiagnostics.quantityMentionsTruncated,
+    },
   });
   const prompts = store.listPrompts(projectId);
   const config = prompts[0]?.config || {};
