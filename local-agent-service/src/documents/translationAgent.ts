@@ -516,7 +516,8 @@ export function buildStandaloneReviewMemory(input: Record<string, any>): Record<
   const characterVoices = rawMemory.characterVoices.filter((profile: any) => {
     const names = [profile.canonicalSourceName, ...(Array.isArray(profile.aliases) ? profile.aliases : [])];
     const evidence = Array.isArray(profile.evidence) ? profile.evidence : [];
-    return profile.status === 'confirmed' && names.every((name: unknown) => nameVisible(name)) &&
+    return profile.status === 'confirmed' && profile.evidenceTruncated !== true &&
+      names.every((name: unknown) => nameVisible(name)) &&
       names.some((name: unknown) => currentNameVisible(name)) && evidence.length > 0 &&
       evidence.every((item: any) => quoteMatches(item.segmentId, item.sourceQuote));
   }).map((profile: any) => ({
