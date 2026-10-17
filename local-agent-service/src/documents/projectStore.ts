@@ -1473,9 +1473,11 @@ export class DocumentProjectStore {
     projectId: string,
     runId: string,
     items: Array<{ segmentId: string; text: string }>,
+    reviewFindings: Array<{ segmentId: string; finding: any }> = [],
   ): boolean {
-    if (!Array.isArray(items) || items.length > 1000) {
-      throw Object.assign(new Error('候选译文批次必须是最多 1000 条记录的数组'), { status: 400 });
+    if (!Array.isArray(items) || items.length > 1000 ||
+        !Array.isArray(reviewFindings) || reviewFindings.length > 1000) {
+      throw Object.assign(new Error('候选译文或审校结果批次必须是最多 1000 条记录的数组'), { status: 400 });
     }
     const seen = new Set<string>();
     const normalized = items.map((item) => {
@@ -1487,7 +1489,22 @@ export class DocumentProjectStore {
       seen.add(segmentId);
       return { segmentId, text };
     });
-    if (!normalized.length) return true;
+    const normalizedFindings = reviewFindings.map((item) => {
+      const segmentId = typeof item?.segmentId === 'string' ? item.segmentId.trim() : '';
+      if (!segmentId || !item.finding || typeof item.finding !== 'object' || Array.isArray(item.finding)) {
+        throw Object.assign(new Error('审校结果包含无效的片段 ID 或 finding'), { status: 400 });
+      }
+      const category = ['accuracy', 'terminology', 'style'].includes(item.finding.category)
+        ? item.finding.category : 'style';
+      const priority = category === 'style' ? 'optional' : 'must_fix';
+      return {
+        segmentId,
+        category,
+        priority,
+        findingJson: JSON.stringify({ ...item.finding, id: segmentId, category, priority }),
+      };
+    });
+    if (!normalized.length && !normalizedFindings.length) return true;
 
     const { db } = this.getProjectContext(projectId);
     const now = isoNow();
@@ -1501,28 +1518,38 @@ export class DocumentProjectStore {
         db.exec('ROLLBACK');
         return false;
       }
+      const requiredIds = Array.from(new Set([
+        ...normalized.map((item) => item.segmentId),
+        ...normalizedFindings.map((item) => item.segmentId),
+      ]));
       const rows = db.prepare(
         'SELECT segment_id, source_hash FROM run_segments WHERE run_id = ? AND segment_id IN (' +
-          normalized.map(() => '?').join(',') + ')',
-      ).all(runId, ...normalized.map((item) => item.segmentId)) as Array<{ segment_id: string; source_hash: string }>;
-      if (rows.length !== normalized.length) {
-        throw Object.assign(new Error('候选译文包含不属于本次运行的片段 ID'), { status: 400 });
+          requiredIds.map(() => '?').join(',') + ')',
+      ).all(runId, ...requiredIds) as Array<{ segment_id: string; source_hash: string }>;
+      if (rows.length !== requiredIds.length) {
+        throw Object.assign(new Error('候选译文或审校结果包含不属于本次运行的片段 ID'), { status: 400 });
       }
       const sourceHashes = new Map(rows.map((row) => [row.segment_id, row.source_hash]));
-      const insert = db.prepare(
+      const insertCandidate = db.prepare(
         'INSERT INTO translation_results(result_id, run_id, source_revision_id, prompt_revision_id, segment_id, source_hash, run_fingerprint, translation_text, origin, accepted, created_at, accepted_at) ' +
           "VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'agent', 0, ?, NULL)",
       );
-      const update = db.prepare(
+      const updateCandidate = db.prepare(
         "UPDATE run_segments SET status = 'candidate', candidate_result_id = ?, error = NULL, updated_at = ? WHERE run_id = ? AND segment_id = ?",
       );
       for (const item of normalized) {
         const resultId = randomUUID();
-        insert.run(
+        insertCandidate.run(
           resultId, runId, run.source_revision_id, run.prompt_revision_id, item.segmentId,
           sourceHashes.get(item.segmentId), run.run_fingerprint, item.text, now,
         );
-        update.run(resultId, now, runId, item.segmentId);
+        updateCandidate.run(resultId, now, runId, item.segmentId);
+      }
+      const insertFinding = db.prepare(
+        "INSERT INTO review_findings(run_id, segment_id, category, priority, finding_json, status, created_at) VALUES (?, ?, ?, ?, ?, 'pending', ?)",
+      );
+      for (const item of normalizedFindings) {
+        insertFinding.run(runId, item.segmentId, item.category, item.priority, item.findingJson, now);
       }
       db.exec('COMMIT');
       return true;
@@ -1539,12 +1566,15 @@ export class DocumentProjectStore {
     }
   }
 
+  saveFindings(projectId: string, runId: string, findings: Array<{ segmentId: string; finding: any }>): boolean {
+    return this.saveCandidates(projectId, runId, [], findings);
+  }
+
   saveFinding(projectId: string, runId: string, segmentId: string, finding: any): void {
-    const db = this.openProjectDb(projectId);
-    const category = ['accuracy', 'terminology', 'style'].includes(finding?.category) ? finding.category : 'style';
-    const priority = category === 'style' ? 'optional' : 'must_fix';
-    db.prepare('INSERT INTO review_findings(run_id, segment_id, category, priority, finding_json, status, created_at) VALUES (?, ?, ?, ?, ?, \'pending\', ?)')
-      .run(runId, segmentId, category, priority, JSON.stringify({ ...finding, id: segmentId, category, priority }), isoNow());
+    const committed = this.saveFindings(projectId, runId, [{ segmentId, finding }]);
+    if (!committed) {
+      throw Object.assign(new Error('翻译运行已暂停、取消或结束，拒绝保存迟到的审校结果。'), { status: 409 });
+    }
   }
 
   /**
