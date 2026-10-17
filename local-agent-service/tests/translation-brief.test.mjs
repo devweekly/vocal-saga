@@ -417,7 +417,7 @@ test('dynamic entity evidence is hidden before its cited source segment and visi
 });
 
 
-test('source-ordered dynamic memory replaces conflicting unconfirmed Context Graph name proposals', () => {
+test('source-ordered dynamic memory replaces conflicting unconfirmed Context Graph name proposals', async () => {
   const store = getDocumentProjectStore();
   const project = store.createProject({
     title: 'Dynamic Memory Beats Graph Candidate',
