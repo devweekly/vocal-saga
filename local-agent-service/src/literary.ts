@@ -116,6 +116,7 @@ export function stabilizeVoiceAnalysis(
       const name = typeof raw.canonicalSourceName === 'string' ? raw.canonicalSourceName.trim().slice(0, 120) : '';
       if (!name || !raw.voiceCore || typeof raw.voiceCore !== 'object') continue;
       const aliases = Array.isArray(raw.aliases) ? raw.aliases.filter((value: unknown) => typeof value === 'string').slice(0, 12) : [];
+      const rawEvidenceTruncated = Array.isArray(raw.evidence) && raw.evidence.length > 12;
       const existingProfile = existing.characterVoices.find((profile: any) =>
         profile.characterId === raw.characterId ||
         profile.canonicalSourceName.toLocaleLowerCase() === name.toLocaleLowerCase() ||
@@ -138,11 +139,18 @@ export function stabilizeVoiceAnalysis(
       }
       const analysisConflictWithConfirmed = existingProfile?.status === 'confirmed' &&
         JSON.stringify(existingProfile.voiceCore) !== JSON.stringify(raw.voiceCore);
-      const stableEvidence = existingProfile?.status === 'confirmed'
+      const combinedEvidence = existingProfile?.status === 'confirmed'
         ? [...existingProfile.evidence, ...evidence].filter((item: any, index: number, all: any[]) =>
             all.findIndex((other: any) => other.segmentId === item.segmentId && other.dimension === item.dimension) === index,
-          ).slice(0, 12)
+          )
         : evidence;
+      const evidenceTruncated = rawEvidenceTruncated ||
+        existingProfile?.evidenceTruncated === true ||
+        combinedEvidence.length > 12;
+      // Keep the newest evidence when a rolling voice profile reaches its storage bound. The
+      // completeness flag above remains authoritative: temporal retrieval will withhold the
+      // aggregate VoiceCore if any source evidence was omitted by the bound.
+      const stableEvidence = combinedEvidence.slice(-12);
       profiles.push({
         analysisConflictWithConfirmed,
         ...raw, characterId, canonicalSourceName: name,
@@ -159,6 +167,8 @@ export function stabilizeVoiceAnalysis(
         status: existingProfile?.status === 'confirmed' ? 'confirmed' : 'candidate',
         confidence: Number.isFinite(Number(raw.confidence)) ? Math.max(0, Math.min(1, Number(raw.confidence))) : 0.4,
         evidence: stableEvidence,
+        evidencePolicyVersion: 'character-evidence-v2-complete',
+        evidenceTruncated,
         openQuestions: Array.isArray(raw.openQuestions) ? raw.openQuestions.slice(0, 8) : [],
       });
     }
