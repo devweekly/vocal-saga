@@ -1226,7 +1226,7 @@ export class DocumentProjectStore {
       'SELECT ordinal, context_path FROM source_segments WHERE source_revision_id = ? AND segment_id = ?'
     ).get(run.source_revision_id, firstSegmentId) as { ordinal?: number; context_path?: string } | undefined;
     if (typeof current?.ordinal !== 'number') return [];
-    const bounded = Math.max(0, Math.min(4, Math.floor(limit)));
+    const bounded = Math.max(0, Math.min(6, Math.floor(limit)));
     if (!bounded) return [];
     const sameChapter = current.context_path
       ? db.prepare(
