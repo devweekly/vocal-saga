@@ -430,7 +430,7 @@ export async function runLiteraryReview(body: any, requestId: string, sessionSco
         const sourceExcerpt = typeof item.sourceExcerpt === 'string' ? item.sourceExcerpt.trim().slice(0, 240) : '';
         const draftExcerpt = typeof item.draftExcerpt === 'string' ? item.draftExcerpt.trim().slice(0, 240) : '';
         // Do not let a fabricated finding turn an arbitrary full rewrite into a must-fix result.
-        if (!isLiteraryReviewFindingGrounded(original.text, original.draft, sourceExcerpt, draftExcerpt)) continue;
+        if (!isLiteraryReviewFindingGrounded(original.source, original.draft, sourceExcerpt, draftExcerpt)) continue;
         const priority = item.category === 'style' ? 'optional' : 'must_fix';
         const finding = {
           id: raw.id, category: item.category, priority,
