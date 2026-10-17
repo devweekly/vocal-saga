@@ -1706,49 +1706,93 @@ export class DocumentProjectStore {
   acceptCandidates(projectId: string, runId: string, segmentIds?: string[]): any {
     const db = this.openProjectDb(projectId);
     const only = segmentIds?.length ? new Set(segmentIds) : null;
-    const rows = db.prepare('SELECT rs.segment_id, rs.candidate_result_id FROM run_segments rs WHERE rs.run_id = ? AND rs.status = \'candidate\' AND rs.candidate_result_id IS NOT NULL').all(runId) as any[];
     const now = isoNow();
     let accepted = 0;
     const preservedManual: string[] = [];
+    let finalStatus: RunStatus = 'completed';
+    let terminalError: string | null = null;
+
+    // Read the Run state, candidates, manual edits and acceptance writes under one write lock.
+    // Otherwise cancellation can interleave after the candidate query and before acceptance.
     db.exec('BEGIN IMMEDIATE');
     try {
-      for (const row of rows) {
-        if (only && !only.has(row.segment_id)) continue;
-        // 翻译正在运行时，用户可能在另一 Tab 修订了相同片段；旧候选不得覆盖新人工版本。
-        // 用插入顺序（rowid）而不是时间戳判断新旧：时间戳在毫秒上可能打平（跨进程也会），
-        // 打平就会把「更晚插入的人工修订」误判成更旧，让旧候选覆盖掉它。
-        const candidate = db.prepare('SELECT rowid AS seq, source_hash FROM translation_results WHERE result_id = ?').get(row.candidate_result_id) as { seq?: number; source_hash?: string } | undefined;
+      const run = db.prepare('SELECT status FROM translation_runs WHERE run_id = ?').get(runId) as { status?: string } | undefined;
+      if (!run) throw Object.assign(new Error('找不到翻译运行：' + runId), { status: 404 });
+      if (['cancelled', 'paused', 'queued', 'running'].includes(String(run.status))) {
+        throw Object.assign(
+          new Error('运行处于 ' + run.status + ' 状态，不能采纳候选译文；请先完成或恢复运行。'),
+          { status: 409 },
+        );
+      }
+      const rows = db.prepare(
+        'SELECT rs.segment_id, rs.candidate_result_id FROM run_segments rs ' +
+        "WHERE rs.run_id = ? AND rs.status = 'candidate' AND rs.candidate_result_id IS NOT NULL",
+      ).all(runId) as any[];
+      const candidateRows = rows.filter((row) => !only || only.has(row.segment_id));
+
+      for (const row of candidateRows) {
+        const candidate = db.prepare(
+          'SELECT rowid AS seq, source_hash FROM translation_results WHERE result_id = ? AND run_id = ?',
+        ).get(row.candidate_result_id, runId) as { seq?: number; source_hash?: string } | undefined;
+        if (!candidate) {
+          throw Object.assign(new Error('候选译文记录已丢失，拒绝采纳片段：' + row.segment_id), { status: 409 });
+        }
         // A manual translation for the same source revision always wins, even if it was saved
         // before the Agent run started. Explicit retranslation must not silently erase user work.
-        const sameSourceManual = candidate
-          ? db.prepare("SELECT result_id FROM translation_results WHERE segment_id = ? AND accepted = 1 AND origin = 'manual' AND source_hash = ? ORDER BY rowid DESC LIMIT 1")
-            .get(row.segment_id, candidate.source_hash)
-          : undefined;
-        // A newer manual edit also wins when it was made while the model was running.
-        const newerManual = candidate
-          ? db.prepare("SELECT result_id FROM translation_results WHERE segment_id = ? AND accepted = 1 AND origin = 'manual' AND rowid > ? ORDER BY rowid DESC LIMIT 1")
-            .get(row.segment_id, candidate.seq)
-          : undefined;
+        const sameSourceManual = db.prepare(
+          "SELECT result_id FROM translation_results WHERE segment_id = ? AND accepted = 1 AND origin = 'manual' AND source_hash = ? ORDER BY rowid DESC LIMIT 1",
+        ).get(row.segment_id, candidate.source_hash);
+        // Use insertion order, not millisecond timestamps, to detect edits made while the model ran.
+        const newerManual = db.prepare(
+          "SELECT result_id FROM translation_results WHERE segment_id = ? AND accepted = 1 AND origin = 'manual' AND rowid > ? ORDER BY rowid DESC LIMIT 1",
+        ).get(row.segment_id, candidate.seq);
         if (sameSourceManual || newerManual) {
           preservedManual.push(row.segment_id);
-          // Resolve this run item without making its discarded candidate the accepted translation.
-          db.prepare("UPDATE run_segments SET status = 'accepted', updated_at = ? WHERE run_id = ? AND segment_id = ?")
-            .run(now, runId, row.segment_id);
+          db.prepare(
+            "UPDATE run_segments SET status = 'accepted', updated_at = ? WHERE run_id = ? AND segment_id = ?",
+          ).run(now, runId, row.segment_id);
           continue;
         }
-        db.prepare('UPDATE translation_results SET accepted = 1, accepted_at = ? WHERE result_id = ?').run(now, row.candidate_result_id);
-        db.prepare('UPDATE run_segments SET status = \'accepted\', updated_at = ? WHERE run_id = ? AND segment_id = ?').run(now, runId, row.segment_id);
+        db.prepare(
+          'UPDATE translation_results SET accepted = 1, accepted_at = ? WHERE result_id = ? AND run_id = ?',
+        ).run(now, row.candidate_result_id, runId);
+        db.prepare(
+          "UPDATE run_segments SET status = 'accepted', updated_at = ? WHERE run_id = ? AND segment_id = ?",
+        ).run(now, runId, row.segment_id);
         accepted++;
       }
+
+      const counts = db.prepare(
+        'SELECT status, COUNT(*) AS count FROM run_segments WHERE run_id = ? GROUP BY status',
+      ).all(runId) as Array<{ status: string; count: number }>;
+      const values = Object.fromEntries(counts.map((item) => [item.status, Number(item.count)]));
+      const candidates = Number(values.candidate || 0);
+      const pending = Number(values.pending || 0) + Number(values.running || 0);
+      const failures = Number(values.failed || 0);
+      const acceptedCount = Number(values.accepted || 0);
+      if (pending > 0) {
+        // This should be unreachable after the Run-state guard; fail closed if a legacy DB is inconsistent.
+        throw Object.assign(new Error('运行仍包含待处理或执行中的片段，拒绝结束采纳事务。'), { status: 409 });
+      }
+      if (candidates > 0) finalStatus = acceptedCount > 0 && failures > 0 ? 'partial' : 'awaiting_acceptance';
+      else if (failures > 0) finalStatus = acceptedCount > 0 ? 'partial' : 'failed';
+      else finalStatus = 'completed';
+      terminalError = failures ? String(failures) + ' 个片段失败，可重试失败范围' : null;
+      db.prepare(
+        'UPDATE translation_runs SET status = ?, error = ?, finished_at = ? WHERE run_id = ?',
+      ).run(finalStatus, terminalError, now, runId);
       db.exec('COMMIT');
     } catch (error) {
-      db.exec('ROLLBACK');
+      try { db.exec('ROLLBACK'); } catch { /* already rolled back */ }
       throw error;
     }
-    const remaining = db.prepare("SELECT COUNT(*) AS count FROM run_segments WHERE run_id = ? AND status IN ('candidate','pending','running','failed')").get(runId) as any;
-    const failed = db.prepare("SELECT COUNT(*) AS count FROM run_segments WHERE run_id = ? AND status = 'failed'").get(runId) as any;
-    this.setRunStatus(projectId, runId, Number(remaining?.count || 0) > 0 ? (accepted > 0 && Number(failed?.count || 0) > 0 ? 'partial' : 'awaiting_acceptance') : 'completed');
-    this.addEvent(projectId, runId, 'translations.accepted', { count: accepted, preservedManualSegmentIds: preservedManual, segmentIds: only ? Array.from(only) : undefined });
+
+    this.addEvent(projectId, runId, 'run.' + finalStatus, { error: terminalError || undefined });
+    this.addEvent(projectId, runId, 'translations.accepted', {
+      count: accepted,
+      preservedManualSegmentIds: preservedManual,
+      segmentIds: only ? Array.from(only) : undefined,
+    });
     return this.getRun(projectId, runId);
   }
 
