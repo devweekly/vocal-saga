@@ -186,6 +186,10 @@ function buildTemporallyVisibleMemory(
   rawMemory.entities = (Array.isArray(rawMemory.entities) ? rawMemory.entities : []).flatMap((entity: any) => {
     const aliases = Array.isArray(entity?.aliases) ? entity.aliases : [];
     const evidenceRefs = Array.isArray(entity.evidenceRefs) ? entity.evidenceRefs : [];
+    // A later-only alias can contaminate the canonical target itself. Do not just remove that
+    // alias while keeping a target inferred from the future identity reveal.
+    if (aliases.some((alias: unknown) =>
+      !appearedBefore(alias) && !items.some((item) => sourceNameMatches(item.text, alias)))) return [];
     // A complete, explicitly confirmed source→target mapping is user-authored authority.
     // It may activate on the first visible mention without model-generated evidence, but must
     // never leak into a batch where neither the source nor an alias is visible.
@@ -558,6 +562,12 @@ export function buildTranslationBrief(
       const evidence = String(entity?.evidence || '').trim();
       if (!source || !target || !sourceVisible(source)) continue;
       const rawAliases = Array.isArray(entity.aliases) ? entity.aliases : [];
+      const aliasesVisibleAtBoundary = rawAliases.every((alias: unknown) =>
+        firstMatchingSourceOrdinal(projectContext.db, sourceRevisionId, alias, 'name') < firstOrdinal ||
+        sourceNameMatches(sourceText, alias));
+      // A later-only alias can contaminate the canonical target itself, so do not keep the target
+      // while merely dropping that alias. Require the whole identity mapping to be temporally safe.
+      if (!aliasesVisibleAtBoundary) continue;
       const visibleEvidenceRefs = (Array.isArray(entity.evidenceRefs) ? entity.evidenceRefs : []).filter((ref: any) => {
         const row = sourceRowFor(ref?.segmentId);
         return !!row && row.ordinal < firstOrdinal &&
