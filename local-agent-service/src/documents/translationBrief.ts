@@ -241,10 +241,12 @@ function buildTemporallyVisibleMemory(
 
   rawMemory.characterVoices = (Array.isArray(rawMemory.characterVoices) ? rawMemory.characterVoices : []).flatMap((profile: any) => {
     const rawEvidence = Array.isArray(profile.evidence) ? profile.evidence : [];
-    // VoiceCore is an aggregate of its evidence set. If the evidence list was truncated for storage,
-    // the omitted items may include future-chapter dialogue; visible retained examples cannot prove
-    // the aggregate itself is temporally safe, so withhold the whole profile.
-    if (profile.evidenceTruncated === true || !rawEvidence.length || rawEvidence.some((item: any) => {
+    // Legacy Run snapshots and callers can bypass the current-memory sanitizer. Re-derive the
+    // old eight-row truncation condition here so a missing completeness flag cannot leak an
+    // aggregate profile synthesized from omitted future dialogue into an early batch.
+    const evidenceIncomplete = profile.evidenceTruncated === true ||
+      (profile.evidencePolicyVersion !== 'character-evidence-v2-complete' && rawEvidence.length >= 8);
+    if (evidenceIncomplete || !rawEvidence.length || rawEvidence.some((item: any) => {
       if (!item || !isPrior(item.segmentId)) return true;
       const source = sourceById.get(item.segmentId);
       return !source || !sourceQuoteMatches(source.text, item.sourceQuote);
