@@ -11,7 +11,7 @@ import { parseAgentModel } from '../json.ts';
 import { positiveIntegerEnv, WORKBUDDY_POOL_SIZE } from '../config.ts';
 import { runAgentStructured } from '../agents/runner.ts';
 import { runLiteraryReview } from '../literary.ts';
-import { getDocumentProjectStore } from './projectStore.ts';
+import { getDocumentProjectStore, normalizeDocumentTranslationStrategy, type DocumentTranslationStrategy } from './projectStore.ts';
 import { buildProjectVoiceContext } from './voiceContext.ts';
 import { buildTranslationBrief, summarizeTranslationBrief, type TranslationBrief } from './translationBrief.ts';
 
@@ -171,10 +171,12 @@ export function createConcurrencyLimiter(concurrency: number): <T>(task: () => P
 
 const activeRuns = new Set<string>();
 
-const MAX_TRANSLATION_BATCH_SEGMENTS = 16;
-const MAX_TRANSLATION_BATCH_SOURCE_CHARS = 8_000;
-
-export function buildBatches(items: TranslationItem[], respectChapterBoundaries = false): TranslationItem[][] {
+export function buildBatches(
+  items: TranslationItem[],
+  respectChapterBoundaries = false,
+  strategyInput?: Partial<DocumentTranslationStrategy>,
+): TranslationItem[][] {
+  const strategy = normalizeDocumentTranslationStrategy(strategyInput);
   const batches: TranslationItem[][] = [];
   let current: TranslationItem[] = [];
   let chars = 0;
@@ -184,8 +186,8 @@ export function buildBatches(items: TranslationItem[], respectChapterBoundaries 
       (current[0]?.contextPath || '') !== (item.contextPath || '');
     if (current.length && (
       chapterBoundary ||
-      current.length >= MAX_TRANSLATION_BATCH_SEGMENTS ||
-      chars + size > MAX_TRANSLATION_BATCH_SOURCE_CHARS
+      current.length >= strategy.maxBatchSegments ||
+      chars + size > strategy.maxBatchSourceChars
     )) {
       batches.push(current);
       current = [];
@@ -194,7 +196,7 @@ export function buildBatches(items: TranslationItem[], respectChapterBoundaries 
     current.push(item);
     chars += size;
     // An individual paragraph may exceed the aggregate budget; isolate it in its own batch.
-    if (size > MAX_TRANSLATION_BATCH_SOURCE_CHARS) {
+    if (size > strategy.maxBatchSourceChars) {
       batches.push(current);
       current = [];
       chars = 0;
@@ -499,15 +501,16 @@ async function executeRun(projectId: string, runId: string): Promise<void> {
       store.finishRun(projectId, runId);
       return;
     }
-    const batches = buildBatches(items, context.run.translationMode === 'literary');
+    const strategy = normalizeDocumentTranslationStrategy(context.prompt?.config?.translationStrategy);
+    const batches = buildBatches(items, context.run.translationMode === 'literary', strategy);
 
     const reviewEnabled = context.run.translationMode === 'literary' && context.run.reviewEnabled;
     const { poolSize, translationConcurrency, reviewConcurrency, detachReviews } =
       resolveDocumentRunConcurrencyBudget(
         WORKBUDDY_POOL_SIZE,
         reviewEnabled,
-        CONFIGURED_TRANSLATION_CONCURRENCY,
-        CONFIGURED_REVIEW_CONCURRENCY,
+        strategy.translationConcurrency || CONFIGURED_TRANSLATION_CONCURRENCY,
+        strategy.reviewConcurrency || CONFIGURED_REVIEW_CONCURRENCY,
       );
     store.appendEvent(projectId, runId, 'plan.ready', {
       batchCount: batches.length,
@@ -516,6 +519,11 @@ async function executeRun(projectId: string, runId: string): Promise<void> {
       translationConcurrency,
       reviewConcurrency,
       poolSize,
+      maxBatchSegments: strategy.maxBatchSegments,
+      maxBatchSourceChars: strategy.maxBatchSourceChars,
+      precedingContextSegments: strategy.precedingContextSegments,
+      contextBudgetChars: strategy.contextBudgetChars,
+      maxModelAttempts: strategy.maxModelAttempts,
       sessionStrategy: 'independent-per-batch',
     });
     const memory = context.memory && typeof context.memory === 'object' ? context.memory as Record<string, any> : {};
@@ -784,8 +792,8 @@ async function executeRun(projectId: string, runId: string): Promise<void> {
       if (status === 'cancelled' || status === 'paused') return;
 
       const batchIds = batch.map((item) => item.id);
-      const precedingSegments = context.run.translationMode === 'literary' && batch[0]
-        ? store.getPrecedingSegments(projectId, runId, batch[0].id, 4) as TranslationItem[]
+      const precedingSegments = context.run.translationMode === 'literary' && batch[0] && strategy.precedingContextSegments > 0
+        ? store.getPrecedingSegments(projectId, runId, batch[0].id, strategy.precedingContextSegments) as TranslationItem[]
         : [];
       const translationBrief = context.run.translationMode === 'literary'
         ? buildTranslationBrief(context, batch, precedingSegments)
@@ -812,7 +820,7 @@ async function executeRun(projectId: string, runId: string): Promise<void> {
 
       // One bounded repair pass: only missing IDs are retried, never the full document.
       // Retries reuse this batch's scope but still carry the entire explicit input context.
-      for (let attempt = 0; attempt < 2 && pending.size > 0; attempt++) {
+      for (let attempt = 0; attempt < strategy.maxModelAttempts && pending.size > 0; attempt++) {
         if (store.getRunStatus(projectId, runId) === 'cancelled') {
           store.appendEvent(projectId, runId, 'batch.discarded', {
             batchIndex, reason: 'cancelled before model call',
