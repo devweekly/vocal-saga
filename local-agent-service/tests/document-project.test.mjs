@@ -725,3 +725,62 @@ test('candidate acceptance cannot commit after a Run has been cancelled', async 
     }
   });
 });
+
+
+test('style proposal cannot overwrite a manual edit saved after the finding', async () => {
+  await withStore((store) => {
+    const project = store.createProject({ title: 'Stale Style Proposal', format: 'epub', segments });
+    const run = store.createRun(project.projectId, { scope: { type: 'ids', ids: ['ch1-p1'] } });
+    store.saveCandidate(project.projectId, run.runId, 'ch1-p1', '门开着。');
+    store.saveFinding(project.projectId, run.runId, 'ch1-p1', {
+      category: 'style',
+      priority: 'optional',
+      reason: '可略微调整节奏。',
+      sourceExcerpt: 'The door was open.',
+      draftExcerpt: '门开着。',
+      proposedTranslation: '门敞开着。',
+      applicationStatus: 'pending',
+    });
+    store.finishRun(project.projectId, run.runId);
+    store.saveManualEdit(project.projectId, 'ch1-p1', '人工最终修订：门仍敞开着。');
+
+    assert.throws(
+      () => store.setReviewFindingDisposition(project.projectId, run.runId, 1, 'apply'),
+      /已有译文被采纳或人工修改/,
+      'the stale suggestion must be rejected using a fresh check inside the write transaction',
+    );
+    assert.equal(
+      store.getSegments(project.projectId, { limit: 10 }).find((item) => item.id === 'ch1-p1')?.acceptedTranslation,
+      '人工最终修订：门仍敞开着。',
+    );
+  });
+});
+
+test('style proposal cannot overwrite a newer accepted Agent translation', async () => {
+  await withStore((store) => {
+    const project = store.createProject({ title: 'Stale Agent Translation', format: 'epub', segments });
+    const run = store.createRun(project.projectId, { scope: { type: 'ids', ids: ['ch1-p1'] } });
+    store.saveCandidate(project.projectId, run.runId, 'ch1-p1', '门开着。');
+    store.saveFinding(project.projectId, run.runId, 'ch1-p1', {
+      category: 'style',
+      priority: 'optional',
+      reason: '可略微调整节奏。',
+      sourceExcerpt: 'The door was open.',
+      draftExcerpt: '门开着。',
+      proposedTranslation: '门敞开着。',
+      applicationStatus: 'pending',
+    });
+    store.finishRun(project.projectId, run.runId);
+    store.acceptCandidates(project.projectId, run.runId);
+
+    assert.throws(
+      () => store.setReviewFindingDisposition(project.projectId, run.runId, 1, 'apply'),
+      /已有译文被采纳或人工修改/,
+      'an accepted translation newer than the finding must take precedence over its old proposal',
+    );
+    assert.equal(
+      store.getSegments(project.projectId, { limit: 10 }).find((item) => item.id === 'ch1-p1')?.acceptedTranslation,
+      '门开着。',
+    );
+  });
+});
