@@ -373,6 +373,18 @@ export function restoreCanonicalTermMarkers(
   return result;
 }
 
+/** Verify every protected marker occurs in the output exactly as often as it occurs
+ * in the masked source. A mere includes() check lets the model drop repeated mentions silently. */
+export function canonicalMarkerCountsMatch(
+  maskedSource: string,
+  maskedTranslation: string,
+  protections: CanonicalTermProtection[],
+): boolean {
+  const count = (value: string, marker: string) => value.split(marker).length - 1;
+  return protections.every((term) =>
+    count(maskedSource, term.marker) === count(maskedTranslation, term.marker));
+}
+
 export function maskCanonicalTargetText(text: string, protections: CanonicalTermProtection[]): string {
   if (!text || !protections.length) return text;
   const byTarget = new Map<string, CanonicalTermProtection>();
@@ -710,9 +722,8 @@ async function translateBatch(context: any, items: TranslationItem[], requestId:
   const missingProtectedMarkers = new Set<string>();
   for (const [id, rawTranslation] of parsed.translations) {
     const maskedSource = maskedSourceById.get(id) || '';
-    const expectedMarkers = termProtections.filter((item) => maskedSource.includes(item.marker));
-    const missingForSegment = expectedMarkers.filter((item) => !rawTranslation.includes(item.marker));
-    if (missingForSegment.length) {
+    const markerCountsMatch = canonicalMarkerCountsMatch(maskedSource, rawTranslation, termProtections);
+    if (!markerCountsMatch) {
       // A mapped source name was present, but the model dropped its protected token. Do not
       // persist a potentially inconsistent translation; leave this ID missing so the existing
       // bounded retry asks for this segment again. If the retry still drops the token, the
@@ -809,8 +820,8 @@ export async function runLiteraryReviewWithMissingRetry(input: Record<string, an
       const relevantMarkers = protectedReview.protections.filter((term) => maskedSegment.source.includes(term.marker));
       if (!relevantMarkers.length) continue;
       const rawTranslation = rawTranslations[maskedSegment.id];
-      if (typeof rawTranslation !== 'string' ||
-          relevantMarkers.every((term) => rawTranslation.includes(term.marker))) continue;
+      if (typeof rawTranslation === 'string' &&
+          canonicalMarkerCountsMatch(maskedSegment.source, rawTranslation, relevantMarkers)) continue;
       // A reviewer must not be allowed to remove an evidenced canonical name. Retain the
       // already-normalized initial draft for this ID instead of accepting an incompatible rewrite.
       const original = originalById.get(maskedSegment.id) as any;
