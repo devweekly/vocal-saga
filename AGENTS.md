@@ -186,8 +186,11 @@ Prompt and tuning decisions must be task-specific. Short cloud requests should n
 
 ### Cross-boundary Rules
 
+**Local document translation has one execution pipeline regardless of UI entry point.** The existing document reader (including “continue translating” and “force retranslate current page”), Agent Workspace, CLI and project API must delegate to the same local Document Project / Run executor in `local-agent-service`. Do not implement another browser-side local translation loop or a second memory-merging path. Task-specific prompts remain policies inside this shared orchestrator, not separate implementations. The literary initial-translation response may add an evidence-validated `context_delta`; service-side wave ordering, persistence, review and audit own its lifecycle. See [TRANSLATION_PIPELINE.md](docs/TRANSLATION_PIPELINE.md) and [ADR-0001](docs/adr/0001-unified-local-translation-context-delta.md).
+
+
 1. The browser extension is the UI/browser layer and performs simple deterministic work. Complex AI computation belongs in the appropriate Vocal Saga backend.
 2. Cloud and local service results must carry truthful execution/provider metadata. Never silently switch execution environments or mislabel remote output as a local Agent result.
 3. Share API contracts and reusable domain concepts where useful, but keep runtime-specific orchestration, prompts, resource controls, persistence, and tests separate.
 4. A change to task routing, Prompt versions, context assembly, caching, output validation, cancellation, or recovery requires regression tests appropriate to the affected runtime.
-5. Keep documentation synchronized. Root `AGENTS.md` describes the Cloud/Local boundary; `local-agent-service/AGENTS.md` governs implementation inside the local service; `fanyi-extension/AGENTS.md` governs browser UI and delegation.
+5. Keep documentation synchronized. Root `AGENTS.md` describes the Cloud/Local boundary; `local-agent-service/AGENTS.md` governs implementation inside the local service; `fanyi-extension/AGENTS.md` governs browser UI and delegation.\n6. The reader page and Agent Workspace must delegate to the same local Document Project/Run executor; UI entry points may choose a scope, but may not fork the translation pipeline or duplicate context-memory merge logic.
