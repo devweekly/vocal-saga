@@ -547,7 +547,7 @@ export function buildTranslationBrief(
         // A source-ordered dynamic candidate outranks an unconfirmed whole-book proposal.
         // Keep an already confirmed Context Graph mapping, but avoid injecting two competing targets.
         const existing = graph.nameMappings[index];
-        if (!['confirmed', 'confirmed-memory', 'auto'].includes(String(existing?.sourceStatus || ''))) {
+        if (!['confirmed', 'confirmed-memory'].includes(String(existing?.sourceStatus || ''))) {
           graph.nameMappings[index] = { ...existing, ...incoming };
         }
       }
