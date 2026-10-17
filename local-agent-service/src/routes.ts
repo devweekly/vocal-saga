@@ -324,6 +324,15 @@ export async function handleRequest(req: Request, res: Response): Promise<void> 
         translationBrief: {
           policyVersion: 'standalone-review-v1-source-grounded',
           precedingSegments,
+          glossary: {
+            document_terms: safeMemory.entities.map((entity: any) => ({
+              source: entity.source,
+              target: entity.target,
+              aliases: entity.aliases,
+              kind: entity.kind,
+              reviewStatus: 'confirmed',
+            })),
+          },
           contextGraph: buildStandaloneReviewContextGraph(safeInput),
           voiceContext: buildStandaloneReviewVoiceContext(safeInput),
         },
