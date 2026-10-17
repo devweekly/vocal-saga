@@ -573,7 +573,7 @@ test('standalone Reviewer rebuilds memory from visible source evidence and ignor
           reviewStatus: 'confirmed', kind: 'person',
         },
         {
-          source: 'The King', target: '灰后', aliases: ['Queen Ash'],
+          source: 'Queen Ash', target: '灰后', aliases: [],
           evidence: 'The King was known around the camp.',
           reviewStatus: 'confirmed', kind: 'person',
         },
