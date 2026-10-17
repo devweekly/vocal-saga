@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildBatches, buildUserPrompt } from '../src/documents/translationAgent.ts';
+import { buildBatches, buildCanonicalTermProtections, buildUserPrompt, maskCanonicalTermText, restoreCanonicalTermMarkers } from '../src/documents/translationAgent.ts';
 import { normalizeDocumentTranslationStrategy } from '../src/documents/projectStore.ts';
 import { buildProjectVoiceContext } from '../src/documents/voiceContext.ts';
 
@@ -333,4 +333,64 @@ test('batch planner honors per-run chunk sizing preferences', () => {
     buildBatches(segments, true, { maxBatchSegments: 8, maxBatchSourceChars: 8000 }).map((batch) => batch.length),
     [8, 8, 1],
   );
+});
+
+
+test('evidence-backed automatic name mappings protect and restore canonical terms deterministically', () => {
+  const items = [
+    { id: 'p1', text: 'Timsen had been taken up by the King.' },
+    { id: 'p2', text: 'But Timsen would not allow the King to see through him.' },
+  ];
+  const graph = {
+    nameMappings: [{
+      source: 'the King',
+      target: '国王',
+      aliases: ['King'],
+      sourceStatus: 'auto',
+    }],
+  };
+  const protections = buildCanonicalTermProtections(items, graph);
+  assert.ok(protections.length >= 1);
+  const masked = maskCanonicalTermText(items[0].text, protections);
+  assert.match(masked, /__VSA_TERM_000__/);
+  assert.equal(
+    restoreCanonicalTermMarkers(masked, protections),
+    'Timsen had been taken up by 国王.',
+  );
+  assert.equal(
+    maskCanonicalTermText('The Kingfisher sat near the camp.', protections),
+    'The Kingfisher sat near the camp.',
+    'Latin name mappings must not match inside longer words',
+  );
+});
+
+test('candidate-only or conflicting name mappings are not forced into translation output', () => {
+  const items = [{ id: 'p1', text: 'The King arrived.' }];
+  const candidate = buildCanonicalTermProtections(items, {
+    nameMappings: [{ source: 'the King', target: '国王', aliases: [], sourceStatus: 'candidate' }],
+  });
+  assert.deepEqual(candidate, [], 'unactivated candidate mappings remain advisory');
+  const conflict = buildCanonicalTermProtections(items, {
+    nameMappings: [
+      { source: 'the King', target: '国王', aliases: [], sourceStatus: 'auto' },
+      { source: 'the King', target: '大王', aliases: [], sourceStatus: 'auto' },
+    ],
+  });
+  assert.deepEqual(conflict, [], 'conflicting targets must not be selected arbitrarily');
+});
+
+test('buildUserPrompt masks automatically active entity names in source segments', () => {
+  const context = {
+    project: { title: 'Novel', format: 'epub' },
+    run: { sourceLang: 'en', targetLang: 'zh', translationMode: 'literary' },
+    prompt: { config: {}, userPromptTemplate: '' },
+    memory: {},
+  };
+  const graph = {
+    nameMappings: [{ source: 'the King', target: '国王', aliases: [], sourceStatus: 'auto' }],
+  };
+  const prompt = buildUserPrompt('', [{ id: 'p1', text: 'The King took him away.' }], context, [], graph);
+  const payload = JSON.parse(prompt.slice(prompt.indexOf('{')));
+  assert.match(payload.segments[0].text, /__VSA_TERM_000__/);
+  assert.equal(payload.contextGraph.nameMappings[0].target, '国王');
 });
