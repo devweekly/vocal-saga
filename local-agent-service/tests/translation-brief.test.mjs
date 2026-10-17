@@ -241,6 +241,18 @@ test('later identity never enters an earlier brief', () => {
           },
         ],
       },
+      {
+        characterId: 'mara-legacy-capped', canonicalSourceName: 'Mara Voss', targetName: '玛拉·沃斯',
+        aliases: ['Mara'], status: 'confirmed',
+        voiceCore: { register: 'possibly contaminated by omitted later evidence' },
+        contrastRules: [],
+        // Older memory records capped evidence at eight rows but did not store a completeness marker.
+        // Even if all retained quotes are prior-visible, the aggregate VoiceCore cannot be trusted.
+        evidence: Array.from({ length: 8 }, () => ({
+          segmentId: 'early-a', sourceQuote: 'Mara Voss is a careful archivist.',
+          observation: 'measured register', dimension: 'register', confidence: 0.9,
+        })),
+      },
     ],
     relationshipVoiceRules: [],
     voiceAnchors: [],
