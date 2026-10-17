@@ -562,3 +562,74 @@ test('legacy imported literary translations remain visible but are stale under t
       'the stale scope must select every imported literary translation for the current protected pipeline');
   });
 });
+
+
+test('batch candidate commit is atomic and refuses writes after cancellation', async () => {
+  await withStore((store) => {
+    const project = store.createProject({ title: 'Atomic Candidate Commit', format: 'epub', segments });
+    const run = store.createRun(project.projectId, { scope: { type: 'all' } });
+    const db = new DatabaseSync(path.join(store.rootDir, project.projectId, 'project.sqlite'));
+    try {
+      assert.throws(
+        () => store.saveCandidates(project.projectId, run.runId, [
+          { segmentId: 'ch1-p1', text: '第一个候选。' },
+          { segmentId: 'not-in-run', text: '不应写入。' },
+        ]),
+        /不属于本次运行/,
+      );
+      assert.equal(
+        Number(db.prepare('SELECT COUNT(*) AS count FROM translation_results WHERE run_id = ?').get(run.runId).count),
+        0,
+        'a batch containing an invalid segment must leave no partial result rows',
+      );
+
+      store.setRunStatus(project.projectId, run.runId, 'cancelled', '用户请求停止');
+      assert.equal(
+        store.saveCandidates(project.projectId, run.runId, [
+          { segmentId: 'ch1-p1', text: '迟到的候选。' },
+          { segmentId: 'ch1-p2', text: '另一条迟到候选。' },
+        ]),
+        false,
+        'cancellation must be authoritative at the transactional commit boundary',
+      );
+      assert.equal(
+        Number(db.prepare('SELECT COUNT(*) AS count FROM translation_results WHERE run_id = ?').get(run.runId).count),
+        0,
+        'no candidate may be persisted after cancellation',
+      );
+      assert.deepEqual(
+        store.getRun(project.projectId, run.runId).segments.map((item) => item.status),
+        ['pending', 'pending'],
+        'a rejected late commit must not alter segment states',
+      );
+    } finally {
+      db.close();
+    }
+  });
+});
+
+test('batch candidate commit persists all valid rows and individual writes share the same active-run guard', async () => {
+  await withStore((store) => {
+    const project = store.createProject({ title: 'Batch Candidate Commit', format: 'epub', segments });
+    const run = store.createRun(project.projectId, { scope: { type: 'all' } });
+    assert.equal(store.saveCandidates(project.projectId, run.runId, [
+      { segmentId: 'ch1-p1', text: '门开着。' },
+      { segmentId: 'ch1-p2', text: '没有人进来。' },
+    ]), true);
+    assert.deepEqual(
+      store.getRun(project.projectId, run.runId).segments.map((item) => item.status),
+      ['candidate', 'candidate'],
+    );
+
+    store.setRunStatus(project.projectId, run.runId, 'cancelled', '用户请求停止');
+    assert.throws(
+      () => store.saveCandidate(project.projectId, run.runId, 'ch1-p1', '不能覆盖的迟到结果。'),
+      /拒绝保存迟到的候选译文/,
+    );
+    assert.equal(
+      store.getRun(project.projectId, run.runId).segments[0].candidateTranslation,
+      '门开着。',
+      'the single-item convenience method must not bypass batch-level cancellation guards',
+    );
+  });
+});
