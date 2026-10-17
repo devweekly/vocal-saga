@@ -571,7 +571,9 @@ export class DocumentProjectStore {
     this.catalogDb().prepare(
       'INSERT INTO document_projects(project_id, title, format, source_file_name, source_fingerprint, db_path, created_at, updated_at, archived) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)'
     ).run(projectId, title, format, fileName, revision.fingerprint, filePath, now, now);
-    // Source and catalog rows must exist before evidence-backed memory validation looks them up.
+    // Initial project creation may migrate the reader's legacy Voice Bible once; later memory
+    // writes must use the explicit /literary-memory endpoint, never Prompt/Run payloads.
+    if (prompt.literaryMemory !== undefined) this.saveLiteraryMemory(projectId, prompt.literaryMemory);
     return this.getProject(projectId)!;
   }
 
