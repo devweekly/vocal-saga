@@ -1176,7 +1176,7 @@ export function buildProjectContextGraphBundle(
     const hasEvidence = db.prepare(
       'SELECT 1 FROM context_graph_evidence WHERE source_revision_id = ? AND node_id = ? LIMIT 1'
     ).get(revisionId, row.node_id);
-    if (!hasEvidence || !visibleNodeIds.has(row.node_id)) return [];
+    if (!hasEvidence) return [];
     const allAliases = uniqueStrings(attributes.aliases, 12, 100)
       .filter((alias) => normalize(alias) !== normalize(row.name));
     // Do not leak aliases that appear only in later chapters. An alias visible in the current
