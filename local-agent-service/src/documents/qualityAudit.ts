@@ -520,8 +520,10 @@ function terminologyFindings(
   return findings;
 }
 
-function translationContextDeltaFindings(db: any, runId: string | undefined, validSourceIds: Set<string>): any[] {
+function translationContextDeltaFindings(db: any, runId: string | undefined, validSourceIds: Set<string>, sourceRevisionId: string): any[] {
   if (!runId) return [];
+  const run = db.prepare('SELECT source_revision_id FROM translation_runs WHERE run_id = ?').get(runId) as { source_revision_id?: string } | undefined;
+  if (!run || run.source_revision_id !== sourceRevisionId) return [];
   const rows = db.prepare(
     'SELECT batch_index, delta_json FROM translation_context_deltas WHERE run_id = ? ORDER BY first_ordinal, first_segment_id'
   ).all(runId) as Array<{ batch_index: number; delta_json: string }>;
@@ -778,7 +780,7 @@ export function runProjectQualityAudit(projectId: string, runId?: string): Recor
   const repeatedFindings = repeatedExpressionFindings(segments, translations);
   const presentIds = new Set(segments.map((segment) => segment.id));
   const outputFindings = translationOutputValidationFindings(context.db, runId, presentIds);
-  const contextFindings = translationContextDeltaFindings(context.db, runId, presentIds);
+  const contextFindings = translationContextDeltaFindings(context.db, runId, presentIds, context.currentSourceRevisionId);
   const review = currentReviewFindings(context.db, context.currentSourceRevisionId, runId);
   const reviewFindings = review.findings.filter((finding) => presentIds.has(finding.segmentId)).map((finding) => ({
     findingId: 'review_' + finding.findingId,
