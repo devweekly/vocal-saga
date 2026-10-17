@@ -16,7 +16,6 @@ import { authorize, sendJson } from './middleware.ts';
 import { parseAgentModel, buildAgentPrompt, normalizeMessages, parseJsonValue } from './json.ts';
 import { runAgent, runAgentStructured } from './agents/runner.ts';
 import { validateSegments, runLiteraryAnalysis } from './literary.ts';
-import { DATABASE_PATH } from './config.ts';
 import path from 'node:path';
 import { handleDocumentProjectRequest } from './documents/projectRoutes.ts';
 import { buildStandaloneReviewContextGraph, buildStandaloneReviewMemory, buildStandaloneReviewVoiceContext, runLiteraryReviewWithMissingRetry } from './documents/translationAgent.ts';
