@@ -604,6 +604,147 @@ function translationContextDeltaFindings(db: any, runId: string | undefined, val
   return findings;
 }
 
+
+function entityMentionDriftFindings(
+  db: any,
+  runId: string | undefined,
+  sourceRevisionId: string,
+  sourceById: Map<string, string>,
+  translations: Map<string, string>,
+  knownEntities: unknown[] = [],
+): any[] {
+  if (!runId) return [];
+  const run = db.prepare('SELECT source_revision_id FROM translation_runs WHERE run_id = ?').get(runId) as { source_revision_id?: string } | undefined;
+  if (!run || run.source_revision_id !== sourceRevisionId) return [];
+  const rows = db.prepare(
+    'SELECT batch_index, first_segment_id, delta_json FROM translation_context_deltas WHERE run_id = ? ORDER BY first_ordinal, first_segment_id'
+  ).all(runId) as Array<{ batch_index: number; first_segment_id: string; delta_json: string }>;
+  type Mention = { segmentId: string; sourceQuote: string; targetSurface: string; batchIndex: number };
+  type Candidate = { localId: string; source: string; target: string; batchIndex: number };
+  type Group = { source: string; names: Set<string>; targets: Set<string>; candidates: Candidate[]; mentions: Mention[]; localIds: Set<string> };
+  const groups: Group[] = [];
+  const localIdToGroup = new Map<string, Group>();
+  const normalizeName = (value: unknown) => normalized(String(value || '')).replace(/[._'’\\-]+/g, ' ').trim();
+  const normalizeSurface = (value: unknown) => normalized(String(value || ''));
+
+  const mergeGroup = (target: Group, other: Group) => {
+    for (const name of other.names) target.names.add(name);
+    for (const value of other.targets) target.targets.add(value);
+    target.candidates.push(...other.candidates);
+    target.mentions.push(...other.mentions);
+    for (const localId of other.localIds) {
+      target.localIds.add(localId);
+      localIdToGroup.set(localId, target);
+    }
+  };
+  const findOrCreate = (source: string, aliases: unknown[], target?: string, kind?: string): Group => {
+    const names = new Set([source, ...(Array.isArray(aliases) ? aliases : [])].map(normalizeName).filter(Boolean));
+    const matching = groups.filter((group) => Array.from(names).some((name) => group.names.has(name)));
+    let group: Group;
+    if (!matching.length) {
+      group = { source, names: new Set(names), targets: new Set(), candidates: [], mentions: [], localIds: new Set() };
+      groups.push(group);
+    } else {
+      group = matching[0]!;
+      for (const name of names) group.names.add(name);
+      for (const duplicate of matching.slice(1)) {
+        mergeGroup(group, duplicate);
+        groups.splice(groups.indexOf(duplicate), 1);
+      }
+    }
+    if (target) group.targets.add(normalizeSurface(target));
+    return group;
+  };
+
+  for (const raw of knownEntities.slice(0, 160)) {
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) continue;
+    const entity = raw as Record<string, any>;
+    const source = typeof entity.source === 'string' ? entity.source.trim() : '';
+    const target = typeof entity.target === 'string' ? entity.target.trim() : '';
+    if (source && target) findOrCreate(source, entity.aliases, target, entity.kind);
+  }
+
+  for (const row of rows) {
+    let delta: any = {};
+    try { delta = JSON.parse(row.delta_json || '{}'); } catch { delta = {}; }
+    const candidates = Array.isArray(delta.entityCandidates) ? delta.entityCandidates : [];
+    const currentLocalIds = new Set<string>();
+    for (const entity of candidates) {
+      const source = typeof entity?.canonicalSource === 'string' ? entity.canonicalSource.trim() : '';
+      const target = typeof entity?.targetProposal === 'string' ? entity.targetProposal.trim() : '';
+      const localId = typeof entity?.localId === 'string' ? entity.localId.trim() : '';
+      if (!source || !target) continue;
+      const group = findOrCreate(source, entity.aliases, target, entity.kind);
+      if (localId) {
+        localIdToGroup.set(localId, group);
+        group.localIds.add(localId);
+        currentLocalIds.add(localId);
+      }
+      group.candidates.push({ localId, source, target, batchIndex: Number(row.batch_index) });
+    }
+    const mentions = Array.isArray(delta.entityMentions) ? delta.entityMentions : [];
+    for (const mention of mentions) {
+      const segmentId = typeof mention?.segmentId === 'string' ? mention.segmentId : '';
+      const sourceQuote = typeof mention?.sourceQuote === 'string' ? mention.sourceQuote.trim() : '';
+      const targetSurface = typeof mention?.targetSurface === 'string' ? mention.targetSurface.trim() : '';
+      const entityRef = typeof mention?.entityRef === 'string' ? mention.entityRef.trim() : '';
+      const source = sourceById.get(segmentId) || '';
+      const translated = translations.get(segmentId) || '';
+      if (!segmentId || !source || !sourceQuote || !targetSurface || !entityRef ||
+          !normalizeName(source).includes(normalizeName(sourceQuote)) ||
+          !normalizeSurface(translated).includes(normalizeSurface(targetSurface))) continue;
+      let group = localIdToGroup.get(entityRef);
+      if (!group) {
+        const name = normalizeName(entityRef);
+        group = groups.find((candidate) => candidate.names.has(name));
+      }
+      if (!group) continue;
+      // Keep evidence local to a real source segment; validation at audit time is deliberate in
+      // case stored data was migrated or imported from an older implementation.
+      group.mentions.push({ segmentId, sourceQuote, targetSurface, batchIndex: Number(row.batch_index) });
+    }
+  }
+
+  const findings: any[] = [];
+  for (const group of groups) {
+    // If candidate targets themselves disagree, the separate context-delta conflict finding is
+    // more accurate than conflating canonical target choice with actual surface rendering.
+    if (group.targets.size > 1) continue;
+    const bySurface = new Map<string, Mention[]>();
+    for (const mention of group.mentions) {
+      const key = normalizeSurface(mention.targetSurface);
+      const values = bySurface.get(key) || [];
+      values.push(mention);
+      bySurface.set(key, values);
+    }
+    if (bySurface.size < 2) continue;
+    const segmentIds = Array.from(new Set(group.mentions.map((item) => item.segmentId))).sort();
+    if (segmentIds.length < 2) continue;
+    findings.push({
+      findingId: stableFindingId('entity-mention-drift', segmentIds,
+        group.source + ':' + Array.from(bySurface.keys()).sort().join('|')),
+      type: 'entity-mention-drift',
+      category: 'consistency',
+      severity: 'warning',
+      confidence: 'deterministic-explicit-entity-mention',
+      repairable: segmentIds.length <= MAX_BULK_REPAIR_SEGMENTS,
+      segmentIds,
+      entity: {
+        source: group.source,
+        aliases: Array.from(group.names).sort(),
+        canonicalTarget: group.targets.values().next().value || null,
+        surfaces: Array.from(bySurface.entries()).map(([surface, items]) => ({
+          surface: items[0]?.targetSurface || surface,
+          segmentIds: Array.from(new Set(items.map((item) => item.segmentId))).sort(),
+          batchIndexes: Array.from(new Set(items.map((item) => item.batchIndex))).sort((a, b) => a - b),
+        })),
+      },
+      explanation: '初译显式标记了指向同一来源实体的提及，但实际译文表面形式存在差异。系统只依据规范名称/明确别名关联产生提示；称谓、语法或语境也可能合理改变表面形式，因此需要结合原文人工复核。',
+    });
+  }
+  return findings;
+}
+
 function targetQuotationSpans(text: string): Array<{ start: number; end: number; text: string }> {
   const patterns = [
     /“([^”]{1,3000})”/gu,
@@ -881,6 +1022,11 @@ export function runProjectQualityAudit(projectId: string, runId?: string): Recor
   const presentIds = new Set(segments.map((segment) => segment.id));
   const outputFindings = translationOutputValidationFindings(context.db, runId, presentIds);
   const contextFindings = translationContextDeltaFindings(context.db, runId, presentIds, context.currentSourceRevisionId);
+  const sourceById = new Map(segments.map((segment) => [segment.id, segment.text]));
+  const mentionFindings = entityMentionDriftFindings(
+    context.db, runId, context.currentSourceRevisionId, sourceById, translations,
+    Array.isArray(memory.entities) ? memory.entities : [],
+  );
   const review = currentReviewFindings(context.db, context.currentSourceRevisionId, runId);
   const reviewFindings = review.findings.filter((finding) => presentIds.has(finding.segmentId)).map((finding) => ({
     findingId: 'review_' + finding.findingId,
@@ -904,7 +1050,7 @@ export function runProjectQualityAudit(projectId: string, runId?: string): Recor
     suggestion: finding.suggestion,
     proposedTranslation: finding.proposedTranslation,
   }));
-  const findings = [...missing, ...termFindings, ...numberFindings, ...repeatedFindings, ...outputFindings, ...contextFindings, ...reviewFindings];
+  const findings = [...missing, ...termFindings, ...numberFindings, ...repeatedFindings, ...outputFindings, ...contextFindings, ...mentionFindings, ...reviewFindings];
   const auditId = randomUUID();
   const translatedCount = segments.length - missing.length;
   const ratePer100 = (count: number) => segments.length ? Math.round(count / segments.length * 1000) / 10 : 0;
@@ -936,6 +1082,8 @@ export function runProjectQualityAudit(projectId: string, runId?: string): Recor
       unexpectedOutputIdFindingCount: outputFindings.filter((item) => item.type === 'unexpected-output-id').length,
       repeatedExpressionDriftGroups: repeatedFindings.length,
       contextDeltaConflictCount: contextFindings.length,
+      entityMentionDriftCount: mentionFindings.length,
+      repeatedExpressionAlignmentReviewCount: repeatedFindings.filter((item) => item.type === 'repeated-expression-alignment-review').length,
       repeatedExpressionDriftRatePer100Segments: ratePer100(repeatedFindings.length),
       accuracyReviewFindingCount: reviewFindings.filter((item) => item.category === 'accuracy').length,
       reviewerTerminologyFindingCount: reviewFindings.filter((item) => item.category === 'terminology').length,
