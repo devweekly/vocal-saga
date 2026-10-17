@@ -373,6 +373,56 @@ export function restoreCanonicalTermMarkers(
   return result;
 }
 
+export function maskCanonicalTargetText(text: string, protections: CanonicalTermProtection[]): string {
+  if (!text || !protections.length) return text;
+  const byTarget = new Map<string, CanonicalTermProtection>();
+  for (const item of protections) {
+    const key = normalizeCanonicalTerm(item.target);
+    if (key && !byTarget.has(key)) byTarget.set(key, item);
+  }
+  const targets = Array.from(byTarget.values()).sort((a, b) => b.target.length - a.target.length);
+  const alternatives = targets.map((item) => canonicalTermPattern(item.target)).join('|');
+  if (!alternatives) return text;
+  return text.replace(new RegExp(alternatives, 'giu'), (match) =>
+    byTarget.get(normalizeCanonicalTerm(match))?.marker ?? match,
+  );
+}
+
+/** Mask both source names and their canonical target in Reviewer drafts, preventing review from
+ * reintroducing an alternative rendering after the first translation was already corrected. */
+export function protectCanonicalReviewSegments<T extends { id: string; source: string; draft: string }>(
+  segments: T[],
+  contextGraph: Record<string, unknown> | null,
+): { protections: CanonicalTermProtection[]; segments: T[] } {
+  const protections = buildCanonicalTermProtections(
+    segments.map((item) => ({ id: item.id, text: item.source })),
+    contextGraph,
+  );
+  if (!protections.length) return { protections, segments };
+  return {
+    protections,
+    segments: segments.map((item) => {
+      const source = maskCanonicalTermText(item.source, protections);
+      const sourceScopedProtections = protections.filter((term) => source.includes(term.marker));
+      return {
+        ...item,
+        source,
+        draft: maskCanonicalTargetText(item.draft, sourceScopedProtections),
+      };
+    }),
+  };
+}
+
+function restoreCanonicalMarkersDeep(value: unknown, protections: CanonicalTermProtection[]): unknown {
+  if (typeof value === 'string') return restoreCanonicalTermMarkers(value, protections, 'target');
+  if (Array.isArray(value)) return value.map((item) => restoreCanonicalMarkersDeep(item, protections));
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(Object.entries(value as Record<string, unknown>)
+      .map(([key, item]) => [key, restoreCanonicalMarkersDeep(item, protections)]));
+  }
+  return value;
+}
+
 export function buildUserPrompt(template: string, items: TranslationItem[], context: any, precedingSegments: TranslationItem[] = [], contextGraph: Record<string, unknown> | null = null, translationBrief?: TranslationBrief): string {
   const promptPrecedingSegments = translationBrief?.precedingSegments ?? precedingSegments.slice(-4).map((item) => ({
     id: item.id, text: item.text, contextPath: item.contextPath || '',
@@ -680,21 +730,34 @@ async function translateBatch(context: any, items: TranslationItem[], requestId:
 }
 
 async function runLiteraryReviewWithMissingRetry(input: Record<string, any>, requestId: string, sessionScope: string): Promise<any> {
-  const initial = await runLiteraryReview(input, requestId, sessionScope);
+  const originalSegments = Array.isArray(input.segments) ? input.segments : [];
+  const protectedReview = protectCanonicalReviewSegments(
+    originalSegments,
+    input.translationBrief && typeof input.translationBrief === 'object'
+      ? (input.translationBrief as any).contextGraph ?? null
+      : null,
+  );
+  const reviewInput = protectedReview.protections.length
+    ? { ...input, segments: protectedReview.segments }
+    : input;
+  const restoreReview = (result: any) => protectedReview.protections.length
+    ? restoreCanonicalMarkersDeep(result, protectedReview.protections) as any
+    : result;
+  const initial = restoreReview(await runLiteraryReview(reviewInput, requestId, sessionScope));
   const missingIds = Array.isArray(initial.missingIds) ? initial.missingIds as string[] : [];
   if (!missingIds.length) return initial;
   const missing = new Set(missingIds);
-  const retrySegments = (Array.isArray(input.segments) ? input.segments : [])
+  const retrySegments = (Array.isArray(reviewInput.segments) ? reviewInput.segments : [])
     .filter((segment: any) => missing.has(segment.id));
   if (!retrySegments.length) return initial;
   try {
-    const retry = await runLiteraryReview(
-      { ...input, segments: retrySegments },
+    const retry = restoreReview(await runLiteraryReview(
+      { ...reviewInput, segments: retrySegments },
       requestId + '-missing-retry',
       sessionScope,
-    );
+    ));
     const translations = { ...(initial.translations || {}), ...(retry.translations || {}) };
-    const expectedIds = (Array.isArray(input.segments) ? input.segments : []).map((segment: any) => segment.id);
+    const expectedIds = (Array.isArray(originalSegments) ? originalSegments : []).map((segment: any) => segment.id);
     const reviewedIds = expectedIds.filter((id: string) => typeof translations[id] === 'string');
     return {
       ...initial,
