@@ -18,7 +18,7 @@ import { validateSegments, runLiteraryAnalysis } from './literary.ts';
 import { DATABASE_PATH } from './config.ts';
 import path from 'node:path';
 import { handleDocumentProjectRequest } from './documents/projectRoutes.ts';
-import { buildStandaloneReviewContextGraph, runLiteraryReviewWithMissingRetry } from './documents/translationAgent.ts';
+import { buildStandaloneReviewContextGraph, buildStandaloneReviewMemory, buildStandaloneReviewVoiceContext, runLiteraryReviewWithMissingRetry } from './documents/translationAgent.ts';
 
 // Keep the constant referenced so TypeScript does not drop the side-effect-free import in tests.
 void _MAX_BODY_BYTES;
@@ -300,17 +300,32 @@ export async function handleRequest(req: Request, res: Response): Promise<void> 
       // The legacy standalone Reviewer is still used for explicit "re-review this segment"
       // actions. Give it the same deterministic canonical-name protection as Project Runs,
       // without sending unrelated future aliases from the whole-book memory.
-      const suppliedBrief = body.translationBrief && typeof body.translationBrief === 'object'
-        ? body.translationBrief : {};
+      // Standalone re-review is not tied to an immutable server Run. Never trust a client-supplied
+      // TranslationBrief/voiceContext; reconstruct both from the current submitted source and
+      // the server-filtered, source-grounded literary-memory projection.
+      const precedingSegments = Array.isArray(body.precedingSegments)
+        ? body.precedingSegments.slice(-4).flatMap((item: any) => {
+            if (!item || typeof item.id !== 'string' || typeof item.text !== 'string' || !item.text.trim()) return [];
+            return [{
+              id: item.id.slice(0, 160),
+              text: item.text.slice(-900),
+              contextPath: typeof item.contextPath === 'string' ? item.contextPath.slice(0, 160) : '',
+            }];
+          })
+        : [];
+      const standaloneInput = { ...body, precedingSegments };
+      const safeMemory = buildStandaloneReviewMemory(standaloneInput);
+      const safeInput = { ...standaloneInput, memory: safeMemory };
       const reviewInput = {
         ...body,
+        memory: safeMemory,
+        // Deliberately replace rather than spread the supplied object. No client graph/hash,
+        // chapter summary, recent example or voice context is allowed through this route.
         translationBrief: {
-          ...suppliedBrief,
-          contextGraph: buildStandaloneReviewContextGraph(body),
-          ...(suppliedBrief.precedingSegments === undefined && Array.isArray(body.precedingSegments)
-            ? { precedingSegments: body.precedingSegments } : {}),
-          ...(suppliedBrief.voiceContext === undefined && body.voiceContext && typeof body.voiceContext === 'object'
-            ? { voiceContext: body.voiceContext } : {}),
+          policyVersion: 'standalone-review-v1-source-grounded',
+          precedingSegments,
+          contextGraph: buildStandaloneReviewContextGraph(safeInput),
+          voiceContext: buildStandaloneReviewVoiceContext(safeInput),
         },
       };
       const result = await runLiteraryReviewWithMissingRetry(reviewInput, requestId, sessionScope);
