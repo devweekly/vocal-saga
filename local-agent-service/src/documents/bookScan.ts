@@ -78,9 +78,9 @@ const NAME_STOP_WORDS = new Set([
   'you','your','suddenly','however','perhaps','indeed','well','still','yet','finally','mr','mrs','ms','miss',
   'dr','prof','captain','capt','sir','lord','lady','warden','archivist',
 ]);
+const ARTICLE_PREFIX_WORDS = new Set(['the','a','an']);
 const TITLE_PREFIX_WORDS = new Set([
-  'the','a','an','mr','mrs','ms','miss','dr','prof','sir','lord','lady','captain','capt','king','queen',
-  'prince','princess','general','colonel','major','sergeant',
+  'mr','mrs','ms','miss','dr','prof','sir','lord','lady','captain','capt',
 ]);
 const SPEECH_VERBS = /\b(said|asked|replied|answered|whispered|shouted|murmured|called|cried|snapped|remarked|wondered|added|insisted|began|continued|laughed|sighed|told)\b/i;
 const NAME_PATTERN = /\b\p{Lu}\p{Ll}{2,}(?:[’'-]\p{Lu}?\p{Ll}+)*\b/gu;
@@ -161,6 +161,13 @@ export function isDialogueSegment(segment: Pick<BookScanSegment, 'text'>): boole
 }
 function stripNamePrefix(name: string): string {
   const words = name.trim().split(/\s+/);
+  const first = words[0]!.replace(/[.]/g, '').toLocaleLowerCase();
+  // Remove a leading article once, but don't then discard the next token: "The King Rat"
+  // is a compound epithet/name candidate, not the one-token candidate "Rat".
+  if (words.length > 1 && ARTICLE_PREFIX_WORDS.has(first)) {
+    words.shift();
+    return words.join(' ');
+  }
   while (words.length > 1 && TITLE_PREFIX_WORDS.has(words[0]!.replace(/[.]/g, '').toLocaleLowerCase())) words.shift();
   return words.join(' ');
 }
