@@ -786,7 +786,7 @@ async function translateBatch(context: any, items: TranslationItem[], requestId:
   return { translations, contextDelta: deltaResult.delta };
 }
 
-export async function runLiteraryReviewWithMissingRetry(input: Record<string, any>, requestId: string, sessionScope: string): Promise<any> {
+export async function runLiteraryReviewWithMissingRetry(input: Record<string, any>, requestId: string, sessionScope?: string): Promise<any> {
   const originalSegments = Array.isArray(input.segments) ? input.segments : [];
   const protectedReview = protectCanonicalReviewSegments(
     originalSegments,
