@@ -1108,6 +1108,53 @@ async function executeRun(projectId: string, runId: string): Promise<void> {
       label: '结果结构与片段映射检查完成',
     });
     const finishedRun = store.finishRun(projectId, runId);
+
+    // 只在本次文学翻译完整结束后，将有证据的模型候选并入项目记忆；只增加 suggested 记录，
+    // 不会覆盖人工确认的人物、译名或关系。若来源版本已变化，则保留在本 Run 的增量账本中，
+    // 不把旧来源证据写入当前项目记忆。
+    if (context.run.translationMode === 'literary' && ['completed', 'awaiting_acceptance'].includes(finishedRun.status)) {
+      try {
+        const projectContext = store.getProjectContext(projectId);
+        if (projectContext.currentSourceRevisionId !== context.run.sourceRevisionId) {
+          store.appendEvent(projectId, runId, 'translation.context-memory.skipped', {
+            reason: 'source-revision-changed',
+            runSourceRevisionId: context.run.sourceRevisionId,
+            currentSourceRevisionId: projectContext.currentSourceRevisionId,
+            retainedInRunLedger: true,
+          });
+        } else {
+          const runDeltas = store.listTranslationContextDeltas(projectId, runId)
+            .map((item: any) => item.delta as ValidatedTranslationContextDelta);
+          const currentMemory = store.getCurrentLiteraryMemory(projectId);
+          const merged = mergeTranslationContextDeltasIntoMemory(currentMemory.memory, runDeltas);
+          if (merged.changed) {
+            const saved = store.saveLiteraryMemory(projectId, merged.memory);
+            store.appendEvent(projectId, runId, 'translation.context-memory.persisted', {
+              memoryRevisionId: saved.memoryRevisionId,
+              fingerprint: saved.fingerprint,
+              sourceRevisionId: context.run.sourceRevisionId,
+              deltaBatchCount: runDeltas.length,
+              ...merged.summary,
+              statusPolicy: 'model-generated records remain suggested; confirmed memory is never overwritten',
+            });
+          } else {
+            store.appendEvent(projectId, runId, 'translation.context-memory.unchanged', {
+              deltaBatchCount: runDeltas.length,
+              reason: 'no-new-candidates-or-context-changes',
+            });
+          }
+        }
+      } catch (memoryError) {
+        // Context memory is supplementary to translation delivery. Never turn a completed translation
+        // into a failed run merely because the suggestion projection could not be saved.
+        store.appendEvent(projectId, runId, 'stage.warning', {
+          stage: 'context-memory',
+          warning: '译文已保存，但本轮人物/上下文候选未能并入项目记忆：' +
+            (memoryError instanceof Error ? memoryError.message : String(memoryError)),
+        });
+      }
+    }
+
     store.appendEvent(projectId, runId, 'run.finished', {
       status: finishedRun.status,
       counts: finishedRun.counts || {},
