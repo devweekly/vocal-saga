@@ -168,6 +168,14 @@ Useful endpoints below `/api/documents/projects/:id`:
 Typical sequence: run baseline translation on the chosen source; repeat on the identical source and segment scope after a Prompt/context change; create the paired evaluation; have a reviewer compare the blinded packet against the source; finally inspect deterministic deltas and added model-call/prompt/duration cost. Use multiple representative passages and repeat the test before claiming an improvement. M0 now includes both the isolated synthetic failure-control corpus and a curated real-source corpus from Project Gutenberg's public-domain *Alice's Adventures in Wonderland*. The CI artifact saves both deterministic reports. Those curated reference translations are not measured model outputs: empirical M4 acceptance still requires matched runs from an authenticated local provider and completed blind human ratings.
 
 
+### Initial-translation context delta and shared local pipeline
+
+The reader page and Agent Workspace share the same project/run executor, as do CLI and project API callers. The reader actions for continuing with the next untranslated page and forcing a retranslation of the current page must select a Run scope; they must not start a browser-side translation loop or use a separate entity-memory updater. The central contract is defined in [TRANSLATION_PIPELINE.md](../docs/TRANSLATION_PIPELINE.md) and [ADR-0001](../docs/adr/0001-unified-local-translation-context-delta.md).
+
+For literary runs, each initial translation response contains `translations` plus a bounded `context_delta` proposal. The Local Agent validates every source quote against the current batch and requires entity mentions to point to text that actually occurs in the corresponding translation. Invalid context metadata is rejected independently; it does not discard a valid translation. Accepted deltas are stored in the project SQLite `translation_context_deltas` table and exposed to later batches through source-ordered, frozen waves. Batches in one wave share a context snapshot, preventing race-dependent terminology and future-context leakage.
+
+After a successful run, grounded candidates are merged into a new literary memory revision only if the project still has the same source revision. Model-generated entities and relationships remain `suggested`; confirmed names, accepted/manual translations and prior Run records are not overwritten. Cross-batch target-name disagreements are kept as open questions and surfaced by the whole-book quality audit as `context-delta-conflict` findings. No global replacement or automatic translation repair is performed.
+
 ### API
 
 All project endpoints live below /api/documents/projects and use the existing Local Agent Token, loopback Host checks and extension-origin CORS rules:
