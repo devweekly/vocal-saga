@@ -693,3 +693,35 @@ test('Reviewer candidate revisions and findings commit together and cannot persi
     }
   });
 });
+
+
+test('candidate acceptance cannot commit after a Run has been cancelled', async () => {
+  await withStore((store) => {
+    const project = store.createProject({ title: 'Cancel Before Accept', format: 'epub', segments });
+    const run = store.createRun(project.projectId, { scope: { type: 'all' } });
+    store.saveCandidates(project.projectId, run.runId, [
+      { segmentId: 'ch1-p1', text: '门敞开着。' },
+      { segmentId: 'ch1-p2', text: '没有人进来。' },
+    ]);
+    store.finishRun(project.projectId, run.runId);
+    store.setRunStatus(project.projectId, run.runId, 'cancelled', '用户请求停止');
+
+    assert.throws(
+      () => store.acceptCandidates(project.projectId, run.runId),
+      /不能采纳候选译文/,
+      'acceptance must re-check the authoritative Run status inside the transaction',
+    );
+    const db = new DatabaseSync(path.join(store.rootDir, project.projectId, 'project.sqlite'));
+    try {
+      assert.equal(
+        Number(db.prepare('SELECT COUNT(*) AS count FROM translation_results WHERE run_id = ? AND accepted = 1').get(run.runId).count),
+        0,
+        'a cancelled Run must not accept any candidate translation',
+      );
+      assert.equal(store.getRunStatus(project.projectId, run.runId), 'cancelled',
+        'a late accept request must not transition the Run back to completed');
+    } finally {
+      db.close();
+    }
+  });
+});
