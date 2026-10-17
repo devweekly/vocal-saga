@@ -572,7 +572,6 @@ export class DocumentProjectStore {
       'INSERT INTO document_projects(project_id, title, format, source_file_name, source_fingerprint, db_path, created_at, updated_at, archived) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)'
     ).run(projectId, title, format, fileName, revision.fingerprint, filePath, now, now);
     // Source and catalog rows must exist before evidence-backed memory validation looks them up.
-    if (prompt.literaryMemory !== undefined) this.saveLiteraryMemory(projectId, prompt.literaryMemory);
     return this.getProject(projectId)!;
   }
 
@@ -666,6 +665,12 @@ export class DocumentProjectStore {
   }
 
   private savePromptRevision(projectId: string, prompt: ProjectPrompt & { name?: string }): any {
+    if (prompt.literaryMemory !== undefined) {
+      throw Object.assign(
+        new Error('文学记忆必须通过项目的 /literary-memory 接口显式更新，不能随 Prompt 修订或 Run 创建隐式覆盖。'),
+        { status: 400 },
+      );
+    }
     const db = this.openProjectDb(projectId);
     const config = {
       sourceLang: prompt.sourceLang || 'auto',
@@ -927,7 +932,6 @@ export class DocumentProjectStore {
         throw Object.assign(new Error('返工的父运行与当前来源版本不同，不能建立关联。'), { status: 409 });
       }
     }
-    if (input.prompt?.literaryMemory !== undefined) this.saveLiteraryMemory(projectId, input.prompt.literaryMemory);
     const currentMemory = this.getCurrentLiteraryMemory(projectId);
     const literaryMemoryRevisionId = currentMemory.memoryRevisionId as string | null;
     const config = parseJson<any>(promptRow.config_json, {});
