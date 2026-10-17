@@ -269,6 +269,11 @@ export async function handleDocumentProjectRequest(req: Request, res: Response, 
         sendJson(res, 200, { run, alreadyRunning: true });
         return true;
       }
+      if (run.translationMode === 'literary') {
+        store.assertLiteraryPreprocessingReady(
+          projectId, run.sourceRevisionId, run.sourceLang || 'auto', run.targetLang || 'zh',
+        );
+      }
       store.setRunStatus(projectId, runId, 'queued', null);
       const started = startProjectTranslationRun(projectId, runId);
       sendJson(res, 202, { run: store.getRun(projectId, runId), ...started });
