@@ -28,3 +28,6 @@ jobs:
       - name: TypeScript typecheck
         working-directory: local-agent-service
         run: npm run typecheck
+      - name: Benchmark deterministic book scan (synthetic)
+        working-directory: local-agent-service
+        run: npm run benchmark:book-scan -- 3200 3
