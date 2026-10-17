@@ -33,6 +33,55 @@ export interface ProjectSegment {
   end?: string;
 }
 
+export interface DocumentTranslationStrategy {
+  /** Maximum source segments in one model request. */
+  maxBatchSegments: number;
+  /** Maximum source characters in one batch, excluding prompt/context overhead. */
+  maxBatchSourceChars: number;
+  /** Requested concurrent initial-translation batches; capped by the actual provider pool. */
+  translationConcurrency: number;
+  /** Requested concurrent reviewer jobs; capped by the actual provider pool. */
+  reviewConcurrency: number;
+  /** Number of earlier source segments offered for disambiguation, never translated again. */
+  precedingContextSegments: number;
+  /** Upper bound for the assembled TranslationBrief context. */
+  contextBudgetChars: number;
+  /** Total attempts for a batch, including the initial model request. */
+  maxModelAttempts: number;
+}
+
+export const DEFAULT_DOCUMENT_TRANSLATION_STRATEGY: DocumentTranslationStrategy = {
+  maxBatchSegments: 16,
+  maxBatchSourceChars: 8000,
+  translationConcurrency: 4,
+  reviewConcurrency: 2,
+  precedingContextSegments: 4,
+  contextBudgetChars: 18000,
+  maxModelAttempts: 2,
+};
+
+/** Validate UI/API values and preserve hard upper bounds even for hand-crafted API requests. */
+export function normalizeDocumentTranslationStrategy(input: unknown): DocumentTranslationStrategy {
+  const raw = input && typeof input === 'object' && !Array.isArray(input)
+    ? input as Record<string, unknown>
+    : {};
+  const integer = (key: keyof DocumentTranslationStrategy, fallback: number, min: number, max: number) => {
+    const value = raw[key];
+    if (typeof value !== 'number' && typeof value !== 'string') return fallback;
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? Math.max(min, Math.min(max, Math.round(parsed))) : fallback;
+  };
+  return {
+    maxBatchSegments: integer('maxBatchSegments', DEFAULT_DOCUMENT_TRANSLATION_STRATEGY.maxBatchSegments, 4, 24),
+    maxBatchSourceChars: integer('maxBatchSourceChars', DEFAULT_DOCUMENT_TRANSLATION_STRATEGY.maxBatchSourceChars, 2000, 12000),
+    translationConcurrency: integer('translationConcurrency', DEFAULT_DOCUMENT_TRANSLATION_STRATEGY.translationConcurrency, 1, 6),
+    reviewConcurrency: integer('reviewConcurrency', DEFAULT_DOCUMENT_TRANSLATION_STRATEGY.reviewConcurrency, 1, 4),
+    precedingContextSegments: integer('precedingContextSegments', DEFAULT_DOCUMENT_TRANSLATION_STRATEGY.precedingContextSegments, 0, 6),
+    contextBudgetChars: integer('contextBudgetChars', DEFAULT_DOCUMENT_TRANSLATION_STRATEGY.contextBudgetChars, 4000, 18000),
+    maxModelAttempts: integer('maxModelAttempts', DEFAULT_DOCUMENT_TRANSLATION_STRATEGY.maxModelAttempts, 1, 2),
+  };
+}
+
 export interface ProjectPrompt {
   name?: string;
   systemPrompt?: string;
@@ -44,6 +93,7 @@ export interface ProjectPrompt {
   translationMode?: 'technical' | 'literary';
   literaryReview?: boolean;
   glossary?: unknown;
+  translationStrategy?: Partial<DocumentTranslationStrategy>;
   /** Confirmed book entities/style memory included as read-only Agent context. */
   literaryMemory?: unknown;
 }
@@ -511,6 +561,7 @@ export class DocumentProjectStore {
       translationMode: prompt.translationMode || 'technical',
       literaryReview: Boolean(prompt.literaryReview),
       glossary: prompt.glossary,
+      translationStrategy: prompt.translationStrategy,
     });
     this.catalogDb().prepare(
       'INSERT INTO document_projects(project_id, title, format, source_file_name, source_fingerprint, db_path, created_at, updated_at, archived) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)'
@@ -619,6 +670,7 @@ export class DocumentProjectStore {
       translationMode: prompt.translationMode === 'literary' ? 'literary' : 'technical',
       literaryReview: Boolean(prompt.literaryReview),
       glossary: prompt.glossary ?? null,
+      translationStrategy: normalizeDocumentTranslationStrategy(prompt.translationStrategy),
       // 动态书籍记忆存入独立 literary_memory_revisions，不参与静态 Prompt fingerprint。
     };
     const systemPrompt = String(prompt.systemPrompt || DEFAULT_SYSTEM_PROMPT).slice(0, 50000);
