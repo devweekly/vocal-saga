@@ -844,8 +844,17 @@ function repeatedExpressionFindings(
     ? repeatedPhraseCandidatesFromSourceIndex(segments, sourceFeatureIndex)
     : fallbackScan!.repeatedPhrases;
   const sourceById = new Map(segments.map((segment) => [segment.id, segment]));
+  const textUnits = sourceFeatureIndex
+    ? Array.from(sourceFeatureIndex.segments.entries()).flatMap(([segmentId, features]) => {
+        const segment = sourceById.get(segmentId);
+        return segment ? features.textUnits.map((unit) => ({
+          segmentId, ordinal: segment.ordinal, chapterKey: segment.contextPath,
+          unitType: unit.unitType, normalized: unit.normalized, start: unit.start, end: unit.end,
+        })) : [];
+      })
+    : fallbackScan!.textUnits;
   const quoteUnitsBySegment = new Map<string, number>();
-  for (const unit of scan.textUnits) {
+  for (const unit of textUnits) {
     if (unit.unitType === 'quotation') quoteUnitsBySegment.set(unit.segmentId, (quoteUnitsBySegment.get(unit.segmentId) || 0) + 1);
   }
 
@@ -853,7 +862,7 @@ function repeatedExpressionFindings(
   type AlignmentGroup = { method: 'whole-segment' | 'quoted-span'; rows: AlignedRow[] };
   const findings: any[] = [];
   for (const phrase of repeatedPhrases) {
-    const occurrenceUnits = scan.textUnits.filter((unit) =>
+    const occurrenceUnits = textUnits.filter((unit) =>
       unit.unitType === phrase.unitType && unit.normalized === phrase.normalized &&
       (!scopedIds || scopedIds.has(unit.segmentId)));
     const ids = Array.from(new Set(occurrenceUnits.map((unit) => unit.segmentId)));
@@ -1037,8 +1046,8 @@ function runMetrics(projectId: string, runId: string): any {
       terminologyDriftRatePer100Segments: ratePer100(entities.length),
       numericTokenMismatchCount: numbers.length,
       numericTokenMismatchRatePer100Segments: ratePer100(numbers.length),
-      repeatedExpressionDriftGroups: repeated.length,
-      repeatedExpressionDriftRatePer100Segments: ratePer100(repeated.length),
+      repeatedExpressionDriftGroups: repeated.filter((item) => item.type === 'repeated-expression-drift').length,
+      repeatedExpressionDriftRatePer100Segments: ratePer100(repeated.filter((item) => item.type === 'repeated-expression-drift').length),
       styleFindingCount: styleFindings,
       styleFindingRatePer100Segments: ratePer100(styleFindings),
       characterVoiceFindingCount: voiceFindings,
@@ -1154,11 +1163,11 @@ export function runProjectQualityAudit(projectId: string, runId?: string): Recor
       duplicateOutputIdFindingCount: outputFindings.filter((item) => item.type === 'duplicate-output-id').length,
       malformedOutputFindingCount: outputFindings.filter((item) => item.type === 'malformed-output-row').length,
       unexpectedOutputIdFindingCount: outputFindings.filter((item) => item.type === 'unexpected-output-id').length,
-      repeatedExpressionDriftGroups: repeatedFindings.length,
+      repeatedExpressionDriftGroups: repeatedFindings.filter((item) => item.type === 'repeated-expression-drift').length,
       contextDeltaConflictCount: contextFindings.length,
       entityMentionDriftCount: mentionFindings.length,
       repeatedExpressionAlignmentReviewCount: repeatedFindings.filter((item) => item.type === 'repeated-expression-alignment-review').length,
-      repeatedExpressionDriftRatePer100Segments: ratePer100(repeatedFindings.length),
+      repeatedExpressionDriftRatePer100Segments: ratePer100(repeatedFindings.filter((item) => item.type === 'repeated-expression-drift').length),
       accuracyReviewFindingCount: reviewFindings.filter((item) => item.category === 'accuracy').length,
       reviewerTerminologyFindingCount: reviewFindings.filter((item) => item.category === 'terminology').length,
       styleReviewFindingCount: reviewFindings.filter((item) => item.category === 'style').length,
