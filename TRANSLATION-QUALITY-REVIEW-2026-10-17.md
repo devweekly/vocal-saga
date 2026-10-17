@@ -273,4 +273,4 @@ sequenceDiagram
 
 ### 当前验证边界
 
-已为索引持久化、旧项目惰性升级、复合称谓和精确字符偏移、重复引语对齐、实体提及漂移和记忆写入边界增加自动化测试。CI 还需以最新 `main` SHA 的完整 Local Agent Service 测试、TypeScript 类型检查和仓库 CI 结果为准；真实翻译 A/B 与盲评属于 M4，尚未作为 M1/M2 完成声明。
+已为索引持久化、旧项目惰性升级、复合称谓和精确字符偏移、重复引语对齐、实体提及漂移和记忆写入边界增加自动化测试。提交 `18ebd617996771aa2e7436c65714b7b73ad0d392` 的 Local Agent Service workflow 与仓库 CI 均通过，包括测试、TypeScript 类型检查、小说质量回归 fixture 和 library build（[CI 记录](https://github.com/devweekly/vocal-saga/actions/runs/39009541500)）。这些结果验证确定性规则与工程边界，不证明真实模型译文整体质量已经提升；真实翻译 A/B 与盲评属于 M4，尚未作为 M1/M2 完成声明。
