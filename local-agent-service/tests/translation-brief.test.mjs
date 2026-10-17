@@ -510,7 +510,11 @@ test('explicit confirmed glossary mappings without AI evidence activate on first
   const mapping = brief.contextGraph?.nameMappings.find((item) => item.source === 'the King');
 
   assert.equal(mapping?.target, '国王',
-    'an explicit, complete mapping should not be discarded solely because it lacks AI evidence');
+    'an explicit mapping should survive first-occurrence filtering: ' + JSON.stringify({
+      mode: context.run.translationMode,
+      memoryEntities: context.memory.entities,
+      graphMappings: brief.contextGraph?.nameMappings,
+    }));
   assert.equal(mapping?.sourceStatus, 'confirmed-memory');
   assert.ok(mapping?.aliases.includes('King'),
     'aliases present in the current source batch must remain available for exact name protection');
@@ -562,7 +566,12 @@ test('canonical mappings survive the TranslationBrief last-resort budget fallbac
 
   assert.ok(brief.contextChars <= 4000);
   assert.ok(brief.contextGraph?.nameMappings?.length,
-    'the compact fallback must retain deterministic name mappings rather than nulling the entire graph');
+    'the compact fallback must retain deterministic name mappings rather than nulling the entire graph: ' + JSON.stringify({
+      mode: context.run.translationMode,
+      memoryEntityCount: context.memory.entities.length,
+      contextChars: brief.contextChars,
+      hasGraph: !!brief.contextGraph,
+    }));
   assert.ok(brief.contextGraph.nameMappings.some((item) => item.target === '规范译名00固定称呼'));
 });
 
