@@ -53,6 +53,26 @@ test('TranslationBrief is revision-pinned, bounded and hashes the source selecti
   assert.equal(snapshots[0].contextHash, first.contextHash);
   assert.deepEqual(snapshots[0].sourceSegmentIds, ['c1-1']);
   assert.equal(snapshots[0].brief.policyVersion, 'translation-brief-v1');
+
+  const configuredContext = {
+    ...context,
+    prompt: {
+      ...context.prompt,
+      config: {
+        ...context.prompt.config,
+        translationStrategy: { precedingContextSegments: 1, contextBudgetChars: 8000 },
+      },
+    },
+  };
+  const configuredBrief = buildTranslationBrief(
+    configuredContext,
+    source.slice(2, 3),
+    source.slice(0, 2).map((item) => ({ id: item.id, text: item.text, contextPath: item.contextPath })),
+  );
+  assert.equal(configuredBrief.precedingSegments.length, 1);
+  assert.equal(configuredBrief.precedingSegments[0]?.id, source[1]?.id,
+    'context count setting should retain only the closest earlier segment');
+  assert.ok(configuredBrief.contextChars <= 8000);
 });
 
 test('literary batch planner never crosses a chapter boundary', () => {
