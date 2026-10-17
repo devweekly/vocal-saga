@@ -912,7 +912,7 @@ export class DocumentProjectStore {
       model: config.model || 'auto',
       translationMode: config.translationMode || 'technical',
       literaryReview: Boolean(config.literaryReview),
-      pipelineVersion: config.translationMode === 'literary' ? 'document-agent-v5-auto-canonical-name-protection' : 'document-agent-v2-voice',
+      pipelineVersion: config.translationMode === 'literary' ? 'document-agent-v6-temporal-glossary-review-evidence' : 'document-agent-v2-voice',
     }));
   }
 
