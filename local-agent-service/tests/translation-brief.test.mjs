@@ -477,3 +477,85 @@ test('source-ordered dynamic memory replaces conflicting unconfirmed Context Gra
   assert.equal(mappings[0]?.target, '国王',
     'source-ordered dynamic memory should replace an unconfirmed, conflicting book-wide candidate');
 });
+
+
+test('explicit confirmed glossary mappings without AI evidence activate on first visible mention', () => {
+  const store = getDocumentProjectStore();
+  const project = store.createProject({
+    title: 'Manual Canonical Mapping',
+    format: 'txt',
+    sourceFileName: 'manual-canonical.txt',
+    prompt: { translationMode: 'literary', sourceLang: 'en', targetLang: 'zh' },
+    segments: [
+      { id: 'king-current', text: 'Timsen was taken up by the King.', kind: 'paragraph', contextPath: 'Chapter 1' },
+      { id: 'king-future', text: 'The King spoke again.', kind: 'paragraph', contextPath: 'Chapter 2' },
+    ],
+  });
+  ensureTestContextGraph(store, project);
+  store.saveLiteraryMemory(project.projectId, {
+    entities: [{
+      source: 'the King', target: '国王', aliases: ['King'], kind: 'person',
+      reviewStatus: 'confirmed',
+    }],
+    relationships: [], styleGuide: {}, chapterSummaries: [], recentExamples: [],
+    characterVoices: [], relationshipVoiceRules: [], voiceAnchors: [],
+  });
+  const run = store.createRun(project.projectId, { scope: { type: 'ids', ids: ['king-current'] } });
+  const context = store.getRunContext(project.projectId, run.runId);
+  const source = store.getSegments(project.projectId, { limit: 10 }).find((item) => item.id === 'king-current');
+  const brief = buildTranslationBrief(context, [source], []);
+  const mapping = brief.contextGraph?.nameMappings.find((item) => item.source === 'the King');
+
+  assert.equal(mapping?.target, '国王',
+    'an explicit, complete mapping should not be discarded solely because it lacks AI evidence');
+  assert.equal(mapping?.sourceStatus, 'confirmed-memory');
+  assert.ok(mapping?.aliases.includes('King'),
+    'aliases present in the current source batch must remain available for exact name protection');
+});
+
+test('canonical mappings survive the TranslationBrief last-resort budget fallback', () => {
+  const store = getDocumentProjectStore();
+  const entities = [];
+  const sourceParts = [];
+  for (let i = 0; i < 16; i++) {
+    const source = 'Character' + String(i).padStart(2, '0') + 'CanonicalName';
+    const aliases = Array.from({ length: 8 }, (_, j) =>
+      'Alias' + String(i).padStart(2, '0') + 'Variant' + String(j).padStart(2, '0') + 'Name');
+    sourceParts.push(source, ...aliases);
+    entities.push({
+      source,
+      target: '规范译名' + String(i).padStart(2, '0') + '固定称呼',
+      aliases,
+      kind: 'person',
+      reviewStatus: 'confirmed',
+    });
+  }
+  const project = store.createProject({
+    title: 'Brief Budget Canonical Mapping',
+    format: 'txt',
+    sourceFileName: 'brief-budget-canonical.txt',
+    prompt: {
+      translationMode: 'literary', sourceLang: 'en', targetLang: 'zh',
+      translationStrategy: { contextBudgetChars: 4000 },
+    },
+    segments: [
+      { id: 'names-heavy', text: sourceParts.join(' and ') + '.', kind: 'paragraph', contextPath: 'Chapter 1' },
+      { id: 'next', text: 'The scene continued.', kind: 'paragraph', contextPath: 'Chapter 1' },
+    ],
+  });
+  ensureTestContextGraph(store, project);
+  store.saveLiteraryMemory(project.projectId, {
+    entities,
+    relationships: [], styleGuide: {}, chapterSummaries: [], recentExamples: [],
+    characterVoices: [], relationshipVoiceRules: [], voiceAnchors: [],
+  });
+  const run = store.createRun(project.projectId, { scope: { type: 'ids', ids: ['names-heavy'] } });
+  const context = store.getRunContext(project.projectId, run.runId);
+  const source = store.getSegments(project.projectId, { limit: 10 }).find((item) => item.id === 'names-heavy');
+  const brief = buildTranslationBrief(context, [source], []);
+
+  assert.ok(brief.contextChars <= 4000);
+  assert.ok(brief.contextGraph?.nameMappings?.length,
+    'the compact fallback must retain deterministic name mappings rather than nulling the entire graph');
+  assert.ok(brief.contextGraph.nameMappings.some((item) => item.target === '规范译名00固定称呼'));
+});
