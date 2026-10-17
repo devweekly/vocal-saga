@@ -423,6 +423,55 @@ function restoreCanonicalMarkersDeep(value: unknown, protections: CanonicalTermP
   return value;
 }
 
+/** Build a bounded name-only Context Graph for legacy standalone Review requests.
+ * Only explicit mappings visible in this request's source/preceding text are included; future
+ * aliases from book memory are not serialized into the Reviewer prompt. */
+export function buildStandaloneReviewContextGraph(input: Record<string, any>): Record<string, any> {
+  const suppliedGraph = input.translationBrief && typeof input.translationBrief === 'object' &&
+    input.translationBrief.contextGraph && typeof input.translationBrief.contextGraph === 'object'
+    ? input.translationBrief.contextGraph as Record<string, any>
+    : null;
+  const nameMappings: Array<Record<string, any>> = Array.isArray(suppliedGraph?.nameMappings)
+    ? [...suppliedGraph.nameMappings]
+    : [];
+  const segments = Array.isArray(input.segments) ? input.segments : [];
+  const preceding = Array.isArray(input.translationBrief?.precedingSegments)
+    ? input.translationBrief.precedingSegments
+    : Array.isArray(input.precedingSegments) ? input.precedingSegments : [];
+  const sourceTexts = segments.map((item: any) => typeof item?.source === 'string' ? item.source : '');
+  const visibleTexts = [...sourceTexts, ...preceding.map((item: any) => typeof item?.text === 'string' ? item.text : '')];
+  const appearsIn = (name: string, texts: string[]) => {
+    if (!name.trim()) return false;
+    let pattern: RegExp;
+    try { pattern = new RegExp(canonicalTermPattern(name), 'iu'); } catch { return false; }
+    return texts.some((text) => pattern.test(text));
+  };
+  const memory = input.memory && typeof input.memory === 'object' ? input.memory as Record<string, any> : {};
+  const entities = Array.isArray(memory.entities) ? memory.entities : [];
+  for (const entity of entities) {
+    if (entity?.reviewStatus !== 'confirmed' ||
+        typeof entity.source !== 'string' || !entity.source.trim() ||
+        typeof entity.target !== 'string' || !entity.target.trim()) continue;
+    const rawAliases = Array.isArray(entity.aliases)
+      ? entity.aliases.filter((alias: unknown): alias is string => typeof alias === 'string' && !!alias.trim())
+      : [];
+    // Only apply a name if the canonical source or one of its aliases actually occurs in the
+    // current Review batch. Retain preceding-visible aliases for disambiguation, not future ones.
+    if (!appearsIn(entity.source, sourceTexts) &&
+        !rawAliases.some((alias) => appearsIn(alias, sourceTexts))) continue;
+    const aliases = rawAliases.filter((alias) => appearsIn(alias, visibleTexts));
+    nameMappings.push({
+      source: entity.source.trim(),
+      target: entity.target.trim(),
+      aliases,
+      kind: typeof entity.kind === 'string' ? entity.kind : 'other',
+      evidenceBacked: true,
+      sourceStatus: 'confirmed-memory',
+    });
+  }
+  return { ...(suppliedGraph || {}), nameMappings };
+}
+
 export function buildUserPrompt(template: string, items: TranslationItem[], context: any, precedingSegments: TranslationItem[] = [], contextGraph: Record<string, unknown> | null = null, translationBrief?: TranslationBrief): string {
   const promptPrecedingSegments = translationBrief?.precedingSegments ?? precedingSegments.slice(-4).map((item) => ({
     id: item.id, text: item.text, contextPath: item.contextPath || '',
@@ -737,7 +786,7 @@ async function translateBatch(context: any, items: TranslationItem[], requestId:
   return { translations, contextDelta: deltaResult.delta };
 }
 
-async function runLiteraryReviewWithMissingRetry(input: Record<string, any>, requestId: string, sessionScope: string): Promise<any> {
+export async function runLiteraryReviewWithMissingRetry(input: Record<string, any>, requestId: string, sessionScope: string): Promise<any> {
   const originalSegments = Array.isArray(input.segments) ? input.segments : [];
   const protectedReview = protectCanonicalReviewSegments(
     originalSegments,
