@@ -26,6 +26,7 @@ OpenAI-compatible LLM proxy + 网页翻译 API，部署在 Cloudflare Workers，
 - [配置管理](#配置管理)
 - [测试体系](#测试体系)
 - [关键设计决策](#关键设计决策)
+- [本地文档翻译 Pipeline（Local Agent Service）](#本地文档翻译-pipeline-local-agent-service)
 
 ---
 
@@ -779,3 +780,18 @@ CF Worker 共享 IP 易触发 429（多租户聚合使用），因此 OpenCode /
 2. 没有用的功能直接删掉，不要做 fallback design
 3. 添加足够的中文代码注释
 4. 如果 script 调用无法联通，使用 proxy.sh 的 proxy 设置
+
+## 本地文档翻译 Pipeline（Local Agent Service）
+
+本文件前文描述 Cloudflare Worker 的网页/短文本翻译路径。EPUB/PDF、小说及其他长文档的项目级翻译属于独立的本机 Node.js 服务，不能把两者当成同一运行时，也不能将长任务 Agent 调度放进 Worker。
+
+本地服务的阅读页（包含“继续翻译下一待译页”和“强制重译当前页”）、Agent Workspace、CLI 与项目 API 必须进入同一个 Document Project / Run executor：`startProjectTranslationRun → executeRun → processBatch`。页面只选择 Run 范围并呈现进度/结果，不维护独立的翻译循环、上下文记忆或候选合并逻辑。
+
+文学初译的统一响应包含 `translations` 与 `context_delta`。服务端分别验收译文和上下文增量；证据无效时丢弃元数据，不连带丢弃有效译文。经过核验的增量写入项目 SQLite，按来源 segment ordinal 在冻结波次之间合并；同波批次共享同一 TranslationBrief 基础上下文，下一波才读取上一波的新增候选。冲突译名保持为 suggested 并进入全书质量审计，不会覆盖确认译名或自动改写已采纳译文。
+
+完整执行步骤、协议、数据持久化、恢复行为、质量门和对应 ADR 见：
+
+- [Local Agent 文档/小说统一翻译 Pipeline](docs/TRANSLATION_PIPELINE.md)
+- [ADR-0001：统一本地翻译管线与初译上下文增量](docs/adr/0001-unified-local-translation-context-delta.md)
+- [Local Agent Service AGENTS 约束](local-agent-service/AGENTS.md)
+
