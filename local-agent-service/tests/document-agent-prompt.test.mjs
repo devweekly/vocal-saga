@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildUserPrompt } from '../src/documents/translationAgent.ts';
+import { buildBatches, buildUserPrompt } from '../src/documents/translationAgent.ts';
 import { buildProjectVoiceContext } from '../src/documents/voiceContext.ts';
 
 test('literary Project Agent separates preceding context from translatable segments', () => {
@@ -259,3 +259,27 @@ test('document batch scheduler stops adding queued work after a fatal worker err
     'already-running work may settle, but new queued batches should not start');
 });
 
+
+test('literary translation batches are slightly larger but remain bounded by segment and source-character limits', () => {
+  const manyShortSegments = Array.from({ length: 33 }, (_, index) => ({
+    id: 'short-' + index,
+    text: 'A short sentence.',
+    contextPath: 'Chapter 1',
+  }));
+  assert.deepEqual(buildBatches(manyShortSegments, true).map((batch) => batch.length), [16, 16, 1]);
+
+  const longSegments = Array.from({ length: 5 }, (_, index) => ({
+    id: 'long-' + index,
+    text: 'x'.repeat(4_100),
+    contextPath: 'Chapter 1',
+  }));
+  assert.deepEqual(buildBatches(longSegments, true).map((batch) => batch.length), [1, 1, 1, 1, 1],
+    'two 4,100-character segments must not exceed the 8,000-character aggregate budget');
+
+  const chapterBoundaries = buildBatches([
+    { id: 'a', text: 'First chapter.', contextPath: 'Chapter 1' },
+    { id: 'b', text: 'Second chapter.', contextPath: 'Chapter 2' },
+  ], true);
+  assert.deepEqual(chapterBoundaries.map((batch) => batch.map((item) => item.id)), [['a'], ['b']],
+    'literary batches must never cross chapter boundaries');
+});
