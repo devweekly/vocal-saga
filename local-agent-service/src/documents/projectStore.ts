@@ -1463,6 +1463,72 @@ export class DocumentProjectStore {
       .run(resultId, isoNow(), runId, segmentId);
   }
 
+  /**
+   * Atomically commit one model batch only while its Run is still active.
+   * The status check and all candidate writes share BEGIN IMMEDIATE so cancellation
+   * cannot interleave between the caller's check and a late candidate insert.
+   */
+  saveCandidates(
+    projectId: string,
+    runId: string,
+    items: Array<{ segmentId: string; text: string }>,
+  ): boolean {
+    if (!Array.isArray(items) || items.length > 1000) {
+      throw Object.assign(new Error('候选译文批次必须是最多 1000 条记录的数组'), { status: 400 });
+    }
+    const seen = new Set<string>();
+    const normalized = items.map((item) => {
+      const segmentId = typeof item?.segmentId === 'string' ? item.segmentId.trim() : '';
+      const text = typeof item?.text === 'string' ? item.text.trim() : '';
+      if (!segmentId || !text || text.length > 20000 || seen.has(segmentId)) {
+        throw Object.assign(new Error('候选译文包含空 ID、空文本、重复 ID 或超长文本'), { status: 400 });
+      }
+      seen.add(segmentId);
+      return { segmentId, text };
+    });
+    if (!normalized.length) return true;
+    const { db } = this.getProjectContext(projectId);
+    const now = isoNow();
+    db.exec('BEGIN IMMEDIATE');
+    try {
+      const run = db.prepare('SELECT status, source_revision_id, prompt_revision_id, run_fingerprint FROM translation_runs WHERE run_id = ?')
+        .get(runId) as any;
+      if (!run) throw Object.assign(new Error('找不到翻译运行：' + runId), { status: 404 });
+      if (!['queued', 'running'].includes(String(run.status))) {
+        db.exec('ROLLBACK');
+        return false;
+      }
+      const rows = db.prepare(
+        'SELECT segment_id, source_hash FROM run_segments WHERE run_id = ? AND segment_id IN (' +
+        normalized.map(() => '?').join(',') + ')',
+      ).all(runId, ...normalized.map((item) => item.segmentId)) as Array<{ segment_id: string; source_hash: string }>;
+      if (rows.length !== normalized.length) {
+        throw Object.assign(new Error('候选译文包含不属于本次运行的片段 ID'), { status: 400 });
+      }
+      const sourceById = new Map(rows.map((row) => [row.segment_id, row.source_hash]));
+      const insert = db.prepare(
+        'INSERT INTO translation_results(result_id, run_id, source_revision_id, prompt_revision_id, segment_id, source_hash, run_fingerprint, translation_text, origin, accepted, created_at, accepted_at) ' +
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'agent', 0, ?, NULL)",
+      );
+      const update = db.prepare(
+        "UPDATE run_segments SET status = 'candidate', candidate_result_id = ?, error = NULL, updated_at = ? WHERE run_id = ? AND segment_id = ?",
+      );
+      for (const item of normalized) {
+        const resultId = randomUUID();
+        insert.run(
+          resultId, runId, run.source_revision_id, run.prompt_revision_id, item.segmentId,
+          sourceById.get(item.segmentId), run.run_fingerprint, item.text, now,
+        );
+        update.run(resultId, now, runId, item.segmentId);
+      }
+      db.exec('COMMIT');
+      return true;
+    } catch (error) {
+      try { db.exec('ROLLBACK'); } catch { /* transaction may already have been rolled back */ }
+      throw error;
+    }
+  }
+
   saveFinding(projectId: string, runId: string, segmentId: string, finding: any): void {
     const db = this.openProjectDb(projectId);
     const category = ['accuracy', 'terminology', 'style'].includes(finding?.category) ? finding.category : 'style';
