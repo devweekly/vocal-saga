@@ -789,7 +789,7 @@ async function translateBatch(context: any, items: TranslationItem[], requestId:
   const voiceContext = translationBrief?.voiceContext;
   const count = (value: unknown) => Array.isArray(value) ? value.length : 0;
   const requestStartedAt = Date.now();
-  // 只记录本批实际请求的上下文规模，不记录小说原文、完整 Prompt 或译文。
+  // 审计账本保存实际发送的 Prompt 与 schema；正文是本地用户数据，不能只留字符数。
   store.appendEvent(context.project.projectId, context.run.runId, 'batch.prompt.ready', {
     stage: 'translate',
     batchIndex,
@@ -840,6 +840,7 @@ async function translateBatch(context: any, items: TranslationItem[], requestId:
     translationBriefChars: translationBrief?.contextChars || 0,
     translationBriefPolicyVersion: translationBrief?.policyVersion || null,
     graphKnowledgeBoundaryOrdinal: (contextGraph as any)?.knowledgeBoundaryOrdinal ?? null,
+    audit: { systemPrompt, userPrompt, schema: TRANSLATION_SCHEMA, sourceSegments: items.map((item) => ({ id: item.id, text: item.text })), precedingSegments: precedingSegments.map((item) => ({ id: item.id, text: item.text })) },
   });
 
   let value: unknown;
@@ -896,6 +897,7 @@ async function translateBatch(context: any, items: TranslationItem[], requestId:
   const missingIds = items.filter((item) => !translations.has(item.id)).map((item) => item.id);
   store.appendEvent(context.project.projectId, context.run.runId, 'batch.model.response', {
     stage: 'translate', batchIndex, requestId,
+    audit: { responseShape: 'parsed-structured-output', response: value, acceptedTranslations: Array.from(translations, ([id, text]) => ({ id, text })), outputDiagnostics },
     provider: agent.provider, model: agent.model || '<runtime-default>',
     durationMs: Date.now() - requestStartedAt,
     requestedSegments: items.length,
@@ -974,7 +976,35 @@ export async function runLiteraryReviewWithMissingRetry(input: Record<string, an
     ) as any;
     return fallbackIds.length ? { ...restored, canonicalTermFallbackIds: fallbackIds } : restored;
   };
-  const initial = restoreReview(await runLiteraryReview(reviewInput, requestId, sessionScope));
+  const store = getDocumentProjectStore();
+  const projectId = typeof input.projectId === 'string' ? input.projectId : '';
+  const runId = typeof input.runId === 'string' ? input.runId : '';
+  if (projectId && runId) {
+    store.appendEvent(projectId, runId, 'review.audit.input', {
+      stage: input.reviewType === 'style' ? 'style-review' : 'review',
+      requestId, sessionScope,
+      responseShape: 'review-input-snapshot',
+      audit: { input: reviewInput },
+    });
+  }
+  let rawInitial: any;
+  try {
+    rawInitial = await runLiteraryReview(reviewInput, requestId, sessionScope);
+    if (projectId && runId) store.appendEvent(projectId, runId, 'review.audit.output', {
+      stage: input.reviewType === 'style' ? 'style-review' : 'review',
+      requestId, sessionScope,
+      responseShape: 'parsed-review-result',
+      audit: { response: rawInitial },
+    });
+  } catch (error) {
+    if (projectId && runId) store.appendEvent(projectId, runId, 'review.audit.failed', {
+      stage: input.reviewType === 'style' ? 'style-review' : 'review',
+      requestId, sessionScope, error: error instanceof Error ? error.message : String(error),
+      audit: { input: reviewInput },
+    });
+    throw error;
+  }
+  const initial = restoreReview(rawInitial);
   const missingIds = Array.isArray(initial.missingIds) ? initial.missingIds as string[] : [];
   if (!missingIds.length) return initial;
   const missing = new Set(missingIds);
@@ -982,11 +1012,19 @@ export async function runLiteraryReviewWithMissingRetry(input: Record<string, an
     .filter((segment: any) => missing.has(segment.id));
   if (!retrySegments.length) return initial;
   try {
-    const retry = restoreReview(await runLiteraryReview(
-      { ...reviewInput, segments: retrySegments },
-      requestId + '-missing-retry',
-      sessionScope,
-    ));
+    const retryInput = { ...reviewInput, segments: retrySegments };
+    if (projectId && runId) store.appendEvent(projectId, runId, 'review.audit.retry-input', {
+      stage: input.reviewType === 'style' ? 'style-review' : 'review',
+      requestId: requestId + '-missing-retry', parentRequestId: requestId,
+      sessionScope, missingIds, audit: { input: retryInput },
+    });
+    const rawRetry = await runLiteraryReview(retryInput, requestId + '-missing-retry', sessionScope);
+    if (projectId && runId) store.appendEvent(projectId, runId, 'review.audit.retry-output', {
+      stage: input.reviewType === 'style' ? 'style-review' : 'review',
+      requestId: requestId + '-missing-retry', parentRequestId: requestId,
+      sessionScope, audit: { response: rawRetry },
+    });
+    const retry = restoreReview(rawRetry);
     const translations = { ...(initial.translations || {}), ...(retry.translations || {}) };
     const expectedIds = (Array.isArray(originalSegments) ? originalSegments : []).map((segment: any) => segment.id);
     const reviewedIds = expectedIds.filter((id: string) => typeof translations[id] === 'string');
