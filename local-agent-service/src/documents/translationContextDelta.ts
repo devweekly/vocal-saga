@@ -365,7 +365,7 @@ export function mergeTranslationContextDeltasIntoMemory(
     for (const relation of delta.relationshipDeltas) {
       const key = [relation.subjectSource, relation.predicate, relation.objectSource].map(normalizeName).join('\u0000');
       const prior = memory.relationships.find((item: any) =>
-        [item.subject, item.predicate, item.object].map(normalizeName).join('\\u0000') === key);
+        [item.subject, item.predicate, item.object].map(normalizeName).join('\u0000') === key);
       if (!prior) {
         memory.relationships.push({
           subject: relation.subjectSource, predicate: relation.predicate, object: relation.objectSource,
