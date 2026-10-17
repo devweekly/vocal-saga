@@ -1442,12 +1442,37 @@ export class DocumentProjectStore {
     return row.status as RunStatus;
   }
 
-  setRunStatus(projectId: string, runId: string, status: RunStatus, error?: string | null): void {
+  setRunStatus(projectId: string, runId: string, status: RunStatus, error?: string | null): boolean {
     const db = this.openProjectDb(projectId);
     const now = isoNow();
-    db.prepare('UPDATE translation_runs SET status = ?, error = ?, started_at = CASE WHEN ? = \'running\' AND started_at IS NULL THEN ? ELSE started_at END, finished_at = CASE WHEN ? IN (\'paused\',\'awaiting_acceptance\',\'partial\',\'completed\',\'failed\',\'cancelled\') THEN ? ELSE finished_at END WHERE run_id = ?')
-      .run(status, error ?? null, status, now, status, now, runId);
+    db.exec('BEGIN IMMEDIATE');
+    try {
+      const current = db.prepare('SELECT status FROM translation_runs WHERE run_id = ?').get(runId) as { status?: string } | undefined;
+      if (!current) throw Object.assign(new Error('找不到翻译运行：' + runId), { status: 404 });
+      if (current.status === status) {
+        db.exec('ROLLBACK');
+        return true;
+      }
+      // Cancellation and completion are immutable terminal states. A delayed worker, resume
+      // request or stale route snapshot must never move them back to running/queued.
+      if (['cancelled', 'completed'].includes(String(current.status))) {
+        db.exec('ROLLBACK');
+        return false;
+      }
+      db.prepare(
+        'UPDATE translation_runs SET status = ?, error = ?, ' +
+        'started_at = CASE WHEN ? = \'running\' AND started_at IS NULL THEN ? ELSE started_at END, ' +
+        'finished_at = CASE WHEN ? IN (\'queued\', \'running\') THEN NULL ' +
+        'WHEN ? IN (\'paused\', \'awaiting_acceptance\', \'partial\', \'completed\', \'failed\', \'cancelled\') THEN ? ELSE finished_at END ' +
+        'WHERE run_id = ?',
+      ).run(status, error ?? null, status, now, status, status, now, runId);
+      db.exec('COMMIT');
+    } catch (error) {
+      try { db.exec('ROLLBACK'); } catch { /* already rolled back */ }
+      throw error;
+    }
     this.addEvent(projectId, runId, 'run.' + status, { error: error || undefined });
+    return true;
   }
 
   markRunSegments(projectId: string, runId: string, segmentIds: string[], status: string, error?: string | null): void {
@@ -1728,20 +1753,36 @@ export class DocumentProjectStore {
   }
   finishRun(projectId: string, runId: string): any {
     const db = this.openProjectDb(projectId);
-    const status = this.getRunStatus(projectId, runId);
-    if (status === 'cancelled' || status === 'paused') return this.getRun(projectId, runId);
-    const counts = db.prepare(
-      'SELECT status, COUNT(*) AS count FROM run_segments WHERE run_id = ? GROUP BY status',
-    ).all(runId) as any[];
-    const values = Object.fromEntries(counts.map((row) => [row.status, Number(row.count)]));
-    const candidates = Number(values.candidate || 0);
-    const accepted = Number(values.accepted || 0);
-    const failures = Number(values.failed || 0);
-    const pending = Number(values.pending || 0) + Number(values.running || 0);
-    const finalStatus: RunStatus = pending > 0 ? 'paused' : candidates > 0 ? 'awaiting_acceptance'
-      : failures > 0 ? (accepted > 0 ? 'partial' : 'failed') : 'completed';
-    this.setRunStatus(projectId, runId, finalStatus,
-      failures ? (String(failures) + ' 个片段失败，可重试失败范围') : null);
+    const now = isoNow();
+    let finalStatus: RunStatus = 'completed';
+    let errorMessage: string | null = null;
+    db.exec('BEGIN IMMEDIATE');
+    try {
+      const run = db.prepare('SELECT status FROM translation_runs WHERE run_id = ?').get(runId) as { status?: string } | undefined;
+      if (!run) throw Object.assign(new Error('找不到翻译运行：' + runId), { status: 404 });
+      if (['cancelled', 'paused', 'completed'].includes(String(run.status))) {
+        db.exec('ROLLBACK');
+        return this.getRun(projectId, runId);
+      }
+      const counts = db.prepare(
+        'SELECT status, COUNT(*) AS count FROM run_segments WHERE run_id = ? GROUP BY status',
+      ).all(runId) as any[];
+      const values = Object.fromEntries(counts.map((row) => [row.status, Number(row.count)]));
+      const candidates = Number(values.candidate || 0);
+      const accepted = Number(values.accepted || 0);
+      const failures = Number(values.failed || 0);
+      const pending = Number(values.pending || 0) + Number(values.running || 0);
+      finalStatus = pending > 0 ? 'paused' : candidates > 0 ? 'awaiting_acceptance'
+        : failures > 0 ? (accepted > 0 ? 'partial' : 'failed') : 'completed';
+      errorMessage = failures ? String(failures) + ' 个片段失败，可重试失败范围' : null;
+      db.prepare('UPDATE translation_runs SET status = ?, error = ?, finished_at = ? WHERE run_id = ?')
+        .run(finalStatus, errorMessage, now, runId);
+      db.exec('COMMIT');
+    } catch (error) {
+      try { db.exec('ROLLBACK'); } catch { /* already rolled back */ }
+      throw error;
+    }
+    this.addEvent(projectId, runId, 'run.' + finalStatus, { error: errorMessage || undefined });
     return this.getRun(projectId, runId);
   }
 
