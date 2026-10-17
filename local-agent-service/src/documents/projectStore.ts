@@ -911,9 +911,35 @@ export class DocumentProjectStore {
       if (!graphTable) {
         throw Object.assign(new Error('文学翻译的全书预处理尚未运行。请先在 UI 的“人物与预处理”中启动，或执行 npm run doc -- context-analyze ' + projectId + '。'), { status: 409 });
       }
-      const preprocessing = db.prepare(
+      let preprocessing = db.prepare(
         'SELECT run_id, status, progress_json, error FROM context_graph_runs WHERE source_revision_id = ? ORDER BY started_at DESC, rowid DESC LIMIT 1'
       ).get(sourceRevisionId) as { run_id?: string; status?: string; progress_json?: string; error?: string } | undefined;
+      // Recover a terminal-state write that was lost after the completion event was durably
+      // recorded. The event is emitted only after runAnalysis commits its completed payload.
+      if (preprocessing && (preprocessing.status === 'queued' || preprocessing.status === 'running') && preprocessing.run_id) {
+        const completion = db.prepare(
+          "SELECT payload_json FROM project_events WHERE run_id = ? AND event_type = 'context-graph.completed' ORDER BY created_at DESC LIMIT 1"
+        ).get(preprocessing.run_id) as { payload_json?: string } | undefined;
+        let completionPayload: any = {};
+        try { completionPayload = JSON.parse(completion?.payload_json || '{}'); } catch { completionPayload = {}; }
+        const expectedSourceLang = config.sourceLang || 'auto';
+        const expectedTargetLang = config.targetLang || 'zh';
+        if (completionPayload.analysisVersion === 'context-graph-v5-language-pinned' &&
+            completionPayload.sourceLang === expectedSourceLang &&
+            completionPayload.targetLang === expectedTargetLang) {
+          const completedAt = isoNow();
+          db.prepare(
+            "UPDATE context_graph_runs SET status = 'completed', phase = 'completed', finished_at = COALESCE(finished_at, ?), error = NULL WHERE run_id = ? AND status IN ('queued','running')"
+          ).run(completedAt, preprocessing.run_id);
+          preprocessing = db.prepare(
+            'SELECT run_id, status, progress_json, error FROM context_graph_runs WHERE run_id = ?'
+          ).get(preprocessing.run_id) as { run_id?: string; status?: string; progress_json?: string; error?: string } | undefined;
+          this.addEvent(projectId, preprocessing?.run_id || null, 'context-graph.recovered', {
+            reason: 'completion-event-with-stale-running-status',
+            sourceRevisionId,
+          });
+        }
+      }
       if (!preprocessing) {
         throw Object.assign(new Error('当前原文版本还没有 Context Graph 预处理记录。请先完成全书预处理再翻译。'), { status: 409 });
       }
