@@ -499,7 +499,7 @@ export function buildTranslationBrief(
   const chapterPaths = Array.from(new Set(items.map((item) => String(item.contextPath || '').trim()).filter(Boolean)));
   // Book batches should be chapter-scoped. If callers violate that invariant, omitting summaries is safer.
   const chapterPath = chapterPaths.length === 1 ? chapterPaths[0]! : '';
-  const graph = context?.run?.translationMode === 'literary'
+  let graph = context?.run?.translationMode === 'literary'
     ? buildProjectContextGraphBundle(
         projectId,
         items.map((item) => ({ id: item.id, text: item.text, contextPath: item.contextPath })),
@@ -508,6 +508,23 @@ export function buildTranslationBrief(
         String(context?.run?.targetLang || 'zh'),
       ) as Record<string, any> | null
     : null;
+  if (context?.run?.translationMode === 'literary' && !graph) {
+    // A book with no eligible Context Graph nodes can still have an explicit user glossary or
+    // source-evidenced LiteraryMemory. The previous null result skipped that entire merge path,
+    // so confirmed names silently disappeared from the actual translation request.
+    graph = {
+      policyVersion: 'context-graph-v5-language-pinned',
+      knowledgeBoundaryOrdinal: null,
+      currentChapter: chapterPath,
+      chapterSummaries: [],
+      characters: [],
+      entities: [],
+      relationships: [],
+      nameMappings: [],
+      styleGuide: { narrativeStyle: '', rules: [] },
+      constraints: ['Only source-visible explicit mappings and evidence-backed memory may be added to this empty graph.'],
+    };
+  }
   if (graph && Array.isArray(graph.nameMappings)) {
     const sourceText = [...visiblePrecedingSegments, ...items].map((item) => item.text).join('\n');
     const priorSourceText = visiblePrecedingSegments.map((item) => item.text).join('\n');
