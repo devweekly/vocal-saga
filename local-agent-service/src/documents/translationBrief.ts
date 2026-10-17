@@ -241,9 +241,10 @@ function buildTemporallyVisibleMemory(
 
   rawMemory.characterVoices = (Array.isArray(rawMemory.characterVoices) ? rawMemory.characterVoices : []).flatMap((profile: any) => {
     const rawEvidence = Array.isArray(profile.evidence) ? profile.evidence : [];
-    // VoiceCore is a summary of its evidence set. If any cited example is from this or a later
-    // batch, filtering only that example would still leak a profile synthesized from future voice.
-    if (!rawEvidence.length || rawEvidence.some((item: any) => {
+    // VoiceCore is an aggregate of its evidence set. If the evidence list was truncated for storage,
+    // the omitted items may include future-chapter dialogue; visible retained examples cannot prove
+    // the aggregate itself is temporally safe, so withhold the whole profile.
+    if (profile.evidenceTruncated === true || !rawEvidence.length || rawEvidence.some((item: any) => {
       if (!item || !isPrior(item.segmentId)) return true;
       const source = sourceById.get(item.segmentId);
       return !source || !sourceQuoteMatches(source.text, item.sourceQuote);
