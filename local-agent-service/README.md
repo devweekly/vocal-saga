@@ -103,7 +103,7 @@ Canonical proper-name mappings are handled separately from plot context. Preproc
 
 There are now two supported preprocessing entry paths. Direct original-file import (`npm run doc -- import-file` or `POST /api/documents/projects/import-file`) starts analysis during import. For the existing `fanyi-extension` document-reader flow, the extension sends its normalized segments to `POST /api/documents/projects`, checks the Context Graph version for that source revision, and starts or upgrades preprocessing when needed. The reader displays run phase, source revision, scan/sample counts, character/entity/relationship counts, invalid-evidence counts, errors and a retry action. Existing accepted translations and explicitly confirmed glossary mappings are preserved; a graph-derived target repairs an older unconfirmed AI suggestion but never silently replaces a user-confirmed translation.
 
-### Literary quality baseline (M0) and adaptive book scan (M1)
+### Literary quality baseline (M0), adaptive book scan and source feature index (M1/M2)
 
 M0 now has two checked-in regression corpora:
 
@@ -143,6 +143,17 @@ npm run doc -- run <documentId> --scope=all
 
 A before/after score is a deterministic signal, not a literary-quality verdict. Character voices (Alice’s hedging, the Caterpillar’s clipped repetition, the Cheshire Cat’s paradoxical replies, and the tea-party characters’ distinct registers) must be reviewed against the source with run identity hidden. For the service’s persisted, randomized blind packet and guarded A/B disclosure, use the M4 quality-evaluation API documented below.
 
+### Source feature index (M2, 2026-10-17)
+
+The literary preprocessor now emits a deterministic source feature index for each immutable source revision. `bookScan.ts` indexes entity/title candidates and their exact UTF-16 source offsets, sentence and quotation spans, dialogue signals, and lexical number/unit mentions. It keeps the source surface form and stable segment ID; these records are sampling and validation hints, not named-entity recognition facts.
+
+`contextGraph.ts` persists the index in SQLite `context_graph_source_features` under schema version `book-scan-index-v2`. The metadata row records scan limits and whether entity/text/quantity features were truncated. Reads require a matching version and a complete segment row set; an absent or incomplete index returns `null` so callers can use the deterministic scan fallback instead of mixing source revisions.
+
+The sample planner continues to cap model analysis at 72 samples and 850 source characters per sample. It now uses source-positioned multiword/title candidates, sampled occurrence offsets (only where the matched text is actually present in the model input), sentence/quotation repetition, dialogue-density and quantity hints. This improves explainability and sampling coverage without increasing the model's total sample budget.
+
+Quality audit prefers the persisted index when grouping repeated source sentences and quotations. It compares whole translations only when the whole source segment is the repeated sentence; for embedded quotations, it compares the corresponding target quotation where uniquely identifiable. Unalignable embedded phrases produce an informational manual-review finding rather than treating paragraph-level differences as proven phrase drift. Validated `context_delta.entity_mentions` also contributes explicit cross-batch target-surface consistency findings when source/alias identity is grounded. Neither finding triggers global replacement or automatic acceptance.
+
+`book-scan.test.mjs`, `document-context-graph.test.mjs` and `quality-audit.test.mjs` cover compound/title candidates, exact offsets, index persistence, repeated quote alignment, explicit entity mention drift, and the memory-write boundary. These tests validate deterministic behavior only; actual translation-quality benefit still requires a matched before/after run and blind review.
 ### Unified TranslationBrief, quality audit and paired evaluation (M2–M4)
 
 Literary runs now assemble one bounded `TranslationBrief` for each chapter-scoped batch. The initial translator, accuracy/terminology Reviewer and independent style/character-voice Reviewer receive the same time-filtered glossary, preceding-source context, read-only Context Graph and voice-memory selection. The brief is pinned to the run's source, Prompt and literary-memory revisions, has an 18,000-character serialized-context cap, and is persisted by `(runId, batchIndex)`. Run events record context hash/size, evidence boundary, selected item counts and reviewer input sizes; the run API can return the saved snapshot for diagnosis.
