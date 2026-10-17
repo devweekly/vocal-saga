@@ -179,7 +179,7 @@ export function sanitizeProjectLiteraryMemory(input: unknown): Record<string, an
     // stored evidence list. Mark those legacy profiles incomplete so temporal retrieval fails closed.
     const evidenceTruncated = item.evidenceTruncated === true ||
       (item.evidencePolicyVersion !== 'character-evidence-v2-complete' && rawEvidence.length >= 8);
-    const evidence = rawEvidence.slice(-8).flatMap((ev: any) => {
+    const evidence = rawEvidence.slice(-12).flatMap((ev: any) => {
       if (!ev || typeof ev !== 'object' || Array.isArray(ev)) return [];
       const segmentId = text(ev.segmentId, 160); const sourceQuote = text(ev.sourceQuote, 240);
       const observation = text(ev.observation, 240); const dimension = text(ev.dimension, 32);
