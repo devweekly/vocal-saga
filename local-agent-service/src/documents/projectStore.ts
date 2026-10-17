@@ -1475,16 +1475,30 @@ export class DocumentProjectStore {
     return true;
   }
 
-  markRunSegments(projectId: string, runId: string, segmentIds: string[], status: string, error?: string | null): void {
+  markRunSegments(projectId: string, runId: string, segmentIds: string[], status: string, error?: string | null): boolean {
     const db = this.openProjectDb(projectId);
-    const stmt = db.prepare('UPDATE run_segments SET status = ?, attempts = attempts + CASE WHEN ? = \'running\' THEN 1 ELSE 0 END, error = ?, updated_at = ? WHERE run_id = ? AND segment_id = ?');
+    const stmt = db.prepare(
+      'UPDATE run_segments SET status = ?, attempts = attempts + CASE WHEN ? = \'running\' THEN 1 ELSE 0 END, ' +
+      'error = ?, updated_at = ? WHERE run_id = ? AND segment_id = ?',
+    );
     const now = isoNow();
     db.exec('BEGIN IMMEDIATE');
     try {
+      const run = db.prepare('SELECT status FROM translation_runs WHERE run_id = ?').get(runId) as { status?: string } | undefined;
+      if (!run) throw Object.assign(new Error('找不到翻译运行：' + runId), { status: 404 });
+      if (['running', 'failed'].includes(status) && !['queued', 'running'].includes(String(run.status))) {
+        db.exec('ROLLBACK');
+        return false;
+      }
+      if (status === 'cancelled' && run.status !== 'cancelled') {
+        db.exec('ROLLBACK');
+        return false;
+      }
       for (const id of segmentIds) stmt.run(status, status, error ?? null, now, runId, id);
       db.exec('COMMIT');
+      return true;
     } catch (e) {
-      db.exec('ROLLBACK');
+      try { db.exec('ROLLBACK'); } catch { /* already rolled back */ }
       throw e;
     }
   }
