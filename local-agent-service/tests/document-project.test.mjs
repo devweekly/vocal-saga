@@ -484,3 +484,45 @@ test('Prompt revisions and Run creation cannot implicitly overwrite the server-o
     assert.equal(after.memory.entities[0]?.target, '国王');
   });
 });
+
+
+test('literary preprocessing readiness guard also rejects stale-running preprocessing before a resumed Run can restart', async () => {
+  await withStore((store) => {
+    const project = store.createProject({
+      title: 'Resume Preprocessing Guard',
+      format: 'txt',
+      sourceFileName: 'resume-preprocessing-guard.txt',
+      segments,
+      prompt: { translationMode: 'literary', sourceLang: 'en', targetLang: 'zh' },
+    });
+    ensureTestContextGraph(store, project);
+    const run = store.createRun(project.projectId, { scope: { type: 'all' } });
+    store.setRunStatus(project.projectId, run.runId, 'paused');
+
+    const { db, currentSourceRevisionId } = store.getProjectContext(project.projectId);
+    db.prepare(
+      "UPDATE context_graph_runs SET status = 'running', phase = 'model-analysis', progress_json = ? WHERE source_revision_id = ?",
+    ).run(JSON.stringify({
+      analysisVersion: 'context-graph-v5-language-pinned',
+      sourceLang: 'en',
+      targetLang: 'zh',
+    }), currentSourceRevisionId);
+
+    assert.throws(
+      () => store.assertLiteraryPreprocessingReady(project.projectId, run.sourceRevisionId, 'en', 'zh'),
+      /全书预处理仍在运行/,
+    );
+
+    db.prepare(
+      "UPDATE context_graph_runs SET status = 'completed', phase = 'completed', progress_json = ? WHERE source_revision_id = ?",
+    ).run(JSON.stringify({
+      analysisVersion: 'context-graph-v5-language-pinned',
+      sourceLang: 'en',
+      targetLang: 'ja',
+    }), currentSourceRevisionId);
+    assert.throws(
+      () => store.assertLiteraryPreprocessingReady(project.projectId, run.sourceRevisionId, 'en', 'zh'),
+      /全书预处理语言与当前翻译配置不一致/,
+    );
+  });
+});
