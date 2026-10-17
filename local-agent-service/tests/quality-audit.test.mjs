@@ -438,7 +438,7 @@ test('repeated quoted dialogue compares the translated quotation, not surroundin
 
   const aligned = runProjectQualityAudit(project.projectId);
   assert.equal(aligned.findings.some((item) =>
-    item.type === 'repeated-expression-drift' && item.sourceExcerpt === 'Keep the western lamp burning'), false,
+    item.type === 'repeated-expression-drift' && String(item.sourceExcerpt || '').replace(/[.!?。！？]+$/u, '') === 'Keep the western lamp burning'), false,
     'different surrounding narration must not look like a quotation translation inconsistency');
 
   store.saveManualEdit(project.projectId, 'quote-2', '伊文低声说：“别让西边的灯熄灭。”他随后锁上了身后的门。');
