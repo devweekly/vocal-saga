@@ -274,7 +274,10 @@ export async function handleDocumentProjectRequest(req: Request, res: Response, 
           projectId, run.sourceRevisionId, run.sourceLang || 'auto', run.targetLang || 'zh',
         );
       }
-      store.setRunStatus(projectId, runId, 'queued', null);
+      if (!store.setRunStatus(projectId, runId, 'queued', null)) {
+        sendJson(res, 409, { error: '运行已结束，不能继续恢复：' + store.getRunStatus(projectId, runId), run: store.getRun(projectId, runId) });
+        return true;
+      }
       const started = startProjectTranslationRun(projectId, runId);
       sendJson(res, 202, { run: store.getRun(projectId, runId), ...started });
       return true;
@@ -286,7 +289,11 @@ export async function handleDocumentProjectRequest(req: Request, res: Response, 
         sendJson(res, 409, { error: '运行已经结束：' + run.status, run });
         return true;
       }
-      store.setRunStatus(projectId, runId, 'cancelled', '用户请求停止');
+      if (!store.setRunStatus(projectId, runId, 'cancelled', '用户请求停止')) {
+        const latest = store.getRun(projectId, runId);
+        sendJson(res, 409, { error: '运行已结束，不能取消：' + latest.status, run: latest });
+        return true;
+      }
       store.markRunSegments(projectId, runId, run.segments.filter((item: any) => ['pending', 'running'].includes(item.status)).map((item: any) => item.id), 'cancelled');
       sendJson(res, 200, { run: store.getRun(projectId, runId) });
       return true;
