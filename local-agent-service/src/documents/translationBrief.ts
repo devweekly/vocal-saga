@@ -7,7 +7,7 @@ import { buildProjectVoiceContext } from './voiceContext.ts';
 import { buildProjectContextGraphBundle } from './contextGraph.ts';
 import { getDocumentProjectStore, normalizeDocumentTranslationStrategy } from './projectStore.ts';
 
-export const TRANSLATION_BRIEF_POLICY_VERSION = 'translation-brief-v3-auto-canonical-names';
+export const TRANSLATION_BRIEF_POLICY_VERSION = 'translation-brief-v4-temporal-glossary-boundary';
 export const MAX_TRANSLATION_BRIEF_CHARS = 18_000;
 
 export interface BriefSegment {
