@@ -5,7 +5,8 @@
  * or overwrite translations. Human blind review is recorded separately from deterministic metrics.
  */
 import { randomInt, randomUUID } from 'node:crypto';
-import { scanBookSegments, type BookScanSegment } from './bookScan.ts';
+import { scanBookSegments, type BookScanSegment, type RepeatedPhraseCandidate } from './bookScan.ts';
+import { readSourceFeatureIndex, type StoredSourceFeatureIndex } from './contextGraph.ts';
 import { getDocumentProjectStore } from './projectStore.ts';
 
 const MAX_REPEATED_EXPRESSION_GROUPS = 300;
@@ -745,6 +746,68 @@ function entityMentionDriftFindings(
   return findings;
 }
 
+function repeatedPhraseCandidatesFromSourceIndex(
+  segments: Array<{ id: string; text: string; contextPath: string }>,
+  sourceFeatureIndex: StoredSourceFeatureIndex,
+): RepeatedPhraseCandidate[] {
+  const sourceById = new Map(segments.map((segment) => [segment.id, segment]));
+  const grouped = new Map<string, {
+    text: string;
+    normalized: string;
+    unitType: 'sentence' | 'quotation';
+    segmentIds: string[];
+    segmentIdSet: Set<string>;
+    chapterKeys: string[];
+    chapterKeySet: Set<string>;
+  }>();
+  for (const [segmentId, features] of sourceFeatureIndex.segments) {
+    const segment = sourceById.get(segmentId);
+    if (!segment) continue;
+    for (const unit of features.textUnits) {
+      const normalizedValue = unit.normalized;
+      const wordCount = normalizedValue.split(' ').filter(Boolean).length;
+      if (normalizedValue.length < 12 || wordCount < 3) continue;
+      const text = segment.text.slice(unit.start, unit.end).trim();
+      if (!text) continue;
+      const key = normalizedValue + '\u0000' + unit.unitType;
+      const group = grouped.get(key) || {
+        text: text.slice(0, 180),
+        normalized: normalizedValue,
+        unitType: unit.unitType,
+        segmentIds: [],
+        segmentIdSet: new Set<string>(),
+        chapterKeys: [],
+        chapterKeySet: new Set<string>(),
+      };
+      if (!group.segmentIdSet.has(segmentId)) {
+        group.segmentIds.push(segmentId);
+        group.segmentIdSet.add(segmentId);
+      }
+      const chapter = segment.contextPath || '正文';
+      if (!group.chapterKeySet.has(chapter)) {
+        group.chapterKeys.push(chapter);
+        group.chapterKeySet.add(chapter);
+      }
+      grouped.set(key, group);
+    }
+  }
+  return Array.from(grouped.values())
+    .filter((group) => group.segmentIds.length > 1)
+    .map((group) => ({
+      text: group.text,
+      normalized: group.normalized,
+      unitType: group.unitType,
+      count: group.segmentIds.length,
+      firstSegmentId: group.segmentIds[0] || null,
+      lastSegmentId: group.segmentIds[group.segmentIds.length - 1] || null,
+      segmentIds: group.segmentIds.slice(0, 16),
+      segmentIdsTruncated: group.segmentIds.length > 16,
+      chapterKeys: group.chapterKeys.slice(0, 12),
+    }))
+    .sort((a, b) => b.count - a.count || b.chapterKeys.length - a.chapterKeys.length)
+    .slice(0, MAX_REPEATED_EXPRESSION_GROUPS);
+}
+
 function targetQuotationSpans(text: string): Array<{ start: number; end: number; text: string }> {
   const patterns = [
     /“([^”]{1,3000})”/gu,
@@ -765,6 +828,7 @@ function repeatedExpressionFindings(
   segments: Array<{ id: string; text: string; contextPath: string }>,
   translations: Map<string, string>,
   scopedIds?: Set<string>,
+  sourceFeatureIndex?: StoredSourceFeatureIndex | null,
 ) {
   const scanSegments: BookScanSegment[] = segments.map((segment, index) => ({
     id: segment.id,
@@ -773,7 +837,12 @@ function repeatedExpressionFindings(
     kind: 'paragraph',
     contextPath: segment.contextPath,
   }));
-  const scan = scanBookSegments(scanSegments, { maxRepeatedPhraseGroups: MAX_REPEATED_EXPRESSION_GROUPS });
+  const fallbackScan = sourceFeatureIndex
+    ? null
+    : scanBookSegments(scanSegments, { maxRepeatedPhraseGroups: MAX_REPEATED_EXPRESSION_GROUPS });
+  const repeatedPhrases = sourceFeatureIndex
+    ? repeatedPhraseCandidatesFromSourceIndex(segments, sourceFeatureIndex)
+    : fallbackScan!.repeatedPhrases;
   const sourceById = new Map(segments.map((segment) => [segment.id, segment]));
   const quoteUnitsBySegment = new Map<string, number>();
   for (const unit of scan.textUnits) {
@@ -783,7 +852,7 @@ function repeatedExpressionFindings(
   type AlignedRow = { id: string; text: string };
   type AlignmentGroup = { method: 'whole-segment' | 'quoted-span'; rows: AlignedRow[] };
   const findings: any[] = [];
-  for (const phrase of scan.repeatedPhrases) {
+  for (const phrase of repeatedPhrases) {
     const occurrenceUnits = scan.textUnits.filter((unit) =>
       unit.unitType === phrase.unitType && unit.normalized === phrase.normalized &&
       (!scopedIds || scopedIds.has(unit.segmentId)));
@@ -922,7 +991,8 @@ function runMetrics(projectId: string, runId: string): any {
   ).filter((item) => item.category === 'terminology');
   const numbers = numericFindings(normalizedSegments, translationById);
   const scopedIds = new Set(segments.map((item) => item.id));
-  const repeated = repeatedExpressionFindings(normalizedSegments, translationById, scopedIds);
+  const storedSourceIndex = readSourceFeatureIndex(db, currentSourceRevisionId);
+  const repeated = repeatedExpressionFindings(normalizedSegments, translationById, scopedIds, storedSourceIndex);
   const findings = db.prepare('SELECT category, finding_json FROM review_findings WHERE run_id = ?').all(runId) as any[];
   const styleFindings = findings.filter((row) => row.category === 'style').length;
   const voiceFindings = findings.filter((row) => {
@@ -1018,7 +1088,8 @@ export function runProjectQualityAudit(projectId: string, runId?: string): Recor
   }));
   const termFindings = terminologyFindings(segments, translations, memory);
   const numberFindings = numericFindings(segments, translations);
-  const repeatedFindings = repeatedExpressionFindings(segments, translations);
+  const storedSourceIndex = readSourceFeatureIndex(context.db, context.currentSourceRevisionId);
+  const repeatedFindings = repeatedExpressionFindings(segments, translations, undefined, storedSourceIndex);
   const presentIds = new Set(segments.map((segment) => segment.id));
   const outputFindings = translationOutputValidationFindings(context.db, runId, presentIds);
   const contextFindings = translationContextDeltaFindings(context.db, runId, presentIds, context.currentSourceRevisionId);
@@ -1063,6 +1134,9 @@ export function runProjectQualityAudit(projectId: string, runId?: string): Recor
     createdAt: new Date().toISOString(),
     analysisLimits: {
       repeatedExpressionGroupsAnalyzed: MAX_REPEATED_EXPRESSION_GROUPS,
+      sourceFeatureIndexVersion: storedSourceIndex?.indexVersion || null,
+      sourceFeatureIndexUsed: Boolean(storedSourceIndex),
+      sourceFeatureIndexSegments: storedSourceIndex?.sourceSegmentCount || 0,
       maximumLocationsListedPerRepeatedExpression: MAX_REPEATED_EXPRESSION_LOCATIONS_PER_FINDING,
       maximumSegmentsForFindingLevelRepair: MAX_BULK_REPAIR_SEGMENTS,
       note: '全书原文参与确定性扫描；为控制报告规模，重复表达最多分析前 300 个高频候选组，单组最多列出 500 个位置。更大范围必须显式选 segmentIds 返工。',
