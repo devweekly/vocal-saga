@@ -814,6 +814,8 @@ function targetQuotationSpans(text: string): Array<{ start: number; end: number;
     /"([^"]{1,3000})"/gu,
     /「([^」]{1,3000})」/gu,
     /『([^』]{1,3000})』/gu,
+    /‘([^’]{8,3000})’/gu,
+    /'([^']{8,3000})'/gu,
   ];
   const spans: Array<{ start: number; end: number; text: string }> = [];
   for (const pattern of patterns) for (const match of text.matchAll(pattern)) {
