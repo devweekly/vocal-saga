@@ -1726,6 +1726,107 @@ export class DocumentProjectStore {
     this.catalogDb().prepare('UPDATE document_projects SET updated_at = ? WHERE project_id = ?').run(now, projectId);
     return result;
   }
+  finishRun(projectId: string, runId: string): any {
+    const db = this.openProjectDb(projectId);
+    const status = this.getRunStatus(projectId, runId);
+    if (status === 'cancelled' || status === 'paused') return this.getRun(projectId, runId);
+    const counts = db.prepare(
+      'SELECT status, COUNT(*) AS count FROM run_segments WHERE run_id = ? GROUP BY status',
+    ).all(runId) as any[];
+    const values = Object.fromEntries(counts.map((row) => [row.status, Number(row.count)]));
+    const candidates = Number(values.candidate || 0);
+    const accepted = Number(values.accepted || 0);
+    const failures = Number(values.failed || 0);
+    const pending = Number(values.pending || 0) + Number(values.running || 0);
+    const finalStatus: RunStatus = pending > 0 ? 'paused' : candidates > 0 ? 'awaiting_acceptance'
+      : failures > 0 ? (accepted > 0 ? 'partial' : 'failed') : 'completed';
+    this.setRunStatus(projectId, runId, finalStatus,
+      failures ? (String(failures) + ' 个片段失败，可重试失败范围') : null);
+    return this.getRun(projectId, runId);
+  }
+
+  acceptCandidates(projectId: string, runId: string, segmentIds?: string[]): any {
+    const db = this.openProjectDb(projectId);
+    const only = segmentIds?.length ? new Set(segmentIds) : null;
+    const now = isoNow();
+    let accepted = 0;
+    const preservedManual: string[] = [];
+    let finalStatus: RunStatus = 'completed';
+    let terminalError: string | null = null;
+
+    // The Run-state guard, candidate selection and acceptance writes share one write lock.
+    db.exec('BEGIN IMMEDIATE');
+    try {
+      const run = db.prepare('SELECT status FROM translation_runs WHERE run_id = ?').get(runId) as { status?: string } | undefined;
+      if (!run) throw Object.assign(new Error('找不到翻译运行：' + runId), { status: 404 });
+      if (['cancelled', 'paused', 'queued', 'running'].includes(String(run.status))) {
+        throw Object.assign(
+          new Error('运行处于 ' + run.status + ' 状态，不能采纳候选译文；请先完成或恢复运行。'),
+          { status: 409 },
+        );
+      }
+      const rows = db.prepare(
+        'SELECT rs.segment_id, rs.candidate_result_id FROM run_segments rs ' +
+        "WHERE rs.run_id = ? AND rs.status = 'candidate' AND rs.candidate_result_id IS NOT NULL",
+      ).all(runId) as any[];
+      for (const row of rows) {
+        if (only && !only.has(row.segment_id)) continue;
+        const candidate = db.prepare(
+          'SELECT rowid AS seq, source_hash FROM translation_results WHERE result_id = ? AND run_id = ?',
+        ).get(row.candidate_result_id, runId) as { seq?: number; source_hash?: string } | undefined;
+        if (!candidate) throw Object.assign(new Error('候选译文记录已丢失，拒绝采纳片段：' + row.segment_id), { status: 409 });
+        const sameSourceManual = db.prepare(
+          "SELECT result_id FROM translation_results WHERE segment_id = ? AND accepted = 1 AND origin = 'manual' AND source_hash = ? ORDER BY rowid DESC LIMIT 1",
+        ).get(row.segment_id, candidate.source_hash);
+        const newerManual = db.prepare(
+          "SELECT result_id FROM translation_results WHERE segment_id = ? AND accepted = 1 AND origin = 'manual' AND rowid > ? ORDER BY rowid DESC LIMIT 1",
+        ).get(row.segment_id, candidate.seq);
+        if (sameSourceManual || newerManual) {
+          preservedManual.push(row.segment_id);
+          db.prepare(
+            "UPDATE run_segments SET status = 'accepted', updated_at = ? WHERE run_id = ? AND segment_id = ?",
+          ).run(now, runId, row.segment_id);
+          continue;
+        }
+        db.prepare(
+          'UPDATE translation_results SET accepted = 1, accepted_at = ? WHERE result_id = ? AND run_id = ?',
+        ).run(now, row.candidate_result_id, runId);
+        db.prepare(
+          "UPDATE run_segments SET status = 'accepted', updated_at = ? WHERE run_id = ? AND segment_id = ?",
+        ).run(now, runId, row.segment_id);
+        accepted++;
+      }
+
+      const counts = db.prepare(
+        'SELECT status, COUNT(*) AS count FROM run_segments WHERE run_id = ? GROUP BY status',
+      ).all(runId) as Array<{ status: string; count: number }>;
+      const values = Object.fromEntries(counts.map((item) => [item.status, Number(item.count)]));
+      const candidates = Number(values.candidate || 0);
+      const pending = Number(values.pending || 0) + Number(values.running || 0);
+      const failures = Number(values.failed || 0);
+      const acceptedCount = Number(values.accepted || 0);
+      if (pending > 0) throw Object.assign(new Error('运行仍包含待处理或执行中的片段，拒绝结束采纳事务。'), { status: 409 });
+      if (candidates > 0) finalStatus = acceptedCount > 0 && failures > 0 ? 'partial' : 'awaiting_acceptance';
+      else if (failures > 0) finalStatus = acceptedCount > 0 ? 'partial' : 'failed';
+      else finalStatus = 'completed';
+      terminalError = failures ? String(failures) + ' 个片段失败，可重试失败范围' : null;
+      db.prepare('UPDATE translation_runs SET status = ?, error = ?, finished_at = ? WHERE run_id = ?')
+        .run(finalStatus, terminalError, now, runId);
+      db.exec('COMMIT');
+    } catch (error) {
+      try { db.exec('ROLLBACK'); } catch { /* already rolled back */ }
+      throw error;
+    }
+
+    this.addEvent(projectId, runId, 'run.' + finalStatus, { error: terminalError || undefined });
+    this.addEvent(projectId, runId, 'translations.accepted', {
+      count: accepted,
+      preservedManualSegmentIds: preservedManual,
+      segmentIds: only ? Array.from(only) : undefined,
+    });
+    return this.getRun(projectId, runId);
+  }
+
   /**
    * 将旧阅读器/IndexedDB 已有的译文一次性纳入项目版本库。只填充当前来源中尚无
    * accepted 译文的片段，不覆盖本机 workspace 已经版本化的人工修订或 Agent 结果。
