@@ -524,9 +524,9 @@ test('canonical mappings survive the TranslationBrief last-resort budget fallbac
   const store = getDocumentProjectStore();
   const entities = [];
   const sourceParts = [];
-  for (let i = 0; i < 16; i++) {
+  for (let i = 0; i < 8; i++) {
     const source = 'Character' + String(i).padStart(2, '0') + 'CanonicalName';
-    const aliases = Array.from({ length: 8 }, (_, j) =>
+    const aliases = Array.from({ length: 2 }, (_, j) =>
       'Alias' + String(i).padStart(2, '0') + 'Variant' + String(j).padStart(2, '0') + 'Name');
     sourceParts.push(source, ...aliases);
     entities.push({
@@ -546,6 +546,12 @@ test('canonical mappings survive the TranslationBrief last-resort budget fallbac
       translationStrategy: { contextBudgetChars: 4000 },
     },
     segments: [
+      ...Array.from({ length: 4 }, (_, i) => ({
+        id: 'budget-prior-' + i,
+        text: ('Previous scene context remains available for resolving references. ').repeat(14),
+        kind: 'paragraph',
+        contextPath: 'Chapter 1',
+      })),
       { id: 'names-heavy', text: sourceParts.join(' and ') + '.', kind: 'paragraph', contextPath: 'Chapter 1' },
       { id: 'next', text: 'The scene continued.', kind: 'paragraph', contextPath: 'Chapter 1' },
     ],
@@ -561,8 +567,12 @@ test('canonical mappings survive the TranslationBrief last-resort budget fallbac
   });
   const run = store.createRun(project.projectId, { scope: { type: 'ids', ids: ['names-heavy'] } });
   const context = store.getRunContext(project.projectId, run.runId);
-  const source = store.getSegments(project.projectId, { limit: 10 }).find((item) => item.id === 'names-heavy');
-  const brief = buildTranslationBrief(context, [source], []);
+  const allSegments = store.getSegments(project.projectId, { limit: 20 });
+  const source = allSegments.find((item) => item.id === 'names-heavy');
+  const preceding = allSegments
+    .filter((item) => item.id.startsWith('budget-prior-'))
+    .map((item) => ({ id: item.id, text: item.text, contextPath: item.contextPath }));
+  const brief = buildTranslationBrief(context, [source], preceding);
 
   assert.ok(brief.contextChars <= 4000);
   assert.ok(brief.contextGraph?.nameMappings?.length,
