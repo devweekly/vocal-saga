@@ -147,7 +147,7 @@ export function validateTranslationContextDelta(
     const aliases = Array.from(new Set(aliasesRaw.map((alias) => text(alias, 80)).filter((alias) =>
       alias && normalized(alias) !== normalized(canonicalSource) &&
       segments.some((segment) => hasName(segment.text, alias)) &&
-      evidence.some((entry) => hasName(entry.sourceQuote, alias),
+      evidence.some((entry) => hasName(entry.sourceQuote, alias)
     ))).slice(0, 8);
     const localId = (idPrefix + originalLocalId).slice(0, 80);
     localIds.set(originalLocalId, localId);
