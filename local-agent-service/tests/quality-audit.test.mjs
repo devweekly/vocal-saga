@@ -406,6 +406,7 @@ test('book audit reports conflicting context-delta name proposals across source-
     }],
     entityMentions: [], relationshipDeltas: [], openQuestions: [], conflicts: [],
   }, { entityCandidateCount: 1 });
+  store.finishRun(project.projectId, run.runId);
 
   const report = runProjectQualityAudit(project.projectId, run.runId);
   const finding = report.findings.find((item) => item.type === 'context-delta-conflict');
