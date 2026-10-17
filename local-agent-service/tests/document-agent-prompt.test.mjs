@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildBatches, buildCanonicalTermProtections, buildUserPrompt, maskCanonicalTermText, protectCanonicalReviewSegments, restoreCanonicalTermMarkers } from '../src/documents/translationAgent.ts';
+import { buildBatches, buildCanonicalTermProtections, buildStandaloneReviewContextGraph, buildUserPrompt, maskCanonicalTermText, protectCanonicalReviewSegments, restoreCanonicalTermMarkers } from '../src/documents/translationAgent.ts';
 import { normalizeDocumentTranslationStrategy } from '../src/documents/projectStore.ts';
 import { buildProjectVoiceContext } from '../src/documents/voiceContext.ts';
 import { isLiteraryReviewFindingGrounded } from '../src/literary.ts';
@@ -459,4 +459,31 @@ test('Reviewer findings require excerpts grounded in the actual source and draft
     false,
     'findings without source evidence remain non-actionable',
   );
+});
+
+
+test('standalone re-review receives explicit canonical mappings without future-only aliases', () => {
+  const input = {
+    segments: [{
+      id: 'current',
+      source: 'But Timsen was much too clever to allow the King to see through him.',
+      draft: '可廷森精得很，绝不会让大王看穿他。',
+    }],
+    precedingSegments: [{ id: 'prior', text: 'The King was known around the camp.', contextPath: 'Chapter 1' }],
+    memory: {
+      entities: [{
+        source: 'the King', target: '国王', aliases: ['King', 'Pirate Queen'],
+        reviewStatus: 'confirmed', kind: 'person',
+      }],
+    },
+  };
+  const graph = buildStandaloneReviewContextGraph(input);
+  const mapping = graph.nameMappings.find((item) => item.source === 'the King');
+  assert.equal(mapping?.target, '国王');
+  assert.ok(mapping?.aliases.includes('King'));
+  assert.ok(!mapping?.aliases.includes('Pirate Queen'),
+    'the legacy Review endpoint must not serialize an alias that appears only in future book memory');
+  const protections = buildCanonicalTermProtections(input.segments, graph);
+  assert.ok(protections.some((item) => item.target === '国王'),
+    'standalone re-review must use the same deterministic canonical-name protection as Project Runs');
 });
