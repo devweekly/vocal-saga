@@ -409,7 +409,7 @@ function parseTranslations(value: unknown, expectedIds: Set<string>): {
   };
 }
 
-async function translateBatch(context: any, items: TranslationItem[], requestId: string, batchIndex: number, precedingSegments: TranslationItem[] = [], translationBrief?: TranslationBrief): Promise<Map<string, string>> {
+async function translateBatch(context: any, items: TranslationItem[], requestId: string, batchIndex: number, precedingSegments: TranslationItem[] = [], translationBrief?: TranslationBrief): Promise<{ translations: Map<string, string>; contextDelta: ValidatedTranslationContextDelta }> {
   const agent = parseAgentModel(context.run.model || 'auto', context.run.provider || 'workbuddy');
   const contextGraph = translationBrief?.contextGraph ?? null;
   const userPrompt = buildUserPrompt(
@@ -523,7 +523,36 @@ async function translateBatch(context: any, items: TranslationItem[], requestId:
     missingIds: missingIds.slice(0, 12),
     missingCount: missingIds.length,
   });
-  return translations;
+
+  // context_delta 与译文本体隔离验证。即使元数据失真、引用越界或译文没有落点，
+  // 也只丢弃对应上下文候选，不能让一份有效的初译响应变成失败。
+  const deltaResult = context.run.translationMode === 'literary'
+    ? validateTranslationContextDelta(
+        value && typeof value === 'object' && !Array.isArray(value)
+          ? (value as Record<string, unknown>).context_delta : undefined,
+        items,
+        translations,
+        requestId.slice(-24) + ':',
+        Array.isArray(context.memory?.entities) ? context.memory.entities : [],
+      )
+    : { delta: emptyTranslationContextDelta(), diagnostics: null };
+  const deltaDiagnostics = deltaResult.diagnostics;
+  if (context.run.translationMode === 'literary') {
+    store.appendEvent(context.project.projectId, context.run.runId, 'translation.context-delta.parsed', {
+      batchIndex, requestId,
+      acceptedEntityCandidates: deltaDiagnostics!.acceptedEntityCandidates,
+      rejectedEntityCandidates: deltaDiagnostics!.rejectedEntityCandidates,
+      acceptedEntityMentions: deltaDiagnostics!.acceptedEntityMentions,
+      rejectedEntityMentions: deltaDiagnostics!.rejectedEntityMentions,
+      acceptedRelationships: deltaDiagnostics!.acceptedRelationships,
+      rejectedRelationships: deltaDiagnostics!.rejectedRelationships,
+      acceptedOpenQuestions: deltaDiagnostics!.acceptedOpenQuestions,
+      rejectedOpenQuestions: deltaDiagnostics!.rejectedOpenQuestions,
+      acceptedConflicts: deltaDiagnostics!.acceptedConflicts,
+      rejectedConflicts: deltaDiagnostics!.rejectedConflicts,
+    });
+  }
+  return { translations, contextDelta: deltaResult.delta };
 }
 
 async function runLiteraryReviewWithMissingRetry(input: Record<string, any>, requestId: string, sessionScope: string): Promise<any> {
