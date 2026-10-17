@@ -42,7 +42,7 @@ test('TranslationBrief is revision-pinned, bounded and hashes the source selecti
   assert.equal(first.memoryRevisionId, run.literaryMemoryRevisionId);
   assert.deepEqual(first.sourceSegmentIds, ['c1-1']);
   assert.equal(first.chapterPath, 'Chapter 1');
-  assert.equal(first.policyVersion, 'translation-brief-v2-dynamic-context');
+  assert.equal(first.policyVersion, 'translation-brief-v3-auto-canonical-names');
   assert.ok(first.contextChars <= MAX_TRANSLATION_BRIEF_CHARS);
   assert.match(first.contextHash, /^[a-f0-9]{64}$/);
   assert.notEqual(first.contextHash, second.contextHash, 'context identity changes when source IDs and preceding context change');
@@ -52,7 +52,7 @@ test('TranslationBrief is revision-pinned, bounded and hashes the source selecti
   assert.equal(snapshots.length, 1);
   assert.equal(snapshots[0].contextHash, first.contextHash);
   assert.deepEqual(snapshots[0].sourceSegmentIds, ['c1-1']);
-  assert.equal(snapshots[0].brief.policyVersion, 'translation-brief-v2-dynamic-context');
+  assert.equal(snapshots[0].brief.policyVersion, 'translation-brief-v3-auto-canonical-names');
 
   const configuredContext = {
     ...context,
