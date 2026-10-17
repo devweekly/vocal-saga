@@ -118,6 +118,41 @@ test('retrieval injects matched graph records and excludes future chapter summar
   assert.deepEqual(incremental.map((item) => item.payload.sequence), [3]);
 });
 
+test('current-batch aliases do not suppress evidence-backed automatic canonical name mappings', () => {
+  const store = getDocumentProjectStore();
+  const project = store.createProject({
+    title: 'Auto Canonical Mapping Test',
+    format: 'txt',
+    sourceFileName: 'auto-canonical-mapping.txt',
+    segments: [
+      { id: 'king-first', text: 'Timsen had been taken up by the King.', kind: 'paragraph', contextPath: 'Chapter 1' },
+      { id: 'king-next', text: 'The King looked through the papers.', kind: 'paragraph', contextPath: 'Chapter 1' },
+    ],
+  });
+  const { db, currentSourceRevisionId } = store.getProjectContext(project.projectId);
+  getContextGraph(project.projectId);
+  const now = new Date().toISOString();
+  db.prepare(
+    'INSERT INTO context_graph_nodes(node_id, source_revision_id, kind, name, normalized_name, attributes_json, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+  ).run(
+    'node-the-king', currentSourceRevisionId, 'character', 'the King', 'the king',
+    JSON.stringify({ aliases: ['King'], suggestedTranslation: '国王', targetLang: 'zh' }),
+    'candidate', now, now,
+  );
+  db.prepare(
+    'INSERT INTO context_graph_evidence(source_revision_id, node_id, edge_id, segment_id, quote, role, created_at) VALUES (?, ?, NULL, ?, ?, ?, ?)',
+  ).run(currentSourceRevisionId, 'node-the-king', 'king-first', 'the King', 'character', now);
+
+  const bundle = buildProjectContextGraphBundle(project.projectId, [
+    { id: 'king-first', text: 'Timsen had been taken up by the King.', contextPath: 'Chapter 1' },
+  ]);
+  const mapping = bundle?.nameMappings.find((item) => item.source === 'the King');
+  assert.ok(mapping, 'the canonical mapping must be exposed when its alias first appears in the current segment');
+  assert.equal(mapping.target, '国王');
+  assert.equal(mapping.sourceStatus, 'auto',
+    'valid source evidence activates canonical naming without a per-entity confirmation click');
+});
+
 test('Context Graph changes are rejected while a translation run is active', () => {
   const store = getDocumentProjectStore();
   const project = store.listProjects().find((item) => item.title === 'Context Graph Test');
