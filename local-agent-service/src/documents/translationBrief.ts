@@ -195,7 +195,9 @@ function buildTemporallyVisibleMemory(
     // never leak into a batch where neither the source nor an alias is visible.
     const explicitCanonicalMapping = entity?.reviewStatus === 'confirmed' &&
       evidenceRefs.length === 0 && !String(entity?.evidence || '').trim();
-    const visibleInCurrentBatch = items.some((item) => sourceNameMatches(item.text, entity?.source));
+    const visibleInCurrentBatch = items.some((item) =>
+      sourceNameMatches(item.text, entity?.source) ||
+      aliases.some((alias: unknown) => sourceNameMatches(item.text, alias)));
     if (!entity || (!appearedBefore(entity.source) &&
         !(explicitCanonicalMapping && visibleInCurrentBatch))) return [];
     const priorEvidenceRefs = evidenceRefs.filter((ref: any) => {
@@ -211,7 +213,8 @@ function buildTemporallyVisibleMemory(
       ? priorEvidenceRefs.length > 0
       : sourceNameMatches(entity.evidence, entity.source) && appearsAsEarlierEvidence(entity.evidence));
     if (!evidenceVisible) return [];
-    const visibleAliases = aliases.filter((alias: unknown) => appearedBefore(alias));
+    const visibleAliases = aliases.filter((alias: unknown) =>
+      appearedBefore(alias) || items.some((item) => sourceNameMatches(item.text, alias)));
     return [{
       ...entity,
       aliases: visibleAliases,
@@ -560,8 +563,8 @@ export function buildTranslationBrief(
       const source = String(entity?.source || '').trim();
       const target = String(entity?.target || '').trim();
       const evidence = String(entity?.evidence || '').trim();
-      if (!source || !target || !sourceVisible(source)) continue;
       const rawAliases = Array.isArray(entity.aliases) ? entity.aliases : [];
+      if (!source || !target || (!sourceVisible(source) && !rawAliases.some((alias: unknown) => sourceVisible(alias)))) continue;
       const aliasesVisibleAtBoundary = rawAliases.every((alias: unknown) =>
         firstMatchingSourceOrdinal(projectContext.db, sourceRevisionId, alias, 'name') < firstOrdinal ||
         sourceNameMatches(sourceText, alias));
