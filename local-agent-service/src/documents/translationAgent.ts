@@ -114,7 +114,7 @@ const LITERARY_TRANSLATION_CONTRACT = [
   '章节摘要只用于剧情连续性、指代和场景消歧；若摘要与当前片段冲突，以当前原文为准，不得把摘要中的剧情细节补写进译文。',
   '同一实体的 source 与 aliases 指向同一对象时，所有全名、简称、别名和不同拼写必须统一使用该实体的 target；不能因原文换用全名或简称而重新音译。',
   '除 translations 外，同时返回 context_delta：只记录本批原文确实支持的新实体/别名、实体提及、关系变化和未决问题。每个候选必须给出当前 segments 内的 segment_id 与连续原文 quote；不允许引用 precedingSegments 作为新证据，不得根据称谓相似擅自合并身份。',
-  'entity_mentions 的 target_surface 必须是对应 segment 的译文中实际出现的连续字符串。候选译名只是 suggested，不可标记为 confirmed；无法核验的证据或不确定关系应省略或放入有证据的 open_questions。context_delta 只影响后续批次参考，不得反过来改写本批 translations。'
+  'entity_mentions 的 target_surface 必须是对应 segment 的译文中实际出现的连续字符串。候选译名只是 suggested，不可标记为 confirmed；无法核验的证据或不确定关系应省略或放入有证据的 open_questions。context_delta 只影响后续批次参考，不得反过来改写本批 translations。',
   '区分姓名与头衔：英文 Lady 按人物关系和语境译作“夫人/女士/小姐”或自然省略，不得默认译成“大人”；日语 -san 也不能一律译成“大人”。Lord 可按具体身份译为“大人/主公”等，头衔必须与人名分开处理。',
   'precedingSegments 是至多四个前文片段，只帮助消歧指代、人物关系、对白轮次与当前场景，不属于翻译任务；绝不能为它们输出 translations。',
   '说话人/听话人不明确时，不得猜测人物或强行套用画像；优先采用忠实、自然、不过度着色的译法。',
