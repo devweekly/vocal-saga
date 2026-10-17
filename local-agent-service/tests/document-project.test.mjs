@@ -633,3 +633,63 @@ test('batch candidate commit persists all valid rows and individual writes share
     );
   });
 });
+
+
+test('Reviewer candidate revisions and findings commit together and cannot persist after cancellation', async () => {
+  await withStore((store) => {
+    const project = store.createProject({ title: 'Atomic Review Commit', format: 'epub', segments });
+    const run = store.createRun(project.projectId, { scope: { type: 'all' } });
+    store.saveCandidates(project.projectId, run.runId, [
+      { segmentId: 'ch1-p1', text: '原始候选译文。' },
+      { segmentId: 'ch1-p2', text: '第二段候选译文。' },
+    ]);
+    const db = new DatabaseSync(path.join(store.rootDir, project.projectId, 'project.sqlite'));
+    try {
+      const finding = {
+        id: 'ch1-p1',
+        category: 'accuracy',
+        reason: '当前译文有可核验的漏译。',
+        sourceExcerpt: 'The door was open.',
+        draftExcerpt: '门关着。',
+      };
+      assert.equal(store.saveCandidates(
+        project.projectId,
+        run.runId,
+        [{ segmentId: 'ch1-p1', text: '门开着。' }],
+        [{ segmentId: 'ch1-p1', finding }],
+      ), true);
+      assert.equal(
+        store.getRun(project.projectId, run.runId).segments.find((item) => item.id === 'ch1-p1')?.candidateTranslation,
+        '门开着。',
+      );
+      assert.equal(
+        Number(db.prepare('SELECT COUNT(*) AS count FROM review_findings WHERE run_id = ?').get(run.runId).count),
+        1,
+        'the review finding and the corrected candidate are committed together',
+      );
+
+      store.setRunStatus(project.projectId, run.runId, 'cancelled', '用户请求停止');
+      const candidatesBefore = Number(
+        db.prepare('SELECT COUNT(*) AS count FROM translation_results WHERE run_id = ?').get(run.runId).count,
+      );
+      assert.equal(store.saveCandidates(
+        project.projectId,
+        run.runId,
+        [{ segmentId: 'ch1-p2', text: '不应写入的迟到修订。' }],
+        [{ segmentId: 'ch1-p2', finding: { category: 'accuracy', reason: '迟到建议。' } }],
+      ), false);
+      assert.equal(
+        Number(db.prepare('SELECT COUNT(*) AS count FROM translation_results WHERE run_id = ?').get(run.runId).count),
+        candidatesBefore,
+        'a canceled run cannot persist a late Reviewer correction',
+      );
+      assert.equal(
+        Number(db.prepare('SELECT COUNT(*) AS count FROM review_findings WHERE run_id = ?').get(run.runId).count),
+        1,
+        'a canceled run cannot persist a late finding either',
+      );
+    } finally {
+      db.close();
+    }
+  });
+});
