@@ -662,8 +662,14 @@ async function translateBatch(context: any, items: TranslationItem[], requestId:
   for (const [id, rawTranslation] of parsed.translations) {
     const maskedSource = maskedSourceById.get(id) || '';
     const expectedMarkers = termProtections.filter((item) => maskedSource.includes(item.marker));
-    for (const item of expectedMarkers) {
-      if (!rawTranslation.includes(item.marker)) missingProtectedMarkers.add(id);
+    const missingForSegment = expectedMarkers.filter((item) => !rawTranslation.includes(item.marker));
+    if (missingForSegment.length) {
+      // A mapped source name was present, but the model dropped its protected token. Do not
+      // persist a potentially inconsistent translation; leave this ID missing so the existing
+      // bounded retry asks for this segment again. If the retry still drops the token, the
+      // segment is explicitly failed instead of silently saving a wrong canonical name.
+      missingProtectedMarkers.add(id);
+      continue;
     }
     translations.set(id, restoreCanonicalTermMarkers(rawTranslation, termProtections, 'target'));
   }
@@ -671,8 +677,10 @@ async function translateBatch(context: any, items: TranslationItem[], requestId:
     store.appendEvent(context.project.projectId, context.run.runId, 'canonical-terms.protected', {
       stage: 'translate', batchIndex, requestId,
       mappingCount: termProtections.length,
-      protectedSegmentCount: Array.from(maskedSourceById.values()).filter((text) => text !== '').length,
+      protectedSegmentCount: Array.from(maskedSourceById.values()).filter((text) =>
+        termProtections.some((item) => text.includes(item.marker))).length,
       missingMarkerSegmentIds: Array.from(missingProtectedMarkers).slice(0, 20),
+      rejectedSegmentCount: missingProtectedMarkers.size,
     });
   }
   if (outputDiagnostics.duplicateCount || outputDiagnostics.unexpectedCount || outputDiagnostics.malformedRowCount) {
