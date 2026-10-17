@@ -145,6 +145,7 @@ test('compound titles retain articles and expose source-positioned entity, dialo
   const compound = scan.nameCandidates.find((candidate) => candidate.name === 'The King Rat');
   assert.ok(compound, 'a leading article must not cause the entire compound candidate to be dropped');
   assert.equal(compound.mentions, 2);
+  assert.equal(compound.tokenCount, 2, 'The should be removed as an article without stripping the next token King');
   const articleTitle = scan.entityMentions.find((mention) => mention.segmentId === 'king-early' && mention.surface === 'The King');
   assert.ok(articleTitle);
   assert.equal(segments[0].text.slice(articleTitle.start, articleTitle.end), 'The King');
