@@ -185,8 +185,15 @@ function buildTemporallyVisibleMemory(
 
   rawMemory.entities = (Array.isArray(rawMemory.entities) ? rawMemory.entities : []).flatMap((entity: any) => {
     const aliases = Array.isArray(entity?.aliases) ? entity.aliases : [];
-    if (!entity || !appearedBefore(entity.source)) return [];
     const evidenceRefs = Array.isArray(entity.evidenceRefs) ? entity.evidenceRefs : [];
+    // A complete, explicitly confirmed source→target mapping is user-authored authority.
+    // It may activate on the first visible mention without model-generated evidence, but must
+    // never leak into a batch where neither the source nor an alias is visible.
+    const explicitCanonicalMapping = entity?.reviewStatus === 'confirmed' &&
+      evidenceRefs.length === 0 && !String(entity?.evidence || '').trim();
+    const visibleInCurrentBatch = items.some((item) => sourceNameMatches(item.text, entity?.source));
+    if (!entity || (!appearedBefore(entity.source) &&
+        !(explicitCanonicalMapping && visibleInCurrentBatch))) return [];
     const priorEvidenceRefs = evidenceRefs.filter((ref: any) => {
       if (!ref || !isPrior(ref.segmentId)) return false;
       const source = sourceById.get(ref.segmentId);
@@ -196,9 +203,9 @@ function buildTemporallyVisibleMemory(
     // Dynamic candidates retain their exact source segment. A later observation cannot become
     // visible merely because the same character title happened to occur in an earlier chapter.
     // Legacy/user-authored mappings keep the older quote-based validation when no refs exist.
-    const evidenceVisible = evidenceRefs.length
+    const evidenceVisible = explicitCanonicalMapping || (evidenceRefs.length
       ? priorEvidenceRefs.length > 0
-      : sourceNameMatches(entity.evidence, entity.source) && appearsAsEarlierEvidence(entity.evidence);
+      : sourceNameMatches(entity.evidence, entity.source) && appearsAsEarlierEvidence(entity.evidence));
     if (!evidenceVisible) return [];
     const visibleAliases = aliases.filter((alias: unknown) => appearedBefore(alias));
     return [{
@@ -519,15 +526,20 @@ export function buildTranslationBrief(
       // New dynamic memory has segment-specific provenance. Do not fall back to searching the
       // same quotation elsewhere in the book, because duplicate prose can predate the observation.
       // Legacy/user-authored mappings without evidenceRefs retain the source-quote fallback.
-      const evidenceVisible = Array.isArray(entity.evidenceRefs) && entity.evidenceRefs.length
-        ? visibleEvidenceRefs.length > 0
-        : !!evidence && (
-            firstMatchingSourceOrdinal(projectContext.db, sourceRevisionId, evidence, 'quote') < firstOrdinal ||
-            normalizedSourceText(sourceText).includes(normalizedSourceText(evidence)));
+      const explicitCanonicalMapping = entity.reviewStatus === 'confirmed' &&
+        (!Array.isArray(entity.evidenceRefs) || entity.evidenceRefs.length === 0) && !evidence;
+      const evidenceVisible = explicitCanonicalMapping ||
+        (Array.isArray(entity.evidenceRefs) && entity.evidenceRefs.length
+          ? visibleEvidenceRefs.length > 0
+          : !!evidence && (
+              firstMatchingSourceOrdinal(projectContext.db, sourceRevisionId, evidence, 'quote') < firstOrdinal ||
+              normalizedSourceText(sourceText).includes(normalizedSourceText(evidence))));
       if (!evidenceVisible) continue;
+      // The alias must be visible by the start of this batch or in its actual source text;
+      // an alias first revealed in a later chapter still cannot activate the mapping.
       const aliases = rawAliases.filter((alias: unknown) =>
         firstMatchingSourceOrdinal(projectContext.db, sourceRevisionId, alias, 'name') < firstOrdinal ||
-        sourceNameMatches(priorSourceText, alias));
+        sourceNameMatches(sourceText, alias));
       const incoming = {
         source, target, aliases,
         kind: String(entity.kind || 'other'),
@@ -596,8 +608,18 @@ export function buildTranslationBrief(
     serialized = serializedContext(brief);
   }
   if (serialized.length > maxBriefChars) {
-    // Last-resort safe fallback: keep the batch IDs and a minimal source-near context only.
-    brief.contextGraph = null;
+    // Last-resort safe fallback: keep the batch IDs, only current/previous-source canonical
+    // name mappings, and minimal source-near context. Dropping the whole graph here used to
+    // silently disable deterministic glossary enforcement for large books.
+    const graph = brief.contextGraph as any;
+    const canonicalNameMappings = Array.isArray(graph?.nameMappings) ? graph.nameMappings : [];
+    brief.contextGraph = canonicalNameMappings.length ? {
+      policyVersion: graph?.policyVersion,
+      knowledgeBoundaryOrdinal: graph?.knowledgeBoundaryOrdinal ?? null,
+      currentChapter: graph?.currentChapter || '',
+      nameMappings: canonicalNameMappings.slice(0, 16),
+      constraints: ['nameMappings contains only evidence-backed names visible in the current or preceding source.'],
+    } : null;
     brief.glossary = { document_terms: [] };
     brief.voiceContext = {
       version: 1,
