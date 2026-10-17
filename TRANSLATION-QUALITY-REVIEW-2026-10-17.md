@@ -1,7 +1,7 @@
 # vocal-saga Local Agent Service 翻译质量与预处理架构审查
 
 - 日期：2026-10-17
-- 审查范围：当前 \`main\` 分支的 \`local-agent-service\`，重点包括项目 API、\`translationAgent.ts\`、\`translationBrief.ts\`、\`translationContextDelta.ts\`、\`bookScan.ts\`、\`contextGraph.ts\`、\`voiceContext.ts\`、\`literary.ts\`、\`qualityAudit.ts\` 和 \`projectStore.ts\`
+- 审查范围：当前 `main` 分支的 `local-agent-service`，重点包括项目 API、`translationAgent.ts`、`translationBrief.ts`、`translationContextDelta.ts`、`bookScan.ts`、`contextGraph.ts`、`voiceContext.ts`、`literary.ts`、`qualityAudit.ts` 和 `projectStore.ts`
 - 目的：记录现状、标明可以用传统代码改善的质量环节，并给出分阶段实施顺序
 - 边界：本文是架构与代码审查，不宣称尚未执行的改造已提升真实模型译文质量
 
@@ -23,7 +23,7 @@
 
 ### 2.1 流程图
 
-\`\`\`mermaid
+```mermaid
 flowchart TD
     U["阅读页 / Agent Workspace / CLI / Project API"]
     API["projectRoutes.ts：统一项目 API"]
@@ -75,11 +75,11 @@ flowchart TD
     RESULT --> AUDIT["独立质量审计"]
     AUDIT --> REPAIR["按 findings/segment IDs 创建定点返工 Run"]
     REPAIR --> RUN
-\`\`\`
+```
 
 ### 2.2 时序图
 
-\`\`\`mermaid
+```mermaid
 sequenceDiagram
     autonumber
     actor UI as 阅读页 / Workspace / CLI
@@ -145,37 +145,37 @@ sequenceDiagram
             API->>DB: 固定选定 segment IDs
         end
     end
-\`\`\`
+```
 
 ### 2.3 主要模块职责
 
 | 模块 | 目前职责 |
 |---|---|
-| \`projectRoutes.ts\` | Project/Run、文件导入、Context Graph、记忆、采纳、质量审计与定点返工 API |
-| \`bookScan.ts\` | 全文启发式姓名候选、章节/对白分布、重复句候选、样本计划 |
-| \`contextGraph.ts\` | 对有限样本进行模型分析，验证引用后持久化图谱和章节摘要 |
-| \`translationAgent.ts\` | 分批、初译、结构校验、上下文增量校验、Reviewer 调度、Wave 和持久化边界 |
-| \`translationBrief.ts\` | 依据来源 ordinal 和字符预算构造每批不可变上下文 |
-| \`translationContextDelta.ts\` | 验证当前批次证据、提及的译文落点、候选合并 |
-| \`voiceContext.ts\` / \`literary.ts\` | 人物声音、角色关系语言规则、声音锚点与文学审校 |
-| \`qualityAudit.ts\` | 缺译、已确认术语漂移、数字/单位差异、重复表达、审校发现和上下文冲突 |
-| \`projectStore.ts\` | 原文/PROMPT/记忆版本、运行状态、译文候选/采纳、人工作业与事件持久化 |
+| `projectRoutes.ts` | Project/Run、文件导入、Context Graph、记忆、采纳、质量审计与定点返工 API |
+| `bookScan.ts` | 全文启发式姓名候选、章节/对白分布、重复句候选、样本计划 |
+| `contextGraph.ts` | 对有限样本进行模型分析，验证引用后持久化图谱和章节摘要 |
+| `translationAgent.ts` | 分批、初译、结构校验、上下文增量校验、Reviewer 调度、Wave 和持久化边界 |
+| `translationBrief.ts` | 依据来源 ordinal 和字符预算构造每批不可变上下文 |
+| `translationContextDelta.ts` | 验证当前批次证据、提及的译文落点、候选合并 |
+| `voiceContext.ts` / `literary.ts` | 人物声音、角色关系语言规则、声音锚点与文学审校 |
+| `qualityAudit.ts` | 缺译、已确认术语漂移、数字/单位差异、重复表达、审校发现和上下文冲突 |
+| `projectStore.ts` | 原文/PROMPT/记忆版本、运行状态、译文候选/采纳、人工作业与事件持久化 |
 
 ## 3. 代码中已经存在的限制
 
 ### 3.1 预处理使用全文启发式扫描，但模型分析只看到有限样本
 
-\`bookScan.ts\` 将全文切片扫描后，\`planBookSamples\` 默认最多选取 72 个样本，每个样本文本最多 850 字符。抽样涵盖文档开头/中部/结尾、章节分布、出现频繁且跨章节的姓名候选、重复表达及对白密集片段。这是合理的预算控制，但不是完整的全书实体分析。未被抽样的角色、别名或关系可能不会进入图谱。
+`bookScan.ts` 将全文切片扫描后，`planBookSamples` 默认最多选取 72 个样本，每个样本文本最多 850 字符。抽样涵盖文档开头/中部/结尾、章节分布、出现频繁且跨章节的姓名候选、重复表达及对白密集片段。这是合理的预算控制，但不是完整的全书实体分析。未被抽样的角色、别名或关系可能不会进入图谱。
 
 姓名提取目前主要依赖英语大写字母模式。特殊大小写、非英语名字、姓名缩写、连字符、带撇号形式以及“冠词 + 称谓”组合，都会影响召回或规范化。姓名、称谓和实体共现也还没有形成统一的全量位置索引。
 
 ### 3.2 重复表达质量审计可能比较了错误的语言单位
 
-\`qualityAudit.ts\` 用扫描到的重复源表达定位多个 segment，再将这些 segment 的完整译文作为不同变体比较。如果重复短语位于较长段落内部，段落前后文不同会导致整段译文不同，即使重复短语本身译得一致。没有可靠的短语对齐时，这种差异不应被直接解释成短语译名漂移。
+`qualityAudit.ts` 用扫描到的重复源表达定位多个 segment，再将这些 segment 的完整译文作为不同变体比较。如果重复短语位于较长段落内部，段落前后文不同会导致整段译文不同，即使重复短语本身译得一致。没有可靠的短语对齐时，这种差异不应被直接解释成短语译名漂移。
 
 ### 3.3 上下文增量证据已经验证，但还未充分利用提及索引
 
-\`translationContextDelta.ts\` 会验证 entity candidates 的原文证据和 entity mention 的译文落点。然而，已验证的 \`entity_mentions\` 尚未充分用于跨片段规范译名一致性审计。建议将它与候选实体、别名及来源位置关联，支持更精确的跨章节发现。
+`translationContextDelta.ts` 会验证 entity candidates 的原文证据和 entity mention 的译文落点。然而，已验证的 `entity_mentions` 尚未充分用于跨片段规范译名一致性审计。建议将它与候选实体、别名及来源位置关联，支持更精确的跨章节发现。
 
 ### 3.4 质量检测是风险提示，不是自动证明
 
@@ -183,7 +183,7 @@ sequenceDiagram
 
 ### 3.5 评测基线尚不能证明真实模型质量提高
 
-\`evaluate-fiction-quality-baseline.mjs\` 及小说 fixture 能重现缺译、术语漂移、重复表达不一致、后文泄漏和数量错误。但仓库测试明确说明所谓“improved example”是人工编制的样例，而不是模型实际输出。因此测试证明检查器能处理这些案例，不证明最近改动已经提升真实翻译质量。
+`evaluate-fiction-quality-baseline.mjs` 及小说 fixture 能重现缺译、术语漂移、重复表达不一致、后文泄漏和数量错误。但仓库测试明确说明所谓“improved example”是人工编制的样例，而不是模型实际输出。因此测试证明检查器能处理这些案例，不证明最近改动已经提升真实翻译质量。
 
 ## 4. 建议的技术改进
 
@@ -191,7 +191,7 @@ sequenceDiagram
 
 1. 修正姓名扫描对冠词/称谓词的处理；保留复合称谓候选，同时保留它在源文中的具体位置，避免一刀切丢弃含停用词的候选。
 2. 修正重复表达审计的比较粒度。整段源文完全重复时可以比较完整译文；仅在长片段内部重复的句子/引语应优先提取并比较对应目标语引语，无法可靠对齐时只做人工复核提示，不能把整段差异当成确定的短语漂移。
-3. 利用已校验的 \`entity_mentions\` 为有明确来源证据的实体映射生成跨批次表面译名不一致 finding；不得凭子串模糊匹配合并实体。
+3. 利用已校验的 `entity_mentions` 为有明确来源证据的实体映射生成跨批次表面译名不一致 finding；不得凭子串模糊匹配合并实体。
 4. 将普通 Run/Prompt 请求与显式记忆编辑彻底分开；服务端保证旧客户端记忆快照不能隐式覆盖当前记忆版本。
 5. 为上面每个规则添加独立的回归 fixture，并验证报告不会改写已采纳译文。
 
