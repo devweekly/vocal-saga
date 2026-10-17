@@ -402,20 +402,47 @@ function graphAnalysisPrompt(projectTitle: string, format: string, sourceLang: s
   const chapterList = chapters.filter((chapter) => chosenChapters.has(chapter.key))
     .map((chapter) => ({ chapter: chapter.title, order: chapter.order }));
   const sampleIds = new Set(samples.map((segment) => segment.id));
+  const sampleTextById = new Map(samples.map((segment) => [segment.id, segment.text]));
+  const sampledMentionByName = new Map<string, BookScanResult['entityMentions']>();
+  for (const mention of scan.entityMentions) {
+    const sampleText = sampleTextById.get(mention.segmentId);
+    // The model must be able to inspect each cited span in the text actually included in this call.
+    if (!sampleText || mention.end > sampleText.length ||
+        sampleText.slice(mention.start, mention.end) !== mention.surface) continue;
+    const list = sampledMentionByName.get(mention.normalized) || [];
+    if (list.length < 10) list.push(mention);
+    sampledMentionByName.set(mention.normalized, list);
+  }
   const scanHints = {
     chapterCount: scan.chapterCount,
     dialogueSegmentCount: scan.dialogueSegmentCount,
-    nameCandidates: scan.nameCandidates.slice(0, 28).map((candidate) => ({
-      name: candidate.name, mentions: candidate.mentions, chapterCount: candidate.chapterCount,
+    sourceFeatureIndex: {
+      entityMentionCount: scan.indexDiagnostics.entityMentionCount,
+      entityMentionsTruncated: scan.indexDiagnostics.entityMentionsTruncated,
+      textUnitCount: scan.indexDiagnostics.textUnitCount,
+      textUnitsTruncated: scan.indexDiagnostics.textUnitsTruncated,
+      quantityMentionCount: scan.indexDiagnostics.quantityMentionCount,
+      quantityMentionsTruncated: scan.indexDiagnostics.quantityMentionsTruncated,
+    },
+    nameCandidates: scan.nameCandidates.slice(0, 32).map((candidate) => ({
+      name: candidate.name, normalized: candidate.normalized, tokenCount: candidate.tokenCount,
+      mentions: candidate.mentions, chapterCount: candidate.chapterCount,
       dialogueSegmentCount: candidate.dialogueSegmentCount, regionCount: candidate.regionCount,
       temporalSampleSegmentIds: [candidate.earlySegmentId, candidate.middleSegmentId, candidate.lateSegmentId]
         .filter((id): id is string => typeof id === 'string' && sampleIds.has(id)),
       sampledDialogueSegmentIds: candidate.dialogueSegmentIds.filter((id) => sampleIds.has(id)).slice(0, 4),
+      sampledOccurrences: (sampledMentionByName.get(candidate.normalized) || []).map((mention) => ({
+        segmentId: mention.segmentId, surface: mention.surface, start: mention.start, end: mention.end,
+        kind: mention.kind, dialogue: mention.dialogue,
+      })),
     })),
     repeatedPhraseCandidates: scan.repeatedPhrases.slice(0, 16).map((phrase) => ({
-      text: phrase.text, count: phrase.count, chapterCount: phrase.chapterKeys.length,
+      text: phrase.text, unitType: phrase.unitType, count: phrase.count, chapterCount: phrase.chapterKeys.length,
       sampledSegmentIds: phrase.segmentIds.filter((id) => sampleIds.has(id)).slice(0, 8),
     })).filter((phrase) => phrase.sampledSegmentIds.length > 0),
+    quantitySamples: scan.quantityMentions.filter((item) => sampleIds.has(item.segmentId)).slice(0, 24).map((item) => ({
+      segmentId: item.segmentId, surface: item.surface, start: item.start, end: item.end, unit: item.unit, unitFamily: item.unitFamily,
+    })),
   };
   return [
     '你是长篇文学翻译的前置分析器。分析必须以给出的原文片段为证据，不能补全未知剧情，也不能将推测写成确定事实。',
