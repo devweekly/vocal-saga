@@ -415,3 +415,64 @@ test('dynamic entity evidence is hidden before its cited source segment and visi
   assert.equal(laterBrief.voiceContext.entities.some((entity) => entity.source === 'The King' && entity.target === '大王'), true,
     'the same evidence may be used after the cited source segment');
 });
+
+
+test('source-ordered dynamic memory replaces conflicting unconfirmed Context Graph name proposals', () => {
+  const store = getDocumentProjectStore();
+  const project = store.createProject({
+    title: 'Dynamic Memory Beats Graph Candidate',
+    format: 'txt',
+    sourceFileName: 'dynamic-memory-graph-conflict.txt',
+    prompt: { translationMode: 'literary', sourceLang: 'en', targetLang: 'zh' },
+    segments: [
+      { id: 'king-early', text: 'The King watched Max from the doorway.', kind: 'paragraph', contextPath: 'Chapter 1' },
+      { id: 'king-evidence', text: 'The King revealed his identity to Max.', kind: 'paragraph', contextPath: 'Chapter 2' },
+      { id: 'king-later', text: 'The King addressed Max again.', kind: 'paragraph', contextPath: 'Chapter 2' },
+    ],
+  });
+  ensureTestContextGraph(store, project);
+  const { db, currentSourceRevisionId } = store.getProjectContext(project.projectId);
+  const source = store.getSegments(project.projectId, { limit: 10 });
+  // Calling the production bundle ensures the graph schema exists before inserting a test candidate.
+  const { buildProjectContextGraphBundle } = await import('../src/documents/contextGraph.ts');
+  buildProjectContextGraphBundle(project.projectId, [
+    { id: 'king-later', text: 'The King addressed Max again.', contextPath: 'Chapter 2' },
+  ], [], currentSourceRevisionId, 'zh');
+  db.prepare(
+    'INSERT INTO context_graph_nodes(node_id, source_revision_id, kind, name, normalized_name, attributes_json, status, created_at, updated_at) ' +
+    'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
+  ).run(
+    'graph-king', currentSourceRevisionId, 'character', 'The King', 'the king',
+    JSON.stringify({ suggestedTranslation: '大王', aliases: [], targetLang: 'zh' }),
+    'candidate', new Date().toISOString(), new Date().toISOString(),
+  );
+  db.prepare(
+    'INSERT INTO context_graph_evidence(source_revision_id, node_id, edge_id, segment_id, quote, role, created_at) ' +
+    'VALUES (?, ?, NULL, ?, ?, ?, ?)'
+  ).run(
+    currentSourceRevisionId, 'graph-king', 'king-early',
+    'The King watched Max from the doorway.', 'name', new Date().toISOString(),
+  );
+  store.saveLiteraryMemory(project.projectId, {
+    entities: [{
+      source: 'The King', target: '国王', kind: 'character_epithet', aliases: ['King'],
+      evidence: 'The King revealed his identity to Max.',
+      evidenceRefs: [{
+        segmentId: 'king-evidence',
+        sourceQuote: 'The King revealed his identity to Max.',
+      }],
+      reviewStatus: 'suggested',
+    }],
+    relationships: [], styleGuide: {}, chapterSummaries: [], recentExamples: [],
+    characterVoices: [], relationshipVoiceRules: [], voiceAnchors: [],
+  });
+  const run = store.createRun(project.projectId, { scope: { type: 'ids', ids: ['king-later'] } });
+  const context = store.getRunContext(project.projectId, run.runId);
+  const later = source.find((item) => item.id === 'king-later');
+  const brief = buildTranslationBrief(context, [later], []);
+
+  const mappings = (brief.contextGraph?.nameMappings || []).filter((mapping) => mapping.source === 'The King');
+  expect(mappings).toHaveLength(1);
+  expect(mappings[0]?.target).toBe('国王',
+    'source-ordered dynamic memory should replace an unconfirmed, conflicting book-wide candidate');
+});
