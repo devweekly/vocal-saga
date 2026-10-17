@@ -186,7 +186,7 @@ export function sanitizeProjectLiteraryMemory(input: unknown): Record<string, an
       if (!segmentId || !sourceQuote || !observation || !['register','syntax_rhythm','lexicon','discourse','stance','humor_irony','disfluency','relationship','role_traits'].includes(dimension)) return [];
       const confidence = Number(ev.confidence);
       return [{ segmentId, sourceQuote, observation, dimension, confidence: Number.isFinite(confidence) ? Math.max(0, Math.min(1, confidence)) : 0.4 }];
-    }) : [];
+    });
     if (!canonicalSourceName || !characterId || !evidence.length) return [];
     return [{
       characterId, canonicalSourceName, targetName: text(item.targetName, 120), aliases: list(item.aliases, 12, 80),
