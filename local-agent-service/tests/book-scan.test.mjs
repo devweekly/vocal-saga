@@ -128,3 +128,35 @@ test('repeated-phrase sampling selects the true final occurrence beyond the boun
   assert.ok(finalOccurrence);
   assert.ok(finalOccurrence.reasons.includes('repeated-phrase:last'));
 });
+
+
+test('compound titles retain articles and expose source-positioned entity, dialogue, sentence, and quantity features', () => {
+  const segments = [
+    {
+      id: 'king-early', ordinal: 10, contextPath: 'Chapter 1', kind: 'paragraph',
+      text: 'The King Rat watched Max. The King raised his hand and spoke to Max.',
+    },
+    {
+      id: 'king-later', ordinal: 30, contextPath: 'Chapter 5', kind: 'dialogue',
+      text: 'Captain Vale whispered: “The King Rat has returned.” It will take twenty-four hours.',
+    },
+  ];
+  const scan = scanBookSegments(segments);
+  const compound = scan.nameCandidates.find((candidate) => candidate.name === 'The King Rat');
+  assert.ok(compound, 'a leading article must not cause the entire compound candidate to be dropped');
+  assert.equal(compound.mentions, 2);
+  const articleTitle = scan.entityMentions.find((mention) => mention.segmentId === 'king-early' && mention.surface === 'The King');
+  assert.ok(articleTitle);
+  assert.equal(segments[0].text.slice(articleTitle.start, articleTitle.end), 'The King');
+  const titledName = scan.entityMentions.find((mention) => mention.segmentId === 'king-later' && mention.surface === 'Captain Vale');
+  assert.ok(titledName);
+  assert.equal(segments[1].text.slice(titledName.start, titledName.end), 'Captain Vale');
+  assert.ok(scan.textUnits.some((unit) => unit.unitType === 'quotation' &&
+    segments.find((segment) => segment.id === unit.segmentId).text.slice(unit.start, unit.end) === 'The King Rat has returned.'));
+  const quantity = scan.quantityMentions.find((mention) => mention.surface === 'twenty-four hours');
+  assert.ok(quantity);
+  assert.equal(quantity.unit, 'hour');
+  assert.equal(segments[1].text.slice(quantity.start, quantity.end), quantity.surface);
+  assert.ok(scan.dialogueIndex.some((item) => item.segmentId === 'king-later' && item.signals.includes('quotation')));
+  assert.ok(scan.indexDiagnostics.entityMentionCount >= scan.entityMentions.length);
+});
