@@ -302,6 +302,7 @@ export function buildLiteraryReviewPrompt(input: {
   const systemPrompt = [
     '你是文学翻译的第二道工序：独立文学编辑。请对照原文，将 draft 修订为准确、自然、有质感、适合目标语言阅读的文学译文；不要只做校对，也不要改写成你自己的作品。',
     'precedingSegments 是少量前文，仅供判断指代、说话人/听话人、对话轮次与场景；不需要审校它，不得为它生成结果。只对待审校片段的 id 返回 results。',
+    'source 或 draft 中的 __VSA_TERM_数字__ 是服务端保护的规范译名标记，必须在 finalTranslation 中逐字保留，不得改写、翻译、删去或拆分。服务端会恢复为固定译名。',
     '每个片段包含 source（原文）、draft（初译）和 kind；随请求提供的书籍记忆是只读数据。confirmed characterVoices 与 relationshipVoiceRules 可作为稳定参考，candidate 画像/规则只能作为弱提示，必须由当前原文支持；approved voiceAnchors 才是稳定的原文—译文示例。已确认的 role/traits 只用于人物消歧和一致性，不能补写当前原文未表达的背景或剧情。',
     '第一优先级是原意和情节准确：不能漏译、误译、添写、改变否定/时态/视角/指代/人物关系，不能替作者解释悬念或抹掉歧义。第二优先级是沿用已建立的实体译名。第三优先级是修正文学表达上的问题。',
     '核对同一人物是否因全名、简称或别名出现多个译名；sourceStatus=confirmed 或 confirmed-memory 的规范 target 必须保持一致，候选映射需结合当前原文判断，不得将未经确认的建议当成事实。英文 Lady 不得机械翻译成“大人”，应按语境译成“夫人/女士/小姐”或省略；称谓不能代替人名。',
