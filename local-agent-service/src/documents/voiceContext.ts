@@ -64,9 +64,19 @@ function mergeProjectEntityRecord(prior: Record<string, any>, candidate: Record<
     const key = normalizeEntityName(alias);
     if (key && key !== canonicalName && !aliases.has(key)) aliases.set(key, alias);
   }
+  const canMergeEvidenceRefs = prior.reviewStatus !== 'confirmed' ||
+    (Array.isArray(prior.evidenceRefs) && prior.evidenceRefs.length > 0);
+  const evidenceRefs = canMergeEvidenceRefs
+    ? [...(Array.isArray(prior.evidenceRefs) ? prior.evidenceRefs : []),
+        ...(Array.isArray(candidate.evidenceRefs) ? candidate.evidenceRefs : [])]
+        .filter((item, index, all) => all.findIndex((other) =>
+          other.segmentId === item.segmentId && normalizeEntityName(other.sourceQuote) === normalizeEntityName(item.sourceQuote)) === index)
+        .slice(0, 8)
+    : [];
   return {
     ...prior,
     aliases: Array.from(aliases.values()).slice(0, 8),
+    ...(evidenceRefs.length ? { evidenceRefs } : {}),
     ...(prior.reviewStatus !== 'confirmed' && candidate.reviewStatus === 'confirmed' &&
         normalizeEntityName(prior.target) === normalizeEntityName(candidate.target)
       ? { reviewStatus: 'confirmed' }
@@ -121,9 +131,16 @@ export function sanitizeProjectLiteraryMemory(input: unknown): Record<string, an
     if (!item || typeof item !== 'object' || Array.isArray(item)) return [];
     const source = text(item.source, 120); const target = text(item.target, 120);
     if (!source || !target) return [];
+    const evidenceRefs = Array.isArray(item.evidenceRefs) ? item.evidenceRefs.slice(0, 8).flatMap((ref: any) => {
+      if (!ref || typeof ref !== 'object' || Array.isArray(ref)) return [];
+      const segmentId = text(ref.segmentId, 160);
+      const sourceQuote = text(ref.sourceQuote, 240);
+      return segmentId && sourceQuote ? [{ segmentId, sourceQuote }] : [];
+    }) : [];
     return [{
       source, target, kind: text(item.kind, 30) || 'other', aliases: list(item.aliases, 8, 80),
       description: text(item.description, 200), evidence: text(item.evidence, 180),
+      ...(evidenceRefs.length ? { evidenceRefs } : {}),
       reviewStatus: item.reviewStatus === 'confirmed' ? 'confirmed' : 'suggested',
     }];
   }) : []);
@@ -131,7 +148,17 @@ export function sanitizeProjectLiteraryMemory(input: unknown): Record<string, an
     if (!item || typeof item !== 'object' || Array.isArray(item)) return [];
     const subject = text(item.subject, 120); const predicate = text(item.predicate, 100); const object = text(item.object, 120);
     if (!subject || !predicate || !object) return [];
-    return [{ subject, predicate, object, evidence: text(item.evidence, 180), reviewStatus: item.reviewStatus === 'confirmed' ? 'confirmed' : 'suggested' }];
+    const evidenceRefs = Array.isArray(item.evidenceRefs) ? item.evidenceRefs.slice(0, 8).flatMap((ref: any) => {
+      if (!ref || typeof ref !== 'object' || Array.isArray(ref)) return [];
+      const segmentId = text(ref.segmentId, 160);
+      const sourceQuote = text(ref.sourceQuote, 240);
+      return segmentId && sourceQuote ? [{ segmentId, sourceQuote }] : [];
+    }) : [];
+    return [{
+      subject, predicate, object, evidence: text(item.evidence, 180),
+      ...(evidenceRefs.length ? { evidenceRefs } : {}),
+      reviewStatus: item.reviewStatus === 'confirmed' ? 'confirmed' : 'suggested',
+    }];
   }) : [];
   const style = raw.styleGuide && typeof raw.styleGuide === 'object' && !Array.isArray(raw.styleGuide) ? raw.styleGuide : {};
   const styleGuide = {
