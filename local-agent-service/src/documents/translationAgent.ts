@@ -171,6 +171,9 @@ export function createConcurrencyLimiter(concurrency: number): <T>(task: () => P
 
 const activeRuns = new Set<string>();
 
+const MAX_TRANSLATION_BATCH_SEGMENTS = 16;
+const MAX_TRANSLATION_BATCH_SOURCE_CHARS = 8_000;
+
 export function buildBatches(items: TranslationItem[], respectChapterBoundaries = false): TranslationItem[][] {
   const batches: TranslationItem[][] = [];
   let current: TranslationItem[] = [];
@@ -179,14 +182,19 @@ export function buildBatches(items: TranslationItem[], respectChapterBoundaries 
     const size = item.text.length + (item.contextPath?.length || 0);
     const chapterBoundary = respectChapterBoundaries && current.length > 0 &&
       (current[0]?.contextPath || '') !== (item.contextPath || '');
-    if (current.length && (chapterBoundary || current.length >= 12 || chars + size > 6000)) {
+    if (current.length && (
+      chapterBoundary ||
+      current.length >= MAX_TRANSLATION_BATCH_SEGMENTS ||
+      chars + size > MAX_TRANSLATION_BATCH_SOURCE_CHARS
+    )) {
       batches.push(current);
       current = [];
       chars = 0;
     }
     current.push(item);
     chars += size;
-    if (size > 6000) {
+    // An individual paragraph may exceed the aggregate budget; isolate it in its own batch.
+    if (size > MAX_TRANSLATION_BATCH_SOURCE_CHARS) {
       batches.push(current);
       current = [];
       chars = 0;
