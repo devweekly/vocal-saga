@@ -1664,7 +1664,13 @@ export class DocumentProjectStore {
     if (!promptRow) throw new Error('导入译文前必须先保存当前 Prompt');
     const config = parseJson<any>(promptRow.config_json, {});
     const currentMemory = this.getCurrentLiteraryMemory(projectId);
-    const runFingerprint = this.makeRunFingerprint(projectId, currentSourceRevisionId, promptRow, config, currentMemory.fingerprint || null);
+    const currentRunFingerprint = this.makeRunFingerprint(projectId, currentSourceRevisionId, promptRow, config, currentMemory.fingerprint || null);
+    // Legacy Reader/IndexedDB text carries no pipeline-version provenance. In literary mode it
+    // cannot be treated as if it had passed the current glossary enforcement and Reviewer path.
+    // Keep it visible for recovery, but mark it stale so a Project Run can regenerate it safely.
+    const runFingerprint = config.translationMode === 'literary'
+      ? 'legacy-literary-import:' + currentRunFingerprint
+      : currentRunFingerprint;
     const now = isoNow();
     let imported = 0;
     let skipped = 0;
