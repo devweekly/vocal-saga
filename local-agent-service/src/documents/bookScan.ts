@@ -368,8 +368,8 @@ export function planBookSamples(segmentsInput:BookScanSegment[],scanInput?:BookS
     const phrasePhaseLimit=Math.min(limit-4,68);
     for(const phrase of scan.repeatedPhrases.slice(0,12)){
       if(picked.size>=phrasePhaseLimit)break;
-      add(byId.get(phrase.firstSegmentId||phrase.segmentIds[0]||''),'repeated-phrase:first:'+phrase.unitType,phrasePhaseLimit);
-      add(byId.get(phrase.lastSegmentId||phrase.segmentIds[phrase.segmentIds.length-1]||''),'repeated-phrase:last:'+phrase.unitType,phrasePhaseLimit);
+      add(byId.get(phrase.firstSegmentId||phrase.segmentIds[0]||''),'repeated-phrase:first',phrasePhaseLimit);
+      add(byId.get(phrase.lastSegmentId||phrase.segmentIds[phrase.segmentIds.length-1]||''),'repeated-phrase:last',phrasePhaseLimit);
     }
     const dialogueLimit=Math.min(limit,MAX_SAMPLES),dialogueByChapter=new Map<string,Array<{segment:BookScanSegment;score:number}>>();
     const dialogueScores=new Map(scan.dialogueIndex.map((item)=>[item.segmentId,item.score]));
