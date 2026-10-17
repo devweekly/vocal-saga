@@ -748,9 +748,34 @@ async function runLiteraryReviewWithMissingRetry(input: Record<string, any>, req
   const reviewInput = protectedReview.protections.length
     ? { ...input, segments: protectedReview.segments }
     : input;
-  const restoreReview = (result: any) => protectedReview.protections.length
-    ? restoreCanonicalMarkersDeep(result, protectedReview.protections) as any
-    : result;
+  const restoreReview = (result: any) => {
+    if (!protectedReview.protections.length) return result;
+    const rawTranslations = result?.translations && typeof result.translations === 'object'
+      ? result.translations as Record<string, unknown>
+      : {};
+    const safeTranslations: Record<string, unknown> = { ...rawTranslations };
+    const fallbackIds: string[] = [];
+    const originalById = new Map(originalSegments.map((segment: any) => [String(segment.id), segment]));
+    for (const maskedSegment of protectedReview.segments) {
+      const relevantMarkers = protectedReview.protections.filter((term) => maskedSegment.source.includes(term.marker));
+      if (!relevantMarkers.length) continue;
+      const rawTranslation = rawTranslations[maskedSegment.id];
+      if (typeof rawTranslation !== 'string' ||
+          relevantMarkers.every((term) => rawTranslation.includes(term.marker))) continue;
+      // A reviewer must not be allowed to remove an evidenced canonical name. Retain the
+      // already-normalized initial draft for this ID instead of accepting an incompatible rewrite.
+      const original = originalById.get(maskedSegment.id) as any;
+      if (original && typeof original.draft === 'string') {
+        safeTranslations[maskedSegment.id] = original.draft;
+        fallbackIds.push(maskedSegment.id);
+      }
+    }
+    const restored = restoreCanonicalMarkersDeep(
+      { ...result, translations: safeTranslations },
+      protectedReview.protections,
+    ) as any;
+    return fallbackIds.length ? { ...restored, canonicalTermFallbackIds: fallbackIds } : restored;
+  };
   const initial = restoreReview(await runLiteraryReview(reviewInput, requestId, sessionScope));
   const missingIds = Array.isArray(initial.missingIds) ? initial.missingIds as string[] : [];
   if (!missingIds.length) return initial;
