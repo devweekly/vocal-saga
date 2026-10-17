@@ -32,8 +32,9 @@ flowchart TD
     MODE{"文学翻译模式？"}
 
     U --> API --> CREATE --> STORE --> MODE
-    MODE -- 是 --> SCAN["bookScan.ts：全文扫描"]
-    SCAN --> SAMPLE["planBookSamples：最多 72 个分析样本"]
+    MODE -- 是 --> SCAN["bookScan.ts：全文扫描实体/句子/对白/数量线索"]
+    SCAN --> INDEX["SQLite：book-scan-index-v2，按 source revision 持久化"]
+    INDEX --> SAMPLE["planBookSamples：基于带位置的索引选择最多 72 个样本"]
     SAMPLE --> ANALYZE["Context Graph 模型分析"]
     ANALYZE --> VALIDATE["校验样本 segment ID 和原文引文"]
     VALIDATE --> GRAPH["保存图谱、关系、章节摘要和证据"]
