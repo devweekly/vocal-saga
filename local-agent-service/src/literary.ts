@@ -48,6 +48,23 @@ function stableCharacterId(name: string): string {
 function normalizeEvidenceText(value: string): string {
   return value.normalize('NFKC').replace(/\s+/g, ' ').trim().toLocaleLowerCase();
 }
+
+/**
+ * A Reviewer finding may only drive an automatic correction when both excerpts are grounded
+ * in the exact input source and draft. A plausible reason or suggestion alone is not evidence.
+ */
+export function isLiteraryReviewFindingGrounded(
+  source: string,
+  draft: string,
+  sourceExcerpt: unknown,
+  draftExcerpt: unknown,
+): boolean {
+  const sourceQuote = typeof sourceExcerpt === 'string' ? normalizeEvidenceText(sourceExcerpt) : '';
+  const draftQuote = typeof draftExcerpt === 'string' ? normalizeEvidenceText(draftExcerpt) : '';
+  return sourceQuote.length >= 2 && draftQuote.length >= 2 &&
+    normalizeEvidenceText(source).includes(sourceQuote) &&
+    normalizeEvidenceText(draft).includes(draftQuote);
+}
 function buildAnalysisMemoryContext(input: unknown): Record<string, unknown> {
   const memory = sanitizeProjectLiteraryMemory(input);
   const result: Record<string, any> = {
@@ -314,6 +331,7 @@ export function buildLiteraryReviewPrompt(input: {
     reviewFocus === 'style'
       ? '本次是独立文风审校阶段：只输出 category=style 的 findings，重点检查人物声音差异、叙述声音、语域、节奏、翻译腔和不自然表达；不要输出 accuracy/terminology findings。finalTranslation 如有文风改进，应给出完整修订译文，但不得改变事实或新增原文没有的信息。'
       : '本次是准确性与专名审校阶段：只输出 accuracy 或 terminology findings，修复可核验的误译、漏译、增译、否定/指代错误和规范译名不一致；不要输出 style findings，也不要做纯润色。文风由独立阶段处理。',
+    'sourceExcerpt 必须是当前原文片段中的逐字连续引文，draftExcerpt 必须是本次传入初译中的逐字连续引文；两者缺失或不能核验时，该 finding 会被丢弃且不会触发自动修订。',
     '只返回严格 JSON：{ "results": [{ "id": "...", "finalTranslation": "...", "findings": [{ "category": "accuracy|terminology|style", "priority": "must_fix|optional", "dimension": "character_voice", "characterId": "...", "relatedCharacterId": "...", "evidenceSegmentIds": [], "sourceExcerpt": "...", "draftExcerpt": "...", "reason": "...", "suggestion": "..." }] }] }。',
   ].join('\n');
   const prompt = [
@@ -409,11 +427,15 @@ export async function runLiteraryReview(body: any, requestId: string, sessionSco
         if (!item || (reviewFocus === 'style'
           ? item.category !== 'style'
           : !['accuracy', 'terminology'].includes(item.category))) continue;
+        const sourceExcerpt = typeof item.sourceExcerpt === 'string' ? item.sourceExcerpt.trim().slice(0, 240) : '';
+        const draftExcerpt = typeof item.draftExcerpt === 'string' ? item.draftExcerpt.trim().slice(0, 240) : '';
+        // Do not let a fabricated finding turn an arbitrary full rewrite into a must-fix result.
+        if (!isLiteraryReviewFindingGrounded(original.text, original.draft, sourceExcerpt, draftExcerpt)) continue;
         const priority = item.category === 'style' ? 'optional' : 'must_fix';
         const finding = {
           id: raw.id, category: item.category, priority,
-          sourceExcerpt: typeof item.sourceExcerpt === 'string' ? item.sourceExcerpt.slice(0, 240) : '',
-          draftExcerpt: typeof item.draftExcerpt === 'string' ? item.draftExcerpt.slice(0, 240) : '',
+          sourceExcerpt,
+          draftExcerpt,
           reason: typeof item.reason === 'string' ? item.reason.slice(0, 400) : '',
           suggestion: typeof item.suggestion === 'string' ? item.suggestion.slice(0, 400) : '',
           ...(item.category === 'style' && ['character_voice', 'register', 'narrative_style', 'pacing'].includes(item.dimension)
