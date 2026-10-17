@@ -45,7 +45,7 @@
 
 已核验的上下文增量按 Run 和首个 source segment 幂等保存到 SQLite `translation_context_deltas`，记录 batch index、来源 ordinal、片段 ID、增量和验证摘要。暂停、重试或进程恢复可以重建 source-ordered run-local 上下文。
 
-仅在文学 Run 完整结束且当前来源 revision 与 Run 的来源 revision 一致时，将候选合并到当前项目文学记忆；新增人物/关系保持 suggested。人工确认的目标译名不被覆盖。如果来源已变更或 Run 中断，增量保留在 Run 账本，但不写入当前项目记忆。
+仅在文学 Run 完整结束且当前来源 revision 与 Run 的来源 revision 一致时，将候选合并到当前项目文学记忆；新增人物/关系保持 suggested，并保存带 segment ID 与原文引文的 `evidenceRefs`。后续 TranslationBrief 必须根据证据 segment 的 source ordinal 过滤记忆：称谓曾在早期出现，不代表后文产生的实体解释可以回流到早期上下文。人工确认的目标译名不被覆盖。如果来源已变更或 Run 中断，增量保留在 Run 账本，但不写入当前项目记忆。
 
 ### 6. 用一致性审计发现冲突，不自动修订译文
 
