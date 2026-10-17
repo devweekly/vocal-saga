@@ -10,6 +10,7 @@ process.env.LOCAL_AGENT_DATA_DIR = testDataDir;
 process.env.LOCAL_AGENT_DATABASE = path.join(testDataDir, 'service.sqlite');
 
 const { getDocumentProjectStore } = await import('../src/documents/projectStore.ts');
+const { buildProjectContextGraphBundle } = await import('../src/documents/contextGraph.ts');
 const { buildTranslationBrief, summarizeTranslationBrief, MAX_TRANSLATION_BRIEF_CHARS } = await import('../src/documents/translationBrief.ts');
 const { buildBatches, buildUserPrompt } = await import('../src/documents/translationAgent.ts');
 
@@ -434,7 +435,6 @@ test('source-ordered dynamic memory replaces conflicting unconfirmed Context Gra
   const { db, currentSourceRevisionId } = store.getProjectContext(project.projectId);
   const source = store.getSegments(project.projectId, { limit: 10 });
   // Calling the production bundle ensures the graph schema exists before inserting a test candidate.
-  const { buildProjectContextGraphBundle } = await import('../src/documents/contextGraph.ts');
   buildProjectContextGraphBundle(project.projectId, [
     { id: 'king-later', text: 'The King addressed Max again.', contextPath: 'Chapter 2' },
   ], [], currentSourceRevisionId, 'zh');
@@ -492,7 +492,6 @@ test('explicit confirmed glossary mappings without AI evidence activate on first
     ],
   });
   ensureTestContextGraph(store, project);
-  const { buildProjectContextGraphBundle } = await import('../src/documents/contextGraph.ts');
   buildProjectContextGraphBundle(project.projectId, [
     { id: 'king-current', text: 'Timsen was taken up by the King.', contextPath: 'Chapter 1' },
   ]);
@@ -548,7 +547,6 @@ test('canonical mappings survive the TranslationBrief last-resort budget fallbac
     ],
   });
   ensureTestContextGraph(store, project);
-  const { buildProjectContextGraphBundle } = await import('../src/documents/contextGraph.ts');
   buildProjectContextGraphBundle(project.projectId, [
     { id: 'names-heavy', text: sourceParts.join(' and ') + '.', contextPath: 'Chapter 1' },
   ]);
@@ -591,7 +589,6 @@ test('static glossary applies on its first source occurrence but withholds futur
     ],
   });
   ensureTestContextGraph(store, project);
-  const { buildProjectContextGraphBundle } = await import('../src/documents/contextGraph.ts');
   buildProjectContextGraphBundle(project.projectId, [
     { id: 'first-mention', text: 'Timsen visited the Red Cross storehouse with the King.', contextPath: 'Chapter 1' },
   ]);
