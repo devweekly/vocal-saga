@@ -141,7 +141,10 @@ function getChapters(segments: BookScanSegment[]): BookScanChapter[] {
   }));
 }
 function quoteSpans(text: string): Array<{ start: number; end: number }> {
-  const patterns = [/“([^”]{1,2000})”/gu, /"([^"]{1,2000})"/gu, /「([^」]{1,2000})」/gu, /『([^』]{1,2000})』/gu];
+  const patterns = [
+    /“([^”]{1,2000})”/gu, /"([^"]{1,2000})"/gu, /「([^」]{1,2000})」/gu, /『([^』]{1,2000})』/gu,
+    /‘([^’]{8,2000})’/gu, /'([^']{8,2000})'/gu,
+  ];
   const spans: Array<{ start: number; end: number }> = [];
   for (const pattern of patterns) for (const match of text.matchAll(pattern)) {
     const start = (match.index ?? 0) + match[0].indexOf(match[1] || '');
