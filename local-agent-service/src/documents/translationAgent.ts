@@ -12,7 +12,7 @@ import { positiveIntegerEnv, WORKBUDDY_POOL_SIZE } from '../config.ts';
 import { runAgentStructured } from '../agents/runner.ts';
 import { runLiteraryReview } from '../literary.ts';
 import { getDocumentProjectStore, normalizeDocumentTranslationStrategy, type DocumentTranslationStrategy } from './projectStore.ts';
-import { buildProjectVoiceContext } from './voiceContext.ts';
+import { buildProjectVoiceContext, sanitizeProjectLiteraryMemory } from './voiceContext.ts';
 import { buildTranslationBrief, summarizeTranslationBrief, type TranslationBrief } from './translationBrief.ts';
 import {
   combineTranslationContextDeltas,
@@ -444,6 +444,127 @@ export function restoreCanonicalMarkersDeep(
       ]));
   }
   return value;
+}
+
+/**
+ * Standalone re-review requests originate in the extension and are not backed by an immutable
+ * server-side Run/TranslationBrief. Treat all client-supplied memory as untrusted: only keep
+ * evidence that can be verified against the exact current/preceding source text. In particular,
+ * never pass book-wide summaries, recent examples, free-text descriptions, or voice profiles
+ * synthesized from unseen future segments into this legacy endpoint.
+ */
+export function buildStandaloneReviewMemory(input: Record<string, any>): Record<string, any> {
+  const rawMemory = sanitizeProjectLiteraryMemory(input.memory);
+  const segments = (Array.isArray(input.segments) ? input.segments : []).flatMap((item: any) => {
+    if (!item || typeof item.id !== 'string' || typeof item.source !== 'string' || !item.source.trim()) return [];
+    return [{ id: item.id, text: item.source, contextPath: typeof item.contextPath === 'string' ? item.contextPath : '' }];
+  });
+  const preceding = (Array.isArray(input.precedingSegments) ? input.precedingSegments : [])
+    .slice(-4).flatMap((item: any) => {
+      if (!item || typeof item.id !== 'string' || typeof item.text !== 'string' || !item.text.trim()) return [];
+      return [{ id: item.id, text: item.text.slice(-900), contextPath: typeof item.contextPath === 'string' ? item.contextPath : '' }];
+    });
+  const visible = [...preceding, ...segments];
+  const byId = new Map(visible.map((item) => [item.id, item.text]));
+  const normalize = (value: unknown) => typeof value === 'string'
+    ? value.normalize('NFKC').replace(/\s+/g, ' ').trim().toLocaleLowerCase()
+    : '';
+  const quoteMatches = (segmentId: unknown, quote: unknown) => {
+    const source = byId.get(typeof segmentId === 'string' ? segmentId : '');
+    const expected = normalize(quote);
+    return !!source && expected.length >= 2 && normalize(source).includes(expected);
+  };
+  const nameVisible = (value: unknown) => {
+    if (typeof value !== 'string' || !value.trim()) return false;
+    let pattern: RegExp;
+    try { pattern = new RegExp(canonicalTermPattern(value), 'iu'); } catch { return false; }
+    return visible.some((item) => pattern.test(item.text));
+  };
+  const currentTexts = segments.map((item) => item.text);
+  const currentNameVisible = (value: unknown) => {
+    if (typeof value !== 'string' || !value.trim()) return false;
+    let pattern: RegExp;
+    try { pattern = new RegExp(canonicalTermPattern(value), 'iu'); } catch { return false; }
+    return currentTexts.some((text) => pattern.test(text));
+  };
+  const entities = rawMemory.entities.filter((entity: any) => {
+    const names = [entity.source, ...(Array.isArray(entity.aliases) ? entity.aliases : [])];
+    if (entity.reviewStatus !== 'confirmed' ||
+        !names.every((name: unknown) => nameVisible(name)) ||
+        !names.some((name: unknown) => currentNameVisible(name))) return false;
+    const refs = Array.isArray(entity.evidenceRefs) ? entity.evidenceRefs : [];
+    return !refs.length || refs.every((ref: any) => quoteMatches(ref.segmentId, ref.sourceQuote));
+  }).map((entity: any) => ({
+    source: entity.source, target: entity.target, kind: entity.kind,
+    aliases: entity.aliases, reviewStatus: 'confirmed',
+  }));
+  const entityNames = new Set(entities.flatMap((entity: any) =>
+    [entity.source, ...(entity.aliases || [])].map((value: string) => normalize(value))));
+  const relationships = rawMemory.relationships.filter((relation: any) => {
+    if (relation.reviewStatus !== 'confirmed' ||
+        !entityNames.has(normalize(relation.subject)) ||
+        !entityNames.has(normalize(relation.object))) return false;
+    const refs = Array.isArray(relation.evidenceRefs) ? relation.evidenceRefs : [];
+    return refs.length > 0 && refs.every((ref: any) =>
+      quoteMatches(ref.segmentId, ref.sourceQuote) &&
+      nameVisible(relation.subject) && nameVisible(relation.object));
+  }).map((relation: any) => ({
+    subject: relation.subject, predicate: relation.predicate, object: relation.object,
+    reviewStatus: 'confirmed',
+    evidenceRefs: relation.evidenceRefs,
+  }));
+  const characterVoices = rawMemory.characterVoices.filter((profile: any) => {
+    const names = [profile.canonicalSourceName, ...(Array.isArray(profile.aliases) ? profile.aliases : [])];
+    const evidence = Array.isArray(profile.evidence) ? profile.evidence : [];
+    return profile.status === 'confirmed' && names.every((name: unknown) => nameVisible(name)) &&
+      names.some((name: unknown) => currentNameVisible(name)) && evidence.length > 0 &&
+      evidence.every((item: any) => quoteMatches(item.segmentId, item.sourceQuote));
+  }).map((profile: any) => ({
+    characterId: profile.characterId,
+    canonicalSourceName: profile.canonicalSourceName,
+    targetName: profile.targetName,
+    aliases: profile.aliases,
+    status: 'confirmed',
+    voiceCore: profile.voiceCore,
+    evidence: profile.evidence,
+    contrastRules: [],
+  }));
+  const voiceIds = new Set(characterVoices.map((profile: any) => profile.characterId));
+  const relationshipVoiceRules = rawMemory.relationshipVoiceRules.filter((rule: any) => {
+    const ids = Array.isArray(rule.evidenceSegmentIds) ? rule.evidenceSegmentIds : [];
+    return rule.status === 'confirmed' && voiceIds.has(rule.speakerId) && voiceIds.has(rule.addresseeId) &&
+      ids.length > 0 && ids.every((id: unknown) => typeof id === 'string' && byId.has(id));
+  }).map((rule: any) => ({
+    speakerId: rule.speakerId, addresseeId: rule.addresseeId,
+    rule: rule.rule, status: 'confirmed', evidenceSegmentIds: rule.evidenceSegmentIds,
+  }));
+  return sanitizeProjectLiteraryMemory({
+    version: 2,
+    entities,
+    relationships,
+    styleGuide: {},
+    styleGuideStatus: 'candidate',
+    chapterSummaries: [],
+    recentExamples: [],
+    characterVoices,
+    relationshipVoiceRules,
+    voiceAnchors: [],
+    openQuestions: [],
+  });
+}
+
+export function buildStandaloneReviewVoiceContext(input: Record<string, any>): Record<string, unknown> {
+  const memory = buildStandaloneReviewMemory(input);
+  const segments = (Array.isArray(input.segments) ? input.segments : []).flatMap((item: any) => {
+    if (!item || typeof item.id !== 'string' || typeof item.source !== 'string' || !item.source.trim()) return [];
+    return [{ id: item.id, text: item.source, contextPath: typeof item.contextPath === 'string' ? item.contextPath : '' }];
+  });
+  const preceding = (Array.isArray(input.precedingSegments) ? input.precedingSegments : [])
+    .slice(-4).flatMap((item: any) => {
+      if (!item || typeof item.id !== 'string' || typeof item.text !== 'string' || !item.text.trim()) return [];
+      return [{ id: item.id, text: item.text.slice(-900), contextPath: typeof item.contextPath === 'string' ? item.contextPath : '' }];
+    });
+  return buildProjectVoiceContext(memory, segments, segments[0]?.contextPath || input.chapterTitle || '', preceding);
 }
 
 /** Build a bounded name-only Context Graph for legacy standalone Review requests.
