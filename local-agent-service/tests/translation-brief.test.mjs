@@ -42,7 +42,7 @@ test('TranslationBrief is revision-pinned, bounded and hashes the source selecti
   assert.equal(first.memoryRevisionId, run.literaryMemoryRevisionId);
   assert.deepEqual(first.sourceSegmentIds, ['c1-1']);
   assert.equal(first.chapterPath, 'Chapter 1');
-  assert.equal(first.policyVersion, 'translation-brief-v1');
+  assert.equal(first.policyVersion, 'translation-brief-v2-dynamic-context');
   assert.ok(first.contextChars <= MAX_TRANSLATION_BRIEF_CHARS);
   assert.match(first.contextHash, /^[a-f0-9]{64}$/);
   assert.notEqual(first.contextHash, second.contextHash, 'context identity changes when source IDs and preceding context change');
@@ -52,7 +52,7 @@ test('TranslationBrief is revision-pinned, bounded and hashes the source selecti
   assert.equal(snapshots.length, 1);
   assert.equal(snapshots[0].contextHash, first.contextHash);
   assert.deepEqual(snapshots[0].sourceSegmentIds, ['c1-1']);
-  assert.equal(snapshots[0].brief.policyVersion, 'translation-brief-v1');
+  assert.equal(snapshots[0].brief.policyVersion, 'translation-brief-v2-dynamic-context');
 
   const configuredContext = {
     ...context,
@@ -265,7 +265,7 @@ test('later identity never enters an earlier brief', () => {
 test('both reviewer focuses consume the same bounded TranslationBrief glossary and prior context', async () => {
   const { buildLiteraryReviewPrompt } = await import('../src/literary.ts');
   const translationBrief = {
-    policyVersion: 'translation-brief-v1',
+    policyVersion: 'translation-brief-v2-dynamic-context',
     contextHash: 'brief-hash-123',
     contextChars: 900,
     sourceRevisionId: 'source-revision-1',
@@ -332,7 +332,7 @@ test('both reviewer focuses consume the same bounded TranslationBrief glossary a
 test('TranslationBrief diagnostic summary exposes the count fields expected by the Agent Trajectory UI', () => {
   const summary = summarizeTranslationBrief({
     version: 1,
-    policyVersion: 'translation-brief-v1',
+    policyVersion: 'translation-brief-v2-dynamic-context',
     sourceRevisionId: 'source-r1',
     promptRevisionId: 'prompt-r1',
     memoryRevisionId: null,
