@@ -447,6 +447,26 @@ function removeLowestPriorityContext(brief: TranslationBrief): boolean {
     return true;
   }
   if (brief.contextGraph) {
+    const graph = brief.contextGraph as any;
+    const nameMappings = Array.isArray(graph.nameMappings) ? graph.nameMappings : [];
+    if (nameMappings.length) {
+      // Once lower-priority graph details have been exhausted, preserve canonical names as the
+      // final useful part of the graph. A subsequent call must stop pruning rather than silently
+      // discard these mappings; buildTranslationBrief will use its explicit 413 guard if the
+      // protected name table itself cannot fit the configured budget.
+      const compactGraph = {
+        ...(graph.policyVersion ? { policyVersion: graph.policyVersion } : {}),
+        knowledgeBoundaryOrdinal: graph.knowledgeBoundaryOrdinal ?? null,
+        currentChapter: graph.currentChapter || '',
+        nameMappings: nameMappings.slice(0, 16),
+        constraints: ['nameMappings contains only names visible in the current or preceding source.'],
+      };
+      if (JSON.stringify(graph) !== JSON.stringify(compactGraph)) {
+        brief.contextGraph = compactGraph;
+        return true;
+      }
+      return false;
+    }
     brief.contextGraph = null;
     return true;
   }
