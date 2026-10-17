@@ -150,6 +150,7 @@ flowchart TD
 | `translation.context-memory.persisted` | 新 memory revision、合并摘要、候选/关系冲突计数 |
 | `translation.context-memory.skipped` | Run 与当前 source revision 不一致时的跳过原因 |
 | `translation.context-memory.unchanged` | 本轮没有产生新的可持久化候选时的原因 |
+| `context-graph.source-index.ready` | 来源 revision 的索引版本、片段数、实体/句子/数量特征数、截断状态及是否为旧项目惰性升级 |
 
 事件记录计数和版本，不记录完整原文、完整译文或整个模型 Prompt。精确的来源引文仅在项目的上下文增量账本中与 Run/segment ID 一起保存，继续遵循本机文档数据的存储范围。
 
