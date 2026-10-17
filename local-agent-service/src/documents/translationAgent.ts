@@ -467,6 +467,10 @@ export function buildStandaloneReviewContextGraph(input: Record<string, any>): R
     const rawAliases = Array.isArray(entity.aliases)
       ? entity.aliases.filter((alias: unknown): alias is string => typeof alias === 'string' && !!alias.trim())
       : [];
+    // A future-only alias may have contaminated the canonical target itself. Excluding only the
+    // alias but retaining the mapping is unsafe, so withhold the whole mapping until every alias
+    // is visible in the current source or preceding context.
+    if (rawAliases.some((alias) => !appearsIn(alias, visibleTexts))) continue;
     // Only apply a name if the canonical source or one of its aliases actually occurs in the
     // current Review batch. Retain preceding-visible aliases for disambiguation, not future ones.
     if (!appearsIn(entity.source, sourceTexts) &&
