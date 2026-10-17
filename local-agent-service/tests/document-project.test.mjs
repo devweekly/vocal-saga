@@ -526,3 +526,39 @@ test('literary preprocessing readiness guard also rejects stale-running preproce
     );
   });
 });
+
+
+test('legacy imported literary translations remain visible but are stale under the current enforcement pipeline', async () => {
+  await withStore((store) => {
+    const project = store.createProject({
+      title: 'Legacy Literary Import',
+      format: 'epub',
+      sourceFileName: 'legacy-literary.epub',
+      segments,
+      prompt: {
+        translationMode: 'literary',
+        literaryReview: true,
+        sourceLang: 'en',
+        targetLang: 'zh',
+        provider: 'workbuddy',
+        model: 'auto',
+      },
+    });
+    ensureTestContextGraph(store, project);
+    const imported = store.importAcceptedTranslations(project.projectId, [
+      { id: 'ch1-p1', text: '旧版本中的不一致称谓。' },
+      { id: 'ch1-p2', text: '旧版本中的另一段译文。' },
+    ]);
+    assert.deepEqual(imported, { imported: 2, skipped: 0 });
+    assert.equal(
+      store.getSegments(project.projectId, { limit: 10 }).find((item) => item.id === 'ch1-p1')?.acceptedTranslation,
+      '旧版本中的不一致称谓。',
+      'legacy text stays visible and recoverable until regenerated',
+    );
+    const verification = store.verifyProject(project.projectId);
+    assert.deepEqual(verification.stalePromptIds.sort(), ['ch1-p1', 'ch1-p2']);
+    const staleRun = store.createRun(project.projectId, { scope: { type: 'stale' } });
+    assert.equal(staleRun.counts.total, 2,
+      'the stale scope must select every imported literary translation for the current protected pipeline');
+  });
+});
