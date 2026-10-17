@@ -1038,8 +1038,16 @@ async function executeRun(projectId: string, runId: string): Promise<void> {
             });
             return;
           }
-          for (const finding of styleReview.findings || []) {
-            if (finding.category === 'style') store.saveFinding(projectId, runId, finding.id, finding);
+          const styleFindings = (styleReview.findings || [])
+            .filter((finding: any) => finding.category === 'style')
+            .map((finding: any) => ({ segmentId: finding.id, finding }));
+          const styleFindingsPersisted = store.saveFindings(projectId, runId, styleFindings);
+          if (!styleFindingsPersisted) {
+            store.appendEvent(projectId, runId, 'review.discarded', {
+              batchIndex, stage: 'style-review', reason: 'Run left active state before atomic finding commit',
+              findingCount: styleFindings.length,
+            });
+            return;
           }
           store.appendEvent(projectId, runId, 'stage.completed', {
             stage: 'style-review', batchIndex,
@@ -1109,17 +1117,28 @@ async function executeRun(projectId: string, runId: string): Promise<void> {
           });
           return;
         }
-        let revisedCount = 0;
+        const revisedCandidates: Array<{ segmentId: string; text: string }> = [];
         for (const [id, revised] of Object.entries(review.translations)) {
           const draft = translations.get(id);
           if (!draft || typeof revised !== 'string' || !revised.trim() || revised === draft) continue;
-          store.saveCandidate(projectId, runId, id, revised);
-          translations.set(id, revised);
-          revisedCount++;
+          revisedCandidates.push({ segmentId: id, text: revised });
         }
-        for (const finding of review.findings) {
-          store.saveFinding(projectId, runId, finding.id, finding);
+        const reviewFindings = review.findings.map((finding: any) => ({
+          segmentId: finding.id,
+          finding,
+        }));
+        // Reviewer corrections and their supporting findings are one transaction. If stop wins
+        // the race, neither the revised candidate nor its audit findings are persisted.
+        const reviewPersisted = store.saveCandidates(projectId, runId, revisedCandidates, reviewFindings);
+        if (!reviewPersisted) {
+          store.appendEvent(projectId, runId, 'review.discarded', {
+            batchIndex, reason: 'Run left active state before atomic Reviewer commit',
+            revisedCount: revisedCandidates.length, findingCount: reviewFindings.length,
+          });
+          return;
         }
+        const revisedCount = revisedCandidates.length;
+        for (const item of revisedCandidates) translations.set(item.segmentId, item.text);
         store.appendEvent(projectId, runId, 'stage.completed', {
           stage: 'review',
           batchIndex,
