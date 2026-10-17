@@ -6,12 +6,16 @@
  */
 import path from 'node:path';
 import { homedir } from 'node:os';
+import { fileURLToPath } from 'node:url';
 
 export const HOST = (process.env.LOCAL_AGENT_HOST || '127.0.0.1').trim();
 export const PORT = Number.parseInt(process.env.LOCAL_AGENT_PORT || '8789', 10);
 export const DATA_DIR = path.resolve(process.env.LOCAL_AGENT_DATA_DIR || path.join(homedir(), '.vocal-saga-local-agent'));
 export const DATABASE_PATH = path.resolve(process.env.LOCAL_AGENT_DATABASE || path.join(DATA_DIR, 'local-agent.sqlite'));
 export const WORK_DIR = path.resolve(process.env.LOCAL_AGENT_WORKDIR || path.join(DATA_DIR, 'workspace'));
+const SERVICE_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+export const ENV_FILE_PATH = path.resolve(process.env.LOCAL_AGENT_ENV_FILE?.trim() || path.join(SERVICE_DIR, '.env'));
+export const DOCUMENTS_DIR = path.join(DATA_DIR, 'documents');
 
 const configuredToken = (process.env.LOCAL_AGENT_TOKEN || '').trim();
 // Token is optional for loopback-only use. Treat the example placeholder as unset.
