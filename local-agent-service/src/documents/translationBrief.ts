@@ -5,7 +5,7 @@
 import { createHash } from 'node:crypto';
 import { buildProjectVoiceContext } from './voiceContext.ts';
 import { buildProjectContextGraphBundle } from './contextGraph.ts';
-import { getDocumentProjectStore } from './projectStore.ts';
+import { getDocumentProjectStore, normalizeDocumentTranslationStrategy } from './projectStore.ts';
 
 export const TRANSLATION_BRIEF_POLICY_VERSION = 'translation-brief-v1';
 export const MAX_TRANSLATION_BRIEF_CHARS = 18_000;
@@ -415,9 +415,14 @@ export function buildTranslationBrief(
   const sourceRevisionId = String(context?.run?.sourceRevisionId || '');
   const promptRevisionId = String(context?.run?.promptRevisionId || '');
   const memoryRevisionId = typeof context?.memoryRevisionId === 'string' ? context.memoryRevisionId : null;
+  const strategy = normalizeDocumentTranslationStrategy(context?.prompt?.config?.translationStrategy);
+  const visiblePrecedingSegments = strategy.precedingContextSegments > 0
+    ? precedingSegments.slice(-strategy.precedingContextSegments)
+    : [];
+  const maxBriefChars = Math.min(MAX_TRANSLATION_BRIEF_CHARS, strategy.contextBudgetChars);
   const glossary = filterGlossaryForBatch(context, items);
   const temporalMemory = context?.run?.translationMode === 'literary'
-    ? buildTemporallyVisibleMemory(context, items, precedingSegments)
+    ? buildTemporallyVisibleMemory(context, items, visiblePrecedingSegments)
     : {};
   const chapterPaths = Array.from(new Set(items.map((item) => String(item.contextPath || '').trim()).filter(Boolean)));
   // Book batches should be chapter-scoped. If callers violate that invariant, omitting summaries is safer.
@@ -426,14 +431,14 @@ export function buildTranslationBrief(
     ? buildProjectContextGraphBundle(
         projectId,
         items.map((item) => ({ id: item.id, text: item.text, contextPath: item.contextPath })),
-        precedingSegments.map((item) => ({ id: item.id, text: item.text, contextPath: item.contextPath })),
+        visiblePrecedingSegments.map((item) => ({ id: item.id, text: item.text, contextPath: item.contextPath })),
         sourceRevisionId,
         String(context?.run?.targetLang || 'zh'),
       ) as Record<string, any> | null
     : null;
   if (graph && Array.isArray(graph.nameMappings)) {
-    const sourceText = [...precedingSegments.slice(-4), ...items].map((item) => item.text).join('\n');
-    const priorSourceText = precedingSegments.slice(-4).map((item) => item.text).join('\n');
+    const sourceText = [...visiblePrecedingSegments, ...items].map((item) => item.text).join('\n');
+    const priorSourceText = visiblePrecedingSegments.map((item) => item.text).join('\n');
     const projectContext = getDocumentProjectStore().getProjectContext(projectId);
     const batchRows = projectContext.db.prepare(
       'SELECT ordinal FROM source_segments WHERE source_revision_id = ? AND segment_id IN (' +
@@ -485,7 +490,7 @@ export function buildTranslationBrief(
         temporalMemory,
         items.map((item) => ({ id: item.id, text: item.text, contextPath: item.contextPath })),
         chapterPath || undefined,
-        precedingSegments,
+        visiblePrecedingSegments,
       ) as Record<string, any>
     : {};
   // Context Graph style notes are book-wide and have no ordinal-bearing evidence links.
@@ -506,7 +511,7 @@ export function buildTranslationBrief(
     sourceSegmentIds: items.map((item) => item.id),
     chapterPath,
     glossary,
-    precedingSegments: precedingSegments.slice(-4).map((item) => ({
+    precedingSegments: visiblePrecedingSegments.map((item) => ({
       id: item.id,
       text: String(item.text || '').slice(-900),
       contextPath: String(item.contextPath || '').slice(0, 160),
@@ -517,10 +522,10 @@ export function buildTranslationBrief(
     contextHash: '',
   };
   let serialized = serializedContext(brief);
-  while (serialized.length > MAX_TRANSLATION_BRIEF_CHARS && removeLowestPriorityContext(brief)) {
+  while (serialized.length > maxBriefChars && removeLowestPriorityContext(brief)) {
     serialized = serializedContext(brief);
   }
-  if (serialized.length > MAX_TRANSLATION_BRIEF_CHARS) {
+  if (serialized.length > maxBriefChars) {
     // Last-resort safe fallback: keep the batch IDs and a minimal source-near context only.
     brief.contextGraph = null;
     brief.glossary = { document_terms: [] };
@@ -544,7 +549,7 @@ export function buildTranslationBrief(
     serialized = serializedContext(brief);
   }
   if (serialized.length > MAX_TRANSLATION_BRIEF_CHARS) {
-    throw Object.assign(new Error('TranslationBrief 超过上下文字符预算，已拒绝发送不受限上下文。'), { status: 413 });
+    throw Object.assign(new Error('TranslationBrief 超过当前上下文预算（' + maxBriefChars + ' 字符），已拒绝发送不受限上下文。'), { status: 413 });
   }
   brief.contextChars = serialized.length;
   brief.contextHash = createHash('sha256').update(serialized, 'utf8').digest('hex');
