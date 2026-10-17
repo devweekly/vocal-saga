@@ -527,7 +527,10 @@ function translationContextDeltaFindings(db: any, runId: string | undefined, val
   const rows = db.prepare(
     'SELECT batch_index, delta_json FROM translation_context_deltas WHERE run_id = ? ORDER BY first_ordinal, first_segment_id'
   ).all(runId) as Array<{ batch_index: number; delta_json: string }>;
-  const proposals = new Map<string, { source: string; targets: Map<string, { target: string; segmentIds: Set<string>; batches: Set<number> }> }>();
+  type TargetProposal = { target: string; segmentIds: Set<string>; batches: Set<number> };
+  type ProposalGroup = { source: string; names: Set<string>; targets: Map<string, TargetProposal> };
+  const groups: ProposalGroup[] = [];
+  const normalizeEntityName = (value: unknown) => normalized(String(value || '')).replace(/[._'’\-]+/g, ' ').trim();
   for (const row of rows) {
     let delta: any = {};
     try { delta = JSON.parse(row.delta_json || '{}'); } catch { delta = {}; }
@@ -536,10 +539,39 @@ function translationContextDeltaFindings(db: any, runId: string | undefined, val
       const source = typeof entity?.canonicalSource === 'string' ? entity.canonicalSource.trim() : '';
       const target = typeof entity?.targetProposal === 'string' ? entity.targetProposal.trim() : '';
       if (!source || !target) continue;
-      const key = normalized(source);
-      if (!proposals.has(key)) proposals.set(key, { source, targets: new Map() });
-      const group = proposals.get(key)!;
-      const targetKey = normalized(target);
+      const names = new Set([source, ...(Array.isArray(entity.aliases) ? entity.aliases : [])]
+        .map(normalizeEntityName).filter(Boolean));
+      if (!names.size) continue;
+      const matchingIndexes = groups
+        .map((group, index) => ({ group, index }))
+        .filter(({ group }) => Array.from(names).some((name) => group.names.has(name)))
+        .map(({ index }) => index);
+      let group: ProposalGroup;
+      if (!matchingIndexes.length) {
+        group = { source, names: new Set(names), targets: new Map() };
+        groups.push(group);
+      } else {
+        const canonicalIndex = matchingIndexes[0]!;
+        group = groups[canonicalIndex]!;
+        for (const name of names) group.names.add(name);
+        // Explicit alias bridges can connect prior groups. Merge them without fuzzy substring
+        // matching, retaining source-order target proposals and their exact evidence locations.
+        for (const index of matchingIndexes.slice(1).reverse()) {
+          const bridged = groups[index]!;
+          for (const name of bridged.names) group.names.add(name);
+          for (const [key, proposal] of bridged.targets) {
+            if (!group.targets.has(key)) {
+              group.targets.set(key, proposal);
+            } else {
+              const prior = group.targets.get(key)!;
+              for (const id of proposal.segmentIds) prior.segmentIds.add(id);
+              for (const batch of proposal.batches) prior.batches.add(batch);
+            }
+          }
+          groups.splice(index, 1);
+        }
+      }
+      const targetKey = normalizeEntityName(target);
       if (!group.targets.has(targetKey)) group.targets.set(targetKey, { target, segmentIds: new Set(), batches: new Set() });
       const targetGroup = group.targets.get(targetKey)!;
       targetGroup.batches.add(Number(row.batch_index));
@@ -550,23 +582,23 @@ function translationContextDeltaFindings(db: any, runId: string | undefined, val
     }
   }
   const findings: any[] = [];
-  for (const [sourceKey, group] of proposals) {
+  for (const group of groups) {
     if (group.targets.size < 2) continue;
-    const segmentIds = Array.from(new Set(Array.from(group.targets.values()).flatMap((item) => Array.from(item.segmentIds)))).sort();
     const targetOptions = Array.from(group.targets.values()).map((item) => ({
       target: item.target, batchIndexes: Array.from(item.batches).sort((a, b) => a - b),
       segmentIds: Array.from(item.segmentIds).sort(),
     }));
+    const segmentIds = Array.from(new Set(targetOptions.flatMap((item) => item.segmentIds))).sort();
     findings.push({
-      findingId: stableFindingId('context-delta-conflict', segmentIds, sourceKey + ':' + targetOptions.map((item) => normalized(item.target)).sort().join('|')),
+      findingId: stableFindingId('context-delta-conflict', segmentIds, group.source + ':' + targetOptions.map((item) => normalizeEntityName(item.target)).sort().join('|')),
       type: 'context-delta-conflict',
       category: 'context',
       severity: 'warning',
       confidence: 'deterministic-conflicting-proposals',
       repairable: false,
       segmentIds,
-      entity: { source: group.source, proposals: targetOptions },
-      explanation: '初译不同批次对同一原文实体提出了不同译名。系统保留来源顺序中的首个候选并记录冲突，不会自动覆盖既有或人工确认的译名；请结合各位置原文决定是否属于同一实体。',
+      entity: { source: group.source, names: Array.from(group.names).sort(), proposals: targetOptions },
+      explanation: '不同初译批次通过规范名称或明确别名指向同一来源实体，却提出了不同译名。系统保留来源顺序中的首个候选并记录冲突，不会自动覆盖既有或人工确认的译名；请结合各位置原文决定这些称谓是否属于同一实体。',
     });
   }
   return findings;
