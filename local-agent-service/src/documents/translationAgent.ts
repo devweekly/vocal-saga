@@ -425,31 +425,23 @@ export function protectCanonicalReviewSegments<T extends { id: string; source: s
   };
 }
 
-export function restoreCanonicalMarkersDeep(value: unknown, protections: CanonicalTermProtection[]): unknown {
-  if (typeof value === 'string') return restoreCanonicalTermMarkers(value, protections, 'target');
-  if (Array.isArray(value)) return value.map((item) => restoreCanonicalMarkersDeep(item, protections));
+export function restoreCanonicalMarkersDeep(
+  value: unknown,
+  protections: CanonicalTermProtection[],
+  mode: 'source' | 'target' = 'target',
+): unknown {
+  if (typeof value === 'string') return restoreCanonicalTermMarkers(value, protections, mode);
+  if (Array.isArray(value)) {
+    return value.map((item) => restoreCanonicalMarkersDeep(item, protections, mode));
+  }
   if (value && typeof value === 'object') {
     return Object.fromEntries(Object.entries(value as Record<string, unknown>)
       .map(([key, item]) => [
         key,
-        // This field is evidence against the original source, not prose in the target language.
-        // Restoring it to the canonical target would make valid excerpts fail grounding checks.
-        restoreCanonicalTermMarkersDeepWithMode(item, protections, key === 'sourceExcerpt' ? 'source' : 'target'),
+        // sourceExcerpt is evidence against the original source; restoring it to the target
+        // language would make a valid quoted finding fail server-side grounding checks.
+        restoreCanonicalMarkersDeep(item, protections, key === 'sourceExcerpt' ? 'source' : mode),
       ]));
-  }
-  return value;
-}
-
-function restoreCanonicalTermMarkersDeepWithMode(
-  value: unknown,
-  protections: CanonicalTermProtection[],
-  mode: 'source' | 'target',
-): unknown {
-  if (typeof value === 'string') return restoreCanonicalTermMarkers(value, protections, mode);
-  if (Array.isArray(value)) return value.map((item) => restoreCanonicalTermMarkersDeepWithMode(item, protections, mode));
-  if (value && typeof value === 'object') {
-    return Object.fromEntries(Object.entries(value as Record<string, unknown>)
-      .map(([key, item]) => [key, restoreCanonicalTermMarkersDeepWithMode(item, protections, key === 'sourceExcerpt' ? 'source' : mode)]));
   }
   return value;
 }
