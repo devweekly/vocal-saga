@@ -253,6 +253,68 @@ function readSegments(projectId: string): { db: DatabaseSync; revisionId: string
   };
 }
 
+const readySourceFeatureIndexes = new Map<string, Record<string, any>>();
+
+function ensureSourceFeatureIndexInDatabase(
+  projectId: string,
+  db: DatabaseSync,
+  revisionId: string,
+): Record<string, any> {
+  ensureSchema(db);
+  const cached = readySourceFeatureIndexes.get(revisionId);
+  if (cached) return cached;
+  const metaRow = db.prepare(
+    'SELECT value FROM context_graph_meta WHERE source_revision_id = ? AND key = ?'
+  ).get(revisionId, 'sourceFeatureIndex') as { value?: string } | undefined;
+  let meta: Record<string, any> | null = null;
+  try { meta = metaRow?.value ? JSON.parse(metaRow.value) : null; } catch { meta = null; }
+  const sourceCount = Number((db.prepare(
+    'SELECT COUNT(*) AS count FROM source_segments WHERE source_revision_id = ?'
+  ).get(revisionId) as any)?.count || 0);
+  const indexedCount = Number((db.prepare(
+    'SELECT COUNT(*) AS count FROM context_graph_source_features WHERE source_revision_id = ? AND index_version = ?'
+  ).get(revisionId, BOOK_SCAN_INDEX_VERSION) as any)?.count || 0);
+  if (meta?.indexVersion === BOOK_SCAN_INDEX_VERSION &&
+      Number(meta.sourceSegmentCount) === sourceCount && indexedCount === sourceCount) {
+    readySourceFeatureIndexes.set(revisionId, meta);
+    return meta;
+  }
+
+  // Upgrade older projects without re-running the expensive book-level LLM analysis.
+  const rows = db.prepare(
+    'SELECT segment_id, ordinal, text, kind, context_path FROM source_segments WHERE source_revision_id = ? ORDER BY ordinal'
+  ).all(revisionId) as any[];
+  const segments: Segment[] = rows.map((row) => ({
+    id: String(row.segment_id), ordinal: Number(row.ordinal), text: String(row.text),
+    kind: String(row.kind || 'paragraph'), contextPath: String(row.context_path || ''),
+  }));
+  const scan = scanBookSegments(segments);
+  persistSourceFeatureIndex(db, revisionId, segments, scan);
+  const refreshed = readSourceFeatureIndex(db, revisionId);
+  const summary = refreshed?.diagnostics as Record<string, any> | undefined;
+  if (!refreshed || !summary) throw new Error('来源特征索引写入后仍无法验证完整性。');
+  readySourceFeatureIndexes.set(revisionId, summary);
+  getDocumentProjectStore().appendEvent(projectId, null, 'context-graph.source-index.ready', {
+    sourceRevisionId: revisionId,
+    indexVersion: BOOK_SCAN_INDEX_VERSION,
+    sourceSegmentCount: sourceCount,
+    entityMentionCount: summary.entityMentionCount,
+    entityMentionsTruncated: summary.entityMentionsTruncated,
+    textUnitCount: summary.textUnitCount,
+    textUnitsTruncated: summary.textUnitsTruncated,
+    quantityMentionCount: summary.quantityMentionCount,
+    quantityMentionsTruncated: summary.quantityMentionsTruncated,
+    upgrade: true,
+  });
+  return summary;
+}
+
+/** Build/upgrade the deterministic feature index without invoking a model. */
+export function ensureSourceFeatureIndex(projectId: string, sourceRevisionId?: string): Record<string, any> {
+  const { db, revisionId } = graphContext(projectId, sourceRevisionId);
+  return ensureSourceFeatureIndexInDatabase(projectId, db, revisionId);
+}
+
 function chapterMap(segments: Segment[]): Array<{ key: string; title: string; order: number; segments: Segment[] }> {
   const chapters: Array<{ key: string; title: string; order: number; segments: Segment[] }> = [];
   const byKey = new Map<string, { key: string; title: string; order: number; segments: Segment[] }>();
@@ -853,6 +915,7 @@ export function buildProjectContextGraphBundle(
   targetLang?: string,
 ): Record<string, unknown> | null {
   const { db, revisionId } = graphContext(projectId, sourceRevisionId);
+  ensureSourceFeatureIndexInDatabase(projectId, db, revisionId);
   const sourceText = [...precedingSegments.slice(-4), ...items].map((item) => item.text).join('\n');
   const normalizedSource = normalize(sourceText);
   if (!normalizedSource) return null;
