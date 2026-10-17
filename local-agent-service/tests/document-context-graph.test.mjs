@@ -153,6 +153,34 @@ test('current-batch aliases do not suppress evidence-backed automatic canonical 
     'valid source evidence activates canonical naming without a per-entity confirmation click');
 });
 
+test('a canonical name mapping is available when only a prior alias is visible', () => {
+  const store = getDocumentProjectStore();
+  const project = store.createProject({
+    title: 'Alias Retrieval',
+    format: 'txt',
+    segments: [
+      { id: 'alias-prior', text: 'King stepped through the door.', contextPath: 'Chapter 1' },
+      { id: 'alias-current', text: 'King spoke to Max.', contextPath: 'Chapter 2' },
+      { id: 'formal-future', text: 'The King revealed his identity.', contextPath: 'Chapter 3' },
+    ],
+  });
+  const { db, currentSourceRevisionId } = store.getProjectContext(project.projectId);
+  getContextGraph(project.projectId);
+  const now = new Date().toISOString();
+  db.prepare('INSERT INTO context_graph_nodes(node_id, source_revision_id, kind, name, normalized_name, attributes_json, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
+    .run('node-formal-king', currentSourceRevisionId, 'character', 'The King', 'the king',
+      JSON.stringify({ aliases: ['King'], suggestedTranslation: '国王', targetLang: 'zh' }), 'candidate', now, now);
+  db.prepare('INSERT INTO context_graph_evidence(source_revision_id, node_id, edge_id, segment_id, quote, role, created_at) VALUES (?, ?, NULL, ?, ?, ?, ?)')
+    .run(currentSourceRevisionId, 'node-formal-king', 'alias-prior', 'King stepped through the door.', 'character', now);
+  const bundle = buildProjectContextGraphBundle(project.projectId,
+    [{ id: 'alias-current', text: 'King spoke to Max.', contextPath: 'Chapter 2' }],
+    [{ id: 'alias-prior', text: 'King stepped through the door.', contextPath: 'Chapter 1' }],
+    currentSourceRevisionId, 'zh');
+  const mapping = bundle?.nameMappings.find((item) => item.source === 'The King');
+  assert.equal(mapping?.target, '国王');
+  assert.deepEqual(mapping?.aliases, ['King']);
+});
+
 test('Context Graph changes are rejected while a translation run is active', () => {
   const store = getDocumentProjectStore();
   const project = store.listProjects().find((item) => item.title === 'Context Graph Test');
