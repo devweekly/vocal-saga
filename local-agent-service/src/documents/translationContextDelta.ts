@@ -148,7 +148,7 @@ export function validateTranslationContextDelta(
       alias && normalized(alias) !== normalized(canonicalSource) &&
       segments.some((segment) => hasName(segment.text, alias)) &&
       evidence.some((entry) => hasName(entry.sourceQuote, alias)
-    ))).slice(0, 8);
+    )))).slice(0, 8);
     const localId = (idPrefix + originalLocalId).slice(0, 80);
     localIds.set(originalLocalId, localId);
     delta.entityCandidates.push({
