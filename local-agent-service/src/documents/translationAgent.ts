@@ -64,7 +64,7 @@ type TranslationItem = { id: string; text: string; kind?: string; contextPath?: 
  * The pool is the final global concurrency guard across overlapping runs.
  */
 const CONFIGURED_TRANSLATION_CONCURRENCY = positiveIntegerEnv('LOCAL_AGENT_DOCUMENT_TRANSLATION_CONCURRENCY', 6);
-const CONFIGURED_REVIEW_CONCURRENCY = positiveIntegerEnv('LOCAL_AGENT_DOCUMENT_REVIEW_CONCURRENCY', 2);
+const CONFIGURED_REVIEW_CONCURRENCY = positiveIntegerEnv('LOCAL_AGENT_DOCUMENT_REVIEW_CONCURRENCY', 4);
 
 export type DocumentBatchRole = 'translation' | 'review';
 
@@ -509,8 +509,8 @@ async function executeRun(projectId: string, runId: string): Promise<void> {
       resolveDocumentRunConcurrencyBudget(
         WORKBUDDY_POOL_SIZE,
         reviewEnabled,
-        strategy.translationConcurrency || CONFIGURED_TRANSLATION_CONCURRENCY,
-        strategy.reviewConcurrency || CONFIGURED_REVIEW_CONCURRENCY,
+        Math.min(strategy.translationConcurrency, CONFIGURED_TRANSLATION_CONCURRENCY),
+        Math.min(strategy.reviewConcurrency, CONFIGURED_REVIEW_CONCURRENCY),
       );
     store.appendEvent(projectId, runId, 'plan.ready', {
       batchCount: batches.length,
