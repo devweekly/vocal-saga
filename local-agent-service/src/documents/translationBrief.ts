@@ -491,19 +491,40 @@ export function buildTranslationBrief(
       firstMatchingSourceOrdinal(projectContext.db, sourceRevisionId, name, 'name') < firstOrdinal ||
       sourceNameMatches(sourceText, name);
     const memoryEntities = Array.isArray(context?.memory?.entities) ? context.memory.entities : [];
+    const sourceRowCache = new Map<string, { ordinal: number; text: string } | null>();
+    const sourceRowFor = (segmentId: unknown) => {
+      const id = typeof segmentId === 'string' ? segmentId : '';
+      if (!id) return null;
+      if (sourceRowCache.has(id)) return sourceRowCache.get(id) || null;
+      const row = projectContext.db.prepare(
+        'SELECT ordinal, text FROM source_segments WHERE source_revision_id = ? AND segment_id = ?'
+      ).get(sourceRevisionId, id) as { ordinal?: number; text?: string } | undefined;
+      const value = row && Number.isFinite(Number(row.ordinal))
+        ? { ordinal: Number(row.ordinal), text: String(row.text || '') } : null;
+      sourceRowCache.set(id, value);
+      return value;
+    };
     for (const entity of memoryEntities) {
       const source = String(entity?.source || '').trim();
       const target = String(entity?.target || '').trim();
       const evidence = String(entity?.evidence || '').trim();
-      if (!source || !target || !sourceVisible(source) || !evidence) continue;
-      const evidenceOrdinal = firstMatchingSourceOrdinal(projectContext.db, sourceRevisionId, evidence, 'quote');
-      const evidenceVisible = evidenceOrdinal < firstOrdinal ||
-        normalizedSourceText(sourceText).includes(normalizedSourceText(evidence));
+      if (!source || !target || !sourceVisible(source)) continue;
       const rawAliases = Array.isArray(entity.aliases) ? entity.aliases : [];
-      const aliasesVisible = rawAliases.every((alias: unknown) =>
-        firstMatchingSourceOrdinal(projectContext.db, sourceRevisionId, alias, 'name') < firstOrdinal);
-      // A manually confirmed label is not permission to move a later identity reveal backward.
-      if (!evidenceVisible || !aliasesVisible) continue;
+      const visibleEvidenceRefs = (Array.isArray(entity.evidenceRefs) ? entity.evidenceRefs : []).filter((ref: any) => {
+        const row = sourceRowFor(ref?.segmentId);
+        return !!row && row.ordinal < firstOrdinal &&
+          sourceQuoteMatches(row.text, ref?.sourceQuote) &&
+          sourceNameMatches(ref.sourceQuote, source);
+      });
+      // New dynamic memory has segment-specific provenance. Do not fall back to searching the
+      // same quotation elsewhere in the book, because duplicate prose can predate the observation.
+      // Legacy/user-authored mappings without evidenceRefs retain the source-quote fallback.
+      const evidenceVisible = Array.isArray(entity.evidenceRefs) && entity.evidenceRefs.length
+        ? visibleEvidenceRefs.length > 0
+        : !!evidence && (
+            firstMatchingSourceOrdinal(projectContext.db, sourceRevisionId, evidence, 'quote') < firstOrdinal ||
+            normalizedSourceText(sourceText).includes(normalizedSourceText(evidence)));
+      if (!evidenceVisible) continue;
       const aliases = rawAliases.filter((alias: unknown) =>
         firstMatchingSourceOrdinal(projectContext.db, sourceRevisionId, alias, 'name') < firstOrdinal ||
         sourceNameMatches(priorSourceText, alias));
@@ -522,6 +543,13 @@ export function buildTranslationBrief(
         else graph.nameMappings.unshift(incoming);
       } else if (index < 0) {
         graph.nameMappings.push(incoming);
+      } else {
+        // A source-ordered dynamic candidate outranks an unconfirmed whole-book proposal.
+        // Keep an already confirmed Context Graph mapping, but avoid injecting two competing targets.
+        const existing = graph.nameMappings[index];
+        if (!['confirmed', 'confirmed-memory'].includes(String(existing?.sourceStatus || ''))) {
+          graph.nameMappings[index] = { ...existing, ...incoming };
+        }
       }
     }
     graph.nameMappings = graph.nameMappings.slice(0, 16);
