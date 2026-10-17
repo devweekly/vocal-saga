@@ -1757,11 +1757,11 @@ export class DocumentProjectStore {
     // The Run-state guard, candidate selection and acceptance writes share one write lock.
     db.exec('BEGIN IMMEDIATE');
     try {
-      const run = db.prepare('SELECT status FROM translation_runs WHERE run_id = ?').get(runId) as { status?: string } | undefined;
+      const run = db.prepare('SELECT status, error FROM translation_runs WHERE run_id = ?').get(runId) as { status?: string; error?: string | null } | undefined;
       if (!run) throw Object.assign(new Error('找不到翻译运行：' + runId), { status: 404 });
-      if (['cancelled', 'paused', 'queued', 'running'].includes(String(run.status))) {
+      if (['cancelled', 'queued', 'running'].includes(String(run.status))) {
         throw Object.assign(
-          new Error('运行处于 ' + run.status + ' 状态，不能采纳候选译文；请先完成或恢复运行。'),
+          new Error('运行处于 ' + run.status + ' 状态，不能采纳候选译文；请先完成或暂停运行。'),
           { status: 409 },
         );
       }
@@ -1805,11 +1805,24 @@ export class DocumentProjectStore {
       const pending = Number(values.pending || 0) + Number(values.running || 0);
       const failures = Number(values.failed || 0);
       const acceptedCount = Number(values.accepted || 0);
-      if (pending > 0) throw Object.assign(new Error('运行仍包含待处理或执行中的片段，拒绝结束采纳事务。'), { status: 409 });
-      if (candidates > 0) finalStatus = acceptedCount > 0 && failures > 0 ? 'partial' : 'awaiting_acceptance';
-      else if (failures > 0) finalStatus = acceptedCount > 0 ? 'partial' : 'failed';
-      else finalStatus = 'completed';
-      terminalError = failures ? String(failures) + ' 个片段失败，可重试失败范围' : null;
+      if (pending > 0) {
+        if (run.status !== 'paused') {
+          throw Object.assign(new Error('运行仍包含待处理或执行中的片段，拒绝结束采纳事务。'), { status: 409 });
+        }
+        // A user may accept already-completed candidates while a Run is paused, but this must
+        // never convert that partially finished Run to completed or awaiting_acceptance.
+        finalStatus = 'paused';
+        terminalError = run.error ?? null;
+      } else if (candidates > 0) {
+        finalStatus = acceptedCount > 0 && failures > 0 ? 'partial' : 'awaiting_acceptance';
+        terminalError = failures ? String(failures) + ' 个片段失败，可重试失败范围' : null;
+      } else if (failures > 0) {
+        finalStatus = acceptedCount > 0 ? 'partial' : 'failed';
+        terminalError = String(failures) + ' 个片段失败，可重试失败范围';
+      } else {
+        finalStatus = 'completed';
+        terminalError = null;
+      }
       db.prepare('UPDATE translation_runs SET status = ?, error = ?, finished_at = ? WHERE run_id = ?')
         .run(finalStatus, terminalError, now, runId);
       db.exec('COMMIT');
