@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildBatches, buildCanonicalTermProtections, buildStandaloneReviewContextGraph, buildUserPrompt, canonicalMarkerCountsMatch, maskCanonicalTermText, protectCanonicalReviewSegments, restoreCanonicalMarkersDeep, restoreCanonicalTermMarkers } from '../src/documents/translationAgent.ts';
+import { buildBatches, buildCanonicalTermProtections, buildStandaloneReviewContextGraph, buildStandaloneReviewMemory, buildStandaloneReviewVoiceContext, buildUserPrompt, canonicalMarkerCountsMatch, maskCanonicalTermText, protectCanonicalReviewSegments, restoreCanonicalMarkersDeep, restoreCanonicalTermMarkers } from '../src/documents/translationAgent.ts';
 import { normalizeDocumentTranslationStrategy } from '../src/documents/projectStore.ts';
 import { buildProjectVoiceContext } from '../src/documents/voiceContext.ts';
 import { isLiteraryReviewFindingGrounded } from '../src/literary.ts';
@@ -535,4 +535,66 @@ test('Reviewer restoration keeps source excerpts in source language and drafts i
   assert.equal(restored.translations.p1, '国王走进大厅。');
   assert.equal(restored.findings[0].sourceExcerpt, 'the King entered');
   assert.equal(restored.findings[0].draftExcerpt, '国王走进大厅。');
+});
+
+
+test('standalone Reviewer rebuilds memory from visible source evidence and ignores supplied future context', () => {
+  const input = {
+    segments: [{
+      id: 'current',
+      source: 'The King entered the storehouse.',
+      draft: '大王走进了仓库。',
+      contextPath: 'Chapter 1',
+    }],
+    precedingSegments: [{
+      id: 'prior',
+      text: 'The King was known around the camp.',
+      contextPath: 'Chapter 1',
+    }],
+    // These properties may exist on an old extension payload, but are not authority.
+    translationBrief: {
+      contextGraph: {
+        nameMappings: [{ source: 'The King', target: '灰后', aliases: ['Queen Ash'], sourceStatus: 'confirmed' }],
+        entities: [{ name: 'Queen Ash', significance: 'secret future identity' }],
+      },
+      voiceContext: {
+        chapterSummaries: [{ chapter: 'Chapter 9', summary: 'The King is Queen Ash.' }],
+        recentExamples: [{ source: 'The King was Queen Ash.', target: '国王其实是灰后。' }],
+      },
+    },
+    voiceContext: {
+      chapterSummaries: [{ chapter: 'Chapter 9', summary: 'The King is Queen Ash.' }],
+    },
+    memory: {
+      entities: [
+        {
+          source: 'The King', target: '国王', aliases: ['King'],
+          evidence: 'The King was known around the camp.',
+          reviewStatus: 'confirmed', kind: 'person',
+        },
+        {
+          source: 'The King', target: '灰后', aliases: ['Queen Ash'],
+          evidence: 'The King was known around the camp.',
+          reviewStatus: 'confirmed', kind: 'person',
+        },
+      ],
+      relationships: [],
+      chapterSummaries: [{ chapter: 'Chapter 9', summary: 'The King is Queen Ash.' }],
+      recentExamples: [{ source: 'The King was Queen Ash.', target: '国王其实是灰后。', chapter: 'Chapter 9' }],
+      characterVoices: [],
+      relationshipVoiceRules: [],
+      voiceAnchors: [],
+    },
+  };
+  const safeMemory = buildStandaloneReviewMemory(input);
+  assert.deepEqual(safeMemory.entities.map((item) => item.target), ['国王']);
+  assert.deepEqual(safeMemory.chapterSummaries, []);
+  assert.deepEqual(safeMemory.recentExamples, []);
+
+  const safeInput = { ...input, memory: safeMemory };
+  const graph = buildStandaloneReviewContextGraph(safeInput);
+  assert.deepEqual(graph.nameMappings.map((item) => item.target), ['国王']);
+  assert.ok(!JSON.stringify(graph).includes('Queen Ash'));
+  assert.ok(!JSON.stringify(buildStandaloneReviewVoiceContext(safeInput)).includes('Queen Ash'));
+  assert.ok(!JSON.stringify(buildStandaloneReviewVoiceContext(safeInput)).includes('Chapter 9'));
 });
