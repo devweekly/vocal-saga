@@ -483,7 +483,7 @@ test('standalone re-review receives explicit canonical mappings without future-o
   assert.ok(mapping?.aliases.includes('King'));
   assert.ok(!mapping?.aliases.includes('Pirate Queen'),
     'the legacy Review endpoint must not serialize an alias that appears only in future book memory');
-  const protections = buildCanonicalTermProtections(input.segments, graph);
+  const protections = buildCanonicalTermProtections(input.segments.map((item) => ({ id: item.id, text: item.source })), graph);
   assert.ok(protections.some((item) => item.target === '国王'),
     'standalone re-review must use the same deterministic canonical-name protection as Project Runs');
 });
