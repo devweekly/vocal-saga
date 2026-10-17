@@ -1,3 +1,6 @@
+import { availableParallelism } from 'node:os';
+import { Worker } from 'node:worker_threads';
+
 /**
  * Deterministic, dependency-free source feature indexing for literary pre-analysis.
  * This is a lexical index and adaptive sampling planner, not an NER or semantic parser.
@@ -146,10 +149,15 @@ function quoteSpans(text: string): Array<{ start: number; end: number }> {
     /‘([^’]{8,2000})’/gu, /'([^']{8,2000})'/gu,
   ];
   const spans: Array<{ start: number; end: number }> = [];
+  const seenSpans = new Set<string>();
   for (const pattern of patterns) for (const match of text.matchAll(pattern)) {
     const start = (match.index ?? 0) + match[0].indexOf(match[1] || '');
     const end = start + (match[1] || '').length;
-    if (end > start && !spans.some((span) => span.start === start && span.end === end)) spans.push({ start, end });
+    const key = `${start}:${end}`;
+    if (end > start && !seenSpans.has(key)) {
+      seenSpans.add(key);
+      spans.push({ start, end });
+    }
   }
   return spans.sort((a, b) => a.start - b.start || a.end - b.end);
 }
@@ -339,26 +347,186 @@ function collectRepeatedPhrases(segments:BookScanSegment[],units:BookTextUnit[],
     chapterKeys:value.chapterKeys.slice(0,12),
   })).sort((a,b)=>b.count-a.count||b.chapterKeys.length-a.chapterKeys.length).slice(0,Math.max(1,maxGroups));
 }
-export function scanBookSegments(segmentsInput:BookScanSegment[],options:{maxRepeatedPhraseSegmentIds?:number;maxRepeatedPhraseGroups?:number;maxEntityMentions?:number;maxTextUnits?:number;maxQuantityMentions?:number}={}):BookScanResult {
-  const segments=segmentsInput.slice().sort((a,b)=>a.ordinal-b.ordinal);
-  const entityResult=collectEntityMentions(segments),textResult=collectTextUnits(segments),quantityResult=collectQuantityMentions(segments);
-  const entityLimit=Math.max(1,Math.min(MAX_ENTITY_MENTIONS,Math.floor(options.maxEntityMentions??MAX_ENTITY_MENTIONS)));
-  const textLimit=Math.max(1,Math.min(MAX_TEXT_UNITS,Math.floor(options.maxTextUnits??MAX_TEXT_UNITS)));
-  const quantityLimit=Math.max(1,Math.min(MAX_QUANTITY_MENTIONS,Math.floor(options.maxQuantityMentions??MAX_QUANTITY_MENTIONS)));
-  const entityMentions=entityResult.mentions.slice(0,entityLimit),textUnits=textResult.units.slice(0,textLimit),quantityMentions=quantityResult.mentions.slice(0,quantityLimit);
-  const chapters=getChapters(segments),dialogueIndex=collectDialogueIndex(segments);
+export interface BookScanOptions {
+  maxRepeatedPhraseSegmentIds?: number;
+  maxRepeatedPhraseGroups?: number;
+  maxEntityMentions?: number;
+  maxTextUnits?: number;
+  maxQuantityMentions?: number;
+}
+
+/** Segment-local features can be computed independently and merged in source order. */
+export interface BookScanFeatureChunk {
+  entityMentions: BookEntityMention[];
+  entityMentionsDiscovered: number;
+  textUnits: BookTextUnit[];
+  textUnitsDiscovered: number;
+  dialogueIndex: BookDialogueIndex[];
+  quantityMentions: BookQuantityMention[];
+  quantityMentionsDiscovered: number;
+}
+
+export function scanBookSegmentFeatures(segmentsInput: BookScanSegment[]): BookScanFeatureChunk {
+  const segments = segmentsInput.slice().sort((a, b) => a.ordinal - b.ordinal);
+  const entities = collectEntityMentions(segments);
+  const units = collectTextUnits(segments);
+  const quantities = collectQuantityMentions(segments);
   return {
-    segmentCount:segments.length,charCount:segments.reduce((sum,item)=>sum+item.text.length,0),chapterCount:chapters.length,
-    dialogueSegmentCount:dialogueIndex.filter((item)=>item.isDialogue).length,chapters,
-    nameCandidates:collectNameCandidates(segments,entityMentions),
-    repeatedPhrases:collectRepeatedPhrases(segments,textUnits,options.maxRepeatedPhraseSegmentIds??16,options.maxRepeatedPhraseGroups??80),
-    entityMentions,textUnits,dialogueIndex,quantityMentions,
-    indexDiagnostics:{
-      entityMentionCount:entityMentions.length,entityMentionLimit:entityLimit,entityMentionsTruncated:entityResult.discovered>entityMentions.length,
-      textUnitCount:textUnits.length,textUnitLimit:textLimit,textUnitsTruncated:textResult.discovered>textUnits.length,
-      quantityMentionCount:quantityMentions.length,quantityMentionLimit:quantityLimit,quantityMentionsTruncated:quantityResult.discovered>quantityMentions.length,
+    entityMentions: entities.mentions,
+    entityMentionsDiscovered: entities.discovered,
+    textUnits: units.units,
+    textUnitsDiscovered: units.discovered,
+    dialogueIndex: collectDialogueIndex(segments),
+    quantityMentions: quantities.mentions,
+    quantityMentionsDiscovered: quantities.discovered,
+  };
+}
+
+function mergeFeatureArrays<T>(
+  chunks: readonly BookScanFeatureChunk[],
+  select: (chunk: BookScanFeatureChunk) => readonly T[],
+  limit: number,
+): T[] {
+  const merged: T[] = [];
+  for (const chunk of chunks) {
+    for (const item of select(chunk)) {
+      if (merged.length >= limit) return merged;
+      merged.push(item);
+    }
+  }
+  return merged;
+}
+
+function assembleBookScan(
+  segments: BookScanSegment[],
+  featureChunks: readonly BookScanFeatureChunk[],
+  options: BookScanOptions = {},
+): BookScanResult {
+  // Chunk ranges are contiguous and ordered, so merging preserves the exact serial scan order.
+  const entityDiscovered = featureChunks.reduce((sum, item) => sum + item.entityMentionsDiscovered, 0);
+  const textDiscovered = featureChunks.reduce((sum, item) => sum + item.textUnitsDiscovered, 0);
+  const quantityDiscovered = featureChunks.reduce((sum, item) => sum + item.quantityMentionsDiscovered, 0);
+  const entityResult = mergeFeatureArrays(featureChunks, (item) => item.entityMentions, MAX_ENTITY_MENTIONS);
+  const textResult = mergeFeatureArrays(featureChunks, (item) => item.textUnits, MAX_TEXT_UNITS);
+  const quantityResult = mergeFeatureArrays(featureChunks, (item) => item.quantityMentions, MAX_QUANTITY_MENTIONS);
+  const entityLimit = Math.max(1, Math.min(MAX_ENTITY_MENTIONS, Math.floor(options.maxEntityMentions ?? MAX_ENTITY_MENTIONS)));
+  const textLimit = Math.max(1, Math.min(MAX_TEXT_UNITS, Math.floor(options.maxTextUnits ?? MAX_TEXT_UNITS)));
+  const quantityLimit = Math.max(1, Math.min(MAX_QUANTITY_MENTIONS, Math.floor(options.maxQuantityMentions ?? MAX_QUANTITY_MENTIONS)));
+  const entityMentions = entityResult.slice(0, entityLimit);
+  const textUnits = textResult.slice(0, textLimit);
+  const quantityMentions = quantityResult.slice(0, quantityLimit);
+  const chapters = getChapters(segments);
+  const dialogueIndex = featureChunks.flatMap((item) => item.dialogueIndex);
+  return {
+    segmentCount: segments.length,
+    charCount: segments.reduce((sum, item) => sum + item.text.length, 0),
+    chapterCount: chapters.length,
+    dialogueSegmentCount: dialogueIndex.filter((item) => item.isDialogue).length,
+    chapters,
+    nameCandidates: collectNameCandidates(segments, entityMentions),
+    repeatedPhrases: collectRepeatedPhrases(
+      segments, textUnits,
+      options.maxRepeatedPhraseSegmentIds ?? 16,
+      options.maxRepeatedPhraseGroups ?? 80,
+    ),
+    entityMentions,
+    textUnits,
+    dialogueIndex,
+    quantityMentions,
+    indexDiagnostics: {
+      entityMentionCount: entityMentions.length,
+      entityMentionLimit: entityLimit,
+      entityMentionsTruncated: entityDiscovered > entityMentions.length,
+      textUnitCount: textUnits.length,
+      textUnitLimit: textLimit,
+      textUnitsTruncated: textDiscovered > textUnits.length,
+      quantityMentionCount: quantityMentions.length,
+      quantityMentionLimit: quantityLimit,
+      quantityMentionsTruncated: quantityDiscovered > quantityMentions.length,
     },
   };
+}
+
+const MAX_BOOK_SCAN_WORKERS = 4;
+const MIN_PARALLEL_SCAN_SEGMENTS = 1_200;
+const MIN_PARALLEL_SCAN_CHARS = 500_000;
+
+function configuredBookScanWorkers(): number {
+  const raw = process.env.VOCAL_SAGA_BOOK_SCAN_WORKERS;
+  if (raw !== undefined && /^\d+$/.test(raw.trim())) {
+    const requested = Number(raw);
+    return requested === 0 ? 0 : Math.min(MAX_BOOK_SCAN_WORKERS, Math.max(1, requested));
+  }
+  return Math.min(MAX_BOOK_SCAN_WORKERS, Math.max(1, availableParallelism() - 1));
+}
+
+function workerExecArgv(): string[] {
+  // Keep loaders such as tsx for .ts worker entrypoints, but do not start a nested test
+  // runner or an inspector on the same port when tests/debug sessions spawn workers.
+  return process.execArgv.filter((arg) =>
+    !arg.startsWith('--test') && !arg.startsWith('--inspect'),
+  );
+}
+
+async function scanFeatureChunkInWorker(segments: BookScanSegment[]): Promise<BookScanFeatureChunk> {
+  return new Promise<BookScanFeatureChunk>((resolve, reject) => {
+    const worker = new Worker(new URL('./bookScanWorker.ts', import.meta.url), {
+      workerData: { segments },
+      execArgv: workerExecArgv(),
+    });
+    let result: BookScanFeatureChunk | undefined;
+    let workerError: Error | undefined;
+    worker.on('message', (message: { ok?: boolean; features?: BookScanFeatureChunk; error?: string }) => {
+      if (message?.ok && message.features) result = message.features;
+      else workerError = new Error(message?.error || 'Book scan worker returned an invalid response.');
+    });
+    worker.once('error', (error) => { workerError = error; });
+    worker.once('exit', (code) => {
+      if (workerError) reject(workerError);
+      else if (code !== 0) reject(new Error(`Book scan worker exited with code ${code}.`));
+      else if (result) resolve(result);
+      else reject(new Error('Book scan worker exited without returning features.'));
+    });
+  });
+}
+
+/**
+ * Parallel CPU feature extraction for large books. Results are merged in source order so
+ * candidate ordering, source offsets, truncation limits and sampling remain deterministic.
+ * Set VOCAL_SAGA_BOOK_SCAN_WORKERS=0 to disable Workers or 1..4 to set a bounded worker count.
+ */
+export async function scanBookSegmentsConcurrent(
+  segmentsInput: BookScanSegment[],
+  options: BookScanOptions = {},
+  workerCountOverride?: number,
+): Promise<BookScanResult> {
+  const segments = segmentsInput.slice().sort((a, b) => a.ordinal - b.ordinal);
+  const totalChars = segments.reduce((sum, item) => sum + item.text.length, 0);
+  const rawEnvironmentSetting = process.env.VOCAL_SAGA_BOOK_SCAN_WORKERS;
+  const validEnvironmentOverride = rawEnvironmentSetting !== undefined && /^\d+$/.test(rawEnvironmentSetting.trim());
+  const configuredWorkers = workerCountOverride === undefined
+    ? configuredBookScanWorkers()
+    : Math.max(0, Math.min(MAX_BOOK_SCAN_WORKERS, Math.floor(workerCountOverride)));
+  const forcedByConfig = workerCountOverride !== undefined || validEnvironmentOverride;
+  const shouldParallelize = forcedByConfig ||
+    segments.length >= MIN_PARALLEL_SCAN_SEGMENTS || totalChars >= MIN_PARALLEL_SCAN_CHARS;
+  if (configuredWorkers < 2 || !shouldParallelize || segments.length < 2) {
+    return scanBookSegments(segments, options);
+  }
+
+  const workerCount = Math.min(configuredWorkers, segments.length);
+  const chunkSize = Math.ceil(segments.length / workerCount);
+  const chunks: BookScanSegment[][] = [];
+  for (let offset = 0; offset < segments.length; offset += chunkSize) {
+    chunks.push(segments.slice(offset, offset + chunkSize));
+  }
+  const featureChunks = await Promise.all(chunks.map((chunk) => scanFeatureChunkInWorker(chunk)));
+  return assembleBookScan(segments, featureChunks, options);
+}
+
+export function scanBookSegments(segmentsInput: BookScanSegment[], options: BookScanOptions = {}): BookScanResult {
+  const segments = segmentsInput.slice().sort((a, b) => a.ordinal - b.ordinal);
+  return assembleBookScan(segments, [scanBookSegmentFeatures(segments)], options);
 }
 
 export function planBookSamples(segmentsInput:BookScanSegment[],scanInput?:BookScanResult,sampleLimit=MAX_SAMPLES):BookSamplePlan {

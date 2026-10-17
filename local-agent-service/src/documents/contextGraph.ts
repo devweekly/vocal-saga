@@ -9,7 +9,7 @@ import type { DatabaseSync } from 'node:sqlite';
 import { parseAgentModel } from '../json.ts';
 import { runAgentStructured } from '../agents/runner.ts';
 import { getDocumentProjectStore } from './projectStore.ts';
-import { planBookSamples, scanBookSegments, type BookScanResult } from './bookScan.ts';
+import { planBookSamples, scanBookSegments, scanBookSegmentsConcurrent, type BookScanResult } from './bookScan.ts';
 
 type Segment = { id: string; ordinal: number; text: string; kind: string; contextPath: string };
 type Evidence = { segmentId: string; quote: string };
@@ -254,6 +254,27 @@ function readSegments(projectId: string): { db: DatabaseSync; revisionId: string
 }
 
 const readySourceFeatureIndexes = new Map<string, Record<string, any>>();
+
+function hasCurrentSourceFeatureIndex(db: DatabaseSync, revisionId: string, sourceSegmentCount: number): boolean {
+  const cached = readySourceFeatureIndexes.get(revisionId);
+  if (cached?.indexVersion === BOOK_SCAN_INDEX_VERSION &&
+      Number(cached.sourceSegmentCount) === sourceSegmentCount) return true;
+
+  const metaRow = db.prepare(
+    'SELECT value FROM context_graph_meta WHERE source_revision_id = ? AND key = ?'
+  ).get(revisionId, 'sourceFeatureIndex') as { value?: string } | undefined;
+  let meta: Record<string, any> | null = null;
+  try { meta = metaRow?.value ? JSON.parse(metaRow.value) : null; } catch { meta = null; }
+  if (meta?.indexVersion !== BOOK_SCAN_INDEX_VERSION ||
+      Number(meta.sourceSegmentCount) !== sourceSegmentCount) return false;
+
+  const indexedCount = Number((db.prepare(
+    'SELECT COUNT(*) AS count FROM context_graph_source_features WHERE source_revision_id = ? AND index_version = ?'
+  ).get(revisionId, BOOK_SCAN_INDEX_VERSION) as any)?.count || 0);
+  if (indexedCount !== sourceSegmentCount) return false;
+  readySourceFeatureIndexes.set(revisionId, meta);
+  return true;
+}
 
 function ensureSourceFeatureIndexInDatabase(
   projectId: string,
@@ -535,8 +556,26 @@ async function runAnalysis(projectId: string, runId: string): Promise<void> {
   store.appendEvent(projectId, runId, 'context-graph.phase', { phase: 'sample', segmentCount: segments.length });
   writeChapterSnapshots(db, revisionId, segments);
 
-  const scan = scanBookSegments(segments);
-  persistSourceFeatureIndex(db, revisionId, segments, scan);
+  const scanStartedAt = Date.now();
+  const scan = await scanBookSegmentsConcurrent(segments);
+  const scanDurationMs = Date.now() - scanStartedAt;
+  const sourceFeatureIndexReused = hasCurrentSourceFeatureIndex(db, revisionId, segments.length);
+  if (!sourceFeatureIndexReused) {
+    persistSourceFeatureIndex(db, revisionId, segments, scan);
+    readySourceFeatureIndexes.set(revisionId, {
+      indexVersion: BOOK_SCAN_INDEX_VERSION,
+      sourceSegmentCount: segments.length,
+      entityMentionCount: scan.indexDiagnostics.entityMentionCount,
+      entityMentionLimit: scan.indexDiagnostics.entityMentionLimit,
+      entityMentionsTruncated: scan.indexDiagnostics.entityMentionsTruncated,
+      textUnitCount: scan.indexDiagnostics.textUnitCount,
+      textUnitLimit: scan.indexDiagnostics.textUnitLimit,
+      textUnitsTruncated: scan.indexDiagnostics.textUnitsTruncated,
+      quantityMentionCount: scan.indexDiagnostics.quantityMentionCount,
+      quantityMentionLimit: scan.indexDiagnostics.quantityMentionLimit,
+      quantityMentionsTruncated: scan.indexDiagnostics.quantityMentionsTruncated,
+    });
+  }
   const samplePlan = planBookSamples(segments, scan);
   const samples: Segment[] = samplePlan.samples.map(({ segment }) => ({
     id: segment.id, ordinal: segment.ordinal, text: segment.text,
@@ -578,6 +617,8 @@ async function runAnalysis(projectId: string, runId: string): Promise<void> {
     sentenceAndQuoteUnitCount: scan.indexDiagnostics.textUnitCount,
     quantityMentionCount: scan.indexDiagnostics.quantityMentionCount,
     indexVersion: BOOK_SCAN_INDEX_VERSION,
+    scanDurationMs,
+    sourceFeatureIndexReused,
     indexTruncation: {
       entityMentions: scan.indexDiagnostics.entityMentionsTruncated,
       textUnits: scan.indexDiagnostics.textUnitsTruncated,

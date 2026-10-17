@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { planBookSamples, scanBookSegments } from '../src/documents/bookScan.ts';
+import { planBookSamples, scanBookSegments, scanBookSegmentsConcurrent } from '../src/documents/bookScan.ts';
 
 function makeSegments() {
   const segments = [];
@@ -162,4 +162,19 @@ test('compound titles retain articles and expose source-positioned entity, dialo
   assert.equal(segments[1].text.slice(quantity.start, quantity.end), quantity.surface);
   assert.ok(scan.dialogueIndex.some((item) => item.segmentId === 'king-later' && item.signals.includes('quotation')));
   assert.ok(scan.indexDiagnostics.entityMentionCount >= scan.entityMentions.length);
+});
+
+
+test('worker-parallel book scan is byte-for-byte equivalent to serial scan and preserves source ordering', async () => {
+  const segments = makeSegments().slice().reverse();
+  const options = {
+    maxEntityMentions: 500,
+    maxTextUnits: 700,
+    maxQuantityMentions: 250,
+    maxRepeatedPhraseSegmentIds: 8,
+    maxRepeatedPhraseGroups: 40,
+  };
+  const serial = scanBookSegments(segments, options);
+  const parallel = await scanBookSegmentsConcurrent(segments, options, 3);
+  assert.deepEqual(parallel, serial);
 });
