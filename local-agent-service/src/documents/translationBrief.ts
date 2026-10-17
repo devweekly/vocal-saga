@@ -467,9 +467,16 @@ function removeLowestPriorityContext(brief: TranslationBrief): boolean {
         brief.contextGraph = compactGraph;
         return true;
       }
-      return false;
+      // Keep the compact canonical-name table, then trim static glossary entries only after
+      // lower-priority memory/context has already been exhausted.
+    } else {
+      brief.contextGraph = null;
+      return true;
     }
-    brief.contextGraph = null;
+  }
+  const glossary = brief.glossary as any;
+  if (glossary && Array.isArray(glossary.document_terms) && glossary.document_terms.length) {
+    glossary.document_terms.pop();
     return true;
   }
   if (Array.isArray(voice.characterVoices) && voice.characterVoices.length) {
