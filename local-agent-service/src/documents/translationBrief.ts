@@ -7,7 +7,7 @@ import { buildProjectVoiceContext } from './voiceContext.ts';
 import { buildProjectContextGraphBundle } from './contextGraph.ts';
 import { getDocumentProjectStore, normalizeDocumentTranslationStrategy } from './projectStore.ts';
 
-export const TRANSLATION_BRIEF_POLICY_VERSION = 'translation-brief-v1';
+export const TRANSLATION_BRIEF_POLICY_VERSION = 'translation-brief-v2-dynamic-context';
 export const MAX_TRANSLATION_BRIEF_CHARS = 18_000;
 
 export interface BriefSegment {
@@ -26,6 +26,8 @@ export interface TranslationBrief {
   sourceRevisionId: string;
   promptRevisionId: string;
   memoryRevisionId: string | null;
+  /** Count of source-ordered context deltas merged for this run-local wave snapshot. */
+  contextDeltaCount: number;
   sourceSegmentIds: string[];
   chapterPath: string;
   glossary: unknown;
@@ -297,13 +299,14 @@ function filterGlossaryForBatch(context: any, items: BriefSegment[]): unknown {
 
 function serializedContext(brief: Pick<TranslationBrief,
   'policyVersion' | 'sourceRevisionId' | 'promptRevisionId' | 'memoryRevisionId' |
-  'sourceSegmentIds' | 'chapterPath' | 'glossary' | 'precedingSegments' | 'contextGraph' | 'voiceContext'
+  'sourceSegmentIds' | 'chapterPath' | 'glossary' | 'precedingSegments' | 'contextGraph' | 'voiceContext' | 'contextDeltaCount'
 >): string {
   return JSON.stringify({
     policyVersion: brief.policyVersion,
     sourceRevisionId: brief.sourceRevisionId,
     promptRevisionId: brief.promptRevisionId,
     memoryRevisionId: brief.memoryRevisionId,
+    contextDeltaCount: brief.contextDeltaCount,
     sourceSegmentIds: brief.sourceSegmentIds,
     chapterPath: brief.chapterPath,
     glossary: brief.glossary,
@@ -508,6 +511,7 @@ export function buildTranslationBrief(
     sourceRevisionId,
     promptRevisionId,
     memoryRevisionId,
+    contextDeltaCount: Math.max(0, Number(context?.contextDeltaCount || 0)),
     sourceSegmentIds: items.map((item) => item.id),
     chapterPath,
     glossary,
