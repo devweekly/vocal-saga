@@ -14,10 +14,11 @@ import {
 import { authorize, sendJson } from './middleware.ts';
 import { parseAgentModel, buildAgentPrompt, normalizeMessages, parseJsonValue } from './json.ts';
 import { runAgent, runAgentStructured } from './agents/runner.ts';
-import { validateSegments, runLiteraryAnalysis, runLiteraryReview } from './literary.ts';
+import { validateSegments, runLiteraryAnalysis } from './literary.ts';
 import { DATABASE_PATH } from './config.ts';
 import path from 'node:path';
 import { handleDocumentProjectRequest } from './documents/projectRoutes.ts';
+import { buildStandaloneReviewContextGraph, runLiteraryReviewWithMissingRetry } from './documents/translationAgent.ts';
 
 // Keep the constant referenced so TypeScript does not drop the side-effect-free import in tests.
 void _MAX_BODY_BYTES;
@@ -296,7 +297,23 @@ export async function handleRequest(req: Request, res: Response): Promise<void> 
         ' storeContent=' + String(STORE_CONTENT),
       );
       const sessionScope = buildDocumentSessionScope(body, agent, 'review');
-      const result = await runLiteraryReview(body, requestId, sessionScope);
+      // The legacy standalone Reviewer is still used for explicit "re-review this segment"
+      // actions. Give it the same deterministic canonical-name protection as Project Runs,
+      // without sending unrelated future aliases from the whole-book memory.
+      const suppliedBrief = body.translationBrief && typeof body.translationBrief === 'object'
+        ? body.translationBrief : {};
+      const reviewInput = {
+        ...body,
+        translationBrief: {
+          ...suppliedBrief,
+          contextGraph: buildStandaloneReviewContextGraph(body),
+          ...(suppliedBrief.precedingSegments === undefined && Array.isArray(body.precedingSegments)
+            ? { precedingSegments: body.precedingSegments } : {}),
+          ...(suppliedBrief.voiceContext === undefined && body.voiceContext && typeof body.voiceContext === 'object'
+            ? { voiceContext: body.voiceContext } : {}),
+        },
+      };
+      const result = await runLiteraryReviewWithMissingRetry(reviewInput, requestId, sessionScope);
       output = JSON.stringify(result);
       sendJson(res, 200, result);
     }
