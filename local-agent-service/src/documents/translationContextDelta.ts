@@ -329,6 +329,9 @@ export function mergeTranslationContextDeltasIntoMemory(
           kind: candidate.kind,
           aliases: candidate.aliases.slice(0, 8),
           evidence: candidate.evidence[0]?.sourceQuote || '',
+          evidenceRefs: candidate.evidence.slice(0, 4).map((item) => ({
+            segmentId: item.segmentId, sourceQuote: item.sourceQuote,
+          })),
           reviewStatus: 'suggested',
         });
         memory.entities = memory.entities.slice(0, 120);
@@ -347,19 +350,41 @@ export function mergeTranslationContextDeltasIntoMemory(
         .filter((name) => normalizeName(name) && normalizeName(name) !== normalizeName(prior.source))));
       prior.aliases = aliases.slice(0, 8);
       if (!prior.evidence && candidate.evidence[0]?.sourceQuote) prior.evidence = candidate.evidence[0].sourceQuote;
+      // Preserve source-positioned evidence for suggested entities, but don't let a later model
+      // observation replace the provenance of a user-confirmed legacy mapping.
+      if (prior.reviewStatus !== 'confirmed' || (Array.isArray(prior.evidenceRefs) && prior.evidenceRefs.length > 0)) {
+        const evidenceRefs = [
+          ...(Array.isArray(prior.evidenceRefs) ? prior.evidenceRefs : []),
+          ...candidate.evidence.map((item) => ({ segmentId: item.segmentId, sourceQuote: item.sourceQuote })),
+        ].filter((item, index, all) => all.findIndex((other) =>
+          other.segmentId === item.segmentId && normalized(other.sourceQuote) === normalized(item.sourceQuote)) === index);
+        if (evidenceRefs.length) prior.evidenceRefs = evidenceRefs.slice(0, 8);
+      }
       summary.mergedEntities++;
     }
     for (const relation of delta.relationshipDeltas) {
       const key = [relation.subjectSource, relation.predicate, relation.objectSource].map(normalizeName).join('\u0000');
-      const exists = memory.relationships.some((prior: any) =>
-        [prior.subject, prior.predicate, prior.object].map(normalizeName).join('\u0000') === key);
-      if (!exists) {
+      const prior = memory.relationships.find((item: any) =>
+        [item.subject, item.predicate, item.object].map(normalizeName).join('\\u0000') === key);
+      if (!prior) {
         memory.relationships.push({
           subject: relation.subjectSource, predicate: relation.predicate, object: relation.objectSource,
-          evidence: relation.evidence[0]?.sourceQuote || '', reviewStatus: 'suggested',
+          evidence: relation.evidence[0]?.sourceQuote || '',
+          evidenceRefs: relation.evidence.slice(0, 4).map((item) => ({
+            segmentId: item.segmentId, sourceQuote: item.sourceQuote,
+          })),
+          reviewStatus: 'suggested',
         });
         memory.relationships = memory.relationships.slice(0, 160);
         summary.addedRelationships++;
+      } else if (prior.reviewStatus !== 'confirmed' ||
+                 (Array.isArray(prior.evidenceRefs) && prior.evidenceRefs.length > 0)) {
+        const evidenceRefs = [
+          ...(Array.isArray(prior.evidenceRefs) ? prior.evidenceRefs : []),
+          ...relation.evidence.map((item) => ({ segmentId: item.segmentId, sourceQuote: item.sourceQuote })),
+        ].filter((item, index, all) => all.findIndex((other) =>
+          other.segmentId === item.segmentId && normalized(other.sourceQuote) === normalized(item.sourceQuote)) === index);
+        if (evidenceRefs.length) prior.evidenceRefs = evidenceRefs.slice(0, 8);
       }
     }
     for (const question of delta.openQuestions) {
