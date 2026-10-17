@@ -520,6 +520,56 @@ function terminologyFindings(
   return findings;
 }
 
+function translationContextDeltaFindings(db: any, runId: string | undefined, validSourceIds: Set<string>): any[] {
+  if (!runId) return [];
+  const rows = db.prepare(
+    'SELECT batch_index, delta_json FROM translation_context_deltas WHERE run_id = ? ORDER BY first_ordinal, first_segment_id'
+  ).all(runId) as Array<{ batch_index: number; delta_json: string }>;
+  const proposals = new Map<string, { source: string; targets: Map<string, { target: string; segmentIds: Set<string>; batches: Set<number> }> }>();
+  for (const row of rows) {
+    let delta: any = {};
+    try { delta = JSON.parse(row.delta_json || '{}'); } catch { delta = {}; }
+    const entities = Array.isArray(delta.entityCandidates) ? delta.entityCandidates : [];
+    for (const entity of entities) {
+      const source = typeof entity?.canonicalSource === 'string' ? entity.canonicalSource.trim() : '';
+      const target = typeof entity?.targetProposal === 'string' ? entity.targetProposal.trim() : '';
+      if (!source || !target) continue;
+      const key = normalized(source);
+      if (!proposals.has(key)) proposals.set(key, { source, targets: new Map() });
+      const group = proposals.get(key)!;
+      const targetKey = normalized(target);
+      if (!group.targets.has(targetKey)) group.targets.set(targetKey, { target, segmentIds: new Set(), batches: new Set() });
+      const targetGroup = group.targets.get(targetKey)!;
+      targetGroup.batches.add(Number(row.batch_index));
+      for (const evidence of Array.isArray(entity.evidence) ? entity.evidence : []) {
+        const segmentId = typeof evidence?.segmentId === 'string' ? evidence.segmentId : '';
+        if (validSourceIds.has(segmentId)) targetGroup.segmentIds.add(segmentId);
+      }
+    }
+  }
+  const findings: any[] = [];
+  for (const [sourceKey, group] of proposals) {
+    if (group.targets.size < 2) continue;
+    const segmentIds = Array.from(new Set(Array.from(group.targets.values()).flatMap((item) => Array.from(item.segmentIds)))).sort();
+    const targetOptions = Array.from(group.targets.values()).map((item) => ({
+      target: item.target, batchIndexes: Array.from(item.batches).sort((a, b) => a - b),
+      segmentIds: Array.from(item.segmentIds).sort(),
+    }));
+    findings.push({
+      findingId: stableFindingId('context-delta-conflict', segmentIds, sourceKey + ':' + targetOptions.map((item) => normalized(item.target)).sort().join('|')),
+      type: 'context-delta-conflict',
+      category: 'context',
+      severity: 'warning',
+      confidence: 'deterministic-conflicting-proposals',
+      repairable: false,
+      segmentIds,
+      entity: { source: group.source, proposals: targetOptions },
+      explanation: '初译不同批次对同一原文实体提出了不同译名。系统保留来源顺序中的首个候选并记录冲突，不会自动覆盖既有或人工确认的译名；请结合各位置原文决定是否属于同一实体。',
+    });
+  }
+  return findings;
+}
+
 function repeatedPhraseKeysFromSegment(sourceText: string): Set<string> {
   const sentences = sourceText.match(/[^.!?\n]+[.!?]?/gu) || [];
   const quoted = Array.from(sourceText.matchAll(/[“"]([^”"]{8,})[”"]/gu), (match) => match[1] || '');
@@ -728,6 +778,7 @@ export function runProjectQualityAudit(projectId: string, runId?: string): Recor
   const repeatedFindings = repeatedExpressionFindings(segments, translations);
   const presentIds = new Set(segments.map((segment) => segment.id));
   const outputFindings = translationOutputValidationFindings(context.db, runId, presentIds);
+  const contextFindings = translationContextDeltaFindings(context.db, runId, presentIds);
   const review = currentReviewFindings(context.db, context.currentSourceRevisionId, runId);
   const reviewFindings = review.findings.filter((finding) => presentIds.has(finding.segmentId)).map((finding) => ({
     findingId: 'review_' + finding.findingId,
@@ -751,7 +802,7 @@ export function runProjectQualityAudit(projectId: string, runId?: string): Recor
     suggestion: finding.suggestion,
     proposedTranslation: finding.proposedTranslation,
   }));
-  const findings = [...missing, ...termFindings, ...numberFindings, ...repeatedFindings, ...outputFindings, ...reviewFindings];
+  const findings = [...missing, ...termFindings, ...numberFindings, ...repeatedFindings, ...outputFindings, ...contextFindings, ...reviewFindings];
   const auditId = randomUUID();
   const translatedCount = segments.length - missing.length;
   const ratePer100 = (count: number) => segments.length ? Math.round(count / segments.length * 1000) / 10 : 0;
@@ -782,6 +833,7 @@ export function runProjectQualityAudit(projectId: string, runId?: string): Recor
       malformedOutputFindingCount: outputFindings.filter((item) => item.type === 'malformed-output-row').length,
       unexpectedOutputIdFindingCount: outputFindings.filter((item) => item.type === 'unexpected-output-id').length,
       repeatedExpressionDriftGroups: repeatedFindings.length,
+      contextDeltaConflictCount: contextFindings.length,
       repeatedExpressionDriftRatePer100Segments: ratePer100(repeatedFindings.length),
       accuracyReviewFindingCount: reviewFindings.filter((item) => item.category === 'accuracy').length,
       reviewerTerminologyFindingCount: reviewFindings.filter((item) => item.category === 'terminology').length,
@@ -797,6 +849,7 @@ export function runProjectQualityAudit(projectId: string, runId?: string): Recor
       '数字序列差异是启发式提示，需考虑中文数字、日期格式和上下文后人工确认。',
       '重复表达只对重复源文片段的译文差异提示复核，不自动统一。',
       '重复输出 ID、未知输出 ID 和结构不合法的模型响应只从运行事件报告，不接受这些异常行。',
+      '同一实体的候选译名冲突来自初译 context_delta 的来源证据，仅作为人工复核项；不会自动统一译名或自动返工。'
       '准确性/遗漏、术语、人物声线与文风提示来自已有 Reviewer 发现；若没有运行相应审校，报告不能证明该类问题不存在。',
       '所有修订都进入新的候选 Run，不自动覆盖已采纳或人工修改的译文。',
     ],
