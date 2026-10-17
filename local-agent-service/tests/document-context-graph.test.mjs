@@ -15,7 +15,10 @@ const {
   buildProjectContextGraphBundle,
   reviewContextGraphItem,
   startContextGraphAnalysis,
+  persistSourceFeatureIndex,
+  readSourceFeatureIndex,
 } = await import('../src/documents/contextGraph.ts');
+const { scanBookSegments } = await import('../src/documents/bookScan.ts');
 
 test('retrieval injects matched graph records and excludes future chapter summaries', () => {
   const store = getDocumentProjectStore();
@@ -144,4 +147,50 @@ test('Context Graph changes are rejected while a translation run is active', () 
     () => startContextGraphAnalysis(project.projectId),
     /不能在运行中修改 Context Graph/,
   );
+});
+
+
+test('preprocessing persists source-revision-scoped feature index with exact source offsets', () => {
+  const store = getDocumentProjectStore();
+  const project = store.createProject({
+    title: 'Source Feature Index Test',
+    format: 'txt',
+    sourceFileName: 'source-feature-index.txt',
+    segments: [
+      { id: 'index-king-1', text: 'The King Rat watched Max. The King Rat raised his hand.', kind: 'paragraph', contextPath: 'Chapter 1' },
+      { id: 'index-king-2', text: 'Captain Vale whispered: “The King Rat has returned.” It will take twenty-four hours.', kind: 'dialogue', contextPath: 'Chapter 2' },
+    ],
+  });
+  const { db, currentSourceRevisionId } = store.getProjectContext(project.projectId);
+  const segments = (db.prepare(
+    'SELECT segment_id AS id, ordinal, text, kind, context_path AS contextPath FROM source_segments WHERE source_revision_id = ? ORDER BY ordinal'
+  ).all(currentSourceRevisionId));
+  const scan = scanBookSegments(segments);
+  persistSourceFeatureIndex(db, currentSourceRevisionId, segments, scan);
+
+  const index = readSourceFeatureIndex(db, currentSourceRevisionId);
+  assert.ok(index);
+  assert.equal(index.indexVersion, 'book-scan-index-v2');
+  assert.equal(index.sourceSegmentCount, 2);
+  assert.equal(index.segments.size, 2);
+
+  const first = index.segments.get('index-king-1');
+  const titled = first.entityMentions.find((item) => item.surface === 'The King Rat');
+  assert.ok(titled);
+  assert.equal(segments[0].text.slice(titled.start, titled.end), 'The King Rat');
+
+  const second = index.segments.get('index-king-2');
+  const captain = second.entityMentions.find((item) => item.surface === 'Captain Vale');
+  assert.ok(captain);
+  assert.equal(segments[1].text.slice(captain.start, captain.end), 'Captain Vale');
+  const quotation = second.textUnits.find((item) =>
+    item.unitType === 'quotation' && segments[1].text.slice(item.start, item.end) === 'The King Rat has returned.');
+  assert.ok(quotation);
+  const quantity = second.quantityMentions.find((item) => item.surface === 'twenty-four hours');
+  assert.ok(quantity);
+  assert.equal(segments[1].text.slice(quantity.start, quantity.end), quantity.surface);
+  assert.ok(index.diagnostics.textUnitCount >= 3);
+
+  assert.equal(readSourceFeatureIndex(db, 'missing-source-revision'), null,
+    'feature index must never be read across source revisions');
 });
