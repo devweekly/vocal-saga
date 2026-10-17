@@ -7,7 +7,7 @@ import { buildProjectVoiceContext } from './voiceContext.ts';
 import { buildProjectContextGraphBundle } from './contextGraph.ts';
 import { getDocumentProjectStore, normalizeDocumentTranslationStrategy } from './projectStore.ts';
 
-export const TRANSLATION_BRIEF_POLICY_VERSION = 'translation-brief-v2-dynamic-context';
+export const TRANSLATION_BRIEF_POLICY_VERSION = 'translation-brief-v3-auto-canonical-names';
 export const MAX_TRANSLATION_BRIEF_CHARS = 18_000;
 
 export interface BriefSegment {
@@ -532,7 +532,7 @@ export function buildTranslationBrief(
         source, target, aliases,
         kind: String(entity.kind || 'other'),
         evidenceBacked: true,
-        sourceStatus: entity.reviewStatus === 'confirmed' ? 'confirmed-memory' : 'literary-memory',
+        sourceStatus: entity.reviewStatus === 'confirmed' ? 'confirmed-memory' : 'auto',
       };
       const names = new Set([source, ...aliases].map((name) => normalizedSourceText(name)));
       const index = graph.nameMappings.findIndex((mapping: any) =>
@@ -547,7 +547,7 @@ export function buildTranslationBrief(
         // A source-ordered dynamic candidate outranks an unconfirmed whole-book proposal.
         // Keep an already confirmed Context Graph mapping, but avoid injecting two competing targets.
         const existing = graph.nameMappings[index];
-        if (!['confirmed', 'confirmed-memory'].includes(String(existing?.sourceStatus || ''))) {
+        if (!['confirmed', 'confirmed-memory', 'auto'].includes(String(existing?.sourceStatus || ''))) {
           graph.nameMappings[index] = { ...existing, ...incoming };
         }
       }
