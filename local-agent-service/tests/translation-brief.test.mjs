@@ -567,3 +567,44 @@ test('canonical mappings survive the TranslationBrief last-resort budget fallbac
     'the compact fallback must retain deterministic name mappings rather than nulling the entire graph');
   assert.ok(brief.contextGraph.nameMappings.some((item) => item.target === '规范译名00固定称呼'));
 });
+
+
+test('static glossary applies on its first source occurrence but withholds future-only aliases', () => {
+  const store = getDocumentProjectStore();
+  const project = store.createProject({
+    title: 'First-Occurrence Glossary',
+    format: 'txt',
+    sourceFileName: 'first-occurrence-glossary.txt',
+    prompt: {
+      translationMode: 'literary',
+      sourceLang: 'en',
+      targetLang: 'zh',
+      glossary: { document_terms: [
+        { source: 'Red Cross', target: '红十字会' },
+        { source: 'the King', target: '国王', aliases: ['Pirate Queen'] },
+        { source: 'Pirate Queen', target: '海盗女王' },
+      ] },
+    },
+    segments: [
+      { id: 'first-mention', text: 'Timsen visited the Red Cross storehouse with the King.', kind: 'paragraph', contextPath: 'Chapter 1' },
+      { id: 'later-reveal', text: 'The King was secretly called the Pirate Queen.', kind: 'paragraph', contextPath: 'Chapter 8' },
+    ],
+  });
+  ensureTestContextGraph(store, project);
+  const { buildProjectContextGraphBundle } = await import('../src/documents/contextGraph.ts');
+  buildProjectContextGraphBundle(project.projectId, [
+    { id: 'first-mention', text: 'Timsen visited the Red Cross storehouse with the King.', contextPath: 'Chapter 1' },
+  ]);
+  const run = store.createRun(project.projectId, { scope: { type: 'ids', ids: ['first-mention'] } });
+  const context = store.getRunContext(project.projectId, run.runId);
+  const source = store.getSegments(project.projectId, { limit: 10 }).find((item) => item.id === 'first-mention');
+  const brief = buildTranslationBrief(context, [source], []);
+  const terms = brief.glossary.document_terms;
+
+  assert.ok(terms.some((term) => term.source === 'Red Cross' && term.target === '红十字会'),
+    'the explicit glossary term must reach the first batch where it appears');
+  assert.ok(!terms.some((term) => term.source === 'Pirate Queen'),
+    'a glossary term first revealed in a later chapter must not leak into an earlier batch');
+  assert.ok(!terms.some((term) => term.source === 'the King'),
+    'a canonical target whose alias is only revealed later remains withheld as a whole');
+});
