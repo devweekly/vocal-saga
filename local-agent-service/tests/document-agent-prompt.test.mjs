@@ -466,26 +466,34 @@ test('standalone re-review receives explicit canonical mappings without future-o
   const input = {
     segments: [{
       id: 'current',
-      source: 'But Timsen was much too clever to allow the King to see through him.',
-      draft: '可廷森精得很，绝不会让大王看穿他。',
+      source: 'But Timsen was much too clever to allow the King to see through him. Mara Voss watched nearby.',
+      draft: '可廷森精得很，绝不会让大王看穿他。玛拉·沃斯在旁边看着。',
     }],
     precedingSegments: [{ id: 'prior', text: 'The King was known around the camp.', contextPath: 'Chapter 1' }],
     memory: {
-      entities: [{
-        source: 'the King', target: '国王', aliases: ['King', 'Pirate Queen'],
-        reviewStatus: 'confirmed', kind: 'person',
-      }],
+      entities: [
+        {
+          source: 'the King', target: '国王', aliases: ['King'],
+          reviewStatus: 'confirmed', kind: 'person',
+        },
+        {
+          source: 'Mara Voss', target: '灰后', aliases: ['Mara', 'Pirate Queen'],
+          reviewStatus: 'confirmed', kind: 'person',
+        },
+      ],
     },
   };
   const graph = buildStandaloneReviewContextGraph(input);
   const mapping = graph.nameMappings.find((item) => item.source === 'the King');
   assert.equal(mapping?.target, '国王');
   assert.ok(mapping?.aliases.includes('King'));
-  assert.ok(!mapping?.aliases.includes('Pirate Queen'),
-    'the legacy Review endpoint must not serialize an alias that appears only in future book memory');
+  assert.deepEqual(mapping?.aliases, ['King']);
+  assert.ok(!graph.nameMappings.some((item) => item.target === '灰后'),
+    'a future-only identity alias must invalidate the associated canonical mapping, not just drop the alias');
   const protections = buildCanonicalTermProtections(input.segments.map((item) => ({ id: item.id, text: item.source })), graph);
   assert.ok(protections.some((item) => item.target === '国王'),
     'standalone re-review must use the same deterministic canonical-name protection as Project Runs');
+  assert.ok(!protections.some((item) => item.target === '灰后'));
 });
 
 
