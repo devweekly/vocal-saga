@@ -129,6 +129,16 @@ function buildTemporallyVisibleMemory(
     ? JSON.parse(JSON.stringify(context.memory)) as Record<string, any>
     : empty;
   const referencedIds = new Set<string>();
+  for (const entity of Array.isArray(rawMemory.entities) ? rawMemory.entities : []) {
+    for (const evidence of Array.isArray(entity?.evidenceRefs) ? entity.evidenceRefs : []) {
+      if (typeof evidence?.segmentId === 'string') referencedIds.add(evidence.segmentId);
+    }
+  }
+  for (const relation of Array.isArray(rawMemory.relationships) ? rawMemory.relationships : []) {
+    for (const evidence of Array.isArray(relation?.evidenceRefs) ? relation.evidenceRefs : []) {
+      if (typeof evidence?.segmentId === 'string') referencedIds.add(evidence.segmentId);
+    }
+  }
   for (const profile of Array.isArray(rawMemory.characterVoices) ? rawMemory.characterVoices : []) {
     for (const evidence of Array.isArray(profile.evidence) ? profile.evidence : []) {
       if (typeof evidence?.segmentId === 'string') referencedIds.add(evidence.segmentId);
