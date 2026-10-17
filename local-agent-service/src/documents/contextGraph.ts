@@ -64,7 +64,7 @@ export interface StoredSourceFeatureIndex {
 }
 
 /** Persist lexical source features once per immutable source revision. Offsets use source UTF-16 positions. */
-function persistSourceFeatureIndex(db: DatabaseSync, revisionId: string, segments: Segment[], scan: BookScanResult): void {
+export function persistSourceFeatureIndex(db: DatabaseSync, revisionId: string, segments: Segment[], scan: BookScanResult): void {
   ensureSchema(db);
   const entityById = new Map<string, BookScanResult['entityMentions']>();
   const unitsById = new Map<string, BookScanResult['textUnits']>();
