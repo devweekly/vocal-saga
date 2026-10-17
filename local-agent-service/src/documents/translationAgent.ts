@@ -535,8 +535,15 @@ export function buildStandaloneReviewMemory(input: Record<string, any>): Record<
     return rule.status === 'confirmed' && voiceIds.has(rule.speakerId) && voiceIds.has(rule.addresseeId) &&
       ids.length > 0 && ids.every((id: unknown) => typeof id === 'string' && byId.has(id));
   }).map((rule: any) => ({
-    speakerId: rule.speakerId, addresseeId: rule.addresseeId,
-    rule: rule.rule, status: 'confirmed', evidenceSegmentIds: rule.evidenceSegmentIds,
+    speakerId: rule.speakerId,
+    addresseeId: rule.addresseeId,
+    baselineRegister: rule.baselineRegister,
+    addressTerms: rule.addressTerms,
+    directness: rule.directness,
+    emotionalDistance: rule.emotionalDistance,
+    sceneDependentShift: rule.sceneDependentShift,
+    status: 'confirmed',
+    evidenceSegmentIds: rule.evidenceSegmentIds,
   }));
   return sanitizeProjectLiteraryMemory({
     version: 2,
