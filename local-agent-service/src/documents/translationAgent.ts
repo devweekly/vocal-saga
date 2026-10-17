@@ -1347,12 +1347,25 @@ async function executeRun(projectId: string, runId: string): Promise<void> {
         ? buildTranslationBrief(batchContext, batch, precedingSegments)
         : null;
       if (translationBrief) {
-        store.saveTranslationBriefSnapshot(projectId, runId, batchIndex, translationBrief as unknown as Record<string, any>);
+        const snapshotSaved = store.saveTranslationBriefSnapshot(
+          projectId, runId, batchIndex, translationBrief as unknown as Record<string, any>,
+        );
+        if (!snapshotSaved) {
+          store.appendEvent(projectId, runId, 'batch.discarded', {
+            batchIndex, reason: 'Run left active state before TranslationBrief snapshot commit',
+          });
+          return;
+        }
         store.appendEvent(projectId, runId, 'translation-brief.ready', {
           batchIndex, ...summarizeTranslationBrief(translationBrief),
         });
       }
-      store.markRunSegments(projectId, runId, batchIds, 'running');
+      if (!store.markRunSegments(projectId, runId, batchIds, 'running')) {
+        store.appendEvent(projectId, runId, 'batch.discarded', {
+          batchIndex, reason: 'Run left active state before batch could be marked running',
+        });
+        return;
+      }
       store.appendEvent(projectId, runId, 'batch.started', {
         batchIndex,
         batchCount: batches.length,
