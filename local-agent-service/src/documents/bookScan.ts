@@ -460,19 +460,10 @@ function configuredBookScanWorkers(): number {
   return Math.min(MAX_BOOK_SCAN_WORKERS, Math.max(1, availableParallelism() - 1));
 }
 
-function workerExecArgv(): string[] {
-  // Keep loaders such as tsx for .ts worker entrypoints, but do not start a nested test
-  // runner or an inspector on the same port when tests/debug sessions spawn workers.
-  return process.execArgv.filter((arg) =>
-    !arg.startsWith('--test') && !arg.startsWith('--inspect'),
-  );
-}
-
 async function scanFeatureChunkInWorker(segments: BookScanSegment[]): Promise<BookScanFeatureChunk> {
   return new Promise<BookScanFeatureChunk>((resolve, reject) => {
-    const worker = new Worker(new URL('./bookScanWorker.ts', import.meta.url), {
+    const worker = new Worker(new URL('./bookScanWorker.mjs', import.meta.url), {
       workerData: { segments },
-      execArgv: workerExecArgv(),
     });
     let result: BookScanFeatureChunk | undefined;
     let workerError: Error | undefined;

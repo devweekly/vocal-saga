@@ -1,13 +1,11 @@
 import { parentPort, workerData } from 'node:worker_threads';
-import {
-  scanBookSegmentFeatures,
-  type BookScanSegment,
-} from './bookScan.ts';
+import { tsImport } from 'tsx/esm/api';
 
 if (!parentPort) throw new Error('Book scan worker must run in a worker thread.');
 
 try {
-  const segments = workerData?.segments as BookScanSegment[];
+  const { scanBookSegmentFeatures } = await tsImport('./bookScan.ts', import.meta.url);
+  const segments = Array.isArray(workerData?.segments) ? workerData.segments : [];
   const features = scanBookSegmentFeatures(segments);
   parentPort.postMessage({ ok: true, features });
 } catch (error) {
