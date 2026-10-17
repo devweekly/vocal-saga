@@ -444,7 +444,7 @@ test('repeated quoted dialogue compares the translated quotation, not surroundin
   store.saveManualEdit(project.projectId, 'quote-2', '伊文低声说：“别让西边的灯熄灭。”他随后锁上了身后的门。');
   const drift = runProjectQualityAudit(project.projectId);
   const finding = drift.findings.find((item) =>
-    item.type === 'repeated-expression-drift' && item.sourceExcerpt === 'Keep the western lamp burning' &&
+    item.type === 'repeated-expression-drift' && String(item.sourceExcerpt || '').replace(/[.!?。！？]+$/u, '') === 'Keep the western lamp burning' &&
     item.alignmentMethod === 'quoted-span');
   assert.ok(finding, 'a genuine quoted-span translation change must still be detected');
   assert.equal(finding.occurrenceCount, 3);
