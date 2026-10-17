@@ -175,17 +175,45 @@ function buildTemporallyVisibleMemory(
 
   rawMemory.entities = (Array.isArray(rawMemory.entities) ? rawMemory.entities : []).flatMap((entity: any) => {
     const aliases = Array.isArray(entity?.aliases) ? entity.aliases : [];
-    // Literary memory can contain identity-level reinterpretations inferred from later chapters.
-    // Keep a memory-backed mapping only when its evidence and every alias precede this batch.
-    if (!entity || !appearedBefore(entity.source) || !sourceNameMatches(entity.evidence, entity.source) ||
-        !appearsAsEarlierEvidence(entity.evidence) || aliases.some((alias: unknown) => !appearedBefore(alias))) return [];
-    return [{ ...entity, aliases }];
+    if (!entity || !appearedBefore(entity.source)) return [];
+    const evidenceRefs = Array.isArray(entity.evidenceRefs) ? entity.evidenceRefs : [];
+    const priorEvidenceRefs = evidenceRefs.filter((ref: any) => {
+      if (!ref || !isPrior(ref.segmentId)) return false;
+      const source = sourceById.get(ref.segmentId);
+      return !!source && sourceQuoteMatches(source.text, ref.sourceQuote) &&
+        sourceNameMatches(ref.sourceQuote, entity.source);
+    });
+    // Dynamic candidates retain their exact source segment. A later observation cannot become
+    // visible merely because the same character title happened to occur in an earlier chapter.
+    // Legacy/user-authored mappings keep the older quote-based validation when no refs exist.
+    const evidenceVisible = evidenceRefs.length
+      ? priorEvidenceRefs.length > 0
+      : sourceNameMatches(entity.evidence, entity.source) && appearsAsEarlierEvidence(entity.evidence);
+    if (!evidenceVisible) return [];
+    const visibleAliases = aliases.filter((alias: unknown) => appearedBefore(alias));
+    return [{
+      ...entity,
+      aliases: visibleAliases,
+      ...(evidenceRefs.length ? { evidenceRefs: priorEvidenceRefs } : {}),
+    }];
   });
-  rawMemory.relationships = (Array.isArray(rawMemory.relationships) ? rawMemory.relationships : []).filter((relation: any) =>
-    relation && sourceNameMatches(relation.evidence, relation.subject) &&
-    sourceNameMatches(relation.evidence, relation.object) &&
-    appearedBefore(relation.subject) && appearedBefore(relation.object) &&
-    appearsAsEarlierEvidence(relation.evidence));
+  rawMemory.relationships = (Array.isArray(rawMemory.relationships) ? rawMemory.relationships : []).flatMap((relation: any) => {
+    if (!relation || !appearedBefore(relation.subject) || !appearedBefore(relation.object)) return [];
+    const evidenceRefs = Array.isArray(relation.evidenceRefs) ? relation.evidenceRefs : [];
+    const priorEvidenceRefs = evidenceRefs.filter((ref: any) => {
+      if (!ref || !isPrior(ref.segmentId)) return false;
+      const source = sourceById.get(ref.segmentId);
+      return !!source && sourceQuoteMatches(source.text, ref.sourceQuote) &&
+        sourceNameMatches(ref.sourceQuote, relation.subject) && sourceNameMatches(ref.sourceQuote, relation.object);
+    });
+    const evidenceVisible = evidenceRefs.length
+      ? priorEvidenceRefs.length > 0
+      : sourceNameMatches(relation.evidence, relation.subject) &&
+        sourceNameMatches(relation.evidence, relation.object) &&
+        appearsAsEarlierEvidence(relation.evidence);
+    if (!evidenceVisible) return [];
+    return [{ ...relation, ...(evidenceRefs.length ? { evidenceRefs: priorEvidenceRefs } : {}) }];
+  });
 
   rawMemory.characterVoices = (Array.isArray(rawMemory.characterVoices) ? rawMemory.characterVoices : []).flatMap((profile: any) => {
     const rawEvidence = Array.isArray(profile.evidence) ? profile.evidence : [];
