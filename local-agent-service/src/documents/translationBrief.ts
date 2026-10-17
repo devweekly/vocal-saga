@@ -379,11 +379,6 @@ function removeLowestPriorityContext(brief: TranslationBrief): boolean {
     voice.recentExamples.pop();
     return true;
   }
-  const glossary = brief.glossary as any;
-  if (glossary && Array.isArray(glossary.document_terms) && glossary.document_terms.length) {
-    glossary.document_terms.pop();
-    return true;
-  }
   if (Array.isArray(voice.voiceAnchors) && voice.voiceAnchors.length) {
     voice.voiceAnchors.pop();
     return true;
