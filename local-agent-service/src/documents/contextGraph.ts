@@ -1165,20 +1165,20 @@ export function buildProjectContextGraphBundle(
     `SELECT * FROM context_graph_nodes WHERE source_revision_id = ? AND status IN ('candidate', 'confirmed') ORDER BY kind, name`
   ).all(revisionId) as any[];
   const nameMappings = graphNameRows.flatMap((row) => {
+    // A model-generated alias alone cannot reveal a canonical identity whose formal name first
+    // appears later. Only expose generated graph mappings when the canonical source name itself
+    // is visible in the current or preceding source.
+    if (!appearsInContext(row.name)) return [];
     let attributes: any = {};
     try { attributes = JSON.parse(row.attributes_json); } catch { attributes = {}; }
-    const allAliases = uniqueStrings(attributes.aliases, 12, 100)
-      .filter((alias) => normalize(alias) !== normalize(row.name));
-    // A canonical name can be absent while a previously-known nickname is present in the current
-    // source. Retrieve the mapping by either form; canonical-term protection will mask only forms
-    // that actually occur in the batch. Future-only aliases are still rejected below.
-    if (!appearsInContext(row.name) && !allAliases.some((alias) => appearsInContext(alias))) return [];
     const target = safeText(attributes.suggestedTranslation, 120);
     if (!target || (targetLang && attributes.targetLang !== targetLang)) return [];
     const hasEvidence = db.prepare(
       'SELECT 1 FROM context_graph_evidence WHERE source_revision_id = ? AND node_id = ? LIMIT 1'
     ).get(revisionId, row.node_id);
-    if (!hasEvidence) return [];
+    if (!hasEvidence || !visibleNodeIds.has(row.node_id)) return [];
+    const allAliases = uniqueStrings(attributes.aliases, 12, 100)
+      .filter((alias) => normalize(alias) !== normalize(row.name));
     // Do not leak aliases that appear only in later chapters. An alias visible in the current
     // batch is already part of the source being translated and must not suppress the mapping.
     if (allAliases.some((alias) => !appearedBefore(alias) && !appearsInContext(alias))) return [];
