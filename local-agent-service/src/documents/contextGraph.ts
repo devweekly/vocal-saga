@@ -592,6 +592,26 @@ export function getContextGraph(projectId: string): Record<string, unknown> {
   const nodes = db.prepare('SELECT * FROM context_graph_nodes WHERE source_revision_id = ? ORDER BY kind, name LIMIT 500').all(revisionId) as any[];
   const edges = db.prepare('SELECT * FROM context_graph_edges WHERE source_revision_id = ? ORDER BY kind LIMIT 800').all(revisionId) as any[];
   const runs = db.prepare('SELECT * FROM context_graph_runs WHERE source_revision_id = ? ORDER BY started_at DESC LIMIT 10').all(revisionId) as any[];
+  // The completion event is written only after the analysis transaction commits. If a stale
+  // running status survives a crash/restart, reconcile it when the UI refreshes the graph.
+  for (const run of runs) {
+    if (!['queued', 'running'].includes(String(run.status))) continue;
+    const completion = db.prepare(
+      "SELECT payload_json, created_at FROM project_events WHERE run_id = ? AND event_type = 'context-graph.completed' ORDER BY created_at DESC LIMIT 1"
+    ).get(run.run_id) as { payload_json?: string; created_at?: string } | undefined;
+    if (!completion) continue;
+    let payload: any = {};
+    try { payload = JSON.parse(completion.payload_json || '{}'); } catch { payload = {}; }
+    if (payload.analysisVersion !== 'context-graph-v5-language-pinned') continue;
+    const completedAt = completion.created_at || new Date().toISOString();
+    db.prepare(
+      "UPDATE context_graph_runs SET status = 'completed', phase = 'completed', finished_at = COALESCE(finished_at, ?), error = NULL WHERE run_id = ? AND status IN ('queued','running')"
+    ).run(completedAt, run.run_id);
+    run.status = 'completed';
+    run.phase = 'completed';
+    run.finished_at = run.finished_at || completedAt;
+    run.error = null;
+  }
   const evidence = db.prepare(
     'SELECT e.node_id, e.edge_id, e.segment_id, e.quote, e.role, s.ordinal AS source_ordinal, s.context_path AS source_context_path ' +
     'FROM context_graph_evidence e LEFT JOIN source_segments s ON s.source_revision_id = e.source_revision_id AND s.segment_id = e.segment_id ' +
