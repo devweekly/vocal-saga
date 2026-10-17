@@ -10,7 +10,7 @@ process.env.LOCAL_AGENT_DATA_DIR = testDataDir;
 process.env.LOCAL_AGENT_DATABASE = path.join(testDataDir, 'service.sqlite');
 
 const { getDocumentProjectStore } = await import('../src/documents/projectStore.ts');
-const { buildTranslationBrief, MAX_TRANSLATION_BRIEF_CHARS } = await import('../src/documents/translationBrief.ts');
+const { buildTranslationBrief, summarizeTranslationBrief, MAX_TRANSLATION_BRIEF_CHARS } = await import('../src/documents/translationBrief.ts');
 const { buildBatches, buildUserPrompt } = await import('../src/documents/translationAgent.ts');
 
 test('TranslationBrief is revision-pinned, bounded and hashes the source selection', () => {
@@ -306,4 +306,41 @@ test('both reviewer focuses consume the same bounded TranslationBrief glossary a
     assert.equal(built.contextChars > 0, true);
     assert.ok(built.systemPrompt.length > 0);
   }
+});
+
+
+test('TranslationBrief diagnostic summary exposes the count fields expected by the Agent Trajectory UI', () => {
+  const summary = summarizeTranslationBrief({
+    version: 1,
+    policyVersion: 'translation-brief-v1',
+    sourceRevisionId: 'source-r1',
+    promptRevisionId: 'prompt-r1',
+    memoryRevisionId: null,
+    sourceSegmentIds: ['s1'],
+    chapterPath: 'Chapter 1',
+    glossary: { document_terms: [] },
+    precedingSegments: [],
+    contextGraph: {
+      characters: [{ id: 'c1' }],
+      entities: [{ id: 'e1' }, { id: 'e2' }],
+      relationships: [{ id: 'r1' }],
+      nameMappings: [{ source: 'Grey', target: '格雷' }],
+    },
+    voiceContext: {
+      entities: [],
+      relationships: [],
+      characterVoices: [{ characterId: 'grey' }],
+      relationshipVoiceRules: [],
+      voiceAnchors: [],
+    },
+    contextChars: 100,
+    contextHash: 'test-hash',
+  });
+
+  assert.equal(summary.entityCount, 3);
+  assert.equal(summary.relationshipCount, 1);
+  assert.equal(summary.characterVoiceCount, 1);
+  assert.equal(summary.nameMappingCount, 1);
+  assert.equal(summary.graphEntities, 2);
+  assert.equal(summary.graphCharacters, 1);
 });
