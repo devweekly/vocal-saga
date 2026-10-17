@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { buildBatches, buildCanonicalTermProtections, buildUserPrompt, maskCanonicalTermText, protectCanonicalReviewSegments, restoreCanonicalTermMarkers } from '../src/documents/translationAgent.ts';
 import { normalizeDocumentTranslationStrategy } from '../src/documents/projectStore.ts';
 import { buildProjectVoiceContext } from '../src/documents/voiceContext.ts';
+import { isLiteraryReviewFindingGrounded } from '../src/literary.ts';
 
 test('literary Project Agent separates preceding context from translatable segments', () => {
   const memory = {
@@ -419,5 +420,43 @@ test('literary Reviewers receive protected canonical names in both source and dr
   assert.equal(
     restoreCanonicalTermMarkers(result.segments[0].draft, result.protections),
     '可廷森精得很，绝不会让国王看穿他。',
+  );
+});
+
+
+test('Reviewer findings require excerpts grounded in the actual source and draft', () => {
+  assert.equal(
+    isLiteraryReviewFindingGrounded(
+      'The King entered the storehouse.',
+      '大王走进了仓库。',
+      'The King entered',
+      '大王走进了仓库',
+    ),
+    true,
+  );
+  assert.equal(
+    isLiteraryReviewFindingGrounded(
+      'The King entered the storehouse.',
+      '大王走进了仓库。',
+      'The Queen entered',
+      '大王走进了仓库',
+    ),
+    false,
+    'a fabricated source excerpt must not authorize an automatic rewrite',
+  );
+  assert.equal(
+    isLiteraryReviewFindingGrounded(
+      'The King entered the storehouse.',
+      '大王走进了仓库。',
+      'The King entered',
+      '国王走进了宫殿',
+    ),
+    false,
+    'a draft excerpt absent from the submitted translation must not authorize an automatic rewrite',
+  );
+  assert.equal(
+    isLiteraryReviewFindingGrounded('The King entered.', '国王进来了。', '', '国王进来了。'),
+    false,
+    'findings without source evidence remain non-actionable',
   );
 });
