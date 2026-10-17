@@ -416,3 +416,84 @@ test('book audit reports conflicting context-delta name proposals across source-
   assert.equal(finding.repairable, false);
   assert.equal(report.metrics.contextDeltaConflictCount, 1);
 });
+
+
+test('repeated quoted dialogue compares the translated quotation, not surrounding paragraph narration', () => {
+  const store = getDocumentProjectStore();
+  const project = store.createProject({
+    title: 'Quoted Span Alignment Test',
+    format: 'txt',
+    sourceFileName: 'quoted-span-alignment.txt',
+    prompt: { translationMode: 'literary', sourceLang: 'en', targetLang: 'zh' },
+    segments: [
+      { id: 'quote-1', text: 'Mara said softly: “Keep the western lamp burning.” Then she entered the archive.', kind: 'paragraph', contextPath: 'Chapter 1' },
+      { id: 'quote-2', text: 'Iven whispered: “Keep the western lamp burning.” He locked the gate behind him.', kind: 'paragraph', contextPath: 'Chapter 2' },
+      { id: 'quote-3', text: '“Keep the western lamp burning.”', kind: 'dialogue', contextPath: 'Chapter 5' },
+    ],
+  });
+  store.saveManualEdit(project.projectId, 'quote-1', '玛拉轻声说道：“让西边的灯一直亮着。”随后她走进档案室。');
+  store.saveManualEdit(project.projectId, 'quote-2', '伊文低声说：“让西边的灯一直亮着。”他随后锁上了身后的门。');
+  store.saveManualEdit(project.projectId, 'quote-3', '“让西边的灯一直亮着。”');
+  ensureTestContextGraph(store, project);
+
+  const aligned = runProjectQualityAudit(project.projectId);
+  assert.equal(aligned.findings.some((item) =>
+    item.type === 'repeated-expression-drift' && item.sourceExcerpt === 'Keep the western lamp burning'), false,
+    'different surrounding narration must not look like a quotation translation inconsistency');
+
+  store.saveManualEdit(project.projectId, 'quote-2', '伊文低声说：“别让西边的灯熄灭。”他随后锁上了身后的门。');
+  const drift = runProjectQualityAudit(project.projectId);
+  const finding = drift.findings.find((item) =>
+    item.type === 'repeated-expression-drift' && item.sourceExcerpt === 'Keep the western lamp burning' &&
+    item.alignmentMethod === 'quoted-span');
+  assert.ok(finding, 'a genuine quoted-span translation change must still be detected');
+  assert.equal(finding.occurrenceCount, 3);
+  assert.deepEqual(new Set(finding.segmentIds), new Set(['quote-1', 'quote-2', 'quote-3']));
+});
+
+test('book audit detects surface-rendering drift from validated entity_mentions', () => {
+  const store = getDocumentProjectStore();
+  const project = store.createProject({
+    title: 'Entity Mention Drift Audit',
+    format: 'txt',
+    sourceFileName: 'entity-mention-drift.txt',
+    prompt: { translationMode: 'literary', sourceLang: 'en', targetLang: 'zh' },
+    segments: [
+      { id: 'king-mention-1', text: 'The King looked at Max and remained silent.', kind: 'paragraph', contextPath: 'Chapter 1' },
+      { id: 'king-mention-2', text: 'The King addressed Max before leaving.', kind: 'paragraph', contextPath: 'Chapter 2' },
+    ],
+  });
+  ensureTestContextGraph(store, project);
+  const run = store.createRun(project.projectId, { scope: { type: 'all' } });
+  store.saveCandidate(project.projectId, run.runId, 'king-mention-1', '国王看了马克斯一眼，没有说话。');
+  store.saveCandidate(project.projectId, run.runId, 'king-mention-2', '大王离开前对马克斯说了话。');
+  store.finishRun(project.projectId, run.runId);
+
+  store.saveTranslationContextDelta(project.projectId, run.runId, 1, 'king-mention-1', ['king-mention-1'], {
+    entityCandidates: [{
+      localId: 'king-a', canonicalSource: 'The King', aliases: ['King'], kind: 'character_epithet',
+      targetProposal: '国王', evidence: [{ segmentId: 'king-mention-1', sourceQuote: 'The King looked at Max and remained silent.' }],
+    }],
+    entityMentions: [{
+      segmentId: 'king-mention-1', sourceQuote: 'The King', entityRef: 'king-a', targetSurface: '国王',
+    }],
+    relationshipDeltas: [], openQuestions: [], conflicts: [],
+  }, { entityCandidateCount: 1, entityMentionCount: 1 });
+  store.saveTranslationContextDelta(project.projectId, run.runId, 2, 'king-mention-2', ['king-mention-2'], {
+    entityCandidates: [{
+      localId: 'king-b', canonicalSource: 'King', aliases: ['The King'], kind: 'nickname',
+      targetProposal: '国王', evidence: [{ segmentId: 'king-mention-2', sourceQuote: 'The King addressed Max before leaving.' }],
+    }],
+    entityMentions: [{
+      segmentId: 'king-mention-2', sourceQuote: 'The King', entityRef: 'king-b', targetSurface: '大王',
+    }],
+    relationshipDeltas: [], openQuestions: [], conflicts: [],
+  }, { entityCandidateCount: 1, entityMentionCount: 1 });
+
+  const report = runProjectQualityAudit(project.projectId, run.runId);
+  const finding = report.findings.find((item) => item.type === 'entity-mention-drift');
+  assert.ok(finding);
+  assert.deepEqual(new Set(finding.segmentIds), new Set(['king-mention-1', 'king-mention-2']));
+  assert.equal(report.metrics.entityMentionDriftCount, 1);
+  assert.equal(finding.repairable, true);
+});
