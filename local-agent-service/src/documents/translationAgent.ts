@@ -571,17 +571,12 @@ export function buildStandaloneReviewVoiceContext(input: Record<string, any>): R
  * Only explicit mappings visible in this request's source/preceding text are included; future
  * aliases from book memory are not serialized into the Reviewer prompt. */
 export function buildStandaloneReviewContextGraph(input: Record<string, any>): Record<string, any> {
-  const suppliedGraph = input.translationBrief && typeof input.translationBrief === 'object' &&
-    input.translationBrief.contextGraph && typeof input.translationBrief.contextGraph === 'object'
-    ? input.translationBrief.contextGraph as Record<string, any>
-    : null;
-  const nameMappings: Array<Record<string, any>> = Array.isArray(suppliedGraph?.nameMappings)
-    ? [...suppliedGraph.nameMappings]
-    : [];
+  // Do not accept a client-supplied Context Graph or TranslationBrief here. This endpoint has
+  // no immutable server-side Run snapshot; reconstruct a name-only graph from the source-grounded
+  // memory projection prepared by buildStandaloneReviewMemory instead.
+  const nameMappings: Array<Record<string, any>> = [];
   const segments = Array.isArray(input.segments) ? input.segments : [];
-  const preceding = Array.isArray(input.translationBrief?.precedingSegments)
-    ? input.translationBrief.precedingSegments
-    : Array.isArray(input.precedingSegments) ? input.precedingSegments : [];
+  const preceding = Array.isArray(input.precedingSegments) ? input.precedingSegments : [];
   const sourceTexts = segments.map((item: any) => typeof item?.source === 'string' ? item.source : '');
   const visibleTexts = [...sourceTexts, ...preceding.map((item: any) => typeof item?.text === 'string' ? item.text : '')];
   const appearsIn = (name: string, texts: string[]) => {
@@ -596,18 +591,13 @@ export function buildStandaloneReviewContextGraph(input: Record<string, any>): R
     if (entity?.reviewStatus !== 'confirmed' ||
         typeof entity.source !== 'string' || !entity.source.trim() ||
         typeof entity.target !== 'string' || !entity.target.trim()) continue;
-    const rawAliases = Array.isArray(entity.aliases)
+    const aliases = Array.isArray(entity.aliases)
       ? entity.aliases.filter((alias: unknown): alias is string => typeof alias === 'string' && !!alias.trim())
       : [];
-    // A future-only alias may have contaminated the canonical target itself. Excluding only the
-    // alias but retaining the mapping is unsafe, so withhold the whole mapping until every alias
-    // is visible in the current source or preceding context.
-    if (rawAliases.some((alias) => !appearsIn(alias, visibleTexts))) continue;
-    // Only apply a name if the canonical source or one of its aliases actually occurs in the
-    // current Review batch. Retain preceding-visible aliases for disambiguation, not future ones.
+    // If an attached alias is not visible yet, its identity reveal may have contaminated the target.
+    if (aliases.some((alias) => !appearsIn(alias, visibleTexts))) continue;
     if (!appearsIn(entity.source, sourceTexts) &&
-        !rawAliases.some((alias) => appearsIn(alias, sourceTexts))) continue;
-    const aliases = rawAliases.filter((alias) => appearsIn(alias, visibleTexts));
+        !aliases.some((alias) => appearsIn(alias, sourceTexts))) continue;
     nameMappings.push({
       source: entity.source.trim(),
       target: entity.target.trim(),
@@ -617,7 +607,11 @@ export function buildStandaloneReviewContextGraph(input: Record<string, any>): R
       sourceStatus: 'confirmed-memory',
     });
   }
-  return { ...(suppliedGraph || {}), nameMappings };
+  return {
+    policyVersion: 'standalone-review-v1-source-grounded',
+    nameMappings,
+    constraints: ['Only user-confirmed mappings whose names and aliases are visible in the current or preceding source are included.'],
+  };
 }
 
 export function buildUserPrompt(template: string, items: TranslationItem[], context: any, precedingSegments: TranslationItem[] = [], contextGraph: Record<string, unknown> | null = null, translationBrief?: TranslationBrief): string {
