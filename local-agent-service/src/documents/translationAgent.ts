@@ -903,7 +903,7 @@ async function executeRun(projectId: string, runId: string): Promise<void> {
         ? store.getPrecedingSegments(projectId, runId, batch[0].id, strategy.precedingContextSegments) as TranslationItem[]
         : [];
       const translationBrief = batchContext.run.translationMode === 'literary'
-        ? buildTranslationBrief(context, batch, precedingSegments)
+        ? buildTranslationBrief(batchContext, batch, precedingSegments)
         : null;
       if (translationBrief) {
         store.saveTranslationBriefSnapshot(projectId, runId, batchIndex, translationBrief as unknown as Record<string, any>);
@@ -938,7 +938,7 @@ async function executeRun(projectId: string, runId: string): Promise<void> {
         try {
           const current = Array.from(pending.values());
           const output = await translateBatch(
-            context,
+            batchContext,
             current,
             runId + '-b' + batchIndex + '-a' + attempt,
             batchIndex,
