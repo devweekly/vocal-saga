@@ -315,6 +315,7 @@ export function buildUserPrompt(template: string, items: TranslationItem[], cont
       sourceRevisionId: translationBrief.sourceRevisionId,
       promptRevisionId: translationBrief.promptRevisionId,
       memoryRevisionId: translationBrief.memoryRevisionId,
+      contextDeltaCount: translationBrief.contextDeltaCount,
       chapterPath: translationBrief.chapterPath || null,
       knowledgeBoundaryOrdinal: (translationBrief.contextGraph as any)?.knowledgeBoundaryOrdinal ?? null,
     } : null,
@@ -662,6 +663,7 @@ async function executeRun(projectId: string, runId: string): Promise<void> {
     const reviewTasks: Promise<void>[] = [];
 
     const reviewBatch = async (
+      batchContext: any,
       batchIndex: number,
       batch: TranslationItem[],
       translations: Map<string, string>,
@@ -688,16 +690,16 @@ async function executeRun(projectId: string, runId: string): Promise<void> {
       });
       const reviewStartedAt = Date.now();
       const reviewVoiceContext = translationBrief?.voiceContext || buildProjectVoiceContext(
-        context.memory,
+        batchContext.memory,
         reviewedItems.map((item) => ({ id: item.id, text: item.text, contextPath: item.contextPath })),
-        batch[0]?.contextPath || context.project.title,
+        batch[0]?.contextPath || batchContext.project.title,
         precedingSegments,
       );
       const reviewCount = (value: unknown) => Array.isArray(value) ? value.length : 0;
-      store.appendEvent(projectId, runId, 'review.context.ready', {
+      store.appendEvent(projectId, runId, 'review.batchContext.ready', {
         batchIndex, segmentCount: reviewedItems.length,
         precedingSegmentCount: precedingSegments.length,
-        memoryRevisionId: context.memoryRevisionId || null,
+        memoryRevisionId: batchContext.memoryRevisionId || null,
         injectedEntities: reviewCount(reviewVoiceContext.entities),
         injectedRelationships: reviewCount(reviewVoiceContext.relationships),
         injectedChapterSummaries: reviewCount(reviewVoiceContext.chapterSummaries),
@@ -725,18 +727,18 @@ async function executeRun(projectId: string, runId: string): Promise<void> {
           const styleScope = buildDocumentBatchSessionScope({
             projectId,
             runId: runId + '-style',
-            promptRevisionId: context.run.promptRevisionId,
+            promptRevisionId: batchContext.run.promptRevisionId,
             role: 'review',
             batchIndex,
-            translationMode: context.run.translationMode,
-            memoryRevisionId: context.memoryRevisionId || 'no-memory',
+            translationMode: batchContext.run.translationMode,
+            memoryRevisionId: batchContext.memoryRevisionId || 'no-memory',
           });
           const styleReview = await runLiteraryReviewWithMissingRetry({
-            chapterTitle: batch[0]?.contextPath || context.project.title,
-            target: context.run.targetLang,
-            provider: context.run.provider,
-            model: context.run.model,
-            memory: context.memory,
+            chapterTitle: batch[0]?.contextPath || batchContext.project.title,
+            target: batchContext.run.targetLang,
+            provider: batchContext.run.provider,
+            model: batchContext.run.model,
+            memory: batchContext.memory,
             precedingSegments,
             voiceContext: reviewVoiceContext,
             translationBrief: translationBrief || undefined,
@@ -794,18 +796,18 @@ async function executeRun(projectId: string, runId: string): Promise<void> {
         const reviewScope = buildDocumentBatchSessionScope({
           projectId,
           runId,
-          promptRevisionId: context.run.promptRevisionId,
+          promptRevisionId: batchContext.run.promptRevisionId,
           role: 'review',
           batchIndex,
-          translationMode: context.run.translationMode,
-          memoryRevisionId: context.memoryRevisionId || 'no-memory',
+          translationMode: batchContext.run.translationMode,
+          memoryRevisionId: batchContext.memoryRevisionId || 'no-memory',
         });
         const review = await runLiteraryReviewWithMissingRetry({
-          chapterTitle: batch[0]?.contextPath || context.project.title,
-          target: context.run.targetLang,
-          provider: context.run.provider,
-          model: context.run.model,
-          memory: context.memory,
+          chapterTitle: batch[0]?.contextPath || batchContext.project.title,
+          target: batchContext.run.targetLang,
+          provider: batchContext.run.provider,
+          model: batchContext.run.model,
+          memory: batchContext.memory,
           precedingSegments,
           voiceContext: reviewVoiceContext,
           translationBrief: translationBrief || undefined,
@@ -891,16 +893,16 @@ async function executeRun(projectId: string, runId: string): Promise<void> {
       }
     };
 
-    const processBatch = async (batch: TranslationItem[], zeroBasedIndex: number): Promise<void> => {
+    const processBatch = async (batch: TranslationItem[], zeroBasedIndex: number, batchContext: any): Promise<void> => {
       const batchIndex = zeroBasedIndex + 1;
       const status = store.getRunStatus(projectId, runId);
       if (status === 'cancelled' || status === 'paused') return;
 
       const batchIds = batch.map((item) => item.id);
-      const precedingSegments = context.run.translationMode === 'literary' && batch[0] && strategy.precedingContextSegments > 0
+      const precedingSegments = batchContext.run.translationMode === 'literary' && batch[0] && strategy.precedingContextSegments > 0
         ? store.getPrecedingSegments(projectId, runId, batch[0].id, strategy.precedingContextSegments) as TranslationItem[]
         : [];
-      const translationBrief = context.run.translationMode === 'literary'
+      const translationBrief = batchContext.run.translationMode === 'literary'
         ? buildTranslationBrief(context, batch, precedingSegments)
         : null;
       if (translationBrief) {
@@ -913,7 +915,7 @@ async function executeRun(projectId: string, runId: string): Promise<void> {
       store.appendEvent(projectId, runId, 'batch.started', {
         batchIndex,
         batchCount: batches.length,
-        chapter: batch[0]?.contextPath || context.project.title,
+        chapter: batch[0]?.contextPath || batchContext.project.title,
         segmentIds: batchIds,
         precedingContextCount: precedingSegments.length,
         sessionStrategy: 'independent-per-batch',
@@ -921,10 +923,11 @@ async function executeRun(projectId: string, runId: string): Promise<void> {
 
       const pending = new Map(batch.map((item) => [item.id, item]));
       const translations = new Map<string, string>();
+      const contextDeltaParts: ValidatedTranslationContextDelta[] = [];
       let lastError = '模型未返回完整的片段集合';
 
       // One bounded repair pass: only missing IDs are retried, never the full document.
-      // Retries reuse this batch's scope but still carry the entire explicit input context.
+      // Retries reuse this batch's scope but still carry the entire explicit input batchContext.
       for (let attempt = 0; attempt < strategy.maxModelAttempts && pending.size > 0; attempt++) {
         if (store.getRunStatus(projectId, runId) === 'cancelled') {
           store.appendEvent(projectId, runId, 'batch.discarded', {
@@ -948,10 +951,11 @@ async function executeRun(projectId: string, runId: string): Promise<void> {
             });
             return;
           }
-          for (const [id, translated] of output) {
+          for (const [id, translated] of output.translations) {
             translations.set(id, translated);
             pending.delete(id);
           }
+          if (batchContext.run.translationMode === 'literary') contextDeltaParts.push(output.contextDelta);
           if (pending.size > 0) {
             lastError = '模型响应缺少 ' + pending.size + ' 个片段；只重试缺失 ID';
             store.appendEvent(projectId, runId, 'batch.partial', {
@@ -977,14 +981,35 @@ async function executeRun(projectId: string, runId: string): Promise<void> {
       for (const [id, translated] of translations) {
         store.saveCandidate(projectId, runId, id, translated);
       }
+      if (batchContext.run.translationMode === 'literary' && batch[0]) {
+        const contextDelta = combineTranslationContextDeltas(contextDeltaParts);
+        const validation = {
+          modelAttempts: Math.max(1, contextDeltaParts.length),
+          entityCandidateCount: contextDelta.entityCandidates.length,
+          entityMentionCount: contextDelta.entityMentions.length,
+          relationshipCount: contextDelta.relationshipDeltas.length,
+          openQuestionCount: contextDelta.openQuestions.length,
+          conflictCount: contextDelta.conflicts.length,
+        };
+        store.saveTranslationContextDelta(
+          projectId, runId, batchIndex, batch[0].id, batchIds,
+          contextDelta as unknown as Record<string, any>, validation,
+        );
+        store.appendEvent(projectId, runId, 'translation.context-delta.saved', {
+          batchIndex, firstSegmentId: batch[0].id,
+          sourceSegmentCount: batchIds.length,
+          ...validation,
+          availableToLaterWaves: true,
+        });
+      }
       if (pending.size > 0) {
         store.markRunSegments(projectId, runId, Array.from(pending.keys()), 'failed', lastError);
       }
 
       const failedIds = Array.from(pending.keys());
       const shouldReview = translations.size > 0 &&
-        context.run.translationMode === 'literary' &&
-        context.run.reviewEnabled;
+        batchContext.run.translationMode === 'literary' &&
+        batchContext.run.reviewEnabled;
       store.appendEvent(projectId, runId, 'batch.translation.completed', {
         batchIndex,
         batchCount: batches.length,
@@ -1000,7 +1025,7 @@ async function executeRun(projectId: string, runId: string): Promise<void> {
         });
         return;
       }
-      const job = () => reviewBatch(batchIndex, batch, translations, precedingSegments, failedIds, translationBrief);
+      const job = () => reviewBatch(batchContext, batchIndex, batch, translations, precedingSegments, failedIds, translationBrief);
       if (detachReviews) {
         // Do not await here: another translation batch can start while this review is in flight.
         reviewTasks.push(reviewLimiter(job));
@@ -1011,16 +1036,51 @@ async function executeRun(projectId: string, runId: string): Promise<void> {
     };
 
     let translationSchedulerError: unknown;
+    const baseRunMemory = JSON.parse(JSON.stringify(context.memory || {}));
     try {
-      await runWithConcurrency(
-        batches,
-        translationConcurrency,
-        processBatch,
-        () => {
-          const status = store.getRunStatus(projectId, runId);
-          return status === 'cancelled' || status === 'paused';
-        },
-      );
+      const sourceDb = store.getProjectContext(projectId).db;
+      const ordinalById = new Map<string, number>();
+      const sourceOrdinals = sourceDb.prepare(
+        'SELECT segment_id, ordinal FROM source_segments WHERE source_revision_id = ?'
+      ).all(context.run.sourceRevisionId) as Array<{ segment_id: string; ordinal: number }>;
+      for (const row of sourceOrdinals) ordinalById.set(row.segment_id, Number(row.ordinal));
+
+      // 每一波最多 translationConcurrency 个批次并行。波次开始时冻结同一份上下文；
+      // 当前波的候选不允许竞态地流入同波其他批次，只在全部结束后供下一波使用。
+      for (let offset = 0, waveIndex = 0; offset < batches.length; offset += translationConcurrency, waveIndex++) {
+        const wave = batches.slice(offset, offset + translationConcurrency);
+        const waveFirstOrdinal = Math.min(...wave.map((batch) => ordinalById.get(batch[0]?.id || '') ?? Number.MAX_SAFE_INTEGER));
+        const priorDeltas = store.listTranslationContextDeltas(projectId, runId)
+          .filter((item: any) => Number(item.firstOrdinal) < waveFirstOrdinal)
+          .map((item: any) => item.delta as ValidatedTranslationContextDelta);
+        const waveMemory = mergeTranslationContextDeltasIntoMemory(baseRunMemory, priorDeltas);
+        const batchContext = {
+          ...context,
+          memory: waveMemory.memory,
+          contextDeltaCount: priorDeltas.reduce((count: number, delta: any) =>
+            count + (Array.isArray(delta?.entityCandidates) ? delta.entityCandidates.length : 0), 0),
+        };
+        store.appendEvent(projectId, runId, 'translation.context-wave.ready', {
+          waveIndex: waveIndex + 1,
+          batchCount: wave.length,
+          firstSourceOrdinal: Number.isFinite(waveFirstOrdinal) ? waveFirstOrdinal : null,
+          visiblePriorDeltaCount: priorDeltas.length,
+          visibleCandidateCount: batchContext.contextDeltaCount,
+          memoryEntityCount: Array.isArray(batchContext.memory?.entities) ? batchContext.memory.entities.length : 0,
+          policy: 'freeze-within-wave; merge-in-source-order-between-waves',
+        });
+        await runWithConcurrency(
+          wave,
+          translationConcurrency,
+          (batch, waveOffset) => processBatch(batch, offset + waveOffset, batchContext),
+          () => {
+            const status = store.getRunStatus(projectId, runId);
+            return status === 'cancelled' || status === 'paused';
+          },
+        );
+        const status = store.getRunStatus(projectId, runId);
+        if (status === 'cancelled' || status === 'paused') break;
+      }
     } catch (error) {
       // runWithConcurrency waits for all translation workers before surfacing an error.
       // Still drain already-scheduled reviews before marking the overall run failed.
