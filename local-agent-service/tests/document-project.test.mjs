@@ -435,3 +435,52 @@ test('a document whose segments exceed 1,500,000 characters is imported in full'
   });
 });
 
+
+
+test('Prompt revisions and Run creation cannot implicitly overwrite the server-owned literary memory', async () => {
+  await withStore((store) => {
+    const project = store.createProject({
+      title: 'Explicit Memory Write Boundary',
+      format: 'txt',
+      sourceFileName: 'memory-boundary.txt',
+      segments: [{ id: 'king-1', text: 'The King looked at Max and remained silent.', kind: 'paragraph', contextPath: 'Chapter 1' }],
+      prompt: {
+        translationMode: 'literary', sourceLang: 'en', targetLang: 'zh',
+        literaryMemory: {
+          entities: [{
+            source: 'The King', target: '国王', kind: 'character_epithet', aliases: ['King'],
+            evidence: 'The King looked at Max and remained silent.', reviewStatus: 'suggested',
+          }],
+          relationships: [], styleGuide: {}, chapterSummaries: [], recentExamples: [],
+          characterVoices: [], relationshipVoiceRules: [], voiceAnchors: [],
+        },
+      },
+    });
+    const before = store.getCurrentLiteraryMemory(project.projectId);
+    assert.equal(before.memory.entities[0]?.target, '国王');
+
+    assert.throws(() => store.savePrompt(project.projectId, {
+      systemPrompt: 'Translate faithfully.', sourceLang: 'en', targetLang: 'zh',
+      translationMode: 'literary',
+      literaryMemory: {
+        entities: [{ source: 'The King', target: '大王', kind: 'character_epithet', aliases: ['King'], evidence: 'The King looked at Max and remained silent.' }],
+        relationships: [], styleGuide: {}, chapterSummaries: [], recentExamples: [],
+        characterVoices: [], relationshipVoiceRules: [], voiceAnchors: [],
+      },
+    }), /literary-memory|文学记忆必须通过项目的/);
+
+    assert.throws(() => store.createRun(project.projectId, {
+      scope: { type: 'all' },
+      prompt: {
+        translationMode: 'literary', sourceLang: 'en', targetLang: 'zh',
+        literaryMemory: {
+          entities: [{ source: 'The King', target: '大王', kind: 'character_epithet', aliases: ['King'], evidence: 'The King looked at Max and remained silent.' }],
+        },
+      },
+    }), /literary-memory|文学记忆必须通过项目的/);
+
+    const after = store.getCurrentLiteraryMemory(project.projectId);
+    assert.equal(after.memoryRevisionId, before.memoryRevisionId);
+    assert.equal(after.memory.entities[0]?.target, '国王');
+  });
+});
