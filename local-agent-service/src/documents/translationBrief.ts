@@ -308,6 +308,8 @@ function filterGlossaryForBatch(context: any, items: BriefSegment[]): unknown {
 
   const appearedEarlier = (value: unknown): boolean =>
     firstMatchingSourceOrdinal(db, revisionId, value, 'name') < firstOrdinal;
+  const visibleInBatch = (value: unknown): boolean =>
+    items.some((item) => sourceNameMatches(item.text, value));
 
   const allowedKeys = [
     'source', 'source_term', 'term', 'original', 'en', 'from',
@@ -321,14 +323,16 @@ function filterGlossaryForBatch(context: any, items: BriefSegment[]): unknown {
   return {
     document_terms: terms.flatMap((term: any) => {
       const source = sourceOf(term);
-      if (!appearedEarlier(source)) return [];
+      // A static glossary entry is useful on its first actual occurrence. Only entries whose
+      // source name is absent from both the preceding book text and this batch are withheld.
+      if (!appearedEarlier(source) && !visibleInBatch(source)) return [];
       if (typeof term === 'string') return [term];
       if (!term || typeof term !== 'object' || Array.isArray(term)) return [];
       const aliasKeys = ['aliases', 'source_aliases', 'sourceAliases'];
       // If any alias is first revealed at/after this batch, the canonical target may itself
       // have been chosen from that reveal. Do not merely remove the alias and retain the target.
       if (aliasKeys.some((key) => Array.isArray(term[key]) &&
-          (term[key] as unknown[]).some((alias) => !appearedEarlier(alias)))) return [];
+          (term[key] as unknown[]).some((alias) => !appearedEarlier(alias) && !visibleInBatch(alias)))) return [];
       const selected: Record<string, unknown> = {};
       for (const key of allowedKeys) {
         const value = term[key];
