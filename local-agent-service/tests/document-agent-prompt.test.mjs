@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildBatches, buildCanonicalTermProtections, buildStandaloneReviewContextGraph, buildUserPrompt, maskCanonicalTermText, protectCanonicalReviewSegments, restoreCanonicalTermMarkers } from '../src/documents/translationAgent.ts';
+import { buildBatches, buildCanonicalTermProtections, buildStandaloneReviewContextGraph, buildUserPrompt, canonicalMarkerCountsMatch, maskCanonicalTermText, protectCanonicalReviewSegments, restoreCanonicalTermMarkers } from '../src/documents/translationAgent.ts';
 import { normalizeDocumentTranslationStrategy } from '../src/documents/projectStore.ts';
 import { buildProjectVoiceContext } from '../src/documents/voiceContext.ts';
 import { isLiteraryReviewFindingGrounded } from '../src/literary.ts';
@@ -486,4 +486,25 @@ test('standalone re-review receives explicit canonical mappings without future-o
   const protections = buildCanonicalTermProtections(input.segments.map((item) => ({ id: item.id, text: item.source })), graph);
   assert.ok(protections.some((item) => item.target === '国王'),
     'standalone re-review must use the same deterministic canonical-name protection as Project Runs');
+});
+
+
+test('canonical term output validation checks repeated occurrences, not just marker presence', () => {
+  const protections = buildCanonicalTermProtections(
+    [{ id: 'p1', text: 'The King spoke to the King before King arrived.' }],
+    { nameMappings: [{ source: 'the King', target: '国王', aliases: ['King'], sourceStatus: 'auto' }] },
+  );
+  const maskedSource = maskCanonicalTermText('The King spoke to the King before King arrived.', protections);
+  const marker = protections.find((item) => item.sourceForm.toLowerCase() === 'the king')?.marker;
+  assert.ok(marker);
+  assert.equal((maskedSource.match(new RegExp(marker, 'g')) || []).length, 2);
+  assert.equal(
+    canonicalMarkerCountsMatch(maskedSource, marker + ' spoke to ' + marker + ' before King arrived.', protections),
+    false,
+    'dropping a protected marker occurrence must be detected even when another instance remains',
+  );
+  assert.equal(
+    canonicalMarkerCountsMatch(maskedSource, marker + ' spoke to ' + marker + ' before ' + marker + ' arrived.', protections),
+    true,
+  );
 });
