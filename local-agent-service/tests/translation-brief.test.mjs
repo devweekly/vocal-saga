@@ -364,3 +364,54 @@ test('TranslationBrief diagnostic summary exposes the count fields expected by t
   assert.equal(summary.graphEntities, 2);
   assert.equal(summary.graphCharacters, 1);
 });
+
+
+test('dynamic entity evidence is hidden before its cited source segment and visible after it', () => {
+  const store = getDocumentProjectStore();
+  const project = store.createProject({
+    title: 'Ordinal Evidence Test',
+    format: 'txt',
+    sourceFileName: 'ordinal-evidence.txt',
+    prompt: { translationMode: 'literary', sourceLang: 'en', targetLang: 'zh' },
+    segments: [
+      { id: 'king-early', text: 'The King watched Max from the doorway.', kind: 'paragraph', contextPath: 'Chapter 1' },
+      { id: 'king-evidence', text: 'The King revealed his identity to Max.', kind: 'paragraph', contextPath: 'Chapter 2' },
+      { id: 'king-later', text: 'The King addressed Max again.', kind: 'paragraph', contextPath: 'Chapter 2' },
+    ],
+  });
+  ensureTestContextGraph(store, project);
+  store.saveLiteraryMemory(project.projectId, {
+    version: 2,
+    entities: [{
+      source: 'The King',
+      target: '大王',
+      kind: 'character_epithet',
+      aliases: ['King'],
+      evidence: 'The King revealed his identity to Max.',
+      evidenceRefs: [{
+        segmentId: 'king-evidence',
+        sourceQuote: 'The King revealed his identity to Max.',
+      }],
+      reviewStatus: 'suggested',
+    }],
+    relationships: [],
+    styleGuide: {},
+    chapterSummaries: [],
+    recentExamples: [],
+    characterVoices: [],
+    relationshipVoiceRules: [],
+    voiceAnchors: [],
+  });
+
+  const run = store.createRun(project.projectId, { scope: { type: 'ids', ids: ['king-early', 'king-later'] } });
+  const context = store.getRunContext(project.projectId, run.runId);
+  const early = { id: 'king-early', text: 'The King watched Max from the doorway.', contextPath: 'Chapter 1' };
+  const later = { id: 'king-later', text: 'The King addressed Max again.', contextPath: 'Chapter 2' };
+  const earlyBrief = buildTranslationBrief(context, [early], []);
+  const laterBrief = buildTranslationBrief(context, [later], []);
+
+  assert.equal(earlyBrief.voiceContext.entities.some((entity) => entity.source === 'The King'), false,
+    'a mapping inferred from Chapter 2 must not leak into an earlier Chapter 1 segment');
+  assert.equal(laterBrief.voiceContext.entities.some((entity) => entity.source === 'The King' && entity.target === '大王'), true,
+    'the same evidence may be used after the cited source segment');
+});
