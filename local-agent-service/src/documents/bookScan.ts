@@ -265,11 +265,23 @@ function collectQuantityMentions(segments: BookScanSegment[]): {mentions:BookQua
   return {mentions,discovered};
 }
 function collectNameCandidates(segments: BookScanSegment[], mentions: BookEntityMention[]): BookNameCandidate[] {
-  const bySurface=new Map<string,BookEntityMention[]>(), textById=new Map(segments.map((segment)=>[segment.id,segment.text]));
+  // Keep the exact occurrence index separate from the per-segment de-duplicated ranking index.
+  // Avoid scanning the full mention array once for each distinct spelling on large books.
+  const allBySurface=new Map<string,BookEntityMention[]>();
+  const bySurface=new Map<string,BookEntityMention[]>();
+  const seenSegmentsBySurface=new Map<string,Set<string>>();
   for(const mention of mentions) {
-    const entries=bySurface.get(mention.normalized)||[];
-    if(!entries.some((entry)=>entry.segmentId===mention.segmentId)) entries.push(mention);
-    bySurface.set(mention.normalized,entries);
+    const all=allBySurface.get(mention.normalized)||[];
+    all.push(mention);
+    allBySurface.set(mention.normalized,all);
+    let seen=seenSegmentsBySurface.get(mention.normalized);
+    if(!seen){seen=new Set<string>();seenSegmentsBySurface.set(mention.normalized,seen);}
+    if(!seen.has(mention.segmentId)){
+      seen.add(mention.segmentId);
+      const entries=bySurface.get(mention.normalized)||[];
+      entries.push(mention);
+      bySurface.set(mention.normalized,entries);
+    }
   }
   const firstOrdinal=segments[0]?.ordinal??0,lastOrdinal=segments[segments.length-1]?.ordinal??firstOrdinal,ordinalRange=Math.max(1,lastOrdinal-firstOrdinal);
   const result:BookNameCandidate[]=[];
@@ -287,7 +299,7 @@ function collectNameCandidates(segments: BookScanSegment[], mentions: BookEntity
       candidates.sort((a,b)=>Math.abs(a.ordinal-desired)-Math.abs(b.ordinal-desired)||a.ordinal-b.ordinal);
       return candidates[0]?.segmentId||null;
     };
-    const allOccurrences=mentions.filter((item)=>item.normalized===normalized);
+    const allOccurrences=allBySurface.get(normalized)||[];
     result.push({
       name:entries[0]!.surface,normalized,tokenCount,mentions:entries.length,chapterCount:chapterKeys.length,
       dialogueSegmentCount:dialogueEntries.length,regionCount:regions.size,score:Math.round(score*100)/100,chapterKeys,
