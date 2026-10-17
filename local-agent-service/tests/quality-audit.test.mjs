@@ -402,7 +402,8 @@ test('book audit reports conflicting context-delta name proposals across source-
   }, { entityCandidateCount: 1 });
   store.saveTranslationContextDelta(project.projectId, run.runId, 2, 'king-later', ['king-later'], {
     entityCandidates: [{
-      localId: 'king-b', canonicalSource: 'The King', aliases: ['The King'], kind: 'character_epithet',
+      // The later batch uses the short form as canonical but explicitly links it to The King.
+      localId: 'king-b', canonicalSource: 'King', aliases: ['The King'], kind: 'nickname',
       targetProposal: '大王', evidence: [{ segmentId: 'king-later', sourceQuote: 'The King addressed Max before leaving.' }],
     }],
     entityMentions: [], relationshipDeltas: [], openQuestions: [], conflicts: [],
