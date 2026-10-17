@@ -543,6 +543,10 @@ test('canonical mappings survive the TranslationBrief last-resort budget fallbac
     sourceFileName: 'brief-budget-canonical.txt',
     prompt: {
       translationMode: 'literary', sourceLang: 'en', targetLang: 'zh',
+      glossary: { document_terms: [{
+        source: 'Character00CanonicalName',
+        target: '规范译名00固定称呼',
+      }] },
       translationStrategy: { contextBudgetChars: 4000 },
     },
     segments: [
@@ -583,6 +587,9 @@ test('canonical mappings survive the TranslationBrief last-resort budget fallbac
       hasGraph: !!brief.contextGraph,
     }));
   assert.ok(brief.contextGraph.nameMappings.some((item) => item.target === '规范译名00固定称呼'));
+  assert.ok(brief.glossary.document_terms.some((item) =>
+    item.source === 'Character00CanonicalName' && item.target === '规范译名00固定称呼'),
+    'an explicit static glossary entry should survive budget trimming before lower-priority context is discarded');
 });
 
 
