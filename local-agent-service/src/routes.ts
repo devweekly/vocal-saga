@@ -5,6 +5,7 @@ import {
   LOG_RESPONSE_PREVIEW,
   MAX_BODY_BYTES as _MAX_BODY_BYTES,
   STORE_CONTENT,
+  DATA_DIR, DATABASE_PATH, WORK_DIR, ENV_FILE_PATH, DOCUMENTS_DIR,
 } from './config.ts';
 import { db as database } from './db.ts';
 import {
@@ -78,6 +79,23 @@ export async function handleRequest(req: Request, res: Response): Promise<void> 
     sendJson(res, 401, { error: { message: '本机服务 Token 不正确或未提供', type: 'authentication_error' } });
     return;
   }
+  if (req.method === 'GET' && url.pathname === '/api/settings/diagnostics') {
+    sendJson(res, 200, {
+      paths: {
+        dataDirectory: DATA_DIR,
+        database: DATABASE_PATH,
+        documentProjects: DOCUMENTS_DIR,
+        workspace: WORK_DIR,
+        envFile: ENV_FILE_PATH,
+      },
+      storage: {
+        storeContent: STORE_CONTENT,
+        sourceFiles: 'per-project source files under the document project directory; segments-only projects may not have original file bytes',
+      },
+    });
+    return;
+  }
+
   if (await handleDocumentProjectRequest(req, res, url)) return;
 
   if (req.method === 'GET' && url.pathname === '/v1/models') {
