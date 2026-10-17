@@ -153,7 +153,7 @@ test('current-batch aliases do not suppress evidence-backed automatic canonical 
     'valid source evidence activates canonical naming without a per-entity confirmation click');
 });
 
-test('a canonical name mapping is available when only a prior alias is visible', () => {
+test('a prior alias cannot reveal a canonical identity whose name appears only later', () => {
   const store = getDocumentProjectStore();
   const project = store.createProject({
     title: 'Alias Retrieval',
@@ -177,8 +177,8 @@ test('a canonical name mapping is available when only a prior alias is visible',
     [{ id: 'alias-prior', text: 'King stepped through the door.', contextPath: 'Chapter 1' }],
     currentSourceRevisionId, 'zh');
   const mapping = bundle?.nameMappings.find((item) => item.source === 'The King');
-  assert.equal(mapping?.target, '国王');
-  assert.deepEqual(mapping?.aliases, ['King']);
+  assert.equal(mapping, undefined,
+    'a generated alias must not reveal a canonical identity before its formal name appears in the source');
 });
 
 test('Context Graph changes are rejected while a translation run is active', () => {
