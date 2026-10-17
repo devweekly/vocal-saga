@@ -138,7 +138,7 @@ test('compound titles retain articles and expose source-positioned entity, dialo
     },
     {
       id: 'king-later', ordinal: 30, contextPath: 'Chapter 5', kind: 'dialogue',
-      text: 'Captain Vale whispered: “The King Rat has returned.” It will take twenty-four hours.',
+      text: 'Captain Vale whispered: “The King Rat has returned.” It will take twenty-four hours. He added, \'Keep watch for twelve hours.\'',
     },
   ];
   const scan = scanBookSegments(segments);
@@ -154,6 +154,8 @@ test('compound titles retain articles and expose source-positioned entity, dialo
   assert.equal(segments[1].text.slice(titledName.start, titledName.end), 'Captain Vale');
   assert.ok(scan.textUnits.some((unit) => unit.unitType === 'quotation' &&
     segments.find((segment) => segment.id === unit.segmentId).text.slice(unit.start, unit.end) === 'The King Rat has returned.'));
+  assert.ok(scan.textUnits.some((unit) => unit.unitType === 'quotation' &&
+    segments.find((segment) => segment.id === unit.segmentId).text.slice(unit.start, unit.end) === 'Keep watch for twelve hours.'));
   const quantity = scan.quantityMentions.find((mention) => mention.surface === 'twenty-four hours');
   assert.ok(quantity);
   assert.equal(quantity.unit, 'hour');
