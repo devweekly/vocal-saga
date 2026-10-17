@@ -1261,8 +1261,18 @@ async function executeRun(projectId: string, runId: string): Promise<void> {
         });
         return;
       }
-      for (const [id, translated] of translations) {
-        store.saveCandidate(projectId, runId, id, translated);
+      const candidatesCommitted = store.saveCandidates(
+        projectId,
+        runId,
+        Array.from(translations, ([segmentId, text]) => ({ segmentId, text })),
+      );
+      if (!candidatesCommitted) {
+        store.appendEvent(projectId, runId, 'batch.discarded', {
+          batchIndex,
+          reason: 'Run entered a non-active state before atomic candidate commit',
+          candidateCount: translations.size,
+        });
+        return;
       }
       if (batchContext.run.translationMode === 'literary' && batch[0]) {
         const contextDelta = combineTranslationContextDeltas(contextDeltaParts);
