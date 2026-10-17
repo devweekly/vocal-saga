@@ -408,6 +408,11 @@ export class DocumentProjectStore {
       'memory_revision_id TEXT, brief_hash TEXT NOT NULL, brief_chars INTEGER NOT NULL, source_segment_ids_json TEXT NOT NULL, brief_json TEXT NOT NULL, created_at TEXT NOT NULL, ' +
       'PRIMARY KEY(run_id, batch_index));' +
       'CREATE INDEX IF NOT EXISTS idx_translation_briefs_run ON translation_briefs(run_id, batch_index);' +
+      'CREATE TABLE IF NOT EXISTS translation_context_deltas (' +
+      'run_id TEXT NOT NULL, first_segment_id TEXT NOT NULL, batch_index INTEGER NOT NULL, first_ordinal INTEGER NOT NULL, ' +
+      'source_segment_ids_json TEXT NOT NULL, delta_json TEXT NOT NULL, validation_json TEXT NOT NULL, created_at TEXT NOT NULL, ' +
+      'PRIMARY KEY(run_id, first_segment_id));' +
+      'CREATE INDEX IF NOT EXISTS idx_translation_context_deltas_order ON translation_context_deltas(run_id, first_ordinal);' +
       'CREATE TABLE IF NOT EXISTS quality_audits (' +
       'audit_id TEXT PRIMARY KEY, source_revision_id TEXT NOT NULL, run_id TEXT, report_json TEXT NOT NULL, created_at TEXT NOT NULL);' +
       'CREATE INDEX IF NOT EXISTS idx_quality_audits_created ON quality_audits(created_at DESC);' +
@@ -1067,6 +1072,71 @@ export class DocumentProjectStore {
       String(brief.contextHash || ''), Number(brief.contextChars || 0), JSON.stringify(brief.sourceSegmentIds || []),
       JSON.stringify(brief), isoNow(),
     );
+  }
+
+  /**
+   * 保存由初译响应产生、已由服务端核验证据的上下文增量。
+   * 以批次首个来源片段作为幂等键，暂停后重新调度批次时可安全替换同批旧结果。
+   */
+  saveTranslationContextDelta(
+    projectId: string,
+    runId: string,
+    batchIndex: number,
+    firstSegmentId: string,
+    sourceSegmentIds: string[],
+    delta: Record<string, any>,
+    validation: Record<string, any>,
+  ): void {
+    const { db } = this.getProjectContext(projectId);
+    const run = db.prepare('SELECT source_revision_id FROM translation_runs WHERE run_id = ?').get(runId) as any;
+    if (!run) throw Object.assign(new Error('找不到翻译运行：' + runId), { status: 404 });
+    const first = db.prepare(
+      'SELECT ordinal FROM source_segments WHERE source_revision_id = ? AND segment_id = ?'
+    ).get(run.source_revision_id, firstSegmentId) as { ordinal?: number } | undefined;
+    if (!first || !Number.isFinite(Number(first.ordinal))) {
+      throw Object.assign(new Error('上下文增量引用了不属于当前来源版本的首片段。'), { status: 409 });
+    }
+    const ids = Array.from(new Set(sourceSegmentIds.filter((id) => typeof id === 'string' && id.trim()))).slice(0, 32);
+    if (!ids.length || ids[0] !== firstSegmentId) {
+      throw Object.assign(new Error('上下文增量必须以当前批次的首个来源片段作为幂等键。'), { status: 400 });
+    }
+    const placeholders = ids.map(() => '?').join(',');
+    const rows = db.prepare(
+      'SELECT segment_id FROM source_segments WHERE source_revision_id = ? AND segment_id IN (' + placeholders + ')'
+    ).all(run.source_revision_id, ...ids) as Array<{ segment_id: string }>;
+    if (rows.length !== ids.length) {
+      throw Object.assign(new Error('上下文增量包含不属于当前来源版本的片段 ID。'), { status: 409 });
+    }
+    const deltaJson = JSON.stringify(delta || {});
+    const validationJson = JSON.stringify(validation || {});
+    if (Buffer.byteLength(deltaJson, 'utf8') > 48_000 || Buffer.byteLength(validationJson, 'utf8') > 8_000) {
+      throw Object.assign(new Error('上下文增量超过持久化大小上限。'), { status: 413 });
+    }
+    db.prepare(
+      'INSERT INTO translation_context_deltas(run_id, first_segment_id, batch_index, first_ordinal, source_segment_ids_json, delta_json, validation_json, created_at) ' +
+      'VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(run_id, first_segment_id) DO UPDATE SET ' +
+      'batch_index=excluded.batch_index, first_ordinal=excluded.first_ordinal, source_segment_ids_json=excluded.source_segment_ids_json, ' +
+      'delta_json=excluded.delta_json, validation_json=excluded.validation_json, created_at=excluded.created_at'
+    ).run(runId, firstSegmentId, batchIndex, Number(first.ordinal), JSON.stringify(ids), deltaJson, validationJson, isoNow());
+  }
+
+  /** 返回按原文顺序排列的持久化增量；执行恢复时可重建每一波的只读记忆投影。 */
+  listTranslationContextDeltas(projectId: string, runId: string): any[] {
+    const db = this.openProjectDb(projectId);
+    const rows = db.prepare(
+      'SELECT run_id, first_segment_id, batch_index, first_ordinal, source_segment_ids_json, delta_json, validation_json, created_at ' +
+      'FROM translation_context_deltas WHERE run_id = ? ORDER BY first_ordinal, first_segment_id'
+    ).all(runId) as any[];
+    return rows.map((row) => ({
+      runId: row.run_id,
+      firstSegmentId: row.first_segment_id,
+      batchIndex: Number(row.batch_index),
+      firstOrdinal: Number(row.first_ordinal),
+      sourceSegmentIds: parseJson(row.source_segment_ids_json, []),
+      delta: parseJson(row.delta_json, {}),
+      validation: parseJson(row.validation_json, {}),
+      createdAt: row.created_at,
+    }));
   }
 
   listTranslationBriefSnapshots(projectId: string, runId: string, includeContent = false): any[] {
