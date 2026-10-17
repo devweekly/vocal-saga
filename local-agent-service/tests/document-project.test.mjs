@@ -792,6 +792,8 @@ test('Run status transitions cannot revive cancelled or completed runs', async (
     const cancelled = store.createRun(project.projectId, { scope: { type: 'ids', ids: ['ch1-p1'] } });
     assert.equal(store.setRunStatus(project.projectId, cancelled.runId, 'cancelled', '用户请求停止'), true);
     assert.equal(store.setRunStatus(project.projectId, cancelled.runId, 'running', null), false);
+    assert.equal(store.markRunSegments(project.projectId, cancelled.runId, ['ch1-p1'], 'running'), false,
+      'a stale batch must not mark segments running after cancellation');
     store.finishRun(project.projectId, cancelled.runId);
     assert.equal(store.getRunStatus(project.projectId, cancelled.runId), 'cancelled',
       'finishRun must not overwrite a cancellation that already committed');
