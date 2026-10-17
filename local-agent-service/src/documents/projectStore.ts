@@ -1112,7 +1112,7 @@ export class DocumentProjectStore {
     sourceSegmentIds: string[],
     delta: Record<string, any>,
     validation: Record<string, any>,
-  ): void {
+  ): boolean {
     const { db } = this.getProjectContext(projectId);
     const run = db.prepare('SELECT source_revision_id FROM translation_runs WHERE run_id = ?').get(runId) as any;
     if (!run) throw Object.assign(new Error('找不到翻译运行：' + runId), { status: 404 });
@@ -1138,12 +1138,28 @@ export class DocumentProjectStore {
     if (Buffer.byteLength(deltaJson, 'utf8') > 48_000 || Buffer.byteLength(validationJson, 'utf8') > 8_000) {
       throw Object.assign(new Error('上下文增量超过持久化大小上限。'), { status: 413 });
     }
-    db.prepare(
-      'INSERT INTO translation_context_deltas(run_id, first_segment_id, batch_index, first_ordinal, source_segment_ids_json, delta_json, validation_json, created_at) ' +
-      'VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(run_id, first_segment_id) DO UPDATE SET ' +
-      'batch_index=excluded.batch_index, first_ordinal=excluded.first_ordinal, source_segment_ids_json=excluded.source_segment_ids_json, ' +
-      'delta_json=excluded.delta_json, validation_json=excluded.validation_json, created_at=excluded.created_at'
-    ).run(runId, firstSegmentId, batchIndex, Number(first.ordinal), JSON.stringify(ids), deltaJson, validationJson, isoNow());
+    db.exec('BEGIN IMMEDIATE');
+    try {
+      const latestRun = db.prepare('SELECT status, source_revision_id FROM translation_runs WHERE run_id = ?').get(runId) as any;
+      if (!latestRun || latestRun.source_revision_id !== run.source_revision_id) {
+        throw Object.assign(new Error('运行的来源版本已变化，拒绝写入上下文增量。'), { status: 409 });
+      }
+      if (!['queued', 'running'].includes(String(latestRun.status))) {
+        db.exec('ROLLBACK');
+        return false;
+      }
+      db.prepare(
+        'INSERT INTO translation_context_deltas(run_id, first_segment_id, batch_index, first_ordinal, source_segment_ids_json, delta_json, validation_json, created_at) ' +
+        'VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(run_id, first_segment_id) DO UPDATE SET ' +
+        'batch_index=excluded.batch_index, first_ordinal=excluded.first_ordinal, source_segment_ids_json=excluded.source_segment_ids_json, ' +
+        'delta_json=excluded.delta_json, validation_json=excluded.validation_json, created_at=excluded.created_at'
+      ).run(runId, firstSegmentId, batchIndex, Number(first.ordinal), JSON.stringify(ids), deltaJson, validationJson, isoNow());
+      db.exec('COMMIT');
+      return true;
+    } catch (error) {
+      try { db.exec('ROLLBACK'); } catch { /* already rolled back */ }
+      throw error;
+    }
   }
 
   /** 返回按原文顺序排列的持久化增量；执行恢复时可重建每一波的只读记忆投影。 */
