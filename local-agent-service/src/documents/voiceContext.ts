@@ -173,7 +173,13 @@ export function sanitizeProjectLiteraryMemory(input: unknown): Record<string, an
     const canonicalSourceName = text(item.canonicalSourceName || item.source || item.name, 120);
     const characterId = text(item.characterId, 100);
     const voice = item.voiceCore && typeof item.voiceCore === 'object' && !Array.isArray(item.voiceCore) ? item.voiceCore : {};
-    const evidence = Array.isArray(item.evidence) ? item.evidence.slice(0, 8).flatMap((ev: any) => {
+    const rawEvidence = Array.isArray(item.evidence) ? item.evidence : [];
+    // Old persisted records capped evidence to eight rows without recording whether more existed.
+    // They are ambiguous: their voiceCore may summarize later dialogue no longer present in the
+    // stored evidence list. Mark those legacy profiles incomplete so temporal retrieval fails closed.
+    const evidenceTruncated = item.evidenceTruncated === true ||
+      (item.evidencePolicyVersion !== 'character-evidence-v2-complete' && rawEvidence.length >= 8);
+    const evidence = rawEvidence.slice(-8).flatMap((ev: any) => {
       if (!ev || typeof ev !== 'object' || Array.isArray(ev)) return [];
       const segmentId = text(ev.segmentId, 160); const sourceQuote = text(ev.sourceQuote, 240);
       const observation = text(ev.observation, 240); const dimension = text(ev.dimension, 32);
@@ -198,7 +204,10 @@ export function sanitizeProjectLiteraryMemory(input: unknown): Record<string, an
         const evidenceSegmentIds = list(rule?.evidenceSegmentIds, 8, 160);
         return otherCharacterId && difference && evidenceSegmentIds.length ? [{ otherCharacterId, difference, evidenceSegmentIds }] : [];
       }) : [],
-      evidence, openQuestions: list(item.openQuestions, 8),
+      evidence,
+      evidencePolicyVersion: 'character-evidence-v2-complete',
+      evidenceTruncated,
+      openQuestions: list(item.openQuestions, 8),
     }];
   }) : [];
   const validCharacterIds = new Set(characterVoices.map((item: any) => item.characterId));
