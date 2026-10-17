@@ -825,7 +825,7 @@ function targetQuotationSpans(text: string): Array<{ start: number; end: number;
 }
 
 function repeatedExpressionFindings(
-  segments: Array<{ id: string; text: string; contextPath: string }>,
+  segments: Array<{ id: string; text: string; contextPath: string; ordinal?: number }>,
   translations: Map<string, string>,
   scopedIds?: Set<string>,
   sourceFeatureIndex?: StoredSourceFeatureIndex | null,
@@ -848,7 +848,7 @@ function repeatedExpressionFindings(
     ? Array.from(sourceFeatureIndex.segments.entries()).flatMap(([segmentId, features]) => {
         const segment = sourceById.get(segmentId);
         return segment ? features.textUnits.map((unit) => ({
-          segmentId, ordinal: segment.ordinal, chapterKey: segment.contextPath,
+          segmentId, ordinal: segment.ordinal ?? 0, chapterKey: segment.contextPath,
           unitType: unit.unitType, normalized: unit.normalized, start: unit.start, end: unit.end,
         })) : [];
       })
