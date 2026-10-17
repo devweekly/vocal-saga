@@ -496,15 +496,18 @@ test('canonical term output validation checks repeated occurrences, not just mar
   );
   const maskedSource = maskCanonicalTermText('The King spoke to the King before King arrived.', protections);
   const marker = protections.find((item) => item.sourceForm.toLowerCase() === 'the king')?.marker;
+  const aliasMarker = protections.find((item) => item.sourceForm.toLowerCase() === 'king')?.marker;
   assert.ok(marker);
+  assert.ok(aliasMarker);
   assert.equal((maskedSource.match(new RegExp(marker, 'g')) || []).length, 2);
+  assert.equal((maskedSource.match(new RegExp(aliasMarker, 'g')) || []).length, 1);
   assert.equal(
     canonicalMarkerCountsMatch(maskedSource, marker + ' spoke to ' + marker + ' before King arrived.', protections),
     false,
     'dropping a protected marker occurrence must be detected even when another instance remains',
   );
   assert.equal(
-    canonicalMarkerCountsMatch(maskedSource, marker + ' spoke to ' + marker + ' before ' + marker + ' arrived.', protections),
+    canonicalMarkerCountsMatch(maskedSource, marker + ' spoke to ' + marker + ' before ' + aliasMarker + ' arrived.', protections),
     true,
   );
 });
