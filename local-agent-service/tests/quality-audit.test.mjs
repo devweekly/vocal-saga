@@ -373,3 +373,45 @@ test('paired-run evaluation withholds A/B mapping until every sampled segment ha
   );
 });
 
+
+
+test('book audit reports conflicting context-delta name proposals across source-ordered batches', () => {
+  const store = getDocumentProjectStore();
+  const project = store.createProject({
+    title: 'Context Delta Conflict Audit',
+    format: 'txt',
+    sourceFileName: 'context-delta-conflict.txt',
+    prompt: { translationMode: 'literary', sourceLang: 'en', targetLang: 'zh' },
+    segments: [
+      { id: 'king-early', text: 'The King looked at Max and remained silent.', kind: 'paragraph', contextPath: 'Chapter 1' },
+      { id: 'king-later', text: 'The King addressed Max before leaving.', kind: 'paragraph', contextPath: 'Chapter 2' },
+    ],
+  });
+  ensureTestContextGraph(store, project);
+  const run = store.createRun(project.projectId, { scope: { type: 'all' } });
+  store.saveCandidate(project.projectId, run.runId, 'king-early', '国王看了马克斯一眼，没有说话。');
+  store.saveCandidate(project.projectId, run.runId, 'king-later', '大王离开前对马克斯说了话。');
+  store.finishRun(project.projectId, run.runId);
+
+  store.saveTranslationContextDelta(project.projectId, run.runId, 1, 'king-early', ['king-early'], {
+    entityCandidates: [{
+      localId: 'king-a', canonicalSource: 'The King', aliases: ['King'], kind: 'character_epithet',
+      targetProposal: '国王', evidence: [{ segmentId: 'king-early', sourceQuote: 'The King looked at Max and remained silent.' }],
+    }],
+    entityMentions: [], relationshipDeltas: [], openQuestions: [], conflicts: [],
+  }, { entityCandidateCount: 1 });
+  store.saveTranslationContextDelta(project.projectId, run.runId, 2, 'king-later', ['king-later'], {
+    entityCandidates: [{
+      localId: 'king-b', canonicalSource: 'The King', aliases: ['The King'], kind: 'character_epithet',
+      targetProposal: '大王', evidence: [{ segmentId: 'king-later', sourceQuote: 'The King addressed Max before leaving.' }],
+    }],
+    entityMentions: [], relationshipDeltas: [], openQuestions: [], conflicts: [],
+  }, { entityCandidateCount: 1 });
+
+  const report = runProjectQualityAudit(project.projectId, run.runId);
+  const finding = report.findings.find((item) => item.type === 'context-delta-conflict');
+  assert.ok(finding, 'conflicting translated-name proposals should be visible in the whole-book audit');
+  assert.deepEqual(new Set(finding.segmentIds), new Set(['king-early', 'king-later']));
+  assert.equal(finding.repairable, false);
+  assert.equal(report.metrics.contextDeltaConflictCount, 1);
+});
