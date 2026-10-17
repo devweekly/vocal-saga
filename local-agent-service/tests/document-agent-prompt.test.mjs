@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildBatches, buildCanonicalTermProtections, buildUserPrompt, maskCanonicalTermText, restoreCanonicalTermMarkers } from '../src/documents/translationAgent.ts';
+import { buildBatches, buildCanonicalTermProtections, buildUserPrompt, maskCanonicalTermText, protectCanonicalReviewSegments, restoreCanonicalTermMarkers } from '../src/documents/translationAgent.ts';
 import { normalizeDocumentTranslationStrategy } from '../src/documents/projectStore.ts';
 import { buildProjectVoiceContext } from '../src/documents/voiceContext.ts';
 
@@ -393,4 +393,31 @@ test('buildUserPrompt masks automatically active entity names in source segments
   const payload = JSON.parse(prompt.slice(prompt.indexOf('{')));
   assert.match(payload.segments[0].text, /__VSA_TERM_000__/);
   assert.equal(payload.contextGraph.nameMappings[0].target, '国王');
+});
+
+
+test('literary Reviewers receive protected canonical names in both source and draft', () => {
+  const graph = {
+    nameMappings: [{
+      source: 'the King',
+      target: '国王',
+      aliases: ['King'],
+      sourceStatus: 'auto',
+    }],
+  };
+  const input = [{
+    id: 'p1',
+    source: 'But Timsen was much too clever to allow the King to see through him.',
+    draft: '可廷森精得很，绝不会让国王看穿他。',
+  }];
+  const result = protectCanonicalReviewSegments(input, graph);
+  assert.ok(result.protections.length > 0);
+  assert.match(result.segments[0].source, /__VSA_TERM_000__/);
+  assert.match(result.segments[0].draft, /__VSA_TERM_000__/);
+  assert.equal(result.segments[0].source.includes('the King'), false);
+  assert.equal(result.segments[0].draft.includes('国王'), false);
+  assert.equal(
+    restoreCanonicalTermMarkers(result.segments[0].draft, result.protections),
+    '可廷森精得很，绝不会让国王看穿他。',
+  );
 });
