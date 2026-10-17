@@ -6,7 +6,7 @@
  */
 import { randomInt, randomUUID } from 'node:crypto';
 import { scanBookSegments, type BookScanSegment, type RepeatedPhraseCandidate } from './bookScan.ts';
-import { readSourceFeatureIndex, type StoredSourceFeatureIndex } from './contextGraph.ts';
+import { ensureSourceFeatureIndex, readSourceFeatureIndex, type StoredSourceFeatureIndex } from './contextGraph.ts';
 import { getDocumentProjectStore } from './projectStore.ts';
 
 const MAX_REPEATED_EXPRESSION_GROUPS = 300;
@@ -1000,6 +1000,7 @@ function runMetrics(projectId: string, runId: string): any {
   ).filter((item) => item.category === 'terminology');
   const numbers = numericFindings(normalizedSegments, translationById);
   const scopedIds = new Set(segments.map((item) => item.id));
+  ensureSourceFeatureIndex(projectId, currentSourceRevisionId);
   const storedSourceIndex = readSourceFeatureIndex(db, currentSourceRevisionId);
   const repeated = repeatedExpressionFindings(normalizedSegments, translationById, scopedIds, storedSourceIndex);
   const findings = db.prepare('SELECT category, finding_json FROM review_findings WHERE run_id = ?').all(runId) as any[];
@@ -1097,6 +1098,7 @@ export function runProjectQualityAudit(projectId: string, runId?: string): Recor
   }));
   const termFindings = terminologyFindings(segments, translations, memory);
   const numberFindings = numericFindings(segments, translations);
+  ensureSourceFeatureIndex(projectId, context.currentSourceRevisionId);
   const storedSourceIndex = readSourceFeatureIndex(context.db, context.currentSourceRevisionId);
   const repeatedFindings = repeatedExpressionFindings(segments, translations, undefined, storedSourceIndex);
   const presentIds = new Set(segments.map((segment) => segment.id));
