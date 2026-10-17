@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildBatches, buildCanonicalTermProtections, buildStandaloneReviewContextGraph, buildUserPrompt, canonicalMarkerCountsMatch, maskCanonicalTermText, protectCanonicalReviewSegments, restoreCanonicalTermMarkers } from '../src/documents/translationAgent.ts';
+import { buildBatches, buildCanonicalTermProtections, buildStandaloneReviewContextGraph, buildUserPrompt, canonicalMarkerCountsMatch, maskCanonicalTermText, protectCanonicalReviewSegments, restoreCanonicalMarkersDeep, restoreCanonicalTermMarkers } from '../src/documents/translationAgent.ts';
 import { normalizeDocumentTranslationStrategy } from '../src/documents/projectStore.ts';
 import { buildProjectVoiceContext } from '../src/documents/voiceContext.ts';
 import { isLiteraryReviewFindingGrounded } from '../src/literary.ts';
@@ -518,4 +518,21 @@ test('canonical term output validation checks repeated occurrences, not just mar
     canonicalMarkerCountsMatch(maskedSource, marker + ' spoke to ' + marker + ' before ' + aliasMarker + ' arrived.', protections),
     true,
   );
+});
+
+
+test('Reviewer restoration keeps source excerpts in source language and drafts in target language', () => {
+  const protections = buildCanonicalTermProtections(
+    [{ id: 'p1', text: 'The King entered the hall.' }],
+    { nameMappings: [{ source: 'the King', target: '国王', aliases: [], sourceStatus: 'confirmed-memory' }] },
+  );
+  const marker = protections[0]?.marker;
+  assert.ok(marker);
+  const restored = restoreCanonicalMarkersDeep({
+    translations: { p1: marker + '走进大厅。' },
+    findings: [{ sourceExcerpt: marker + ' entered', draftExcerpt: marker + '走进大厅。' }],
+  }, protections);
+  assert.equal(restored.translations.p1, '国王走进大厅。');
+  assert.equal(restored.findings[0].sourceExcerpt, 'the King entered');
+  assert.equal(restored.findings[0].draftExcerpt, '国王走进大厅。');
 });
