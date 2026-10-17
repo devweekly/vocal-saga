@@ -991,16 +991,29 @@ async function executeRun(projectId: string, runId: string): Promise<void> {
           openQuestionCount: contextDelta.openQuestions.length,
           conflictCount: contextDelta.conflicts.length,
         };
-        store.saveTranslationContextDelta(
-          projectId, runId, batchIndex, batch[0].id, batchIds,
-          contextDelta as unknown as Record<string, any>, validation,
-        );
-        store.appendEvent(projectId, runId, 'translation.context-delta.saved', {
-          batchIndex, firstSegmentId: batch[0].id,
-          sourceSegmentCount: batchIds.length,
-          ...validation,
-          availableToLaterWaves: true,
-        });
+        // 上下文记忆属于初译的附属产物。即使其序列化/持久化失败，也不撤销前面成功保存的译文候选。
+        try {
+          store.saveTranslationContextDelta(
+            projectId, runId, batchIndex, batch[0].id, batchIds,
+            contextDelta as unknown as Record<string, any>, validation,
+          );
+          store.appendEvent(projectId, runId, 'translation.context-delta.saved', {
+            batchIndex, firstSegmentId: batch[0].id,
+            sourceSegmentCount: batchIds.length,
+            ...validation,
+            availableToLaterWaves: true,
+          });
+        } catch (error) {
+          const warning = error instanceof Error ? error.message : String(error);
+          try {
+            store.appendEvent(projectId, runId, 'stage.warning', {
+              stage: 'context-delta', batchIndex,
+              warning: '初译已保存，但本批人物/上下文增量未能持久化：' + warning,
+            });
+          } catch (eventError) {
+            console.warn('[document-agent] context-delta persistence failed', { runId, batchIndex, warning, eventError });
+          }
+        }
       }
       if (pending.size > 0) {
         store.markRunSegments(projectId, runId, Array.from(pending.keys()), 'failed', lastError);
