@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { buildBatches, buildUserPrompt } from '../src/documents/translationAgent.ts';
+import { normalizeDocumentTranslationStrategy } from '../src/documents/projectStore.ts';
 import { buildProjectVoiceContext } from '../src/documents/voiceContext.ts';
 
 test('literary Project Agent separates preceding context from translatable segments', () => {
@@ -282,4 +283,54 @@ test('literary translation batches are slightly larger but remain bounded by seg
   ], true);
   assert.deepEqual(chapterBoundaries.map((batch) => batch.map((item) => item.id)), [['a'], ['b']],
     'literary batches must never cross chapter boundaries');
+});
+
+test('document translation strategy is configurable but server-side bounds cannot be bypassed', () => {
+  const strategy = normalizeDocumentTranslationStrategy({
+    maxBatchSegments: 20,
+    maxBatchSourceChars: 10000,
+    translationConcurrency: 5,
+    reviewConcurrency: 3,
+    precedingContextSegments: 6,
+    contextBudgetChars: 12000,
+    maxModelAttempts: 1,
+  });
+  assert.deepEqual(strategy, {
+    maxBatchSegments: 20,
+    maxBatchSourceChars: 10000,
+    translationConcurrency: 5,
+    reviewConcurrency: 3,
+    precedingContextSegments: 6,
+    contextBudgetChars: 12000,
+    maxModelAttempts: 1,
+  });
+
+  const bounded = normalizeDocumentTranslationStrategy({
+    maxBatchSegments: 999,
+    maxBatchSourceChars: 99999,
+    translationConcurrency: 0,
+    reviewConcurrency: 999,
+    precedingContextSegments: -1,
+    contextBudgetChars: 99999,
+    maxModelAttempts: 9,
+  });
+  assert.equal(bounded.maxBatchSegments, 24);
+  assert.equal(bounded.maxBatchSourceChars, 12000);
+  assert.equal(bounded.translationConcurrency, 1);
+  assert.equal(bounded.reviewConcurrency, 4);
+  assert.equal(bounded.precedingContextSegments, 0);
+  assert.equal(bounded.contextBudgetChars, 18000);
+  assert.equal(bounded.maxModelAttempts, 2);
+});
+
+test('batch planner honors per-run chunk sizing preferences', () => {
+  const segments = Array.from({ length: 17 }, (_, index) => ({
+    id: 'configured-' + index,
+    text: 'Short source segment.',
+    contextPath: 'Chapter 1',
+  }));
+  assert.deepEqual(
+    buildBatches(segments, true, { maxBatchSegments: 8, maxBatchSourceChars: 8000 }).map((batch) => batch.length),
+    [8, 8, 1],
+  );
 });
