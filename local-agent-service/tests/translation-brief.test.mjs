@@ -631,3 +631,28 @@ test('static glossary applies on its first source occurrence but withholds futur
   assert.ok(!terms.some((term) => term.source === 'the King'),
     'a canonical target whose alias is only revealed later remains withheld as a whole');
 });
+
+
+test('a cancelled Run cannot persist a late TranslationBrief snapshot', () => {
+  const store = getDocumentProjectStore();
+  const project = store.createProject({
+    title: 'Cancelled Brief Snapshot',
+    format: 'txt',
+    sourceFileName: 'cancelled-brief.txt',
+    prompt: { translationMode: 'technical', sourceLang: 'en', targetLang: 'zh' },
+    segments: [
+      { id: 'brief-current', text: 'The King entered the room.', kind: 'paragraph', contextPath: 'Chapter 1' },
+    ],
+  });
+  const run = store.createRun(project.projectId, { scope: { type: 'ids', ids: ['brief-current'] } });
+  const context = store.getRunContext(project.projectId, run.runId);
+  const source = store.getSegments(project.projectId, { limit: 10 }).find((item) => item.id === 'brief-current');
+  const brief = buildTranslationBrief(context, [source], []);
+  store.setRunStatus(project.projectId, run.runId, 'cancelled', '用户请求停止');
+
+  assert.equal(store.saveTranslationBriefSnapshot(
+    project.projectId, run.runId, 1, brief,
+  ), false);
+  assert.deepEqual(store.listTranslationBriefSnapshots(project.projectId, run.runId), [],
+    'the audit log must not claim that a brief was committed after the Run was cancelled');
+});
