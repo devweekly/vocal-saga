@@ -555,6 +555,11 @@ export function summarizeTranslationBrief(brief: TranslationBrief): Record<strin
   const graph = brief.contextGraph as any;
   const voice = brief.voiceContext as any;
   const count = (value: unknown) => Array.isArray(value) ? value.length : 0;
+  const graphCharacterCount = count(graph?.characters);
+  const graphEntityCount = count(graph?.entities);
+  const graphRelationshipCount = count(graph?.relationships);
+  const voiceCharacterCount = count(voice?.characterVoices);
+  const nameMappingCount = count(graph?.nameMappings);
   return {
     policyVersion: brief.policyVersion,
     contextHash: brief.contextHash,
@@ -566,15 +571,21 @@ export function summarizeTranslationBrief(brief: TranslationBrief): Record<strin
     chapterPath: brief.chapterPath || null,
     precedingSegmentCount: brief.precedingSegments.length,
     knowledgeBoundaryOrdinal: graph?.knowledgeBoundaryOrdinal ?? null,
-    graphCharacters: count(graph?.characters),
-    graphEntities: count(graph?.entities),
-    graphRelationships: count(graph?.relationships),
+    graphCharacters: graphCharacterCount,
+    graphEntities: graphEntityCount,
+    graphRelationships: graphRelationshipCount,
     graphChapterSummaries: count(graph?.chapterSummaries),
     glossaryTerms: count((brief.glossary as any)?.document_terms),
     voiceEntities: count(voice?.entities),
     voiceRelationships: count(voice?.relationships),
-    characterVoices: count(voice?.characterVoices),
+    characterVoices: voiceCharacterCount,
     relationshipVoiceRules: count(voice?.relationshipVoiceRules),
     voiceAnchors: count(voice?.voiceAnchors),
+    // Compatibility fields consumed by the Agent Trajectory UI. Keep them aligned with the
+    // detailed fields above so the UI doesn't silently display zero for populated context.
+    entityCount: graphCharacterCount + graphEntityCount,
+    relationshipCount: graphRelationshipCount,
+    characterVoiceCount: voiceCharacterCount,
+    nameMappingCount,
   };
 }
