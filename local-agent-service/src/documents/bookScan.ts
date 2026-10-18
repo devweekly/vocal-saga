@@ -486,6 +486,11 @@ async function scanFeatureChunkInWorker(segments: BookScanSegment[]): Promise<Bo
  * candidate ordering, source offsets, truncation limits and sampling remain deterministic.
  * Set VOCAL_SAGA_BOOK_SCAN_WORKERS=0 to disable Workers or 1..4 to set a bounded worker count.
  */
+/**
+ * 并发构建整本书的确定性特征索引。
+ * Worker 只计算可由原文重现的词项/对白/重复表达/数量等特征，最终由主线程按 ordinal 合并；
+ * 输出应与 scanBookSegments 的同步实现语义一致，且所有 span/segmentId 必须仍指向原文。
+ */
 export async function scanBookSegmentsConcurrent(
   segmentsInput: BookScanSegment[],
   options: BookScanOptions = {},
@@ -515,11 +520,20 @@ export async function scanBookSegmentsConcurrent(
   return assembleBookScan(segments, featureChunks, options);
 }
 
+/**
+ * 同步扫描实现，作为小文档路径、测试基线和 Worker 结果一致性参照。
+ * 该索引是词面/结构特征，不是语义解析器，也不能独立证明人物身份或关系。
+ */
 export function scanBookSegments(segmentsInput: BookScanSegment[], options: BookScanOptions = {}): BookScanResult {
   const segments = segmentsInput.slice().sort((a, b) => a.ordinal - b.ordinal);
   return assembleBookScan(segments, [scanBookSegmentFeatures(segments)], options);
 }
 
+/**
+ * 根据全书特征索引制定有界抽样计划。
+ * 计划综合章节/早中晚位置、对白、候选实体和重复表达覆盖；所有被选内容最终仍以原文 segment 为证据，
+ * 统计分数只负责提高覆盖率，不得被下游当作模型事实。
+ */
 export function planBookSamples(segmentsInput:BookScanSegment[],scanInput?:BookScanResult,sampleLimit=MAX_SAMPLES):BookSamplePlan {
   const segments=segmentsInput.slice().sort((a,b)=>a.ordinal-b.ordinal),scan=scanInput||scanBookSegments(segments);
   const limit=Math.max(1,Math.min(MAX_SAMPLES,Math.floor(sampleLimit))),byId=new Map(segments.map((segment)=>[segment.id,segment]));

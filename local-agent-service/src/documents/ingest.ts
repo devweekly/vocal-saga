@@ -463,6 +463,11 @@ export function inferDocumentFormat(fileName: string): DocumentFormat {
   fail('当前文件解析器支持 EPUB、DOCX、PDF（需要 pdftotext）、TXT、Markdown、HTML；收到格式：' + (extension || '无扩展名'), 415);
 }
 
+/**
+ * 原始文件导入的统一入口：识别格式、抽取文本/结构并产出标准 Source Segment。
+ * 各解析器必须遵守输入文件与解压展开体积上限，保留章节/路径/页码等可用元数据，
+ * 并生成稳定片段 ID；这里不启动翻译，也不直接写项目数据库。
+ */
 export async function parseDocumentFile(fileName: string, source: Uint8Array): Promise<{ format: DocumentFormat; title: string; segments: ProjectSegment[] }> {
   const bytes = Buffer.from(source);
   if (!bytes.length) fail('原始文件内容为空。');

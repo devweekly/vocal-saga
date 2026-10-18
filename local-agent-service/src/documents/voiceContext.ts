@@ -137,6 +137,11 @@ export interface ProjectVoiceContextSegment {
   kind?: string;
 }
 
+/**
+ * 将保存的文学记忆归一化为有界、可序列化的内部结构。
+ * 这里只负责结构/字段清洗；原文证据是否位于当前批次之前，仍由 TranslationBrief 的时间过滤负责，
+ * 不能把“通过 sanitizer”当成“事实已验证”或“可在所有章节使用”。
+ */
 export function sanitizeProjectLiteraryMemory(input: unknown): Record<string, any> {
   if (!input || typeof input !== 'object' || Array.isArray(input)) {
     return { version: 2, entities: [], relationships: [], styleGuide: {}, styleGuideStatus: 'candidate', chapterSummaries: [], recentExamples: [], characterVoices: [], relationshipVoiceRules: [], voiceAnchors: [] };
@@ -314,7 +319,11 @@ export function sanitizeProjectLiteraryMemory(input: unknown): Record<string, an
   };
 }
 
-/** 根据本批原文，构造小而相关的只读语音档案，不把整本记忆塞进每次模型调用。 */
+/**
+ * 根据当前批次和有界前文，构造小而相关的只读文学上下文。
+ * 先按来源证据和时间边界筛除画像，再通过当前名称命中或已验证对白锚点检索人物；画像状态/置信度
+ * 只参与排序，不足以单独触发注入。无法确认说话人/听话人时不猜人物，避免把错误声线扩散到后文。
+ */
 export function buildProjectVoiceContext(
   memoryInput: unknown,
   segments: ProjectVoiceContextSegment[],

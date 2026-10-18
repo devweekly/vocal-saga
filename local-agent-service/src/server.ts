@@ -23,6 +23,12 @@ export { validateSegments } from './literary.ts';
 const app = express();
 app.disable('x-powered-by');
 
+/**
+ * 组装并启动本机 HTTP 服务。
+ *
+ * 启动顺序属于安全契约：先确认只能监听 loopback、校验远程暴露配置并修复持久化存储，
+ * 然后才注册来源/Host 检查与 body parser，最后开始监听。不要把大请求体解析移到安全校验之前。
+ */
 export function startLocalAgentServer() {
   if (!['127.0.0.1', 'localhost', '::1'].includes(HOST)) {
     throw new Error('LOCAL_AGENT_HOST 必须是 loopback 地址（默认 127.0.0.1），本服务不允许监听局域网');

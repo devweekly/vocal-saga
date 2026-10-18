@@ -62,6 +62,10 @@ export function requestHostname(req: Request): string {
   return hostHeader.replace(/:\d+$/, '');
 }
 
+/**
+ * 统一鉴权：loopback 默认可用；通过配置域名访问的隧道/代理请求必须提供匹配的 Bearer Token。
+ * 该函数依赖更早执行的 CORS/Host 检查形成纵深防御；不能把“允许 loopback”理解为允许普通网页来源。
+ */
 export function authorize(req: Request): boolean {
   // 本机（loopback）请求不要求 token：默认配置即可用，扩展和 CLI 不需要额外设置。
   // 安全性由另外两层保证：CORS 只放行浏览器扩展来源；Host 白名单挡住 DNS rebinding。

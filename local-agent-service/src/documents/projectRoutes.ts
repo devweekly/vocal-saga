@@ -46,7 +46,13 @@ function decoded(segment: string): string {
   catch { throw Object.assign(new Error('URL 路径编码无效'), { status: 400 }); }
 }
 
-/** Return true when the request belongs to this route family. */
+/**
+ * 处理 /api/documents/projects 路由族。
+ *
+ * 返回 true 表示该请求已由此模块处理（包括已返回的错误响应），false 表示路径不属于该路由族。
+ * 本模块应保持为薄 HTTP adapter：参数校验后委托 Store/Agent/ContextGraph/QualityAudit，
+ * 不在路由中另造一套 Run 状态或持久化规则。
+ */
 export async function handleDocumentProjectRequest(req: Request, res: Response, url: URL): Promise<boolean> {
   if (!url.pathname.startsWith('/api/documents/projects')) return false;
   try {
@@ -226,6 +232,7 @@ export async function handleDocumentProjectRequest(req: Request, res: Response, 
         glossary: body.glossary,
         translationStrategy: body.translationStrategy && typeof body.translationStrategy === 'object'
           ? body.translationStrategy : undefined,
+        taskProfiles: body.taskProfiles && typeof body.taskProfiles === 'object' ? body.taskProfiles : undefined,
         literaryMemory: body.literaryMemory,
       });
       sendJson(res, 201, { prompt, literaryMemory: store.getCurrentLiteraryMemory(projectId) });

@@ -13,6 +13,7 @@ import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { DATA_DIR } from '../config.ts';
 import { sanitizeProjectLiteraryMemory } from './voiceContext.ts';
+import { normalizeCodeBuddyTaskProfiles } from '../agents/taskProfiles.ts';
 
 export type DocumentFormat = 'epub' | 'pdf' | 'txt' | 'md' | 'html' | 'docx' | 'srt' | 'vtt' | 'json';
 export const MAX_DOCUMENT_SOURCE_BYTES = 20 * 1024 * 1024;
@@ -94,6 +95,8 @@ export interface ProjectPrompt {
   literaryReview?: boolean;
   glossary?: unknown;
   translationStrategy?: Partial<DocumentTranslationStrategy>;
+  /** Immutable per-task CodeBuddy reasoning and supplemental prompt settings. */
+  taskProfiles?: unknown;
   /** Confirmed book entities/style memory included as read-only Agent context. */
   literaryMemory?: unknown;
 }
@@ -581,6 +584,11 @@ export class DocumentProjectStore {
     return { revisionId, fingerprint, createdAt };
   }
 
+  /**
+   * 创建项目并建立第一份不可变来源版本。
+   * 项目目录、项目数据库、来源片段、Prompt revision 与 catalog 记录必须一起形成可恢复的项目；
+   * 重复来源解析由 resolveProjectForSource 负责，不能依赖客户端会话缓存去重。
+   */
   createProject(input: CreateProjectInput): ProjectSummary {
     // Initialize the catalog before creating the project directory; otherwise startup repair
     // could discover this new directory and insert the catalog row before createProject does.
@@ -618,6 +626,11 @@ export class DocumentProjectStore {
     return this.getProject(projectId)!;
   }
 
+  /**
+   * 为已有项目切换到新的不可变原文版本，而不是原地改写旧片段。
+   * 活跃 Run/预处理会阻止版本切换；新的 revision 会重新计算稳定片段 ID 与 source hash，
+   * 旧 Run、审计报告和 TranslationBrief 快照仍绑定其创建时的 revision。
+   */
   createSourceRevision(projectId: string, input: Omit<CreateProjectInput, 'prompt'>): ProjectSummary {
     const segments = validateSegments(input.segments);
     const current = this.getProject(projectId);
@@ -724,6 +737,7 @@ export class DocumentProjectStore {
       literaryReview: Boolean(prompt.literaryReview),
       glossary: prompt.glossary ?? null,
       translationStrategy: normalizeDocumentTranslationStrategy(prompt.translationStrategy),
+      taskProfiles: normalizeCodeBuddyTaskProfiles(prompt.taskProfiles),
       // 动态书籍记忆存入独立 literary_memory_revisions，不参与静态 Prompt fingerprint。
     };
     const systemPrompt = String(prompt.systemPrompt || DEFAULT_SYSTEM_PROMPT).slice(0, 50000);
@@ -1072,6 +1086,11 @@ export class DocumentProjectStore {
     }
   }
 
+  /**
+   * 持久化一次翻译执行计划。
+   * 在返回 Run 前固定 sourceRevision、promptRevision、literaryMemoryRevision 和片段范围，
+   * 同时建立 run_segments；执行 worker 只能按这份快照工作，不能在恢复时悄悄读取最新 Prompt/记忆。
+   */
   createRun(projectId: string, input: CreateRunInput = {}): any {
     const db = this.openProjectDb(projectId);
     const project = this.getProject(projectId)!;
@@ -1172,11 +1191,20 @@ export class DocumentProjectStore {
     db.prepare('INSERT INTO project_events(run_id, event_type, payload_json, created_at) VALUES (?, ?, ?, ?)').run(runId, type, JSON.stringify(payload ?? {}), isoNow());
   }
 
+  /**
+   * 将结构化事件写入项目事件账本，并同步输出工作流日志。
+   * SQLite event 是 UI 轮询、故障排查和运行追踪的持久化事实来源；console 日志不能替代它。
+   */
   appendEvent(projectId: string, runId: string | null, type: string, payload: unknown): void {
     this.addEvent(projectId, runId, type, payload);
     logWorkflowEvent(runId, type, payload);
   }
 
+  /**
+   * 原子保存本批次实际使用的 TranslationBrief 快照。
+   * 只有 queued/running 的 Run 且 source/prompt/memory revision 全部与 Run 一致时才允许提交；
+   * 返回 false 表示 Run 已离开活动状态，调用方必须丢弃该批次而非继续调用模型。
+   */
   saveTranslationBriefSnapshot(projectId: string, runId: string, batchIndex: number, brief: Record<string, any>): boolean {
     const { db } = this.getProjectContext(projectId);
     db.exec('BEGIN IMMEDIATE');
@@ -1504,6 +1532,11 @@ export class DocumentProjectStore {
     }));
   }
 
+  /**
+   * 读取 Run 创建时绑定的项目、Prompt 和文学记忆快照。
+   * 旧 Run 缺少 memory revision 外键时只允许回退到对应旧 Prompt 中迁移的记忆，
+   * 不得将当前最新的 Voice Bible 套用到历史 Run。
+   */
   getRunContext(projectId: string, runId: string): any {
     const { db, project } = this.getProjectContext(projectId);
     const run = db.prepare('SELECT * FROM translation_runs WHERE run_id = ?').get(runId) as any;
@@ -1583,6 +1616,11 @@ export class DocumentProjectStore {
     return row.status as RunStatus;
   }
 
+  /**
+   * 在 SQLite 写事务中执行 Run 状态转换。
+   * completed/cancelled 是不可被延迟 worker 逆转的终态；false 表示状态门拒绝本次转换，
+   * 调用者必须停止后续持久化，不能把内存中的任务状态当作成功提交的依据。
+   */
   setRunStatus(projectId: string, runId: string, status: RunStatus, error?: string | null): boolean {
     const db = this.openProjectDb(projectId);
     const now = isoNow();
@@ -1906,6 +1944,11 @@ export class DocumentProjectStore {
     this.catalogDb().prepare('UPDATE document_projects SET updated_at = ? WHERE project_id = ?').run(now, projectId);
     return result;
   }
+  /**
+   * 根据片段级状态汇总 Run 终态，而不是单凭 Promise 是否结束决定成功。
+   * 未处理片段导致 paused；存在候选时进入 awaiting_acceptance；失败与已有成功结果组合为
+   * partial/failed。此函数不自动采纳 candidate。
+   */
   finishRun(projectId: string, runId: string): any {
     const db = this.openProjectDb(projectId);
     const now = isoNow();
@@ -1941,6 +1984,11 @@ export class DocumentProjectStore {
     return this.getRun(projectId, runId);
   }
 
+  /**
+   * 用户明确采纳候选译文的事务边界。
+   * Run 状态检查、候选选择、source hash 对齐、人工编辑保护和 accepted 标记在同一写事务中完成；
+   * 该入口不得被初译/审校 worker 调用来跳过人工采纳门槛。
+   */
   acceptCandidates(projectId: string, runId: string, segmentIds?: string[]): any {
     const db = this.openProjectDb(projectId);
     const only = segmentIds?.length ? new Set(segmentIds) : null;

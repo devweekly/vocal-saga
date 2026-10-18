@@ -1068,6 +1068,11 @@ function runMetrics(projectId: string, runId: string): any {
   };
 }
 
+/**
+ * 对当前来源版本执行全书确定性质量审计，并合并相关 Reviewer/上下文漂移发现。
+ * 可选择叠加一个已结束 Run 的候选译文；审计只产出 finding/metric，不自动修改或采纳译文。
+ * 报告固定 sourceRevisionId，后续返工必须再次校验该 revision 仍是当前版本。
+ */
 export function runProjectQualityAudit(projectId: string, runId?: string): Record<string, any> {
   const { store, context, segments } = currentSource(projectId);
   if (!segments.length) fail('当前来源版本没有可审计的片段。', 409);
@@ -1199,6 +1204,11 @@ export function runProjectQualityAudit(projectId: string, runId?: string): Recor
   return report;
 }
 
+/**
+ * 根据指定审计 finding 创建一个新的窄范围返工 Run。
+ * 先验证报告仍属于当前 source revision，再解析 finding/segment 范围；大范围 finding 要求调用方
+ * 显式提交 segmentIds，避免“修一个问题”隐式扩展成整组/整章返工。结果仍需用户采纳。
+ */
 export function createQualityRepairRun(projectId: string, auditId: string, selectedFindingIds: string[], requestedSegmentIds: string[] = []): any {
   const store = getDocumentProjectStore();
   const report = store.getQualityAudit(projectId, auditId) as any;
@@ -1249,6 +1259,11 @@ function runComparisonData(projectId: string, runId: string) {
   return { metrics, context, translations };
 }
 
+/**
+ * 对两个不同 Run 做同源版本的前后对照评测。
+ * 先比较来源版本和语言条件，再计算确定性指标并生成盲评映射；不同来源版本的数字没有可比性，
+ * 盲评/人工评价与自动指标分开保存，不能将模型自报分数当作实际质量改善证据。
+ */
 export function createProjectQualityEvaluation(projectId: string, beforeRunId: string, afterRunId: string): Record<string, any> {
   if (!beforeRunId || !afterRunId || beforeRunId === afterRunId) fail('必须提供两个不同的 beforeRunId 和 afterRunId。');
   const store = getDocumentProjectStore();

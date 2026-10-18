@@ -62,6 +62,11 @@ function buildDocumentSessionScope(
   return 'document:' + documentSessionId + ':' + parts.map((value) => value.slice(0, 80)).join(':');
 }
 
+/**
+ * 通用 HTTP 路由分发入口。文档项目 API 优先委托给 projectRoutes，其他接口由本模块处理。
+ * /api 与 /v1 路径在进入业务分支前统一鉴权；本函数只负责请求/响应适配，
+ * 持久化、Run 状态转换和长任务生命周期分别归 DocumentProjectStore 与 translationAgent。
+ */
 export async function handleRequest(req: Request, res: Response): Promise<void> {
   const db = database!;
   const url = new URL(req.url || '/', 'http://127.0.0.1');

@@ -1,6 +1,10 @@
 import { REQUEST_TIMEOUT_MS, WORKBUDDY_POOL_MAX_USES, WORKBUDDY_POOL_SIZE } from '../config.ts';
 import { buildWorkbuddyOptions, type WorkbuddyAgent } from './workbuddy.ts';
+<<<<<<< HEAD
 import { parseTurnUsage, type TurnUsage } from './usage.ts';
+=======
+import type { CodeBuddyTaskProfile } from './taskProfiles.ts';
+>>>>>>> 0feee1178869920eb5291de8df541df36441d80d
 
 // SDK 会话的最小使用面：正式用 Session，测试用假对象。
 export interface PooledSession {
@@ -21,6 +25,7 @@ interface Slot {
   /** Complete scope key; document batches add run, role, prompt revision, lane and batch index to isolate history. */
   scopeKey: string;
   schemaKey: string;
+  settingsKey: string;
   uses: number;
   busy: boolean;
   lastUsedAt: number;
@@ -50,22 +55,28 @@ export class WorkbuddySessionPool {
     private readonly factory: SessionFactory,
   ) {
     this.slots = Array.from({ length: size }, () => ({
-      session: null, model: '', scopeKey: '', schemaKey: '', uses: 0, busy: false, lastUsedAt: 0,
+      session: null, model: '', scopeKey: '', schemaKey: '', settingsKey: '', uses: 0, busy: false, lastUsedAt: 0,
     }));
   }
 
   // 取一个空闲槽位并保证会话就绪；全忙时排队等（不另起进程，避免无界膨胀）。
+  /**
+   * 获取与 provider/model/session scope/schema 匹配的空闲会话。
+   * 池满时通过 waiter 排队而非无限创建进程；scopeKey 正在执行中的会话不可被第二个请求并发复用。
+   * 会话达到 maxUses 或模型/schema 不匹配时应重建，避免历史上下文持续增长或类型约束串线。
+   */
   async acquire(
     agent: WorkbuddyAgent,
     scopeKey = 'shared-text-translation',
     schema?: Record<string, unknown>,
+    taskProfile?: CodeBuddyTaskProfile,
   ): Promise<number> {
-    // Legacy non-document translations retain a parallel pool: each in-flight chunk gets its
-    // own slot, while an idle slot can be reused later. Book/task sessions use the stricter path below.
-    if (scopeKey === 'shared-text-translation' && !schema) return this.acquireSharedTextSlot(agent);
+    // Shared text requests only reuse sessions when their CodeBuddy task settings also match.
+    if (scopeKey === 'shared-text-translation' && !schema) return this.acquireSharedTextSlot(agent, taskProfile);
 
     const schemaKey = schema ? JSON.stringify(schema) : '';
-    const requestedKey = JSON.stringify([scopeKey, agent.model || '<runtime-default>', schemaKey]);
+    const settingsKey = taskProfile ? JSON.stringify(taskProfile) : '';
+    const requestedKey = JSON.stringify([scopeKey, agent.model || '<runtime-default>', schemaKey, settingsKey]);
     for (;;) {
       // A scoped conversation has exactly one slot. Do not create a second copy while its
       // first copy is busy: parallel sends would split history and make turn order nondeterministic.
@@ -78,7 +89,7 @@ export class WorkbuddySessionPool {
         }
         slot.busy = true;
         try {
-          await this.ensureSession(existingIndex, agent, requestedKey, schema);
+          await this.ensureSession(existingIndex, agent, requestedKey, schema, taskProfile);
         } catch (error) {
           slot.busy = false;
           this.wakeNext();
@@ -108,7 +119,7 @@ export class WorkbuddySessionPool {
       slot.scopeKey = requestedKey;
       slot.schemaKey = schemaKey;
       try {
-        await this.ensureSession(index, agent, requestedKey, schema);
+        await this.ensureSession(index, agent, requestedKey, schema, taskProfile);
       } catch (error) {
         slot.busy = false;
         this.wakeNext();
@@ -119,16 +130,17 @@ export class WorkbuddySessionPool {
     }
   }
 
-  private async acquireSharedTextSlot(agent: WorkbuddyAgent): Promise<number> {
+  private async acquireSharedTextSlot(agent: WorkbuddyAgent, taskProfile?: CodeBuddyTaskProfile): Promise<number> {
+    const settingsKey = taskProfile ? JSON.stringify(taskProfile) : '';
     for (;;) {
       const reusable = this.slots.findIndex((slot) =>
-        !slot.busy && !!slot.session && slot.schemaKey === '' && slot.scopeKey.startsWith('shared-slot:'),
+        !slot.busy && !!slot.session && slot.schemaKey === '' && slot.settingsKey === settingsKey && slot.scopeKey.startsWith('shared-slot:'),
       );
       if (reusable >= 0) {
         const slot = this.slots[reusable];
         slot.busy = true;
         try {
-          await this.ensureSession(reusable, agent, slot.scopeKey || ('shared-slot:' + reusable));
+          await this.ensureSession(reusable, agent, slot.scopeKey || ('shared-slot:' + reusable), undefined, taskProfile);
         } catch (error) {
           slot.busy = false;
           this.wakeNext();
@@ -154,10 +166,10 @@ export class WorkbuddySessionPool {
       const slot = this.slots[index];
       slot.busy = true;
       if (slot.session) this.dropSession(index);
-      const slotKey = 'shared-slot:' + index + ':' + (agent.model || '<runtime-default>');
+      const slotKey = 'shared-slot:' + index + ':' + (agent.model || '<runtime-default>') + ':' + settingsKey;
       slot.scopeKey = slotKey;
       try {
-        await this.ensureSession(index, agent, slotKey);
+        await this.ensureSession(index, agent, slotKey, undefined, taskProfile);
       } catch (error) {
         slot.busy = false;
         this.wakeNext();
@@ -183,6 +195,11 @@ export class WorkbuddySessionPool {
 
   // 在指定槽位跑一轮：发 prompt、收文本与 structured_output，超时则中断。
   // 成功用满 maxUses 轮即重建；失败/超时直接丢弃会话（状态不可信），下次懒重建。
+  /**
+   * 在独占槽位中执行一次 Prompt，并在 finally 路径释放槽位。
+   * 同一 scope 的重试可以复用会话，但调用方仍须传入完整、显式的当前批次上下文；
+   * 不能把 SDK 对话历史当作权威记忆或跨批次的安全上下文。
+   */
   async runPrompt(
     index: number,
     combinedPrompt: string,
@@ -256,6 +273,10 @@ export class WorkbuddySessionPool {
   }
 
   // 关停/测试用：关闭全部 CLI 子进程并清空。
+  /**
+   * 关闭池内全部活动/空闲 SDK 会话并清空可复用状态。
+   * 用于服务关闭、测试隔离和故障恢复；关闭后不得继续使用旧 Slot 中的 session 引用。
+   */
   closeAll(): void {
     for (let i = 0; i < this.slots.length; i++) this.dropSession(i);
     this.waiters.splice(0).forEach((wake) => { wake(); });
@@ -292,22 +313,25 @@ export class WorkbuddySessionPool {
     agent: WorkbuddyAgent,
     requestedKey: string,
     schema?: Record<string, unknown>,
+    taskProfile?: CodeBuddyTaskProfile,
   ): Promise<void> {
     const slot = this.slots[index];
     if (!slot.session) {
-      slot.session = await this.factory(buildTextSessionOptions(agent, schema));
+      slot.session = await this.factory(buildTextSessionOptions(agent, schema, taskProfile));
       slot.model = agent.model || '';
       slot.scopeKey = requestedKey;
       slot.schemaKey = schema ? JSON.stringify(schema) : '';
+      slot.settingsKey = taskProfile ? JSON.stringify(taskProfile) : '';
       slot.uses = 0;
       return;
     }
     if (slot.scopeKey !== requestedKey) {
       this.dropSession(index);
-      slot.session = await this.factory(buildTextSessionOptions(agent, schema));
+      slot.session = await this.factory(buildTextSessionOptions(agent, schema, taskProfile));
       slot.model = agent.model || '';
       slot.scopeKey = requestedKey;
       slot.schemaKey = schema ? JSON.stringify(schema) : '';
+      slot.settingsKey = taskProfile ? JSON.stringify(taskProfile) : '';
       slot.uses = 0;
       return;
     }
@@ -326,6 +350,7 @@ export class WorkbuddySessionPool {
     slot.uses = 0;
     slot.scopeKey = '';
     slot.schemaKey = '';
+    slot.settingsKey = '';
     slot.model = '';
     slot.lastUsedAt = Date.now();
   }
@@ -339,8 +364,8 @@ export class WorkbuddySessionPool {
 // 复用会话的 options：与单次 query 一致，但去掉 maxTurns。
 // --max-turns 是按进程（会话生命周期）计的预算，不适合复用会话；
 // 单轮护栏由 tools:[]（无工具可循环）+ 超时承担。
-export function buildTextSessionOptions(agent: WorkbuddyAgent, schema?: Record<string, unknown>): Record<string, any> {
-  const { maxTurns: _unused, ...rest } = buildWorkbuddyOptions(agent, schema);
+export function buildTextSessionOptions(agent: WorkbuddyAgent, schema?: Record<string, unknown>, taskProfile?: CodeBuddyTaskProfile): Record<string, any> {
+  const { maxTurns: _unused, ...rest } = buildWorkbuddyOptions(agent, schema, taskProfile);
   return rest;
 }
 

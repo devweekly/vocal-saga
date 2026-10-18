@@ -10,7 +10,11 @@
 import { parseAgentModel } from '../json.ts';
 import { positiveIntegerEnv, WORKBUDDY_POOL_SIZE } from '../config.ts';
 import { runAgentStructured } from '../agents/runner.ts';
+<<<<<<< HEAD
 import { addTurnUsage, summarizeTurnUsage, type TurnUsage } from '../agents/usage.ts';
+=======
+import { getCodeBuddyTaskProfile } from '../agents/taskProfiles.ts';
+>>>>>>> 0feee1178869920eb5291de8df541df36441d80d
 import { runLiteraryReview } from '../literary.ts';
 import { getDocumentProjectStore, normalizeDocumentTranslationStrategy, type DocumentTranslationStrategy } from './projectStore.ts';
 import { buildProjectVoiceContext, sanitizeProjectLiteraryMemory } from './voiceContext.ts';
@@ -707,6 +711,11 @@ interface TranslationParseDiagnostics {
   malformedRowCount: number;
 }
 
+/**
+ * 规范化结构化翻译响应，并记录重复 ID、未知 ID 与格式错误。
+ * 这里只接受当前请求的 expectedIds；未知输出不得写入项目，重复 ID 不以“最后一项覆盖前项”
+ * 的方式悄悄改变结果。缺失 ID 由上层进行有界重试。
+ */
 function parseTranslations(value: unknown, expectedIds: Set<string>): {
   translations: Map<string, string>;
   diagnostics: TranslationParseDiagnostics;
@@ -773,6 +782,11 @@ function parseTranslations(value: unknown, expectedIds: Set<string>): {
   };
 }
 
+/**
+ * 执行单个翻译批次：构建提示、保护强规范译名、调用结构化模型接口并校验输出。
+ * 文学模式下，TranslationBrief 同时作为初译和两类 Reviewer 的共享上下文来源；
+ * context_delta 是可选的附属候选数据，其校验/持久化失败不能抹掉已成功解析的译文。
+ */
 async function translateBatch(context: any, items: TranslationItem[], requestId: string, batchIndex: number, precedingSegments: TranslationItem[] = [], translationBrief?: TranslationBrief): Promise<{ translations: Map<string, string>; contextDelta: ValidatedTranslationContextDelta }> {
   const agent = parseAgentModel(context.run.model || 'auto', context.run.provider || 'workbuddy');
   const contextGraph = translationBrief?.contextGraph ?? null;
@@ -860,6 +874,7 @@ async function translateBatch(context: any, items: TranslationItem[], requestId:
 
   let value: unknown;
   try {
+<<<<<<< HEAD
     const modelRun = await runAgentStructured(agent, userPrompt, systemPrompt, TRANSLATION_SCHEMA, requestId, sessionScope);
     value = modelRun.result;
     // 每轮 token 消耗：随批次响应事件透出，并累计进 Run 总账。
@@ -872,6 +887,12 @@ async function translateBatch(context: any, items: TranslationItem[], requestId:
         ...summarizeTurnUsage(turnUsage),
       });
     }
+=======
+    value = await runAgentStructured(
+      agent, userPrompt, systemPrompt, TRANSLATION_SCHEMA, requestId, sessionScope,
+      getCodeBuddyTaskProfile(context.prompt.config || {}, 'translation'),
+    );
+>>>>>>> 0feee1178869920eb5291de8df541df36441d80d
   } catch (error) {
     store.appendEvent(context.project.projectId, context.run.runId, 'model.call.failed', {
       stage: 'translate', batchIndex, requestId,
@@ -963,6 +984,11 @@ async function translateBatch(context: any, items: TranslationItem[], requestId:
   return { translations, contextDelta: deltaResult.delta };
 }
 
+/**
+ * 运行文学 Reviewer，并对其漏掉的 ID 做一次有界补审。
+ * 调用前后都会保护/恢复强规范译名标记；重试只包含 missingIds，不重复提交整批。
+ * 此函数只产出修订建议，外层必须再次检查 Run 状态并通过 Store 原子提交候选与 findings。
+ */
 export async function runLiteraryReviewWithMissingRetry(input: Record<string, any>, requestId: string, sessionScope?: string): Promise<any> {
   const originalSegments = Array.isArray(input.segments) ? input.segments : [];
   const protectedReview = protectCanonicalReviewSegments(
@@ -1073,6 +1099,11 @@ export async function runLiteraryReviewWithMissingRetry(input: Record<string, an
   }
 }
 
+/**
+ * Run 级工作流协调器，是翻译生命周期的主要编排入口。
+ * 负责读取固定版本、规划批次与并发预算、在每批次的模型调用/审校/持久化之间推进，
+ * 并将暂停、取消、部分失败和终态反映到 SQLite。所有模型返回后的写入都必须重新检查 Run 状态。
+ */
 async function executeRun(projectId: string, runId: string): Promise<void> {
   const store = getDocumentProjectStore();
   try {
@@ -1223,6 +1254,7 @@ async function executeRun(projectId: string, runId: string): Promise<void> {
           const styleReview = await runLiteraryReviewWithMissingRetry({
             projectId, runId,
             reviewType: 'style',
+            taskProfiles: batchContext.prompt.config?.taskProfiles || {},
             chapterTitle: batch[0]?.contextPath || batchContext.project.title,
             target: batchContext.run.targetLang,
             provider: batchContext.run.provider,
@@ -1302,6 +1334,7 @@ async function executeRun(projectId: string, runId: string): Promise<void> {
         const review = await runLiteraryReviewWithMissingRetry({
           projectId, runId,
           reviewType: 'accuracy-terminology',
+          taskProfiles: batchContext.prompt.config?.taskProfiles || {},
           chapterTitle: batch[0]?.contextPath || batchContext.project.title,
           target: batchContext.run.targetLang,
           provider: batchContext.run.provider,
@@ -1742,7 +1775,11 @@ async function executeRun(projectId: string, runId: string): Promise<void> {
   }
 }
 
-/** Start work in the background. The run record is durable before this function is called. */
+/**
+ * 在 HTTP 请求之外启动后台执行。
+ * Run 必须已由 Store 持久化；activeRuns 只做当前进程内的重复启动保护，不是恢复状态的事实来源。
+ * 服务重启后的恢复/重试必须读取 SQLite 中的 Run 与 segment 状态。
+ */
 export function startProjectTranslationRun(projectId: string, runId: string): { accepted: boolean; alreadyRunning: boolean } {
   if (activeRuns.has(runId)) return { accepted: true, alreadyRunning: true };
   activeRuns.add(runId);
