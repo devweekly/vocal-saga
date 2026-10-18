@@ -702,42 +702,93 @@ function buildDiagnosisHints(report, terms) {
   const graph = report.contextGraph || {};
   const memory = report.literaryMemory || {};
   const matchingVoices = memory.matchingVoiceProfiles || [];
+  const matchingEntities = memory.matchingEntities || [];
   const graphCharacters = (graph.matchingNodes || []).filter((node) => node.kind === 'character');
   const graphEntities = (graph.matchingNodes || []).filter((node) => node.kind === 'entity');
+  const audit = graph.outputAudit || {};
+  const kingLike = (item) => {
+    const names = [
+      item?.name, item?.source, item?.canonicalSourceName, item?.canonicalSource,
+      ...(Array.isArray(item?.aliases) ? item.aliases : []),
+    ].filter((value) => typeof value === 'string');
+    return names.some((value) => !isBookTitleOrIdiom(value) &&
+      (identityValueMatches(value, buildMatcher(terms)) || /\b(?:the\s+)?king\b/iu.test(value)));
+  };
 
+  if (report.projectSelection?.ambiguous) {
+    hints.push('项目标题匹配到多个独立项目数据库；当前报告按各 projectId 分别诊断。请用最新活动项目的 UUID 重跑，避免把旧项目的空图谱和当前项目混在一起。');
+  }
   if (!source.matchingSegmentCount) {
-    hints.push('当前来源版本没有匹配到目标称谓。先确认项目标题/原文文件名与 source revision，或检查 --term 是否正确。');
+    hints.push('当前来源版本没有匹配到目标人物称谓。先确认项目标题/原文文件名与 source revision，或检查 --term 是否正确。');
+  }
+  if (source.matchBreakdown) {
+    if (source.matchBreakdown.bookTitleOccurrences) {
+      hints.push('原文检索已把书名 King Rat 单独统计：' + source.matchBreakdown.bookTitleOccurrences +
+        ' 次；这些命中不应用作人物证据。请优先看 theKingOccurrences / likelyCharacterReferenceSegments。');
+    }
   }
   if (scan.recomputed && source.matchingSegmentCount > 0 && !(scan.matchingNameCandidates || []).length) {
     hints.push('原文存在目标称谓，但 BookScan 未形成对应名称候选；检查称谓词法规则、大小写与名称候选过滤。');
   }
-  if (scan.recomputed && source.matchingSegmentCount > 0 && !scan.targetMatchesInModelSamples) {
-    hints.push('原文存在目标称谓，但重新计算的 Context Graph 模型样本中没有该称谓；重点检查 72 样本排序、名称候选排名和每样本 850 字符截断。');
+  if (scan.recomputed && !(scan.targetMatchesInModelSamples > 0)) {
+    hints.push('当前版本的确定性采样计划中没有目标称谓；这表示扫描/采样阶段仍需调查，暂不能归咎模型或持久化。');
   }
-  const candidateNames = (scan.matchingNameCandidates || []).map((item) => normalize(item.name));
-  if (candidateNames.some((name) => name === 'king') && !candidateNames.some((name) => name === 'the king')) {
-    hints.push('扫描器发现了 "King"，却没有把 "the King" 保留为独立称谓候选；即使原文采样包含它，是否映射到同一人物也依赖模型输出 aliases/人物合并，不是确定性扫描的保证。');
+  if (graph.samplePlanComparison?.persistedSampleCount && graph.samplePlanComparison?.currentSampleCount &&
+      graph.samplePlanComparison.overlapRatio < 0.8) {
+    hints.push('历史预处理使用的采样策略与当前代码重算结果差异较大（重合率 ' +
+      graph.samplePlanComparison.overlapRatio + '）。旧 run 的模型输入不能用当前样本重算完全复原；应对当前 projectId 重新分析并保留新审计事件。');
   }
-  if (scan.recomputed && scan.targetMatchesInModelSamples > 0 && !graphCharacters.length) {
-    hints.push('模型样本包含目标称谓，但 Context Graph 没有匹配的 character 节点；核对 characters 输出、evidence 校验拒绝数，以及 context-graph.completed 的 characterCount/invalidEvidenceCount。');
+
+  if (audit.available) {
+    const coverage = Array.isArray(audit.candidateCoverage) ? audit.candidateCoverage.filter(kingLike) : [];
+    const modelCharacters = Array.isArray(audit.matchingModelCharacters) ? audit.matchingModelCharacters : [];
+    const modelEntities = Array.isArray(audit.matchingModelEntities) ? audit.matchingModelEntities : [];
+    const droppedCharacters = modelCharacters.filter((item) => item.disposition === 'dropped-no-valid-evidence');
+    if (coverage.length && coverage.some((item) => item.sampleHitCount > 0 && !item.returnedAsCharacter) && !modelCharacters.length) {
+      hints.push('新审计已证明：高频 King/the King 名称进入了实际模型样本，但模型结构化输出没有把对应候选放进 characters；这属于模型分类/候选遗漏，而不是 BookScan 没找到。');
+    }
+    if (droppedCharacters.length) {
+      hints.push('模型曾返回目标人物候选，但 local-agent-service 因没有任何可验证证据而丢弃了人物节点。逐条拒绝原因：' +
+        droppedCharacters.map((item) => item.name + ' ' + JSON.stringify(item.invalidEvidenceReasons || {})).join('；') +
+        '。这是 evidence ID/原文引文校验断点。');
+    }
+    if (modelEntities.length && !modelCharacters.length) {
+      hints.push('模型输出中目标称谓只出现在 entities，没有对应 characters 项；人物与一般实体的分类分流是直接断点。');
+    }
+    if (coverage.length) {
+      hints.push('已记录 King/the King 的候选审计：候选排名、样本命中、模型是否返回 character/entity、证据是否通过和最终持久化状态见 contextGraph.outputAudit.candidateCoverage。');
+    }
+  } else if ((graph.runs || []).length) {
+    hints.push('历史 Context Graph run 没有逐候选的 model-output audit；旧记录只保存人物/实体总数与无效证据总数，无法仅靠旧日志判定模型是漏提人物还是证据校验将其丢弃。请先同步最新 main、重启 local-agent-service，再对当前项目执行一次“重新分析全书”。');
+  }
+
+  if (source.matchingSegmentCount > 0 && scan.recomputed && scan.targetMatchesInModelSamples > 0 &&
+      !graphCharacters.length && audit.available && !audit.matchingModelCharacters?.length) {
+    hints.push('样本命中而图谱无人物节点，且模型输出审计未找到人物候选：定位在 Context Graph 模型输出层。建议在重跑时检查 targeted candidate audit，而不是重复导入 EPUB。');
   }
   if (graphEntities.length && !graphCharacters.length) {
-    hints.push('目标称谓只落在 entity 节点而非 character 节点；若它是人物称谓，需要检查模型分类结果和人物/实体分支的分流。');
+    hints.push('目标称谓只匹配到 entity 节点而非 character 节点；需要检查分类和模型输出。书籍记忆里的 entities 映射不能代替声音档案。');
+  }
+  if (matchingEntities.length && !matchingVoices.length) {
+    hints.push('LiteraryMemory 已保存人物专名映射（例如 the King → 国王），但没有对应 characterVoices 画像；这是两种独立结构，实体词典存在并不意味着角色声音档案存在。');
   }
   if (graphCharacters.length && !matchingVoices.length) {
-    hints.push('Context Graph 已有匹配人物，但 literary_memory.characterVoices 没有对应画像；图谱节点和独立声音档案是两套持久化结构，需检查“图谱人物 → 文学记忆”的生成/合并入口是否执行。');
+    hints.push('Context Graph 有目标人物节点但 LiteraryMemory 没有声音画像；检查 /context-graph 到 syncContextGraphEntitiesToMemory 的合并事件，尤其是人物节点是否有 role/traits/voice 和 evidence。');
   }
   if (matchingVoices.length && !(report.translationBriefs || []).some((brief) => (brief.matchingVoiceProfiles || []).length)) {
-    hints.push('独立声音档案已有对应人物，但保存的 TranslationBrief 中未找到该画像；检查 buildProjectVoiceContext 的别名检索、status 门槛、批次 source revision 和 memory revision。');
+    hints.push('声音档案存在但已保存 TranslationBrief 没有注入该画像；检查 buildProjectVoiceContext 的别名匹配、画像状态、记忆 revision 和批次 source revision。');
   }
   if (!((graph.runs || []).length)) {
-    hints.push('当前来源版本没有 Context Graph 预处理记录；确认全书预处理是否针对当前 source revision 完成。');
+    hints.push('当前来源版本没有 Context Graph 预处理记录；确认是否选中了旧项目 ID，以及全书预处理是否针对当前 source revision 完成。');
+  }
+  if (report.workspaceLogs?.filesChecked === 0) {
+    hints.push('这次没有扫描到任何文本日志文件；原因是配置目录中没有可扫描文件（不是“日志扫描确认没有错误”）。新的 model-output audit 会持久化在项目 SQLite 的 project_events 中，不依赖终端日志文件。');
   }
   if (matchingVoices.length) {
-    hints.push('已找到对应声音档案；核对它的 canonicalSourceName、aliases、status、evidence 与实际批次使用的文学记忆 revision。');
+    hints.push('已找到对应声音档案；核对 canonicalSourceName、aliases、status、evidence 与实际批次使用的文学记忆 revision。');
   }
-  if (!hints.length) hints.push('自动诊断未发现明显断点；请结合模型请求历史/日志中的 context-graph 模型输出与持久化阶段记录继续定位。');
-  hints.push('搜索词用于定位，不代表身份已被证明。此脚本不会把 "the King" 自动写成已确认角色，也不会修改记忆。');
+  if (!hints.length) hints.push('自动诊断未发现明显断点；结合结构化 outputAudit、事件序列和 TranslationBrief 快照继续定位。');
+  hints.push('搜索词是定位条件，不代表身份已被证明。King Rat 是书名；脚本不会把它当作人物名，也不会自动把候选升级为 confirmed。');
   return hints;
 }
 
