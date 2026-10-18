@@ -96,7 +96,8 @@ function buildTerms(term) {
   const entries = [raw];
   const unheaded = raw.replace(/^(?:the|a|an)\s+/iu, '');
   if (unheaded && unheaded !== raw) entries.push(unheaded);
-  if (/\bking\b/iu.test(raw)) entries.push('King Rat');
+  // King Rat is the book title, not a person alias. Search the character as King / Corporal King.
+  if (/\bking\b/iu.test(raw)) entries.push('Corporal King');
   return Array.from(new Set(entries.map((item) => item.trim()).filter(Boolean)));
 }
 
