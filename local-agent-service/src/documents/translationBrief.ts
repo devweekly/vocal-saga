@@ -169,10 +169,14 @@ function buildTemporallyVisibleMemory(
     characterVoiceExcludedIncompleteEvidence: 0,
     characterVoiceExcludedNameNotVisible: 0,
     characterVoiceExcludedFutureAlias: 0,
+    targetEvidenceExcludedAfterAcceptedCorrection: 0,
   };
   const referencedIds = new Set<string>();
   for (const entity of Array.isArray(rawMemory.entities) ? rawMemory.entities : []) {
     for (const evidence of Array.isArray(entity?.evidenceRefs) ? entity.evidenceRefs : []) {
+      if (typeof evidence?.segmentId === 'string') referencedIds.add(evidence.segmentId);
+    }
+    for (const evidence of Array.isArray(entity?.targetEvidenceRefs) ? entity.targetEvidenceRefs : []) {
       if (typeof evidence?.segmentId === 'string') referencedIds.add(evidence.segmentId);
     }
   }
@@ -216,6 +220,28 @@ function buildTemporallyVisibleMemory(
   for (const row of rows) sourceById.set(String(row.segment_id), {
     ordinal: Number(row.ordinal), text: String(row.text || ''), contextPath: String(row.context_path || ''),
   });
+  const targetEvidenceSegmentIds = Array.from(new Set(
+    (Array.isArray(rawMemory.entities) ? rawMemory.entities : []).flatMap((entity: any) =>
+      (Array.isArray(entity?.targetEvidenceRefs) ? entity.targetEvidenceRefs : [])
+        .map((ref: any) => typeof ref?.segmentId === 'string' ? ref.segmentId : ''))
+      .filter(Boolean)
+  ));
+  const latestAcceptedTranslationBySegment = new Map<string, string>();
+  for (let offset = 0; offset < targetEvidenceSegmentIds.length; offset += 400) {
+    const chunk = targetEvidenceSegmentIds.slice(offset, offset + 400);
+    const acceptedRows = projectContext.db.prepare(
+      'SELECT s.segment_id AS segmentId, tr.translation_text AS translatedText ' +
+      'FROM source_segments s JOIN translation_results tr ' +
+        'ON tr.source_revision_id = s.source_revision_id AND tr.segment_id = s.segment_id ' +
+      'WHERE s.source_revision_id = ? AND s.segment_id IN (' + chunk.map(() => '?').join(',') + ') ' +
+        'AND tr.accepted = 1 AND tr.source_hash = s.source_hash AND tr.rowid = (' +
+          'SELECT latest.rowid FROM translation_results latest ' +
+          'WHERE latest.source_revision_id = s.source_revision_id AND latest.segment_id = s.segment_id ' +
+            'AND latest.accepted = 1 AND latest.source_hash = s.source_hash ' +
+          'ORDER BY COALESCE(latest.accepted_at, latest.created_at) DESC, latest.created_at DESC, latest.rowid DESC LIMIT 1)'
+    ).all(revisionId, ...chunk) as Array<{ segmentId: string; translatedText: string }>;
+    for (const row of acceptedRows) latestAcceptedTranslationBySegment.set(String(row.segmentId), String(row.translatedText || ''));
+  }
   const isPrior = (id: unknown) => {
     const source = typeof id === 'string' ? sourceById.get(id) : undefined;
     return !!source && Number.isFinite(source.ordinal) && source.ordinal < firstOrdinal;
@@ -325,12 +351,22 @@ function buildTemporallyVisibleMemory(
       if (!ref || !isPrior(ref.segmentId) ||
           normalizedSourceText(ref.targetSurface) !== normalizedSourceText(entity.target)) return false;
       const source = sourceById.get(ref.segmentId);
-      return !!source && sourceQuoteMatches(source.text, ref.sourceQuote) &&
-        [entity.source, ...aliases].some((name: unknown) => sourceNameMatches(ref.sourceQuote, name));
+      if (!source || !sourceQuoteMatches(source.text, ref.sourceQuote) ||
+          ![entity.source, ...aliases].some((name: unknown) => sourceNameMatches(ref.sourceQuote, name))) return false;
+      const latestAcceptedTranslation = latestAcceptedTranslationBySegment.get(String(ref.segmentId));
+      // If this source segment has since been accepted/edited, an older candidate surface must
+      // not keep a corrected target promoted. When no accepted result exists yet, retain the
+      // validated in-run surface as provisional rather than treating it as human-reviewed.
+      if (latestAcceptedTranslation !== undefined &&
+          !normalizedSourceText(latestAcceptedTranslation).includes(normalizedSourceText(ref.targetSurface))) {
+        exclusionDiagnostics.targetEvidenceExcludedAfterAcceptedCorrection++;
+        return false;
+      }
+      return true;
     });
     const independentTargetEvidenceCount = new Set(visibleTargetEvidence.map((ref: any) => ref.segmentId)).size;
-    const targetConfidence = entity.targetConfidence === 'corroborated' && independentTargetEvidenceCount >= 2
-      ? 'corroborated' : 'candidate';
+    const targetConfidence = entity.reviewStatus === 'confirmed' ? 'confirmed' :
+      independentTargetEvidenceCount >= 2 ? 'corroborated' : 'candidate';
     // Dynamic candidates retain exact source and target evidence segments; source-name
     // recognition alone is not enough to make the proposed target a forced canonical mapping.
     const evidenceVisible = explicitCanonicalMapping || (evidenceRefs.length
