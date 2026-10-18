@@ -180,6 +180,56 @@ test('readModelCatalog 能从 local_storage 的 gzip+base64 缓存回退读取',
   }
 });
 
+test('readModelCatalog 能读明文 JSON 形态的 local_storage 缓存', async () => {
+  // 回归：2026-10-18 CLI 改成把产品配置明文落盘，旧解码器只认 base64+gzip，
+  // 一律抛「incorrect header check」，目录读成空数组 → 自动选模型静默失效。
+  const dir = await mkdtemp(path.join(os.tmpdir(), 'model-catalog-plain-'));
+  await writeFile(path.join(dir, 'entry_plain.info'), JSON.stringify({
+    $schema: 'product-schema.json',
+    productName: 'WorkBuddy AI',
+    models: [
+      { id: 'hy4-preview', credits: 'x0.29' },
+      { id: PREFERRED_WORKBUDDY_MODEL, credits: 'x0.00' },
+    ],
+  }));
+
+  const previous = process.env.ACC_PRODUCT_CONFIG_PATH;
+  delete process.env.ACC_PRODUCT_CONFIG_PATH;
+  try {
+    const catalog = readModelCatalog({ localStorageDir: dir });
+    assert.equal(catalog.length, 2);
+    assert.equal(pickPreferredWorkbuddyModel(catalog), PREFERRED_WORKBUDDY_MODEL);
+  } finally {
+    if (previous !== undefined) process.env.ACC_PRODUCT_CONFIG_PATH = previous;
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('新产品配置被无关缓存条目挤到后面时仍能读到', async () => {
+  // 回归：曾按「最近 6 份」截断候选文件。CLI 一次刷新写入 4 个非产品配置条目
+  // （键值存储、用户数据、字符串），加上 2 个解析失败的，真配置正好被挤出窗口。
+  const dir = await mkdtemp(path.join(os.tmpdir(), 'model-catalog-window-'));
+  const config = { models: [{ id: PREFERRED_WORKBUDDY_MODEL, credits: 'x0.00' }] };
+  await writeFile(path.join(dir, 'entry_oldest_product.info'), JSON.stringify(config));
+  // 8 个更新的干扰文件，全部不是产品配置
+  for (let i = 0; i < 8; i += 1) {
+    const name = `entry_junk_${String(i).padStart(2, '0')}.info`;
+    await writeFile(path.join(dir, name), JSON.stringify({ [`key${i}`]: { value: {}, timestamp: i } }));
+    // 逐个后写，保证 mtime 单调递增，顺序确定
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+
+  const previous = process.env.ACC_PRODUCT_CONFIG_PATH;
+  delete process.env.ACC_PRODUCT_CONFIG_PATH;
+  try {
+    const catalog = readModelCatalog({ localStorageDir: dir });
+    assert.equal(pickPreferredWorkbuddyModel(catalog), PREFERRED_WORKBUDDY_MODEL);
+  } finally {
+    if (previous !== undefined) process.env.ACC_PRODUCT_CONFIG_PATH = previous;
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 test('两个来源都不可用时返回空目录而不是抛错', () => {
   const previous = process.env.ACC_PRODUCT_CONFIG_PATH;
   process.env.ACC_PRODUCT_CONFIG_PATH = '/nonexistent/acc-product-config-v3.json';

@@ -7,7 +7,7 @@
  *
  * 配置来源按可靠性排序：
  *   1. ACC_PRODUCT_CONFIG_PATH —— CLI 自己落盘的明文 JSON
- *   2. ~/.codebuddy/local_storage/*.info —— gzip + base64 的缓存副本
+ *   2. ~/.codebuddy/local_storage/*.info —— 缓存副本（两种编码都见过，见 decodeProductConfig）
  * 两者都拿不到时返回空数组，调用方回退到 CLI 运行时默认模型。
  */
 import fs from 'node:fs';
@@ -56,11 +56,38 @@ function modelsFromConfig(raw: unknown): CatalogModel[] {
   });
 }
 
+/**
+ * 把一份缓存文本解成模型列表。
+ *
+ * local_storage 的编码形态随 CLI 版本变过，两种都得认：
+ *   1. 明文产品配置 JSON —— `{"$schema":"product-schema.json","models":[...]}`
+ *   2. JSON 字符串 → base64 → gzip → 产品配置 JSON（更早的写法）
+ * 2026-10-18 就踩过：新版把产品配置直接明文落盘，旧解码器一律抛「incorrect header check」，
+ * 结果整份目录读成空数组，自动选模型静默失效。
+ */
+function decodeProductConfig(text: string): CatalogModel[] {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    return [];
+  }
+  const direct = modelsFromConfig(parsed);
+  if (direct.length) return direct;
+  if (typeof parsed !== 'string') return [];
+  try {
+    const decoded = zlib.gunzipSync(Buffer.from(parsed, 'base64')).toString('utf8');
+    return modelsFromConfig(JSON.parse(decoded));
+  } catch {
+    return [];
+  }
+}
+
 function readFromEnvPath(): CatalogModel[] {
   const file = (process.env.ACC_PRODUCT_CONFIG_PATH || '').trim();
   if (!file) return [];
   try {
-    return modelsFromConfig(JSON.parse(fs.readFileSync(file, 'utf8')));
+    return decodeProductConfig(fs.readFileSync(file, 'utf8'));
   } catch {
     return [];
   }
@@ -74,7 +101,10 @@ function readFromLocalStorage(dirOverride?: string): CatalogModel[] {
   } catch {
     return [];
   }
-  // 只尝试最近的几份：这些缓存每次产品配置更新都会新增一个，旧的没有价值。
+  // 按 mtime 从新到旧全量尝试，不设固定窗口。
+  // 曾按「最近 6 份」截断，结果 CLI 一次刷新写入 4 个非产品配置的缓存条目，
+  // 把真正的产品配置挤出窗口，目录读空 —— 而漏读的代价是整个自动选模型失效，
+  // 多读几个文件的代价只是一次 JSON.parse，不值得为省这点开销引入随机失效。
   const files = names
     .filter((name) => name.endsWith('.info'))
     .map((name) => {
@@ -86,15 +116,11 @@ function readFromLocalStorage(dirOverride?: string): CatalogModel[] {
       }
     })
     .filter((item): item is { full: string; mtime: number } => item !== null)
-    .sort((a, b) => b.mtime - a.mtime)
-    .slice(0, 6);
+    .sort((a, b) => b.mtime - a.mtime);
 
   for (const { full } of files) {
     try {
-      // 缓存格式：JSON 字符串 → base64 → gzip → 产品配置 JSON
-      const encoded = JSON.parse(fs.readFileSync(full, 'utf8').trim());
-      const decoded = zlib.gunzipSync(Buffer.from(encoded, 'base64')).toString('utf8');
-      const models = modelsFromConfig(JSON.parse(decoded));
+      const models = decodeProductConfig(fs.readFileSync(full, 'utf8').trim());
       if (models.length) return models;
     } catch {
       // 不是产品配置、或文件正在被写 —— 继续试下一份
