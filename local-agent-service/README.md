@@ -25,6 +25,21 @@
 
 每次模型请求都会在本机终端打印带 request ID 的开始、模型运行完成、成功/失败记录；记录 provider、model、endpoint、输入/输出字符数、耗时、HTTP 状态和失败堆栈，不会在普通成功日志里输出整段原文。模型返回无法解析的 JSON 时，会额外输出最多 600 字符的返回内容预览，方便判断是多余解释、代码围栏、截断还是错误响应。要隐藏该预览，在 `.env` 设置 `LOCAL_AGENT_LOG_RESPONSE_PREVIEW=false`。终端日志中的 request ID 可以与扩展错误里的 `local request` 对应，也可以查 `GET /api/history?limit=30` 的 SQLite 请求历史。
 
+
+### 小说人物/声音档案缺失诊断
+
+如果《King Rat》等小说中的称谓没有进入“人物角色与声音档案”，可在服务目录执行只读诊断：
+
+针对 James Clavell 的《King Rat》，`King Rat` 只用于按书名定位项目，不作为人物名；人物检索会使用 `the King`、`King` 和 `Corporal King`。公开出版方简介与人物资料将该人物称为一名美国下士（Corporal King / the King），我没有找到可可靠核实的名字或首名，因此诊断不会编造更完整的姓名。
+
+```bash
+npm run diagnose:character-voice -- --project "King Rat" --term "the King"
+# 若标题不同，传入项目 ID：
+npm run diagnose:character-voice -- --project <project-id> --term "the King"
+```
+
+脚本会重算与正式预处理相同的确定性 BookScan 和样本计划，并读取当前来源版本、Context Graph 节点/证据、literary-memory 声音画像、已持久化 TranslationBrief、项目事件、请求历史数据库，以及配置工作区中的可读日志记录。报告 JSON 写到执行目录，可用 `--out /path/to/report.json` 指定位置，也可以用 `--logs /path/to/log-or-directory` 添加日志位置。脚本不会调用模型、发网络请求、修改 SQLite 或写入工作区；报告只保留限长摘录并对常见 Token/Secret 字段脱敏。分享前仍建议检查一下输出文件。
+
 本机模式是强制 Provider 路由，不是“本机优先、失败切远程”：翻译、侧栏对话、文学分析或审校的本机模型调用失败时会返回明确错误；扩展不会因此向 DeepSeek 或远程 Vocal Saga 重试。文档批次规划遇到服务不可用时使用的只是扩展端确定性 CPU 算法，不会发送模型/API 请求；阅读状态持久化失败也只影响恢复副本，不会改变翻译 Provider。
 
 ## 配置 fanyi-extension
