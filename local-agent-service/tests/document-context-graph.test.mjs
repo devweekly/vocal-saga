@@ -94,9 +94,10 @@ test('retrieval injects matched graph records and excludes future chapter summar
     { id: 'chapter-1-seg-1', text: 'Alice spoke politely to Bob. Ishido stood nearby.', contextPath: 'Chapter 1' },
   ]);
   assert.ok(earlyNameBundle);
-  assert.ok(earlyNameBundle.nameMappings.some((item) =>
-    item.source === 'Ishido' && item.target === '石堂'));
-  // The name mapping is allowed, but later narrative facts and summaries must remain excluded.
+  assert.equal(earlyNameBundle.nameMappings.some((item) =>
+    item.source === 'Ishido' && item.target === '石堂'), false,
+  'a canonical spelling in the current batch cannot validate a target whose only supporting evidence is in a later chapter');
+  // The source-visible name may still be translated naturally; an unverified graph target is not enforced.
   assert.ok(!JSON.stringify(earlyNameBundle).includes('military governor'));
   assert.ok(!JSON.stringify(earlyNameBundle).includes('secret passage'));
   assert.ok(!JSON.stringify(earlyNameBundle).includes('Queen Ash'));
@@ -118,7 +119,7 @@ test('retrieval injects matched graph records and excludes future chapter summar
   assert.deepEqual(incremental.map((item) => item.payload.sequence), [3]);
 });
 
-test('current-batch aliases do not suppress evidence-backed automatic canonical name mappings', () => {
+test('current-batch name evidence cannot promote a book-level target to an automatic canonical mapping', () => {
   const store = getDocumentProjectStore();
   const project = store.createProject({
     title: 'Auto Canonical Mapping Test',
@@ -147,10 +148,8 @@ test('current-batch aliases do not suppress evidence-backed automatic canonical 
     { id: 'king-first', text: 'Timsen had been taken up by the King.', contextPath: 'Chapter 1' },
   ]);
   const mapping = bundle?.nameMappings.find((item) => item.source === 'the King');
-  assert.ok(mapping, 'the canonical mapping must be exposed when its alias first appears in the current segment');
-  assert.equal(mapping.target, '国王');
-  assert.equal(mapping.sourceStatus, 'auto',
-    'valid source evidence activates canonical naming without a per-entity confirmation click');
+  assert.equal(mapping, undefined,
+    'evidence appearing only in the current batch must not validate a target inferred from whole-book analysis');
 });
 
 test('a prior alias cannot reveal a canonical identity whose name appears only later', () => {

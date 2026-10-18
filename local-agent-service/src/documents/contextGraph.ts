@@ -190,7 +190,46 @@ function ensureSchema(db: DatabaseSync): void {
 }
 
 function normalize(value: unknown): string {
-  return String(value ?? '').normalize('NFKC').replace(/\s+/g, ' ').trim().toLocaleLowerCase();
+  return String(value ?? '').normalize('NFKC')
+    .replace(/[‘’‛]/g, "'")
+    .replace(/[“”„‟]/g, '"')
+    .replace(/[‐‑‒–—−]/g, '-')
+    .replace(/\s+/g, ' ').trim().toLocaleLowerCase();
+}
+
+const sourceSegmentsByRevision = new Map<string, Array<{ ordinal: number; text: string }>>();
+
+function allSourceSegments(db: any, revisionId: string): Array<{ ordinal: number; text: string }> {
+  const cached = sourceSegmentsByRevision.get(revisionId);
+  if (cached) {
+    sourceSegmentsByRevision.delete(revisionId);
+    sourceSegmentsByRevision.set(revisionId, cached);
+    return cached;
+  }
+  // Revisions are immutable. Cache at most two full source indexes so temporal name checks
+  // never rely on SQLite's punctuation-sensitive instr() prefilter for every candidate name.
+  const rows = db.prepare(
+    'SELECT ordinal, text FROM source_segments WHERE source_revision_id = ? ORDER BY ordinal'
+  ).all(revisionId) as Array<{ ordinal: number; text: string }>;
+  sourceSegmentsByRevision.set(revisionId, rows);
+  while (sourceSegmentsByRevision.size > 2) {
+    const oldest = sourceSegmentsByRevision.keys().next().value;
+    if (oldest) sourceSegmentsByRevision.delete(oldest);
+    else break;
+  }
+  return rows;
+}
+
+function sourceNameMatches(sourceInput: unknown, nameInput: unknown): boolean {
+  const source = normalize(sourceInput);
+  const name = normalize(nameInput);
+  if (!source || !name || name.length < 2) return false;
+  if (/^[a-z0-9 ._'’-]+$/i.test(name)) {
+    const haystack = ' ' + source.replace(/[^a-z0-9]+/gi, ' ').trim() + ' ';
+    const needle = name.replace(/[^a-z0-9]+/gi, ' ').trim();
+    return needle.length >= 2 && haystack.includes(' ' + needle + ' ');
+  }
+  return source.includes(name);
 }
 
 function hash(value: string): string {
@@ -1138,7 +1177,7 @@ export function buildProjectContextGraphBundle(
 ): Record<string, unknown> | null {
   const { db, revisionId } = graphContext(projectId, sourceRevisionId);
   ensureSourceFeatureIndexInDatabase(projectId, db, revisionId);
-  const sourceText = [...precedingSegments.slice(-4), ...items].map((item) => item.text).join('\n');
+  const sourceText = [...precedingSegments, ...items].map((item) => item.text).join('\n');
   const normalizedSource = normalize(sourceText);
   if (!normalizedSource) return null;
   // Fail closed at the start of the batch. A graph fact is eligible only when every stored
@@ -1166,38 +1205,19 @@ export function buildProjectContextGraphBundle(
   ).all(revisionId, knowledgeBoundary) as Array<{ edge_id: string }>;
   const visibleEdgeIds = new Set(visibleEdgeRows.map((row) => row.edge_id));
   const nameBeforeCache = new Map<string, boolean>();
+  const sourceRows = allSourceSegments(db, revisionId);
   const appearedBefore = (nameInput: unknown): boolean => {
     const name = normalize(nameInput);
     if (!name || name.length < 2) return false;
     const cached = nameBeforeCache.get(name);
     if (cached !== undefined) return cached;
-    const rows = db.prepare(
-      'SELECT text FROM source_segments WHERE source_revision_id = ? AND ordinal < ? ' +
-      'AND instr(lower(text), lower(?)) > 0 ORDER BY ordinal LIMIT 100'
-    ).all(revisionId, firstOrdinal, String(nameInput)) as Array<{ text: string }>;
-    const matched = rows.some((item) => {
-      const source = normalize(item.text);
-      if (/^[a-z0-9 ._\u0027’-]+$/i.test(name)) {
-        const haystack = ' ' + source.replace(/[^a-z0-9]+/gi, ' ').trim() + ' ';
-        const needle = name.replace(/[^a-z0-9]+/gi, ' ').trim();
-        return needle.length >= 2 && haystack.includes(' ' + needle + ' ');
-      }
-      return source.includes(name);
-    });
+    const matched = sourceRows.some((row) =>
+      Number(row.ordinal) < firstOrdinal && sourceNameMatches(row.text, nameInput));
     nameBeforeCache.set(name, matched);
     return matched;
   };
-  const quoteMentions = (quoteInput: unknown, nameInput: unknown): boolean => {
-    const quote = normalize(quoteInput);
-    const name = normalize(nameInput);
-    if (!quote || !name || name.length < 2) return false;
-    if (/^[a-z0-9 ._\u0027’-]+$/i.test(name)) {
-      const haystack = ' ' + quote.replace(/[^a-z0-9]+/gi, ' ').trim() + ' ';
-      const needle = name.replace(/[^a-z0-9]+/gi, ' ').trim();
-      return needle.length >= 2 && haystack.includes(' ' + needle + ' ');
-    }
-    return quote.includes(name);
-  };
+  const quoteMentions = (quoteInput: unknown, nameInput: unknown): boolean =>
+    sourceNameMatches(quoteInput, nameInput);
   const nodes = (db.prepare(
     'SELECT * FROM context_graph_nodes WHERE source_revision_id = ? AND status IN (\'candidate\', \'confirmed\') ORDER BY kind, name'
   ).all(revisionId) as any[]).filter((row) =>
@@ -1321,7 +1341,7 @@ export function buildProjectContextGraphBundle(
   // current/preceding source are exposed. No future aliases, role descriptions, relationships,
   // or plot facts are included here.
   const namesInContext = sourceText;
-  const priorNamesInContext = precedingSegments.slice(-4).map((item) => item.text).join('\n');
+  const priorNamesInContext = precedingSegments.map((item) => item.text).join('\n');
   const appearsInPriorContext = (value: unknown): boolean => {
     const name = normalize(value);
     if (!name || name.length < 2) return false;
@@ -1342,27 +1362,78 @@ export function buildProjectContextGraphBundle(
     }
     return normalize(namesInContext).includes(name);
   };
+  // Only earlier accepted translations can corroborate an automatically proposed target.
+  // Source-name evidence alone does not prove that the proposed target is correct or non-spoilery.
+  const priorAcceptedTranslations = db.prepare(
+    'SELECT s.segment_id AS segmentId, s.text AS source, s.ordinal, tr.translation_text AS target ' +
+    'FROM translation_results tr JOIN source_segments s ' +
+      'ON s.source_revision_id = tr.source_revision_id AND s.segment_id = tr.segment_id ' +
+    'WHERE tr.source_revision_id = ? AND tr.accepted = 1 AND tr.source_hash = s.source_hash AND s.ordinal < ? ' +
+      'AND tr.rowid = (SELECT latest.rowid FROM translation_results latest ' +
+        'WHERE latest.source_revision_id = s.source_revision_id AND latest.segment_id = s.segment_id ' +
+          'AND latest.accepted = 1 AND latest.source_hash = s.source_hash ' +
+        'ORDER BY COALESCE(latest.accepted_at, latest.created_at) DESC, latest.created_at DESC, latest.rowid DESC LIMIT 1) ' +
+    'ORDER BY s.ordinal DESC'
+  ).all(revisionId, firstOrdinal) as Array<{ segmentId: string; source: string; ordinal: number; target: string }>;
   const graphNameRows = db.prepare(
     `SELECT * FROM context_graph_nodes WHERE source_revision_id = ? AND status IN ('candidate', 'confirmed') ORDER BY kind, name`
   ).all(revisionId) as any[];
+  const nameMappingDiagnostics = {
+    graphNameMappingCandidates: graphNameRows.length,
+    graphNameMappingExcludedNameNotVisible: 0,
+    graphNameMappingExcludedAliasBoundary: 0,
+    graphNameMappingExcludedEvidenceNotVisible: 0,
+    graphNameMappingExcludedInvalidTarget: 0,
+    graphNameMappingExcludedTargetNotPreviouslyAccepted: 0,
+    graphNameMappingExcludedTargetLanguage: 0,
+  };
   const nameMappings = graphNameRows.flatMap((row) => {
     // A model-generated alias alone cannot reveal a canonical identity whose formal name first
     // appears later. Only expose generated graph mappings when the canonical source name itself
     // is visible in the current or preceding source.
-    if (!appearsInContext(row.name)) return [];
+    if (!appearsInContext(row.name)) {
+      nameMappingDiagnostics.graphNameMappingExcludedNameNotVisible++;
+      return [];
+    }
     let attributes: any = {};
     try { attributes = JSON.parse(row.attributes_json); } catch { attributes = {}; }
     const target = safeText(attributes.suggestedTranslation, 120);
-    if (!target || (targetLang && attributes.targetLang !== targetLang)) return [];
-    const hasEvidence = db.prepare(
-      'SELECT 1 FROM context_graph_evidence WHERE source_revision_id = ? AND node_id = ? LIMIT 1'
-    ).get(revisionId, row.node_id);
-    if (!hasEvidence) return [];
+    if (!target) {
+      nameMappingDiagnostics.graphNameMappingExcludedInvalidTarget++;
+      return [];
+    }
+    if (targetLang && attributes.targetLang !== targetLang) {
+      nameMappingDiagnostics.graphNameMappingExcludedTargetLanguage++;
+      return [];
+    }
+    const visibleEvidence = db.prepare(
+      'SELECT e.quote, e.segment_id AS segmentId, s.ordinal FROM context_graph_evidence e ' +
+      'JOIN source_segments s ON s.source_revision_id = e.source_revision_id AND s.segment_id = e.segment_id ' +
+      'WHERE e.source_revision_id = ? AND e.node_id = ? AND s.ordinal <= ? ORDER BY s.ordinal'
+    ).all(revisionId, row.node_id, knowledgeBoundary) as Array<{ quote: string; segmentId: string; ordinal: number }>;
+    if (!visibleEvidence.some((evidence) => quoteMentions(evidence.quote, row.name))) {
+      nameMappingDiagnostics.graphNameMappingExcludedEvidenceNotVisible++;
+      return [];
+    }
+    if (row.status !== 'confirmed') {
+      const targetWasPreviouslyUsed = priorAcceptedTranslations.some((entry) =>
+        quoteMentions(entry.source, row.name) && normalize(entry.target).includes(normalize(target)));
+      // Omit an unconfirmed full-book target until an earlier accepted translation independently
+      // demonstrates that this target was already used for the source name. Do not reveal a
+      // future identity through a mapping merely because the canonical name appeared earlier.
+      if (!targetWasPreviouslyUsed) {
+        nameMappingDiagnostics.graphNameMappingExcludedTargetNotPreviouslyAccepted++;
+        return [];
+      }
+    }
     const allAliases = uniqueStrings(attributes.aliases, 12, 100)
       .filter((alias) => normalize(alias) !== normalize(row.name));
     // Do not leak aliases that appear only in later chapters. An alias visible in the current
     // batch is already part of the source being translated and must not suppress the mapping.
-    if (allAliases.some((alias) => !appearedBefore(alias) && !appearsInContext(alias))) return [];
+    if (allAliases.some((alias) => !appearedBefore(alias) && !appearsInContext(alias))) {
+      nameMappingDiagnostics.graphNameMappingExcludedAliasBoundary++;
+      return [];
+    }
     const aliases = allAliases.filter((alias) => appearedBefore(alias) || appearsInContext(alias));
     return [{
       source: safeText(row.name, 120),
@@ -1370,17 +1441,17 @@ export function buildProjectContextGraphBundle(
       kind: row.kind === 'character' ? 'person' : safeText(attributes.entityKind, 40) || 'other',
       aliases,
       evidenceBacked: true,
-      // Evidence-backed suggestions are operational defaults, not items requiring a click.
-      // The UI may still let the reader edit/remove a mapping, but translation must use a
-      // unique, temporally visible target as soon as preprocessing has produced it.
-      sourceStatus: row.status === 'confirmed' ? 'confirmed' : 'auto',
+      // Only explicit confirmation creates a hard mapping here. An automatically generated
+      // proposal remains advisory even when earlier accepted prose contains the same target.
+      sourceStatus: row.status === 'confirmed' ? 'confirmed' : 'candidate',
     }];
   }).slice(0, 16);
 
   const result = {
-    policyVersion: 'context-graph-v5-language-pinned',
+    policyVersion: 'context-graph-v6-target-evidence-guard',
     knowledgeBoundaryOrdinal: knowledgeBoundary,
     nameMappings,
+    retrievalDiagnostics: nameMappingDiagnostics,
     styleGuide: {
       narrativeStyle: safeText(getMeta(db, revisionId, 'narrativeStyle'), 1000),
       rules: uniqueStrings(getMeta(db, revisionId, 'styleRules'), 12, 180),
@@ -1402,5 +1473,6 @@ export function buildProjectContextGraphBundle(
   while (JSON.stringify(result).length > 8500 && (result.entities as any[]).length > 2) (result.entities as any[]).pop();
   while (JSON.stringify(result).length > 8500 && (result.chapterSummaries as any[]).length > 1) (result.chapterSummaries as any[]).shift();
   while (JSON.stringify(result).length > 8500 && (result.relationships as any[]).length > 0) (result.relationships as any[]).pop();
-  return selectedNodes.length || (result.nameMappings as any[]).length || chapterSummaries.length || normalize(result.styleGuide.narrativeStyle) ? result : null;
+  return selectedNodes.length || (result.nameMappings as any[]).length || chapterSummaries.length ||
+    graphNameRows.length || normalize(result.styleGuide.narrativeStyle) ? result : null;
 }

@@ -7,7 +7,7 @@ import { buildProjectVoiceContext } from './voiceContext.ts';
 import { buildProjectContextGraphBundle } from './contextGraph.ts';
 import { getDocumentProjectStore, normalizeDocumentTranslationStrategy } from './projectStore.ts';
 
-export const TRANSLATION_BRIEF_POLICY_VERSION = 'translation-brief-v4-temporal-glossary-boundary';
+export const TRANSLATION_BRIEF_POLICY_VERSION = 'translation-brief-v5-evidence-ranked-context';
 export const MAX_TRANSLATION_BRIEF_CHARS = 18_000;
 
 export interface BriefSegment {
@@ -34,12 +34,18 @@ export interface TranslationBrief {
   precedingSegments: Array<{ id: string; text: string; contextPath: string }>;
   contextGraph: Record<string, any> | null;
   voiceContext: Record<string, any>;
+  /** Retrieval, temporal-boundary and budget-trimming counters for the trajectory/audit log. */
+  contextDiagnostics: Record<string, unknown>;
   contextChars: number;
   contextHash: string;
 }
 
 function normalizedSourceText(value: unknown): string {
-  return String(value || '').normalize('NFKC').toLocaleLowerCase().replace(/\s+/g, ' ').trim();
+  return String(value || '').normalize('NFKC')
+    .replace(/[‘’‛]/g, "'")
+    .replace(/[“”„‟]/g, '"')
+    .replace(/[‐‑‒–—−]/g, '-')
+    .toLocaleLowerCase().replace(/\s+/g, ' ').trim();
 }
 
 function sourceQuoteMatches(source: unknown, quote: unknown): boolean {
@@ -49,6 +55,28 @@ function sourceQuoteMatches(source: unknown, quote: unknown): boolean {
 }
 
 const firstSourceOccurrenceCache = new Map<string, number>();
+const sourceRowsByRevision = new Map<string, Array<{ ordinal: number; text: string }>>();
+
+function sourceRowsForRevision(db: any, revisionId: string): Array<{ ordinal: number; text: string }> {
+  const cached = sourceRowsByRevision.get(revisionId);
+  if (cached) {
+    sourceRowsByRevision.delete(revisionId);
+    sourceRowsByRevision.set(revisionId, cached);
+    return cached;
+  }
+  // Source revisions are immutable. A bounded two-revision LRU avoids rescanning SQLite for
+  // every alias while keeping memory usage bounded when several books are open.
+  const rows = db.prepare(
+    'SELECT ordinal, text FROM source_segments WHERE source_revision_id = ? ORDER BY ordinal'
+  ).all(revisionId) as Array<{ ordinal: number; text: string }>;
+  sourceRowsByRevision.set(revisionId, rows);
+  while (sourceRowsByRevision.size > 2) {
+    const oldest = sourceRowsByRevision.keys().next().value;
+    if (oldest) sourceRowsByRevision.delete(oldest);
+    else break;
+  }
+  return rows;
+}
 
 function firstMatchingSourceOrdinal(
   db: any,
@@ -62,11 +90,9 @@ function firstMatchingSourceOrdinal(
   const cacheKey = revisionId + '\u0000' + kind + '\u0000' + normalizedTerm;
   const cached = firstSourceOccurrenceCache.get(cacheKey);
   if (cached !== undefined) return cached;
-  const rows = db.prepare(
-    'SELECT ordinal, text FROM source_segments WHERE source_revision_id = ? ' +
-      'AND instr(lower(text), lower(?)) > 0 ORDER BY ordinal'
-  ).all(revisionId, term) as Array<{ ordinal: number; text: string }>;
-  const match = rows.find((row) => kind === 'quote'
+  // Do not prefilter using SQLite instr(lower(text), lower(term)): that literal comparison
+  // rejects normalized-equivalent forms such as O’Connor/O'Connor before JS can compare them.
+  const match = sourceRowsForRevision(db, revisionId).find((row) => kind === 'quote'
     ? sourceQuoteMatches(row.text, term)
     : sourceNameMatches(row.text, term));
   const ordinal = match ? Number(match.ordinal) : Number.POSITIVE_INFINITY;
@@ -106,7 +132,7 @@ function buildTemporallyVisibleMemory(
   const revisionId = String(context?.run?.sourceRevisionId || '');
   const store = getDocumentProjectStore();
   const projectContext = store.getProjectContext(projectId);
-  const empty = {
+  const empty: Record<string, any> = {
     version: 2, entities: [], relationships: [], styleGuide: {}, styleGuideStatus: 'candidate',
     chapterSummaries: [], recentExamples: [], characterVoices: [],
     relationshipVoiceRules: [], voiceAnchors: [], openQuestions: [],
@@ -128,9 +154,29 @@ function buildTemporallyVisibleMemory(
   const rawMemory = context?.memory && typeof context.memory === 'object'
     ? JSON.parse(JSON.stringify(context.memory)) as Record<string, any>
     : empty;
+  const initialMemoryCounts = {
+    entities: Array.isArray(rawMemory.entities) ? rawMemory.entities.length : 0,
+    relationships: Array.isArray(rawMemory.relationships) ? rawMemory.relationships.length : 0,
+    characterVoices: Array.isArray(rawMemory.characterVoices) ? rawMemory.characterVoices.length : 0,
+  };
+  const exclusionDiagnostics = {
+    memoryEntityExcludedFutureAlias: 0,
+    memoryEntityExcludedNameNotVisible: 0,
+    memoryEntityExcludedEvidenceNotVisible: 0,
+    memoryRelationshipExcludedNameNotVisible: 0,
+    memoryRelationshipExcludedEvidenceNotVisible: 0,
+    characterVoiceExcludedFutureEvidence: 0,
+    characterVoiceExcludedIncompleteEvidence: 0,
+    characterVoiceExcludedNameNotVisible: 0,
+    characterVoiceExcludedFutureAlias: 0,
+    targetEvidenceExcludedAfterAcceptedCorrection: 0,
+  };
   const referencedIds = new Set<string>();
   for (const entity of Array.isArray(rawMemory.entities) ? rawMemory.entities : []) {
     for (const evidence of Array.isArray(entity?.evidenceRefs) ? entity.evidenceRefs : []) {
+      if (typeof evidence?.segmentId === 'string') referencedIds.add(evidence.segmentId);
+    }
+    for (const evidence of Array.isArray(entity?.targetEvidenceRefs) ? entity.targetEvidenceRefs : []) {
       if (typeof evidence?.segmentId === 'string') referencedIds.add(evidence.segmentId);
     }
   }
@@ -174,6 +220,28 @@ function buildTemporallyVisibleMemory(
   for (const row of rows) sourceById.set(String(row.segment_id), {
     ordinal: Number(row.ordinal), text: String(row.text || ''), contextPath: String(row.context_path || ''),
   });
+  const targetEvidenceSegmentIds = Array.from(new Set(
+    (Array.isArray(rawMemory.entities) ? rawMemory.entities : []).flatMap((entity: any) =>
+      (Array.isArray(entity?.targetEvidenceRefs) ? entity.targetEvidenceRefs : [])
+        .map((ref: any) => typeof ref?.segmentId === 'string' ? ref.segmentId : ''))
+      .filter(Boolean)
+  ));
+  const latestAcceptedTranslationBySegment = new Map<string, string>();
+  for (let offset = 0; offset < targetEvidenceSegmentIds.length; offset += 400) {
+    const chunk = targetEvidenceSegmentIds.slice(offset, offset + 400);
+    const acceptedRows = projectContext.db.prepare(
+      'SELECT s.segment_id AS segmentId, tr.translation_text AS translatedText ' +
+      'FROM source_segments s JOIN translation_results tr ' +
+        'ON tr.source_revision_id = s.source_revision_id AND tr.segment_id = s.segment_id ' +
+      'WHERE s.source_revision_id = ? AND s.segment_id IN (' + chunk.map(() => '?').join(',') + ') ' +
+        'AND tr.accepted = 1 AND tr.source_hash = s.source_hash AND tr.rowid = (' +
+          'SELECT latest.rowid FROM translation_results latest ' +
+          'WHERE latest.source_revision_id = s.source_revision_id AND latest.segment_id = s.segment_id ' +
+            'AND latest.accepted = 1 AND latest.source_hash = s.source_hash ' +
+          'ORDER BY COALESCE(latest.accepted_at, latest.created_at) DESC, latest.created_at DESC, latest.rowid DESC LIMIT 1)'
+    ).all(revisionId, ...chunk) as Array<{ segmentId: string; translatedText: string }>;
+    for (const row of acceptedRows) latestAcceptedTranslationBySegment.set(String(row.segmentId), String(row.translatedText || ''));
+  }
   const isPrior = (id: unknown) => {
     const source = typeof id === 'string' ? sourceById.get(id) : undefined;
     return !!source && Number.isFinite(source.ordinal) && source.ordinal < firstOrdinal;
@@ -183,13 +251,82 @@ function buildTemporallyVisibleMemory(
   const appearsAsEarlierEvidence = (quoteInput: unknown): boolean =>
     firstMatchingSourceOrdinal(projectContext.db, revisionId, quoteInput, 'quote') < firstOrdinal;
 
+  // Never trust book-level recentExamples: retrieve examples from the accepted translation
+  // ledger, pinned to this source revision and strictly before the current batch.
+  const acceptedExampleRows = projectContext.db.prepare(
+    'SELECT s.segment_id AS segmentId, s.ordinal, s.text AS source, s.context_path AS chapter, ' +
+      's.kind, tr.translation_text AS target, tr.origin, COALESCE(tr.accepted_at, tr.created_at) AS acceptedAt ' +
+    'FROM translation_results tr JOIN source_segments s ' +
+      'ON s.source_revision_id = tr.source_revision_id AND s.segment_id = tr.segment_id ' +
+    'WHERE tr.source_revision_id = ? AND tr.accepted = 1 AND tr.source_hash = s.source_hash AND s.ordinal < ? ' +
+      'AND tr.rowid = (SELECT latest.rowid FROM translation_results latest ' +
+        'WHERE latest.source_revision_id = s.source_revision_id AND latest.segment_id = s.segment_id ' +
+          'AND latest.accepted = 1 AND latest.source_hash = s.source_hash ' +
+        'ORDER BY COALESCE(latest.accepted_at, latest.created_at) DESC, latest.created_at DESC, latest.rowid DESC LIMIT 1) ' +
+    'ORDER BY s.ordinal DESC LIMIT 240'
+  ).all(revisionId, firstOrdinal) as Array<{
+    segmentId: string; ordinal: number; source: string; chapter: string; kind: string;
+    target: string; origin: string; acceptedAt: string;
+  }>;
+  const currentExampleSource = [...precedingSegments, ...items].map((item) => String(item.text || '')).join(' ');
+  const stopWords = new Set([
+    'about','after','again','against','almost','also','among','another','around','because','before','being',
+    'between','could','does','during','each','every','from','have','hers','himself','into','just','more',
+    'most','other','over','same','should','some','such','than','that','their','them','then','there','these',
+    'they','this','those','through','under','very','were','what','when','where','which','while','with','would',
+    'your','you','the','and','for','are','was','were','but','not','you','his','her','she','him','our','out',
+    'who','how','why','can','did','had','has','its','let','may','now','off','once','one','only','own','say',
+    'said','see','too','two','all','any','day','get','got','new','old','way'
+  ]);
+  const sourceTokens = (value: unknown) => new Set(
+    (normalizedSourceText(value).match(/[\p{L}\p{N}]{2,}/gu) || [])
+      .filter((token) => !stopWords.has(token))
+  );
+  const currentTokens = sourceTokens(currentExampleSource);
+  const currentKinds = new Set(items.map((item) => String(item.kind || '')).filter(Boolean));
+  const currentChapters = new Set(items.map((item) => String(item.contextPath || '')).filter(Boolean));
+  const visibleReferenceNames = [
+    ...(Array.isArray(rawMemory.entities) ? rawMemory.entities.flatMap((entity: any) =>
+      [entity?.source, ...(Array.isArray(entity?.aliases) ? entity.aliases : [])]) : []),
+    ...(Array.isArray(rawMemory.characterVoices) ? rawMemory.characterVoices.flatMap((profile: any) =>
+      [profile?.canonicalSourceName, ...(Array.isArray(profile?.aliases) ? profile.aliases : [])]) : []),
+  ].filter((name: unknown) => typeof name === 'string' && appearedBefore(name));
+  const scoredExamples = acceptedExampleRows.map((row) => {
+    const tokens = sourceTokens(row.source);
+    const shared = Array.from(tokens).filter((token) => currentTokens.has(token)).length;
+    const overlap = shared / Math.max(1, Math.min(currentTokens.size, 12));
+    const exactPhrase = normalizedSourceText(row.source).length >= 12 &&
+      normalizedSourceText(currentExampleSource).includes(normalizedSourceText(row.source)) ? 1 : 0;
+    const sharedNamedEntity = visibleReferenceNames.some((name: unknown) =>
+      sourceNameMatches(currentExampleSource, name) && sourceNameMatches(row.source, name)) ? 1 : 0;
+    const sameChapter = currentChapters.has(String(row.chapter || '')) ? 0.8 : 0;
+    const sameKind = currentKinds.has(String(row.kind || '')) ? 0.25 : 0;
+    const manual = row.origin === 'manual' ? 1.2 : 0;
+    const recency = 0.5 / (1 + Math.max(0, firstOrdinal - Number(row.ordinal)) / 40);
+    const score = overlap * 6 + Math.min(shared, 3) * 0.15 + exactPhrase * 2 +
+      sharedNamedEntity * 3.2 + sameChapter + sameKind + manual + recency;
+    return { ...row, score, shared, exactPhrase, sharedNamedEntity };
+  }).filter((row) => row.shared >= 2 || row.exactPhrase > 0 || row.sharedNamedEntity > 0)
+    .sort((a, b) => b.score - a.score || Number(b.origin === 'manual') - Number(a.origin === 'manual') ||
+      Number(b.ordinal) - Number(a.ordinal));
+  const retrievedExamples = scoredExamples.slice(0, 4).map((row) => ({
+    segmentId: String(row.segmentId),
+    source: String(row.source || '').slice(0, 260),
+    target: String(row.target || '').slice(0, 320),
+    chapter: String(row.chapter || '').slice(0, 120),
+    origin: ['manual', 'agent', 'imported'].includes(String(row.origin)) ? String(row.origin) : 'imported',
+  })).filter((row) => row.source && row.target);
+
   rawMemory.entities = (Array.isArray(rawMemory.entities) ? rawMemory.entities : []).flatMap((entity: any) => {
     const aliases = Array.isArray(entity?.aliases) ? entity.aliases : [];
     const evidenceRefs = Array.isArray(entity.evidenceRefs) ? entity.evidenceRefs : [];
     // A later-only alias can contaminate the canonical target itself. Do not just remove that
     // alias while keeping a target inferred from the future identity reveal.
     if (aliases.some((alias: unknown) =>
-      !appearedBefore(alias) && !items.some((item) => sourceNameMatches(item.text, alias)))) return [];
+      !appearedBefore(alias) && !items.some((item) => sourceNameMatches(item.text, alias)))) {
+      exclusionDiagnostics.memoryEntityExcludedFutureAlias++;
+      return [];
+    }
     // A complete, explicitly confirmed source→target mapping is user-authored authority.
     // It may activate on the first visible mention without model-generated evidence, but must
     // never leak into a batch where neither the source nor an alias is visible.
@@ -199,30 +336,67 @@ function buildTemporallyVisibleMemory(
       sourceNameMatches(item.text, entity?.source) ||
       aliases.some((alias: unknown) => sourceNameMatches(item.text, alias)));
     if (!entity || (!appearedBefore(entity.source) &&
-        !(explicitCanonicalMapping && visibleInCurrentBatch))) return [];
+        !(explicitCanonicalMapping && visibleInCurrentBatch))) {
+      exclusionDiagnostics.memoryEntityExcludedNameNotVisible++;
+      return [];
+    }
     const priorEvidenceRefs = evidenceRefs.filter((ref: any) => {
       if (!ref || !isPrior(ref.segmentId)) return false;
       const source = sourceById.get(ref.segmentId);
       return !!source && sourceQuoteMatches(source.text, ref.sourceQuote) &&
-        sourceNameMatches(ref.sourceQuote, entity.source);
+        [entity.source, ...aliases].some((name: unknown) => sourceNameMatches(ref.sourceQuote, name));
     });
-    // Dynamic candidates retain their exact source segment. A later observation cannot become
-    // visible merely because the same character title happened to occur in an earlier chapter.
-    // Legacy/user-authored mappings keep the older quote-based validation when no refs exist.
+    const rawTargetEvidence = Array.isArray(entity.targetEvidenceRefs) ? entity.targetEvidenceRefs : [];
+    const visibleTargetEvidence = rawTargetEvidence.filter((ref: any) => {
+      if (!ref || !isPrior(ref.segmentId) ||
+          normalizedSourceText(ref.targetSurface) !== normalizedSourceText(entity.target)) return false;
+      const source = sourceById.get(ref.segmentId);
+      if (!source || !sourceQuoteMatches(source.text, ref.sourceQuote) ||
+          ![entity.source, ...aliases].some((name: unknown) => sourceNameMatches(ref.sourceQuote, name))) return false;
+      const latestAcceptedTranslation = latestAcceptedTranslationBySegment.get(String(ref.segmentId));
+      // If this source segment has since been accepted/edited, an older candidate surface must
+      // not keep a corrected target promoted. When no accepted result exists yet, retain the
+      // validated in-run surface as provisional rather than treating it as human-reviewed.
+      if (latestAcceptedTranslation !== undefined &&
+          !normalizedSourceText(latestAcceptedTranslation).includes(normalizedSourceText(ref.targetSurface))) {
+        exclusionDiagnostics.targetEvidenceExcludedAfterAcceptedCorrection++;
+        return false;
+      }
+      return true;
+    });
+    const independentTargetEvidenceCount = new Set(visibleTargetEvidence.map((ref: any) => ref.segmentId)).size;
+    const targetConfidence = entity.reviewStatus === 'confirmed' ? 'confirmed' :
+      independentTargetEvidenceCount >= 2 ? 'corroborated' : 'candidate';
+    // Dynamic candidates retain exact source and target evidence segments; source-name
+    // recognition alone is not enough to make the proposed target a forced canonical mapping.
     const evidenceVisible = explicitCanonicalMapping || (evidenceRefs.length
       ? priorEvidenceRefs.length > 0
       : sourceNameMatches(entity.evidence, entity.source) && appearsAsEarlierEvidence(entity.evidence));
-    if (!evidenceVisible) return [];
+    if (!evidenceVisible) {
+      const hasFutureEvidence = evidenceRefs.some((ref: any) => {
+        const source = typeof ref?.segmentId === 'string' ? sourceById.get(ref.segmentId) : undefined;
+        return !!source && Number(source.ordinal) >= firstOrdinal;
+      });
+      exclusionDiagnostics.memoryEntityExcludedEvidenceNotVisible++;
+      if (hasFutureEvidence) (exclusionDiagnostics as any).memoryEntityExcludedFutureEvidence =
+        Number((exclusionDiagnostics as any).memoryEntityExcludedFutureEvidence || 0) + 1;
+      return [];
+    }
     const visibleAliases = aliases.filter((alias: unknown) =>
       appearedBefore(alias) || items.some((item) => sourceNameMatches(item.text, alias)));
     return [{
       ...entity,
       aliases: visibleAliases,
       ...(evidenceRefs.length ? { evidenceRefs: priorEvidenceRefs } : {}),
+      targetEvidenceRefs: visibleTargetEvidence,
+      targetConfidence,
     }];
   });
   rawMemory.relationships = (Array.isArray(rawMemory.relationships) ? rawMemory.relationships : []).flatMap((relation: any) => {
-    if (!relation || !appearedBefore(relation.subject) || !appearedBefore(relation.object)) return [];
+    if (!relation || !appearedBefore(relation.subject) || !appearedBefore(relation.object)) {
+      exclusionDiagnostics.memoryRelationshipExcludedNameNotVisible++;
+      return [];
+    }
     const evidenceRefs = Array.isArray(relation.evidenceRefs) ? relation.evidenceRefs : [];
     const priorEvidenceRefs = evidenceRefs.filter((ref: any) => {
       if (!ref || !isPrior(ref.segmentId)) return false;
@@ -235,7 +409,10 @@ function buildTemporallyVisibleMemory(
       : sourceNameMatches(relation.evidence, relation.subject) &&
         sourceNameMatches(relation.evidence, relation.object) &&
         appearsAsEarlierEvidence(relation.evidence);
-    if (!evidenceVisible) return [];
+    if (!evidenceVisible) {
+      exclusionDiagnostics.memoryRelationshipExcludedEvidenceNotVisible++;
+      return [];
+    }
     return [{ ...relation, ...(evidenceRefs.length ? { evidenceRefs: priorEvidenceRefs } : {}) }];
   });
 
@@ -246,14 +423,29 @@ function buildTemporallyVisibleMemory(
     // aggregate profile synthesized from omitted future dialogue into an early batch.
     const evidenceIncomplete = profile.evidenceTruncated === true ||
       (profile.evidencePolicyVersion !== 'character-evidence-v2-complete' && rawEvidence.length >= 8);
-    if (evidenceIncomplete || !rawEvidence.length || rawEvidence.some((item: any) => {
+    const hasFutureEvidence = rawEvidence.some((item: any) => {
+      const source = typeof item?.segmentId === 'string' ? sourceById.get(item.segmentId) : undefined;
+      return !!source && Number(source.ordinal) >= firstOrdinal;
+    });
+    const invalidEvidence = rawEvidence.some((item: any) => {
       if (!item || !isPrior(item.segmentId)) return true;
       const source = sourceById.get(item.segmentId);
       return !source || !sourceQuoteMatches(source.text, item.sourceQuote);
-    })) return [];
-    if (!appearedBefore(profile.canonicalSourceName)) return [];
+    });
+    if (evidenceIncomplete || !rawEvidence.length || invalidEvidence) {
+      if (hasFutureEvidence) exclusionDiagnostics.characterVoiceExcludedFutureEvidence++;
+      else exclusionDiagnostics.characterVoiceExcludedIncompleteEvidence++;
+      return [];
+    }
+    if (!appearedBefore(profile.canonicalSourceName)) {
+      exclusionDiagnostics.characterVoiceExcludedNameNotVisible++;
+      return [];
+    }
     const aliases = Array.isArray(profile.aliases) ? profile.aliases : [];
-    if (aliases.some((alias: unknown) => !appearedBefore(alias))) return [];
+    if (aliases.some((alias: unknown) => !appearedBefore(alias))) {
+      exclusionDiagnostics.characterVoiceExcludedFutureAlias++;
+      return [];
+    }
     const contrastRules = (Array.isArray(profile.contrastRules) ? profile.contrastRules : []).filter((rule: any) => {
       const ids = Array.isArray(rule.evidenceSegmentIds) ? rule.evidenceSegmentIds : [];
       return ids.length > 0 && ids.every(isPrior) && rawMemory.characterVoices.some((other: any) =>
@@ -290,8 +482,24 @@ function buildTemporallyVisibleMemory(
   rawMemory.styleGuide = rawMemory.styleGuideStatus === 'confirmed' ? rawMemory.styleGuide : {};
   rawMemory.styleGuideStatus = rawMemory.styleGuideStatus === 'confirmed' ? 'confirmed' : 'candidate';
   rawMemory.chapterSummaries = [];
-  rawMemory.recentExamples = [];
+  rawMemory.recentExamples = retrievedExamples;
   rawMemory.openQuestions = [];
+  // The voice-context sanitizer intentionally ignores these counters; TranslationBrief copies
+  // them into its durable diagnostic summary so zero-injection and boundary exclusions are visible.
+  rawMemory.__translationBriefDiagnostics = {
+    ...exclusionDiagnostics,
+    memoryEntityCandidates: initialMemoryCounts.entities,
+    temporallyVisibleMemoryEntities: rawMemory.entities.length,
+    memoryEntityExcludedByBoundary: Math.max(0, initialMemoryCounts.entities - rawMemory.entities.length),
+    memoryRelationshipCandidates: initialMemoryCounts.relationships,
+    temporallyVisibleMemoryRelationships: rawMemory.relationships.length,
+    memoryRelationshipExcludedByBoundary: Math.max(0, initialMemoryCounts.relationships - rawMemory.relationships.length),
+    characterVoiceCandidates: initialMemoryCounts.characterVoices,
+    temporallyVisibleCharacterVoices: rawMemory.characterVoices.length,
+    characterVoicesExcludedByBoundary: Math.max(0, initialMemoryCounts.characterVoices - rawMemory.characterVoices.length),
+    acceptedExampleCandidates: scoredExamples.length,
+    selectedAcceptedExamples: retrievedExamples.length,
+  };
   return rawMemory;
 }
 
@@ -500,9 +708,34 @@ export function buildTranslationBrief(
   const promptRevisionId = String(context?.run?.promptRevisionId || '');
   const memoryRevisionId = typeof context?.memoryRevisionId === 'string' ? context.memoryRevisionId : null;
   const strategy = normalizeDocumentTranslationStrategy(context?.prompt?.config?.translationStrategy);
-  const visiblePrecedingSegments = strategy.precedingContextSegments > 0
+  const selectedPrecedingSegments = strategy.precedingContextSegments > 0
     ? precedingSegments.slice(-strategy.precedingContextSegments)
     : [];
+  // Resolve predecessor metadata from the immutable run source. Some callers provide only id/text,
+  // but dialogue-participant retrieval needs the actual segment kind and must not infer it from prose.
+  const visiblePrecedingSegments: BriefSegment[] = [];
+  if (selectedPrecedingSegments.length) {
+    const projectContext = getDocumentProjectStore().getProjectContext(projectId);
+    const ids = selectedPrecedingSegments.map((item) => item.id);
+    const rows = projectContext.db.prepare(
+      'SELECT segment_id, text, kind, context_path FROM source_segments ' +
+      'WHERE source_revision_id = ? AND segment_id IN (' + ids.map(() => '?').join(',') + ')'
+    ).all(sourceRevisionId, ...ids) as Array<{
+      segment_id: string; text: string; kind: string; context_path: string;
+    }>;
+    const rowsById = new Map(rows.map((row) => [String(row.segment_id), row]));
+    for (const item of selectedPrecedingSegments) {
+      const row = rowsById.get(item.id);
+      // A stale ID from another revision is not valid preceding context for this Run.
+      if (!row) continue;
+      visiblePrecedingSegments.push({
+        id: String(row.segment_id),
+        text: String(row.text || ''),
+        kind: String(row.kind || ''),
+        contextPath: String(row.context_path || ''),
+      });
+    }
+  }
   const maxBriefChars = Math.min(MAX_TRANSLATION_BRIEF_CHARS, strategy.contextBudgetChars);
   const glossary = filterGlossaryForBatch(context, items);
   const temporalMemory = context?.run?.translationMode === 'literary'
@@ -525,7 +758,7 @@ export function buildTranslationBrief(
     // source-evidenced LiteraryMemory. The previous null result skipped that entire merge path,
     // so confirmed names silently disappeared from the actual translation request.
     graph = {
-      policyVersion: 'context-graph-v5-language-pinned',
+      policyVersion: 'context-graph-v6-target-evidence-guard',
       knowledgeBoundaryOrdinal: null,
       currentChapter: chapterPath,
       chapterSummaries: [],
@@ -536,6 +769,12 @@ export function buildTranslationBrief(
       styleGuide: { narrativeStyle: '', rules: [] },
       constraints: ['Only source-visible explicit mappings and evidence-backed memory may be added to this empty graph.'],
     };
+  }
+  const graphRetrievalDiagnostics = (graph as any)?.retrievalDiagnostics &&
+    typeof (graph as any).retrievalDiagnostics === 'object'
+    ? { ...(graph as any).retrievalDiagnostics } : {};
+  if (graph && Object.prototype.hasOwnProperty.call(graph, 'retrievalDiagnostics')) {
+    delete (graph as any).retrievalDiagnostics;
   }
   if (graph && Array.isArray(graph.nameMappings)) {
     const sourceText = [...visiblePrecedingSegments, ...items].map((item) => item.text).join('\n');
@@ -550,7 +789,7 @@ export function buildTranslationBrief(
     const sourceVisible = (name: unknown) =>
       firstMatchingSourceOrdinal(projectContext.db, sourceRevisionId, name, 'name') < firstOrdinal ||
       sourceNameMatches(sourceText, name);
-    const memoryEntities = Array.isArray(context?.memory?.entities) ? context.memory.entities : [];
+    const memoryEntities = Array.isArray((temporalMemory as any)?.entities) ? (temporalMemory as any).entities : [];
     const sourceRowCache = new Map<string, { ordinal: number; text: string } | null>();
     const sourceRowFor = (segmentId: unknown) => {
       const id = typeof segmentId === 'string' ? segmentId : '';
@@ -599,11 +838,17 @@ export function buildTranslationBrief(
       const aliases = rawAliases.filter((alias: unknown) =>
         firstMatchingSourceOrdinal(projectContext.db, sourceRevisionId, alias, 'name') < firstOrdinal ||
         sourceNameMatches(sourceText, alias));
+      const targetRefs = Array.isArray(entity.targetEvidenceRefs) ? entity.targetEvidenceRefs : [];
+      const corroboratedTarget = entity.targetConfidence === 'corroborated' &&
+        new Set(targetRefs.map((ref: any) => ref?.segmentId).filter(Boolean)).size >= 2;
       const incoming = {
         source, target, aliases,
         kind: String(entity.kind || 'other'),
         evidenceBacked: true,
-        sourceStatus: entity.reviewStatus === 'confirmed' ? 'confirmed-memory' : 'auto',
+        targetConfidence: entity.reviewStatus === 'confirmed' ? 'confirmed' :
+          corroboratedTarget ? 'corroborated' : 'candidate',
+        sourceStatus: entity.reviewStatus === 'confirmed' ? 'confirmed-memory' :
+          corroboratedTarget ? 'auto' : 'candidate',
       };
       const names = new Set([source, ...aliases].map((name) => normalizedSourceText(name)));
       const index = graph.nameMappings.findIndex((mapping: any) =>
@@ -623,21 +868,31 @@ export function buildTranslationBrief(
         }
       }
     }
+    const mappingRelevance = (mapping: any) => {
+      const names = [mapping.source, ...(Array.isArray(mapping.aliases) ? mapping.aliases : [])];
+      const inCurrent = names.some((name: unknown) => items.some((item) => sourceNameMatches(item.text, name))) ? 2 : 0;
+      const inPreceding = names.some((name: unknown) => visiblePrecedingSegments.some((item) =>
+        sourceNameMatches(item.text, name))) ? 1 : 0;
+      const statusRank = ['confirmed', 'confirmed-memory'].includes(String(mapping.sourceStatus)) ? 4 :
+        mapping.sourceStatus === 'auto' ? 3 : 1;
+      return statusRank + inCurrent + inPreceding;
+    };
+    graph.nameMappings.sort((a: any, b: any) => mappingRelevance(b) - mappingRelevance(a));
     graph.nameMappings = graph.nameMappings.slice(0, 16);
   }
   const voiceContext = context?.run?.translationMode === 'literary'
     ? buildProjectVoiceContext(
         temporalMemory,
-        items.map((item) => ({ id: item.id, text: item.text, contextPath: item.contextPath })),
+        items.map((item) => ({ id: item.id, text: item.text, contextPath: item.contextPath, kind: item.kind })),
         chapterPath || undefined,
-        visiblePrecedingSegments,
+        visiblePrecedingSegments.map((item) => ({ id: item.id, text: item.text, contextPath: item.contextPath, kind: item.kind })),
       ) as Record<string, any>
     : {};
   // Context Graph style notes are book-wide and have no ordinal-bearing evidence links.
   // Keep only per-batch, evidence-bounded characters/entities/relationships and chapter prefix summaries.
   if (graph) {
     graph.styleGuide = { narrativeStyle: '', rules: [] };
-    graph.policyVersion = 'context-graph-v2-temporal';
+    graph.policyVersion = 'context-graph-v3-temporal-target-evidence';
   }
   // Graph chapter order is derived from source segment order and therefore is the canonical
   // boundary. Do not use memory-only summaries when chapter matching could be ambiguous.
@@ -659,14 +914,54 @@ export function buildTranslationBrief(
     })),
     contextGraph: graph,
     voiceContext,
+    contextDiagnostics: {
+      ...(typeof (temporalMemory as any)?.__translationBriefDiagnostics === 'object'
+        ? (temporalMemory as any).__translationBriefDiagnostics : {}),
+      ...graphRetrievalDiagnostics,
+      precedingContextAvailable: precedingSegments.length,
+      precedingContextConfigured: strategy.precedingContextSegments,
+      precedingContextInjected: visiblePrecedingSegments.length,
+      graphNameMappingsBeforeBudget: Array.isArray((graph as any)?.nameMappings) ? (graph as any).nameMappings.length : 0,
+      strongNameMappingsBeforeBudget: Array.isArray((graph as any)?.nameMappings)
+        ? (graph as any).nameMappings.filter((mapping: any) =>
+            ['confirmed', 'confirmed-memory', 'auto'].includes(String(mapping.sourceStatus))).length : 0,
+      acceptedExamplesInjected: Array.isArray((voiceContext as any)?.recentExamples) ? (voiceContext as any).recentExamples.length : 0,
+      dialogueParticipantsInjected: Array.isArray((voiceContext as any)?.dialogueParticipants)
+        ? (voiceContext as any).dialogueParticipants.length : 0,
+      contextBudgetChars: maxBriefChars,
+      budgetTrimCount: 0,
+      budgetFallbackUsed: false,
+    },
     contextChars: 0,
     contextHash: '',
   };
+  const budgetBaseline = {
+    graphNameMappings: Array.isArray((brief.contextGraph as any)?.nameMappings) ? (brief.contextGraph as any).nameMappings.length : 0,
+    strongNameMappings: Array.isArray((brief.contextGraph as any)?.nameMappings)
+      ? (brief.contextGraph as any).nameMappings.filter((mapping: any) =>
+          ['confirmed', 'confirmed-memory', 'auto'].includes(String(mapping.sourceStatus))).length : 0,
+    graphCharacters: Array.isArray((brief.contextGraph as any)?.characters) ? (brief.contextGraph as any).characters.length : 0,
+    graphEntities: Array.isArray((brief.contextGraph as any)?.entities) ? (brief.contextGraph as any).entities.length : 0,
+    graphRelationships: Array.isArray((brief.contextGraph as any)?.relationships) ? (brief.contextGraph as any).relationships.length : 0,
+    voiceEntities: Array.isArray((brief.voiceContext as any)?.entities) ? (brief.voiceContext as any).entities.length : 0,
+    voiceRelationships: Array.isArray((brief.voiceContext as any)?.relationships) ? (brief.voiceContext as any).relationships.length : 0,
+    characterVoices: Array.isArray((brief.voiceContext as any)?.characterVoices) ? (brief.voiceContext as any).characterVoices.length : 0,
+    relationshipVoiceRules: Array.isArray((brief.voiceContext as any)?.relationshipVoiceRules) ? (brief.voiceContext as any).relationshipVoiceRules.length : 0,
+    voiceAnchors: Array.isArray((brief.voiceContext as any)?.voiceAnchors) ? (brief.voiceContext as any).voiceAnchors.length : 0,
+    recentExamples: Array.isArray((brief.voiceContext as any)?.recentExamples) ? (brief.voiceContext as any).recentExamples.length : 0,
+    dialogueParticipants: Array.isArray((brief.voiceContext as any)?.dialogueParticipants) ? (brief.voiceContext as any).dialogueParticipants.length : 0,
+    chapterSummaries: Array.isArray((brief.voiceContext as any)?.chapterSummaries) ? (brief.voiceContext as any).chapterSummaries.length : 0,
+    precedingSegments: brief.precedingSegments.length,
+    glossaryTerms: Array.isArray((brief.glossary as any)?.document_terms) ? (brief.glossary as any).document_terms.length : 0,
+  };
   let serialized = serializedContext(brief);
   while (serialized.length > maxBriefChars && removeLowestPriorityContext(brief)) {
+    (brief.contextDiagnostics as any).budgetTrimCount =
+      Number((brief.contextDiagnostics as any).budgetTrimCount || 0) + 1;
     serialized = serializedContext(brief);
   }
   if (serialized.length > maxBriefChars) {
+    (brief.contextDiagnostics as any).budgetFallbackUsed = true;
     // Last-resort safe fallback: keep the batch IDs, only current/previous-source canonical
     // name mappings, and minimal source-near context. Dropping the whole graph here used to
     // silently disable deterministic glossary enforcement for large books.
@@ -702,6 +997,35 @@ export function buildTranslationBrief(
   if (serialized.length > maxBriefChars) {
     throw Object.assign(new Error('TranslationBrief 超过当前上下文预算（' + maxBriefChars + ' 字符），已拒绝发送不受限上下文。'), { status: 413 });
   }
+  const finalGraph = brief.contextGraph as any;
+  const finalVoice = brief.voiceContext as any;
+  const finalMappings = Array.isArray(finalGraph?.nameMappings) ? finalGraph.nameMappings : [];
+  const finalCount = (value: unknown) => Array.isArray(value) ? value.length : 0;
+  const diagnostic = brief.contextDiagnostics as any;
+  diagnostic.graphNameMappingsAfterBudget = finalMappings.length;
+  diagnostic.graphNameMappingsTrimmedByBudget = Math.max(0, budgetBaseline.graphNameMappings - finalMappings.length);
+  diagnostic.strongNameMappingsAfterBudget = finalMappings.filter((mapping: any) =>
+    ['confirmed', 'confirmed-memory', 'auto'].includes(String(mapping.sourceStatus))).length;
+  diagnostic.strongNameMappingsTrimmedByBudget = Math.max(0,
+    budgetBaseline.strongNameMappings - diagnostic.strongNameMappingsAfterBudget);
+  diagnostic.graphCharactersTrimmedByBudget = Math.max(0, budgetBaseline.graphCharacters - finalCount(finalGraph?.characters));
+  diagnostic.graphEntitiesTrimmedByBudget = Math.max(0, budgetBaseline.graphEntities - finalCount(finalGraph?.entities));
+  diagnostic.graphRelationshipsTrimmedByBudget = Math.max(0, budgetBaseline.graphRelationships - finalCount(finalGraph?.relationships));
+  diagnostic.voiceEntitiesTrimmedByBudget = Math.max(0, budgetBaseline.voiceEntities - finalCount(finalVoice?.entities));
+  diagnostic.voiceRelationshipsTrimmedByBudget = Math.max(0, budgetBaseline.voiceRelationships - finalCount(finalVoice?.relationships));
+  diagnostic.characterVoicesTrimmedByBudget = Math.max(0, budgetBaseline.characterVoices - finalCount(finalVoice?.characterVoices));
+  diagnostic.relationshipVoiceRulesTrimmedByBudget = Math.max(0, budgetBaseline.relationshipVoiceRules - finalCount(finalVoice?.relationshipVoiceRules));
+  diagnostic.voiceAnchorsTrimmedByBudget = Math.max(0, budgetBaseline.voiceAnchors - finalCount(finalVoice?.voiceAnchors));
+  diagnostic.acceptedExamplesAfterBudget = finalCount(finalVoice?.recentExamples);
+  diagnostic.acceptedExamplesTrimmedByBudget = Math.max(0, budgetBaseline.recentExamples - diagnostic.acceptedExamplesAfterBudget);
+  diagnostic.dialogueParticipantsAfterBudget = finalCount(finalVoice?.dialogueParticipants);
+  diagnostic.dialogueParticipantsTrimmedByBudget = Math.max(0, budgetBaseline.dialogueParticipants - diagnostic.dialogueParticipantsAfterBudget);
+  diagnostic.chapterSummariesTrimmedByBudget = Math.max(0, budgetBaseline.chapterSummaries - finalCount(finalVoice?.chapterSummaries));
+  diagnostic.precedingSegmentsAfterBudget = brief.precedingSegments.length;
+  diagnostic.precedingSegmentsTrimmedByBudget = Math.max(0, budgetBaseline.precedingSegments - brief.precedingSegments.length);
+  diagnostic.glossaryTermsAfterBudget = finalCount((brief.glossary as any)?.document_terms);
+  diagnostic.glossaryTermsTrimmedByBudget = Math.max(0, budgetBaseline.glossaryTerms - diagnostic.glossaryTermsAfterBudget);
+  diagnostic.contextDeltaCandidatesAvailable = Math.max(0, Number(brief.contextDeltaCount || 0));
   brief.contextChars = serialized.length;
   brief.contextHash = createHash('sha256').update(serialized, 'utf8').digest('hex');
   return brief;
@@ -737,6 +1061,9 @@ export function summarizeTranslationBrief(brief: TranslationBrief): Record<strin
     characterVoices: voiceCharacterCount,
     relationshipVoiceRules: count(voice?.relationshipVoiceRules),
     voiceAnchors: count(voice?.voiceAnchors),
+    recentExamples: count(voice?.recentExamples),
+    dialogueParticipants: count(voice?.dialogueParticipants),
+    contextDiagnostics: brief.contextDiagnostics || {},
     // Compatibility fields consumed by the Agent Trajectory UI. Keep them aligned with the
     // detailed fields above so the UI doesn't silently display zero for populated context.
     entityCount: graphCharacterCount + graphEntityCount,
