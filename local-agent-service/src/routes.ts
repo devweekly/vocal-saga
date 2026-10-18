@@ -17,7 +17,7 @@ import { parseAgentModel, buildAgentPrompt, normalizeMessages, parseJsonValue } 
 import { runAgent, runAgentStructured } from './agents/runner.ts';
 import { getCodeBuddyTaskProfile } from './agents/taskProfiles.ts';
 import { validateSegments, runLiteraryAnalysis, getDefaultLiteraryTaskPromptPreviews } from './literary.ts';
-import { DEFAULT_CONTEXT_GRAPH_SYSTEM_PROMPT } from './documents/contextGraph.ts';
+import { DEFAULT_CONTEXT_GRAPH_SYSTEM_PROMPT, getDefaultContextGraphUserPromptTemplate } from './documents/contextGraph.ts';
 import path from 'node:path';
 import { handleDocumentProjectRequest } from './documents/projectRoutes.ts';
 import { buildStandaloneReviewContextGraph, buildStandaloneReviewMemory, buildStandaloneReviewVoiceContext, runLiteraryReviewWithMissingRetry } from './documents/translationAgent.ts';
@@ -217,10 +217,16 @@ export async function handleRequest(req: Request, res: Response): Promise<void> 
     const literaryPrompts = getDefaultLiteraryTaskPromptPreviews();
     sendJson(res, 200, {
       prompts: {
-        accuracyReview: literaryPrompts.accuracyReview,
-        styleReview: literaryPrompts.styleReview,
-        literaryAnalysis: literaryPrompts.literaryAnalysis,
+        accuracyReview: literaryPrompts.systemPrompts.accuracyReview,
+        styleReview: literaryPrompts.systemPrompts.styleReview,
+        literaryAnalysis: literaryPrompts.systemPrompts.literaryAnalysis,
         contextGraph: DEFAULT_CONTEXT_GRAPH_SYSTEM_PROMPT,
+      },
+      userPromptTemplates: {
+        accuracyReview: literaryPrompts.userPromptTemplates.accuracyReview,
+        styleReview: literaryPrompts.userPromptTemplates.styleReview,
+        literaryAnalysis: literaryPrompts.userPromptTemplates.literaryAnalysis,
+        contextGraph: getDefaultContextGraphUserPromptTemplate(),
       },
     });
     return;
