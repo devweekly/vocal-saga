@@ -753,6 +753,31 @@ function buildDiagnosisHints(report, terms) {
       graph.samplePlanComparison.overlapRatio + '）。旧 run 的模型输入不能用当前样本重算完全复原；应对当前 projectId 重新分析并保留新审计事件。');
   }
 
+  const historicalModelOutputs = (report.requestHistory?.analysisPayloadSummaries || []).filter((entry) =>
+    (entry.structuredOutput || []).some((output) =>
+      (output.characters || []).some((candidate) => candidate.relatedToSearch) ||
+      (output.entities || []).some((candidate) => candidate.relatedToSearch)));
+  if (!audit.available && historicalModelOutputs.length) {
+    const historicalCharacters = historicalModelOutputs.flatMap((entry) =>
+      (entry.structuredOutput || []).flatMap((output) => output.characters || [])
+        .filter((candidate) => candidate.relatedToSearch)
+        .map((candidate) => ({ name: candidate.name, disposition: 'found-in-historical-model-response', endpoint: entry.endpoint, status: entry.status })));
+    const historicalEntities = historicalModelOutputs.flatMap((entry) =>
+      (entry.structuredOutput || []).flatMap((output) => output.entities || [])
+        .filter((candidate) => candidate.relatedToSearch)
+        .map((candidate) => ({ name: candidate.name, disposition: 'found-in-historical-model-response', endpoint: entry.endpoint, status: entry.status })));
+    if (historicalCharacters.length) {
+      hints.push('虽然项目事件中没有新格式的逐候选审计，但本机请求历史的结构化响应可解析出人物候选：' +
+        historicalCharacters.slice(0, 8).map((item) => item.name + '（' + item.endpoint + '）').join('、') +
+        '。这说明需要继续核对模型响应后的证据校验/持久化，而不能直接归因为模型漏识别。');
+    }
+    if (historicalEntities.length && !historicalCharacters.length) {
+      hints.push('历史模型响应把目标称谓输出在 entities 而不是 characters：' +
+        historicalEntities.slice(0, 8).map((item) => item.name + '（' + item.endpoint + '）').join('、') +
+        '。这是人物分类结果的直接证据，应继续核对图谱保存分支。');
+    }
+  }
+
   if (audit.available) {
     const coverage = Array.isArray(audit.candidateCoverage) ? audit.candidateCoverage.filter(kingLike) : [];
     const modelCharacters = Array.isArray(audit.matchingModelCharacters) ? audit.matchingModelCharacters : [];
@@ -1131,6 +1156,7 @@ function run() {
     }
   }
   console.log('请求历史匹配记录：' + requestHistory.matchingRows + ' / 扫描 ' + requestHistory.rowsScanned + ' 行');
+  console.log('可解析的模型结构化响应：' + requestHistory.analysisPayloadSummaries.length);
   console.log('请求端点类型：' + requestHistory.endpointBreakdown.slice(0, 8).map((item) => item.endpoint + '=' + item.count).join('；'));
   console.log('工作区/日志命中文件：' + workspace.matchingFileCount + '（已检查 ' + workspace.filesChecked +
     ' / 发现文本文件 ' + workspace.discoveredTextFileCount + '）');
