@@ -672,9 +672,34 @@ export function buildTranslationBrief(
   const promptRevisionId = String(context?.run?.promptRevisionId || '');
   const memoryRevisionId = typeof context?.memoryRevisionId === 'string' ? context.memoryRevisionId : null;
   const strategy = normalizeDocumentTranslationStrategy(context?.prompt?.config?.translationStrategy);
-  const visiblePrecedingSegments = strategy.precedingContextSegments > 0
+  const selectedPrecedingSegments = strategy.precedingContextSegments > 0
     ? precedingSegments.slice(-strategy.precedingContextSegments)
     : [];
+  // Resolve predecessor metadata from the immutable run source. Some callers provide only id/text,
+  // but dialogue-participant retrieval needs the actual segment kind and must not infer it from prose.
+  const visiblePrecedingSegments: BriefSegment[] = [];
+  if (selectedPrecedingSegments.length) {
+    const projectContext = getDocumentProjectStore().getProjectContext(projectId);
+    const ids = selectedPrecedingSegments.map((item) => item.id);
+    const rows = projectContext.db.prepare(
+      'SELECT segment_id, text, kind, context_path FROM source_segments ' +
+      'WHERE source_revision_id = ? AND segment_id IN (' + ids.map(() => '?').join(',') + ')'
+    ).all(sourceRevisionId, ...ids) as Array<{
+      segment_id: string; text: string; kind: string; context_path: string;
+    }>;
+    const rowsById = new Map(rows.map((row) => [String(row.segment_id), row]));
+    for (const item of selectedPrecedingSegments) {
+      const row = rowsById.get(item.id);
+      // A stale ID from another revision is not valid preceding context for this Run.
+      if (!row) continue;
+      visiblePrecedingSegments.push({
+        id: String(row.segment_id),
+        text: String(row.text || ''),
+        kind: String(row.kind || ''),
+        contextPath: String(row.context_path || ''),
+      });
+    }
+  }
   const maxBriefChars = Math.min(MAX_TRANSLATION_BRIEF_CHARS, strategy.contextBudgetChars);
   const glossary = filterGlossaryForBatch(context, items);
   const temporalMemory = context?.run?.translationMode === 'literary'
