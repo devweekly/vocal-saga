@@ -65,6 +65,33 @@ test('document projects persist each source segment, Prompt revision and run ind
   });
 });
 
+test('project resolution finds the exact server project and treats same-name changed source as related only', async () => {
+  await withStore((store) => {
+    const project = store.createProject({
+      title: 'Example Book', format: 'epub', sourceFileName: 'example.epub', segments,
+    });
+
+    const exact = store.resolveProjectForSource({
+      title: 'Example Book', format: 'epub', sourceFileName: 'example.epub', segments,
+    });
+    assert.equal(exact.exactProject?.projectId, project.projectId);
+    assert.equal(exact.relatedProject, null);
+
+    const changedSegments = [{ ...segments[0], text: 'The old door was open.' }, segments[1]];
+    const changed = store.resolveProjectForSource({
+      title: 'Example Book', format: 'epub', sourceFileName: 'example.epub', segments: changedSegments,
+    });
+    assert.equal(changed.exactProject, null, 'changed source must not be treated as the same source revision');
+    assert.equal(changed.relatedProject?.projectId, project.projectId, 'same filename should surface the existing project for explicit source-change handling');
+
+    const unrelated = store.resolveProjectForSource({
+      title: 'Another Book', format: 'epub', sourceFileName: 'another.epub', segments: changedSegments,
+    });
+    assert.equal(unrelated.exactProject, null);
+    assert.equal(unrelated.relatedProject, null);
+  });
+});
+
 test('source revisions retain prior runs and report translations stale when their source changes', async () => {
   await withStore((store) => {
     const project = store.createProject({ title: 'Revision Test', format: 'pdf', segments });
