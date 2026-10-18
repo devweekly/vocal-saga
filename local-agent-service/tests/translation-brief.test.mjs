@@ -781,6 +781,9 @@ test('voice retrieval can select an evidence-backed dialogue participant when cu
       { id: 'dialogue-current', text: 'Then what do we do?', kind: 'dialogue', contextPath: 'Chapter 1' },
     ],
   });
+  // The project store approves a voice anchor only when its source/attribution evidence and
+  // accepted translated surface can all be verified against the current source revision.
+  store.saveManualEdit(project.projectId, 'dialogue-anchor', '火车已经开走了。');
   store.saveLiteraryMemory(project.projectId, {
     entities: [], relationships: [], styleGuide: {}, chapterSummaries: [], recentExamples: [],
     characterVoices: [{
