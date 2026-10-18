@@ -173,7 +173,13 @@ export async function handleRequest(req: Request, res: Response): Promise<void> 
     const row = db.prepare('SELECT session_id, title, format, updated_at, payload_json FROM document_sessions WHERE session_id = ?').get(sessionId) as any;
     if (!row) { sendJson(res, 200, { found: false }); return; }
     try { sendJson(res, 200, { found: true, session: { sessionId: row.session_id, title: row.title, format: row.format, updatedAt: row.updated_at, payload: JSON.parse(row.payload_json) } }); }
-    catch { db.prepare('DELETE FROM document_sessions WHERE session_id = ?').run(sessionId); sendJson(res, 200, { found: false }); }
+    catch (error) {
+      // 损坏的会话会被删除：这是数据丢失，必须在终端留痕，不能静默当成「没找到」。
+      console.warn('[local-agent] 文档会话数据损坏，已删除 · session=' + sessionId.slice(0, 40) + ' · ' +
+        (error instanceof Error ? error.message : String(error)));
+      db.prepare('DELETE FROM document_sessions WHERE session_id = ?').run(sessionId);
+      sendJson(res, 200, { found: false });
+    }
     return;
   }
   if (req.method === 'POST' && url.pathname === '/api/documents/session/save') {

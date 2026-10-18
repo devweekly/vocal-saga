@@ -3,6 +3,7 @@ import { parseJsonValue } from '../json.ts';
 import { getTextPool } from './workbuddyPool.ts';
 import { parseTurnUsage, type TurnUsage } from './usage.ts';
 import { codeBuddyThinkingOption, type CodeBuddyTaskProfile } from './taskProfiles.ts';
+import { logWarn } from '../log.ts';
 
 const STRUCTURED_OUTPUT_TOOL = 'StructuredOutput';
 const JSON_MODE_MAX_TURNS = 5;
@@ -64,12 +65,19 @@ async function queryWorkbuddyRaw(
   let structuredOutput: unknown;
   let usage: TurnUsage | null = null;
   let timedOut = false;
-  const timer = setTimeout(() => {
-    timedOut = true;
-    try { Promise.resolve(query.interrupt?.()).catch(() => {}); } catch { /* timeout is handled below */ }
-  }, REQUEST_TIMEOUT_MS);
-  timer.unref();
-  try {
+  // 与池化会话同理：interrupt() 不保证让事件流结束，超时必须由竞速来判定，
+  // 否则 CLI 卡住时这里会永久挂着，调用方（例如全书预处理）永远停在「运行中」。
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeoutPromise = new Promise<never>((_resolve, reject) => {
+    timer = setTimeout(() => {
+      timedOut = true;
+      logWarn('agent', '一次性调用超时 · ' + (REQUEST_TIMEOUT_MS / 1000).toFixed(0) + 's · request=' + String(_requestId).slice(0, 40));
+      try { Promise.resolve(query.interrupt?.()).catch(() => {}); } catch { /* timeout is handled below */ }
+      reject(new Error('Workbuddy 调用超时（' + REQUEST_TIMEOUT_MS + ' ms）'));
+    }, REQUEST_TIMEOUT_MS);
+    timer.unref?.();
+  });
+  const consume = (async () => {
     for await (const message of query) {
       const raw: any = message && typeof message === 'object' ? message : {};
       if (raw.type === 'assistant' && raw.message && Array.isArray(raw.message.content)) {
@@ -87,6 +95,9 @@ async function queryWorkbuddyRaw(
         usage = parseTurnUsage(raw);
       }
     }
+  })();
+  try {
+    await Promise.race([consume, timeoutPromise]);
   } catch (error) {
     if (timedOut) throw new Error('Workbuddy 调用超时（' + REQUEST_TIMEOUT_MS + ' ms）');
     throw new Error('Workbuddy Agent SDK 调用失败：' + (error instanceof Error ? error.message : String(error)));

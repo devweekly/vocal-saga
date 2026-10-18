@@ -110,8 +110,8 @@ export function startLocalAgentServer() {
     });
   });
 
-  app.listen(PORT, HOST, () => {
-    console.log('[local-agent] listening on http://' + HOST + ':' + PORT);
+  const server = app.listen(PORT, HOST, () => {
+    console.log('[local-agent] listening on http://' + HOST + ':' + PORT + ' · pid=' + process.pid);
     console.log('[local-agent] provider default: ' + DEFAULT_PROVIDER);
     // 空模型不会报错，只会让 CLI 静默用账号默认模型（计费且可能不支持 json-schema），
     // 所以启动时把解析结果打出来，并说明没选上的原因与可选项。
@@ -128,7 +128,26 @@ export function startLocalAgentServer() {
     // 仅默认 Provider 为 Workbuddy 时预热会话池，避免 OpenCode 模式启动无用 CLI。
     // 预热只 boot 进程、不调用模型；失败时首单仍可懒创建。测试可设 LOCAL_AGENT_PREWARM=false 关闭。
     if (DEFAULT_PROVIDER === 'workbuddy' && (process.env.LOCAL_AGENT_PREWARM || 'true').trim().toLowerCase() !== 'false') {
-      void getTextPool().prewarm({ provider: 'workbuddy', model: DEFAULT_WORKBUDDY_MODEL }).catch(() => {});
+      void getTextPool().prewarm({ provider: 'workbuddy', model: DEFAULT_WORKBUDDY_MODEL })
+        // 预热失败本身不影响首单（首单会懒创建），但终端要留下原因，
+        // 否则「CLI 起不来」只能靠后面的调用失败去猜。
+        .catch((error) => logWarn('pool', '预热失败（首单将懒创建会话）· ' + summarizeError(error)));
     }
+  });
+
+  /**
+   * 端口冲突必须吵闹地失败。
+   *
+   * 之前重复启动时新进程只会在终端留下几行启动日志，扩展却仍然连到旧实例上，
+   * 于是「我明明起了服务，为什么这个终端的日志一动不动」会反复浪费排查时间。
+   */
+  server.on('error', (error: any) => {
+    if (error?.code === 'EADDRINUSE') {
+      console.error('[local-agent] 端口 ' + PORT + ' 已被占用：另一个 local-agent-service 实例正在运行，本进程退出。'
+        + ' 查看占用进程：lsof -nP -iTCP:' + PORT + ' -sTCP:LISTEN');
+    } else {
+      console.error('[local-agent] 监听 ' + HOST + ':' + PORT + ' 失败：' + (error?.message || String(error)));
+    }
+    process.exit(1);
   });
 }

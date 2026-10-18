@@ -260,7 +260,10 @@ function logWorkflowEvent(runId: string | null, type: string, rawPayload: unknow
         ' · 人物声音 ' + (p.injectedCharacterVoices ?? 0) + ' · 锚点 ' + (p.injectedVoiceAnchors ?? 0);
       break;
     case 'batch.translation.completed':
-      message = '初译候选已保存 ' + batch + ' · ' + (p.candidateCount ?? 0) + ' 段 · 审校' + (p.reviewScheduled ? '已排队' : '未启用');
+      message = '初译候选已保存 ' + batch + ' · ' + (p.candidateCount ?? 0) + ' 段' +
+        (Array.isArray(p.failedIds) && p.failedIds.length ? ' · 失败 ' + p.failedIds.length + ' 段' : '') +
+        ' · 审校' + (p.reviewScheduled ? '已排队' : '未启用');
+      if (Array.isArray(p.failedIds) && p.failedIds.length) level = 'warn';
       break;
     case 'batch.completed':
       message = '批次流程结束 ' + batch + ' · 候选 ' + (p.candidateCount ?? 0) + ' 段 · 失败 ' + (Array.isArray(p.failedIds) ? p.failedIds.length : 0) + ' 段';
@@ -299,6 +302,28 @@ function logWorkflowEvent(runId: string | null, type: string, rawPayload: unknow
     case 'model.call.failed':
       message = '模型调用失败 · ' + traceStage(p.stage) + ' ' + batch + ' · ' + String(p.error || '未知错误').replace(/\s+/g, ' ').slice(0, 240);
       level = 'error';
+      break;
+    case 'batch.discarded':
+      message = '批次被丢弃 ' + batch + ' · ' + String(p.reason || p.error || '未说明原因').replace(/\s+/g, ' ').slice(0, 240);
+      level = 'warn';
+      break;
+    case 'review.audit.failed':
+      message = '审校失败 · ' + traceStage(p.stage) + ' ' + batch + ' · ' +
+        String(p.error || p.reason || '未知错误').replace(/\s+/g, ' ').slice(0, 240) +
+        '（保留初译，不阻塞运行）';
+      level = 'warn';
+      break;
+    case 'review.discarded':
+      message = '审校结果被丢弃 ' + batch + ' · ' + String(p.reason || p.error || '未说明原因').replace(/\s+/g, ' ').slice(0, 240);
+      level = 'warn';
+      break;
+    case 'translation.context-delta.discarded':
+      message = '上下文增量被丢弃 ' + batch + ' · ' + String(p.reason || p.error || '未说明原因').replace(/\s+/g, ' ').slice(0, 240);
+      level = 'warn';
+      break;
+    case 'run.start-discarded':
+      message = '运行未启动即被丢弃 · ' + String(p.reason || '运行已进入终态');
+      level = 'warn';
       break;
     case 'run.failed':
       message = '运行失败 · ' + String(p.error || '未知错误').replace(/\s+/g, ' ').slice(0, 240);
@@ -364,6 +389,14 @@ function logWorkflowEvent(runId: string | null, type: string, rawPayload: unknow
       level = 'error';
       break;
     default:
+      // 兜底：新增的失败类事件类型也必须出现在终端。
+      // 之前只给已知类型写文案，新增事件（如 batch.discarded）会掉进这里被静默丢弃，
+      // 于是「批次没了、Run 却还在跑」这类问题在日志里完全看不出来。
+      if (/(?:failed|discarded|error|timeout)$/i.test(type)) {
+        message = type + ' · ' + String(p.error || p.reason || JSON.stringify(p)).replace(/\s+/g, ' ').slice(0, 240);
+        level = 'warn';
+        break;
+      }
       return;
   }
   if (!message) return;
@@ -1201,8 +1234,15 @@ export class DocumentProjectStore {
    * SQLite event 是 UI 轮询、故障排查和运行追踪的持久化事实来源；console 日志不能替代它。
    */
   appendEvent(projectId: string, runId: string | null, type: string, payload: unknown): void {
-    this.addEvent(projectId, runId, type, payload);
+    // 先打印再落库：SQLite 写入失败时，终端至少还能看到「本应发生什么」。
+    // 反过来先落库的话，一次写盘错误会让整条事件彻底消失，日志里什么都不剩。
     logWorkflowEvent(runId, type, payload);
+    try {
+      this.addEvent(projectId, runId, type, payload);
+    } catch (error) {
+      console.error('[document-agent] 事件写入失败 · ' + type + ' · ' + (error instanceof Error ? error.message : String(error)));
+      throw error;
+    }
   }
 
   /**
