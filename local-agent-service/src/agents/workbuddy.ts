@@ -1,15 +1,10 @@
 import { REQUEST_TIMEOUT_MS, WORK_DIR } from '../config.ts';
 import { parseJsonValue } from '../json.ts';
 import { getTextPool } from './workbuddyPool.ts';
-<<<<<<< HEAD
 import { parseTurnUsage, type TurnUsage } from './usage.ts';
-=======
 import { codeBuddyThinkingOption, type CodeBuddyTaskProfile } from './taskProfiles.ts';
->>>>>>> 0feee1178869920eb5291de8df541df36441d80d
 
-// 原生 structured output 的工具名（CLI 内置，见 SDK 的 StructuredOutputTool 说明）。
 const STRUCTURED_OUTPUT_TOOL = 'StructuredOutput';
-// JSON 模式需要模型先调用 StructuredOutput 工具再结束，轮数必须大于单轮文本模式。
 const JSON_MODE_MAX_TURNS = 5;
 
 export interface WorkbuddyAgent {
@@ -17,18 +12,18 @@ export interface WorkbuddyAgent {
   model: string;
 }
 
-// prompt 组装：系统指令与用户请求拼成单轮文本（池复用与单次 query 共用）。
 export function buildCombinedPrompt(prompt: string, systemPrompt: string): string {
   return [systemPrompt ? 'SYSTEM INSTRUCTIONS:\n' + systemPrompt : '', 'USER REQUEST:\n' + prompt]
     .filter(Boolean).join('\n\n');
 }
 
-// 组装 query() 的 options：纯文本模式禁用全部工具；
-// JSON 模式开启原生 structured output（outputFormat 等官方 SDK 修复透传后生效，
-// 当前实际生效的是 --json-schema 进程参数，由 transport 的 extraArgs 原样拼接）。
+/**
+ * query() exposes the documented Options contract (thinking/effort/fallbackModel).
+ * V2 SessionOptions currently documents a narrower contract, so task profiles use query()
+ * rather than silently passing unsupported fields to unstable_v2_createSession().
+ */
 export function buildWorkbuddyOptions(agent: WorkbuddyAgent, schema?: Record<string, unknown>, taskProfile?: CodeBuddyTaskProfile) {
   const canUseTool = async (toolName: string) => {
-    // StructuredOutput 是被动的数据收口工具，不需审批；其他工具一律拒绝。
     if (schema && toolName === STRUCTURED_OUTPUT_TOOL) return { behavior: 'allow' as const };
     return { behavior: 'deny' as const, message: '本机翻译 Provider 不允许执行工具：' + toolName };
   };
@@ -39,7 +34,6 @@ export function buildWorkbuddyOptions(agent: WorkbuddyAgent, schema?: Record<str
     permissionMode: 'default' as const,
     settingSources: [],
     persistSession: false,
-    // Use documented SDK options rather than CLI-only extraArgs for reasoning behaviour.
     thinking: taskProfile ? codeBuddyThinkingOption(taskProfile) : schema
       ? { type: 'adaptive' as const }
       : { type: 'disabled' as const },
@@ -53,13 +47,10 @@ export function buildWorkbuddyOptions(agent: WorkbuddyAgent, schema?: Record<str
     allowedTools: [STRUCTURED_OUTPUT_TOOL],
     maxTurns: JSON_MODE_MAX_TURNS,
     outputFormat: { type: 'json_schema' as const, schema },
-    // JSON 模式（分析/审校需判断）保持 CLI 默认思考与 effort：这里只追加 json-schema。
     extraArgs: { 'json-schema': JSON.stringify(schema) },
   };
 }
 
-// 执行一次单轮 query，同时收集 assistant 文本与 result.structured_output。
-// structured_output 只有 CLI 真正启用 jsonSchema 时才有，文本始终收集，用作兼容解析。
 async function queryWorkbuddyRaw(
   agent: WorkbuddyAgent,
   prompt: string,
@@ -68,8 +59,7 @@ async function queryWorkbuddyRaw(
   _requestId = 'unknown',
 ): Promise<{ text: string; structuredOutput: unknown; usage: TurnUsage | null }> {
   const sdk = await import('@tencent-ai/agent-sdk');
-  const combinedPrompt = buildCombinedPrompt(prompt, systemPrompt);
-  const query = sdk.query({ prompt: combinedPrompt, options });
+  const query = sdk.query({ prompt: buildCombinedPrompt(prompt, systemPrompt), options });
   let text = '';
   let structuredOutput: unknown;
   let usage: TurnUsage | null = null;
@@ -104,8 +94,6 @@ async function queryWorkbuddyRaw(
     clearTimeout(timer);
   }
   if (timedOut) throw new Error('Workbuddy 调用超时（' + REQUEST_TIMEOUT_MS + ' ms）');
-  // Provider-level TTFT/JSON implementation details are intentionally not printed here.
-  // The workflow trace records task, batch, total duration and output validity once, at the boundary.
   return { text: text.trim(), structuredOutput, usage };
 }
 
@@ -115,31 +103,28 @@ export async function runWorkbuddy(
   systemPrompt: string,
   requestId = 'unknown',
   sessionScope?: string,
-<<<<<<< HEAD
-): Promise<{ text: string; usage: TurnUsage | null }> {
-=======
   taskProfile?: CodeBuddyTaskProfile,
-): Promise<string> {
->>>>>>> 0feee1178869920eb5291de8df541df36441d80d
-  // 普通文本沿用已有池；书籍任务必须传专属 scope，绝不与网页/其他书共用上下文。
+): Promise<{ text: string; usage: TurnUsage | null }> {
+  // Task profiles must go through query() so thinking/effort/fallbackModel are honored.
+  if (taskProfile) {
+    const result = await queryWorkbuddyRaw(agent, prompt, systemPrompt, buildWorkbuddyOptions(agent, undefined, taskProfile), requestId);
+    if (!result.text) throw new Error('Workbuddy 已结束，但没有返回译文');
+    return { text: result.text, usage: result.usage };
+  }
   const pool = getTextPool();
-  const index = await pool.acquire(agent, sessionScope || 'shared-text-translation', undefined, taskProfile);
+  const index = await pool.acquire(agent, sessionScope || 'shared-text-translation');
   try {
-    // 对书籍会话只在新会话的首轮注入稳定 system prompt；后续轮次沿用会话上下文，
-    // 当前章名、实体记忆与译文样例仍由调用方放在当轮 user payload 中。
     const firstMessage = !sessionScope || pool.isFresh(index)
       ? buildCombinedPrompt(prompt, systemPrompt)
       : prompt;
-    const { text, usage } = await pool.runPrompt(index, firstMessage, requestId);
-    if (!text) throw new Error('Workbuddy 已结束，但没有返回译文');
-    return { text, usage };
+    const result = await pool.runPrompt(index, firstMessage, requestId);
+    if (!result.text) throw new Error('Workbuddy 已结束，但没有返回译文');
+    return { text: result.text, usage: result.usage };
   } finally {
     pool.release(index);
   }
 }
 
-// 解析 structured 输出（对象或数组）：优先使用原生的 result.structured_output；
-// 当前 SDK 的 JS 层尚未透传 outputFormat 时回退到从文本提取 JSON。
 export function resolveWorkbuddyStructured(structuredOutput: unknown, text: string): Record<string, any> | any[] {
   if (structuredOutput && typeof structuredOutput === 'object') {
     return structuredOutput as Record<string, any> | any[];
@@ -149,7 +134,6 @@ export function resolveWorkbuddyStructured(structuredOutput: unknown, text: stri
   throw new Error('Workbuddy 返回内容不是有效 JSON');
 }
 
-// 对象专用版本（文学分析/审校）：数组视为形状错误。
 export function resolveWorkbuddyJson(structuredOutput: unknown, text: string): Record<string, any> {
   const parsed = resolveWorkbuddyStructured(structuredOutput, text);
   if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
@@ -158,8 +142,6 @@ export function resolveWorkbuddyJson(structuredOutput: unknown, text: string): R
   throw new Error('Workbuddy 返回内容不是预期 JSON 对象');
 }
 
-// 需要严格 JSON（对象或数组）的调用走这里，返回解析好的值。
-// 用途：重试升级轮——--json-schema 把形状写死做约束解码，逼模型吐完整结构。
 export async function runWorkbuddyStructured(
   agent: WorkbuddyAgent,
   prompt: string,
@@ -167,42 +149,28 @@ export async function runWorkbuddyStructured(
   schema: Record<string, unknown>,
   requestId = 'unknown',
   sessionScope?: string,
-<<<<<<< HEAD
-): Promise<{ parsed: Record<string, any> | any[]; usage: TurnUsage | null }> {
-=======
   taskProfile?: CodeBuddyTaskProfile,
-): Promise<Record<string, any> | any[]> {
->>>>>>> 0feee1178869920eb5291de8df541df36441d80d
-  let text: string;
-  let structuredOutput: unknown;
-  let usage: TurnUsage | null = null;
-  if (sessionScope) {
-    // 文学分析与 Reviewer 也使用会话，但按职责隔离，并使用各自固定的 JSON schema。
+): Promise<{ parsed: Record<string, any> | any[]; usage: TurnUsage | null }> {
+  let result: { text: string; structuredOutput: unknown; usage: TurnUsage | null };
+  if (taskProfile) {
+    // Query Options formally supports reasoning settings; SessionOptions does not expose them.
+    result = await queryWorkbuddyRaw(agent, prompt, systemPrompt, buildWorkbuddyOptions(agent, schema, taskProfile), requestId);
+  } else if (sessionScope) {
     const pool = getTextPool();
-    const index = await pool.acquire(agent, sessionScope, schema, taskProfile);
+    const index = await pool.acquire(agent, sessionScope, schema);
     try {
       const promptForTurn = pool.isFresh(index) ? buildCombinedPrompt(prompt, systemPrompt) : prompt;
-      const result = await pool.runPrompt(index, promptForTurn, requestId);
-      text = result.text;
-      structuredOutput = result.structuredOutput;
-      usage = result.usage;
+      const value = await pool.runPrompt(index, promptForTurn, requestId);
+      result = { text: value.text, structuredOutput: value.structuredOutput, usage: value.usage };
     } finally {
       pool.release(index);
     }
   } else {
-    // 普通 JSON 请求维持一次性 query，避免改变网页/通用调用原有语义。
-    const result = await queryWorkbuddyRaw(agent, prompt, systemPrompt, buildWorkbuddyOptions(agent, schema, taskProfile), requestId);
-    text = result.text;
-    structuredOutput = result.structuredOutput;
-    usage = result.usage;
+    result = await queryWorkbuddyRaw(agent, prompt, systemPrompt, buildWorkbuddyOptions(agent, schema), requestId);
   }
-  const parsed = resolveWorkbuddyStructured(structuredOutput, text);
-  // Keep the native-vs-text parsing decision available to the caller through shape validation.
-  // Printing it for every model call duplicated the useful workflow summary without explaining the task.
-  return { parsed, usage };
+  return { parsed: resolveWorkbuddyStructured(result.structuredOutput, result.text), usage: result.usage };
 }
 
-// 需要严格 JSON 对象的调用走这里，返回解析好的对象而不是文本。
 export async function runWorkbuddyJson(
   agent: WorkbuddyAgent,
   prompt: string,
@@ -210,16 +178,11 @@ export async function runWorkbuddyJson(
   schema: Record<string, unknown>,
   requestId = 'unknown',
   sessionScope?: string,
-<<<<<<< HEAD
-): Promise<{ parsed: Record<string, any>; usage: TurnUsage | null }> {
-  const { parsed, usage } = await runWorkbuddyStructured(agent, prompt, systemPrompt, schema, requestId, sessionScope);
-=======
   taskProfile?: CodeBuddyTaskProfile,
-): Promise<Record<string, any>> {
-  const parsed = await runWorkbuddyStructured(agent, prompt, systemPrompt, schema, requestId, sessionScope, taskProfile);
->>>>>>> 0feee1178869920eb5291de8df541df36441d80d
-  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+): Promise<{ parsed: Record<string, any>; usage: TurnUsage | null }> {
+  const result = await runWorkbuddyStructured(agent, prompt, systemPrompt, schema, requestId, sessionScope, taskProfile);
+  if (!result.parsed || typeof result.parsed !== 'object' || Array.isArray(result.parsed)) {
     throw new Error('Workbuddy 返回内容不是预期 JSON 对象');
   }
-  return { parsed, usage };
+  return { parsed: result.parsed as Record<string, any>, usage: result.usage };
 }
