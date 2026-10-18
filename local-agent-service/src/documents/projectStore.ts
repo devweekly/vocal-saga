@@ -1147,7 +1147,22 @@ export class DocumentProjectStore {
       db.exec('ROLLBACK');
       throw error;
     }
-    this.addEvent(projectId, runId, 'run.planned', { scope: { ...scope, type: scopeType }, promptRevisionId: promptRow.prompt_revision_id, literaryMemoryRevisionId, parentRunId: input.parentRunId || null, plannedSegments: selected.length, sourceRevisionId });
+    this.addEvent(projectId, runId, 'run.planned', {
+      scope: { ...scope, type: scopeType },
+      promptRevisionId: promptRow.prompt_revision_id,
+      literaryMemoryRevisionId,
+      parentRunId: input.parentRunId || null,
+      plannedSegments: selected.length,
+      sourceRevisionId,
+      // Persist the mode actually used by the server. This makes accidental frontend
+      // downgrades to "technical" visible in the Agent trajectory.
+      translationMode: config.translationMode || 'technical',
+      literaryReview: Boolean(config.literaryReview),
+      literaryMemoryCounts: {
+        entities: Array.isArray(currentMemory.memory?.entities) ? currentMemory.memory.entities.length : 0,
+        characterVoices: Array.isArray(currentMemory.memory?.characterVoices) ? currentMemory.memory.characterVoices.length : 0,
+      },
+    });
     this.catalogDb().prepare('UPDATE document_projects SET updated_at = ? WHERE project_id = ?').run(createdAt, projectId);
     return this.getRun(projectId, runId);
   }
