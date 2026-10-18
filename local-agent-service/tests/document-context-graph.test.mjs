@@ -94,9 +94,10 @@ test('retrieval injects matched graph records and excludes future chapter summar
     { id: 'chapter-1-seg-1', text: 'Alice spoke politely to Bob. Ishido stood nearby.', contextPath: 'Chapter 1' },
   ]);
   assert.ok(earlyNameBundle);
-  assert.ok(earlyNameBundle.nameMappings.some((item) =>
-    item.source === 'Ishido' && item.target === '石堂'));
-  // The name mapping is allowed, but later narrative facts and summaries must remain excluded.
+  assert.equal(earlyNameBundle.nameMappings.some((item) =>
+    item.source === 'Ishido' && item.target === '石堂'), false,
+  'a canonical spelling in the current batch cannot validate a target whose only supporting evidence is in a later chapter');
+  // The source-visible name may still be translated naturally; an unverified graph target is not enforced.
   assert.ok(!JSON.stringify(earlyNameBundle).includes('military governor'));
   assert.ok(!JSON.stringify(earlyNameBundle).includes('secret passage'));
   assert.ok(!JSON.stringify(earlyNameBundle).includes('Queen Ash'));
