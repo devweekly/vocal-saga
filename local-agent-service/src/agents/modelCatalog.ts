@@ -124,3 +124,20 @@ export function pickPreferredWorkbuddyModel(catalog: readonly CatalogModel[]): s
   if (!target || target.credits !== 0) return null;
   return target.id;
 }
+
+/**
+ * 把「显式配置」与「目录挑选」合成最终的默认模型。
+ *
+ * `auto` 必须当成「没配置」：扩展侧默认就发 model: "auto"，用户也习惯这么写。
+ * 若把它原样当成模型 id，下游 parseAgentModel 会把 'auto' 归一成空串，
+ * 于是 CLI 拿不到 --model，静默回退到账号默认模型（计费、且未必支持 json-schema），
+ * 表面上一切正常，实际每次调用都在用错模型。空值同理。
+ */
+export function resolveWorkbuddyModel(
+  explicit: string | undefined,
+  catalog: readonly CatalogModel[],
+): string {
+  const value = (explicit || '').trim();
+  if (value && value.toLowerCase() !== 'auto') return value;
+  return pickPreferredWorkbuddyModel(catalog) || '';
+}

@@ -16,6 +16,7 @@ import {
   parseCredits,
   pickPreferredWorkbuddyModel,
   readModelCatalog,
+  resolveWorkbuddyModel,
   PREFERRED_WORKBUDDY_MODEL,
 } from '../src/agents/modelCatalog.ts';
 
@@ -68,6 +69,36 @@ test('费率未标注（null）不能被当成免费', () => {
 
 test('目标模型不在目录里时不切换', () => {
   assert.equal(pickPreferredWorkbuddyModel([{ id: 'gpt-5.4', credits: 1.65 }]), null);
+});
+
+/**
+ * 回归背景：`LOCAL_WORKBUDDY_MODEL=auto`（扩展默认发送的取值）曾被当成真实模型 id，
+ * 下游 parseAgentModel 再把它归一成空串，CLI 因此拿不到 --model，
+ * 静默回退到账号默认模型 hy4-preview —— 计费，且不保证支持 json-schema。
+ */
+test('显式配置写成 auto 时按「没配置」处理，走目录挑选', () => {
+  const catalog = [
+    { id: 'gpt-5.4', credits: 1.65 },
+    { id: PREFERRED_WORKBUDDY_MODEL, credits: 0 },
+  ];
+  assert.equal(resolveWorkbuddyModel('auto', catalog), PREFERRED_WORKBUDDY_MODEL);
+  assert.equal(resolveWorkbuddyModel('  AUTO  ', catalog), PREFERRED_WORKBUDDY_MODEL);
+  assert.equal(resolveWorkbuddyModel('', catalog), PREFERRED_WORKBUDDY_MODEL);
+  assert.equal(resolveWorkbuddyModel(undefined, catalog), PREFERRED_WORKBUDDY_MODEL);
+});
+
+test('显式配置了真实模型时不覆盖', () => {
+  const catalog = [
+    { id: 'gpt-5.4', credits: 1.65 },
+    { id: PREFERRED_WORKBUDDY_MODEL, credits: 0 },
+  ];
+  assert.equal(resolveWorkbuddyModel('gpt-5.4', catalog), 'gpt-5.4');
+});
+
+test('auto 且目录不可用时留空，交给 CLI 默认模型', () => {
+  assert.equal(resolveWorkbuddyModel('auto', []), '');
+  // 目录不完整（没有 gpt-*）同样不猜
+  assert.equal(resolveWorkbuddyModel('auto', [{ id: PREFERRED_WORKBUDDY_MODEL, credits: 0 }]), '');
 });
 
 test('readModelCatalog 优先读 ACC_PRODUCT_CONFIG_PATH', async () => {

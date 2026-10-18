@@ -81,6 +81,9 @@ export function startLocalAgentServer() {
   app.listen(PORT, HOST, () => {
     console.log('[local-agent] listening on http://' + HOST + ':' + PORT);
     console.log('[local-agent] provider default: ' + DEFAULT_PROVIDER);
+    // 空模型不会报错，只会让 CLI 静默用账号默认模型（计费且可能不支持 json-schema），
+    // 所以启动时把解析结果打出来，避免「以为在用免费模型，其实没有」。
+    console.log('[local-agent] workbuddy model: ' + (DEFAULT_WORKBUDDY_MODEL || '<CLI 默认模型>'));
     console.log('[local-agent] SQLite: ' + DATABASE_PATH);
     console.log('[local-agent] prompt/translation content storage: ' + String(STORE_CONTENT));
     // 仅默认 Provider 为 Workbuddy 时预热会话池，避免 OpenCode 模式启动无用 CLI。

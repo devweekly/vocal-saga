@@ -7,7 +7,7 @@
 import path from 'node:path';
 import { homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
-import { pickPreferredWorkbuddyModel, readModelCatalog } from './agents/modelCatalog.ts';
+import { readModelCatalog, resolveWorkbuddyModel } from './agents/modelCatalog.ts';
 
 export const HOST = (process.env.LOCAL_AGENT_HOST || '127.0.0.1').trim();
 export const PORT = Number.parseInt(process.env.LOCAL_AGENT_PORT || '8789', 10);
@@ -34,10 +34,10 @@ export const ALLOWED_HOSTS = (process.env.LOCAL_AGENT_ALLOWED_HOSTS || '')
   .filter(Boolean);
 
 export const DEFAULT_PROVIDER = (process.env.LOCAL_AGENT_PROVIDER || 'workbuddy').toLowerCase();
-// 显式配置优先；没配时从 CodeBuddy 模型目录里挑「确认免费」的 deepseek-v4.1-flash。
+// 显式配置优先；没配（或写成 auto）时从 CodeBuddy 模型目录里挑「确认免费」的 deepseek-v4.1-flash。
 // 目录读不到或条件不满足就留空，交给 CLI 运行时默认模型 —— 不猜、不硬编码。
 const explicitWorkbuddyModel = (process.env.LOCAL_WORKBUDDY_MODEL || process.env.WORKBUDDY_MODEL || process.env.CODEBUDDY_DEFAULT_MODEL || '').trim();
-export const DEFAULT_WORKBUDDY_MODEL = explicitWorkbuddyModel || pickPreferredWorkbuddyModel(readModelCatalog()) || '';
+export const DEFAULT_WORKBUDDY_MODEL = resolveWorkbuddyModel(explicitWorkbuddyModel, readModelCatalog());
 export const DEFAULT_OPENCODE_MODEL = (process.env.LOCAL_OPENCODE_MODEL || process.env.OPENCODE_MODEL || '').trim();
 
 /** Parse optional integer settings without allowing malformed .env values to poison runtime timers/SQL. */
