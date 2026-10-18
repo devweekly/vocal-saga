@@ -798,12 +798,40 @@ async function runAnalysis(projectId: string, runId: string): Promise<void> {
 
     const identities = nameMap(persistedNodes);
     const savedEdges = new Set<string>();
+    const relationshipDiagnostics = {
+      processedCount: 0,
+      droppedMissingEndpoint: 0,
+      droppedSelfLink: 0,
+      droppedNoValidEvidence: 0,
+    };
+    const resolveRelationshipEndpoint = (value: unknown): string | undefined => {
+      const name = safeText(value, 120);
+      if (!name) return undefined;
+      const normalized = normalize(name);
+      const direct = identities.get(normalized);
+      if (direct) return direct;
+      // Models sometimes use an article ("the King") where the graph node is stored as "King".
+      // Apply only this conservative English-article normalization after exact lookup fails.
+      const withoutArticle = normalized.replace(/^(the|a|an)\s+/, '');
+      return withoutArticle !== normalized ? identities.get(withoutArticle) : undefined;
+    };
     for (const raw of (Array.isArray(data.relationships) ? data.relationships : []).slice(0, 100)) {
-      const fromId = identities.get(normalize(raw?.from));
-      const toId = identities.get(normalize(raw?.to));
-      if (!fromId || !toId || fromId === toId) continue;
+      relationshipDiagnostics.processedCount++;
+      const fromId = resolveRelationshipEndpoint(raw?.from);
+      const toId = resolveRelationshipEndpoint(raw?.to);
+      if (!fromId || !toId) {
+        relationshipDiagnostics.droppedMissingEndpoint++;
+        continue;
+      }
+      if (fromId === toId) {
+        relationshipDiagnostics.droppedSelfLink++;
+        continue;
+      }
       const evidence = evidenceFromModel(raw.evidence, 'relationship');
-      if (!evidence.length) continue;
+      if (!evidence.length) {
+        relationshipDiagnostics.droppedNoValidEvidence++;
+        continue;
+      }
       const edge = saveEdge(db, revisionId, fromId, toId, safeText(raw.kind, 80) || 'relationship', {
         description: safeText(raw.description, 500), voiceRule: safeText(raw.voiceRule, 500), evidenceCount: evidence.length,
       }, evidence);
@@ -877,6 +905,7 @@ async function runAnalysis(projectId: string, runId: string): Promise<void> {
         characters: persistedNodes.filter((node) => node.kind === 'character').length,
         entities: persistedNodes.filter((node) => node.kind === 'entity').length,
         relationships: savedEdges.size,
+        relationshipDiagnostics: { ...relationshipDiagnostics, persistedEdges: savedEdges.size },
         characterCandidatesDroppedForEvidence: characterAudits.filter((audit) => audit.disposition === 'dropped-no-valid-evidence').length,
         entityCandidatesDroppedForEvidence: entityAudits.filter((audit) => audit.disposition === 'dropped-no-valid-evidence').length,
       },
@@ -898,6 +927,7 @@ async function runAnalysis(projectId: string, runId: string): Promise<void> {
         characterCount: persistedNodes.filter((node) => node.kind === 'character').length,
         entityCount: persistedNodes.filter((node) => node.kind === 'entity').length,
         relationshipCount: savedEdges.size,
+        relationshipDiagnostics: { ...relationshipDiagnostics, persistedEdges: savedEdges.size },
         canonicalNameMappingCount: persistedNodes.filter((node) => {
           const row = db.prepare('SELECT attributes_json FROM context_graph_nodes WHERE node_id = ?').get(node.id) as { attributes_json?: string } | undefined;
           try { return !!safeText(JSON.parse(row?.attributes_json || '{}').suggestedTranslation, 120); } catch { return false; }
