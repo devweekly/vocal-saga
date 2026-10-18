@@ -613,6 +613,42 @@ function graphAnalysisPrompt(projectTitle: string, format: string, sourceLang: s
   ].join('\n\n');
 }
 
+
+/** Build an example from the same runtime prompt builder so the UI can show its actual input shape. */
+export function getDefaultContextGraphUserPromptTemplate(): string {
+  const chapterPath = '{{CHAPTER_PATH}}';
+  const segment: Segment = {
+    id: '{{SEGMENT_ID}}',
+    ordinal: 1,
+    text: '{{SOURCE_TEXT}}',
+    kind: 'dialogue',
+    contextPath: chapterPath,
+  };
+  const emptyScan = {
+    chapterCount: 1,
+    dialogueSegmentCount: 1,
+    indexDiagnostics: {
+      entityMentionCount: 0, entityMentionsTruncated: false,
+      textUnitCount: 1, textUnitsTruncated: false,
+      quantityMentionCount: 0, quantityMentionsTruncated: false,
+    },
+    nameCandidates: [],
+    entityMentions: [],
+    repeatedPhrases: [],
+    quantityMentions: [],
+  } as unknown as BookScanResult;
+  return graphAnalysisPrompt(
+    '{{PROJECT_TITLE}}',
+    '{{DOCUMENT_FORMAT}}',
+    '{{SOURCE_LANGUAGE}}',
+    '{{TARGET_LANGUAGE}}',
+    [segment],
+    [{ key: chapterPath, title: '{{CHAPTER_TITLE}}', order: 1, segments: [segment] }],
+    emptyScan,
+    new Map([[segment.id, ['{{SAMPLE_REASON}}']]]),
+  );
+}
+
 /**
  * 执行一次全书文学预分析：确定性扫描/抽样 -> 结构化模型分析 -> 逐项验证原文证据 -> 事务落库。
  * 模型只负责提出候选；只有引用指向本次样本且 quote 能在对应 source segment 中验证时，
