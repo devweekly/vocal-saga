@@ -713,6 +713,8 @@ test('an unconfirmed whole-book target is not injected just because the canonica
   assert.equal(brief.contextGraph.nameMappings.some((item) =>
     item.source === 'The King' && item.target === '海盗女王'), false,
   'source-name evidence cannot validate a target inferred from a future identity reveal');
+  assert.ok(brief.contextDiagnostics.graphNameMappingExcludedTargetNotPreviouslyAccepted >= 1,
+    'trajectory diagnostics should explain that the candidate target lacked earlier accepted translation evidence');
 });
 
 test('accepted examples are retrieved by relevance only from the same source revision before the batch', () => {
