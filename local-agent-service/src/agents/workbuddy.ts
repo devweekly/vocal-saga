@@ -1,6 +1,7 @@
 import { REQUEST_TIMEOUT_MS, WORK_DIR } from '../config.ts';
 import { parseJsonValue } from '../json.ts';
 import { getTextPool } from './workbuddyPool.ts';
+import { codeBuddyThinkingOption, type CodeBuddyTaskProfile } from './taskProfiles.ts';
 
 // 原生 structured output 的工具名（CLI 内置，见 SDK 的 StructuredOutputTool 说明）。
 const STRUCTURED_OUTPUT_TOOL = 'StructuredOutput';
@@ -21,7 +22,7 @@ export function buildCombinedPrompt(prompt: string, systemPrompt: string): strin
 // 组装 query() 的 options：纯文本模式禁用全部工具；
 // JSON 模式开启原生 structured output（outputFormat 等官方 SDK 修复透传后生效，
 // 当前实际生效的是 --json-schema 进程参数，由 transport 的 extraArgs 原样拼接）。
-export function buildWorkbuddyOptions(agent: WorkbuddyAgent, schema?: Record<string, unknown>) {
+export function buildWorkbuddyOptions(agent: WorkbuddyAgent, schema?: Record<string, unknown>, taskProfile?: CodeBuddyTaskProfile) {
   const canUseTool = async (toolName: string) => {
     // StructuredOutput 是被动的数据收口工具，不需审批；其他工具一律拒绝。
     if (schema && toolName === STRUCTURED_OUTPUT_TOOL) return { behavior: 'allow' as const };
@@ -29,15 +30,16 @@ export function buildWorkbuddyOptions(agent: WorkbuddyAgent, schema?: Record<str
   };
   const base = {
     ...(agent.model ? { model: agent.model } : {}),
+    ...(taskProfile?.fallbackModel ? { fallbackModel: taskProfile.fallbackModel } : {}),
     cwd: WORK_DIR,
     permissionMode: 'default' as const,
     settingSources: [],
     persistSession: false,
-    // 翻译是机械任务：关思考（CLI alwaysThinkingEnabled=false），推理深度 floor 到 minimal。
-    // effort 经 extraArgs 直传 --effort（transport 只在 thinking 未关闭时才拼它）；
-    // CLI 若在思考关闭时忽略 effort 也无害——思考关本身已去掉 reasoning 开销。
-    thinking: { type: 'disabled' as const },
-    extraArgs: { effort: 'minimal' },
+    // Use documented SDK options rather than CLI-only extraArgs for reasoning behaviour.
+    thinking: taskProfile ? codeBuddyThinkingOption(taskProfile) : schema
+      ? { type: 'adaptive' as const }
+      : { type: 'disabled' as const },
+    effort: taskProfile?.effort || (schema ? 'medium' as const : 'low' as const),
     canUseTool,
   };
   if (!schema) return { ...base, tools: [], allowedTools: [], maxTurns: 1 };
@@ -107,10 +109,11 @@ export async function runWorkbuddy(
   systemPrompt: string,
   requestId = 'unknown',
   sessionScope?: string,
+  taskProfile?: CodeBuddyTaskProfile,
 ): Promise<string> {
   // 普通文本沿用已有池；书籍任务必须传专属 scope，绝不与网页/其他书共用上下文。
   const pool = getTextPool();
-  const index = await pool.acquire(agent, sessionScope || 'shared-text-translation');
+  const index = await pool.acquire(agent, sessionScope || 'shared-text-translation', undefined, taskProfile);
   try {
     // 对书籍会话只在新会话的首轮注入稳定 system prompt；后续轮次沿用会话上下文，
     // 当前章名、实体记忆与译文样例仍由调用方放在当轮 user payload 中。
@@ -154,13 +157,14 @@ export async function runWorkbuddyStructured(
   schema: Record<string, unknown>,
   requestId = 'unknown',
   sessionScope?: string,
+  taskProfile?: CodeBuddyTaskProfile,
 ): Promise<Record<string, any> | any[]> {
   let text: string;
   let structuredOutput: unknown;
   if (sessionScope) {
     // 文学分析与 Reviewer 也使用会话，但按职责隔离，并使用各自固定的 JSON schema。
     const pool = getTextPool();
-    const index = await pool.acquire(agent, sessionScope, schema);
+    const index = await pool.acquire(agent, sessionScope, schema, taskProfile);
     try {
       const promptForTurn = pool.isFresh(index) ? buildCombinedPrompt(prompt, systemPrompt) : prompt;
       const result = await pool.runPrompt(index, promptForTurn, requestId);
@@ -171,7 +175,7 @@ export async function runWorkbuddyStructured(
     }
   } else {
     // 普通 JSON 请求维持一次性 query，避免改变网页/通用调用原有语义。
-    const result = await queryWorkbuddyRaw(agent, prompt, systemPrompt, buildWorkbuddyOptions(agent, schema), requestId);
+    const result = await queryWorkbuddyRaw(agent, prompt, systemPrompt, buildWorkbuddyOptions(agent, schema, taskProfile), requestId);
     text = result.text;
     structuredOutput = result.structuredOutput;
   }
@@ -189,8 +193,9 @@ export async function runWorkbuddyJson(
   schema: Record<string, unknown>,
   requestId = 'unknown',
   sessionScope?: string,
+  taskProfile?: CodeBuddyTaskProfile,
 ): Promise<Record<string, any>> {
-  const parsed = await runWorkbuddyStructured(agent, prompt, systemPrompt, schema, requestId, sessionScope);
+  const parsed = await runWorkbuddyStructured(agent, prompt, systemPrompt, schema, requestId, sessionScope, taskProfile);
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
     throw new Error('Workbuddy 返回内容不是预期 JSON 对象');
   }
