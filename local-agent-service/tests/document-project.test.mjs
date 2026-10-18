@@ -528,6 +528,24 @@ test('literary preprocessing readiness guard also rejects stale-running preproce
 });
 
 
+test('new literary runs fail closed when full-book preprocessing has not run', async () => {
+  await withStore((store) => {
+    const project = store.createProject({
+      title: 'Missing Literary Preprocessing',
+      format: 'epub',
+      sourceFileName: 'missing-literary-preprocessing.epub',
+      segments,
+      prompt: { translationMode: 'literary', sourceLang: 'en', targetLang: 'zh' },
+    });
+
+    assert.throws(
+      () => store.createRun(project.projectId, { scope: { type: 'all' } }),
+      /文学翻译的全书预处理尚未运行|当前原文版本还没有 Context Graph 预处理记录/,
+    );
+  });
+});
+
+
 test('legacy imported literary translations remain visible but are stale under the current enforcement pipeline', async () => {
   await withStore((store) => {
     const project = store.createProject({
