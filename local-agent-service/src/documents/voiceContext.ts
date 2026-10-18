@@ -78,9 +78,24 @@ function mergeProjectEntityRecord(prior: Record<string, any>, candidate: Record<
           other.segmentId === item.segmentId && normalizeEntityName(other.sourceQuote) === normalizeEntityName(item.sourceQuote)) === index)
         .slice(0, 8)
     : [];
+  const sameTarget = normalizeEntityName(String(prior.target || '')) === normalizeEntityName(String(candidate.target || ''));
+  const targetEvidenceRefs = sameTarget
+    ? [...(Array.isArray(prior.targetEvidenceRefs) ? prior.targetEvidenceRefs : []),
+        ...(Array.isArray(candidate.targetEvidenceRefs) ? candidate.targetEvidenceRefs : [])]
+        .filter((item, index, all) => all.findIndex((other) =>
+          other.segmentId === item.segmentId && normalizeEntityName(other.targetSurface) === normalizeEntityName(item.targetSurface)) === index)
+        .slice(-8)
+    : (Array.isArray(prior.targetEvidenceRefs) ? prior.targetEvidenceRefs : []);
+  const targetEvidenceCount = new Set(targetEvidenceRefs
+    .filter((item: any) => normalizeEntityName(String(item?.targetSurface || '')) === normalizeEntityName(String(prior.target || '')))
+    .map((item: any) => String(item?.segmentId || '')).filter(Boolean)).size;
   return {
     ...prior,
     aliases: Array.from(aliases.values()).slice(0, 8),
+    targetEvidenceRefs,
+    targetConfidence: prior.reviewStatus === 'confirmed' ? 'confirmed' :
+      (prior.targetConfidence === 'corroborated' || candidate.targetConfidence === 'corroborated') &&
+      targetEvidenceCount >= 2 ? 'corroborated' : 'candidate',
     ...(evidenceRefs.length ? { evidenceRefs } : {}),
     ...(prior.reviewStatus !== 'confirmed' && candidate.reviewStatus === 'confirmed' &&
         normalizeEntityName(prior.target) === normalizeEntityName(candidate.target)
