@@ -55,8 +55,20 @@ export function addCors(req: Request, res: Response): boolean {
   return true;
 }
 
+/** 从 Host 头取出主机名：去端口、去 IPv6 方括号、转小写。 */
+export function requestHostname(req: Request): string {
+  const hostHeader = String(req.headers.host || '').trim().toLowerCase();
+  if (hostHeader.startsWith('[')) return hostHeader.slice(1, hostHeader.indexOf(']'));
+  return hostHeader.replace(/:\d+$/, '');
+}
+
 export function authorize(req: Request): boolean {
-  if (!LOCAL_TOKEN) return true;
+  // 本机（loopback）请求不要求 token：默认配置即可用，扩展和 CLI 不需要额外设置。
+  // 安全性由另外两层保证：CORS 只放行浏览器扩展来源；Host 白名单挡住 DNS rebinding。
+  if (isLoopbackHost(requestHostname(req))) return true;
+  // 非 loopback 只可能来自隧道或反向代理，必须有 token 且匹配。
+  // 注意顺序：先判 loopback 再判 token 是否为空，否则未设 token 时公网会直接放行。
+  if (!LOCAL_TOKEN) return false;
   const header = req.headers.authorization || '';
   const supplied = header.startsWith('Bearer ') ? header.slice(7) : '';
   const expectedBytes = Buffer.from(LOCAL_TOKEN);

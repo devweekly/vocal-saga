@@ -11,7 +11,7 @@ import {
   ALLOWED_HOSTS, LOCAL_TOKEN,
 } from './config.ts';
 import { initDatabase } from './db.ts';
-import { sendJson, addCors, isAllowedHost, assertExposureIsSafe } from './middleware.ts';
+import { sendJson, addCors, isAllowedHost, assertExposureIsSafe, requestHostname } from './middleware.ts';
 import { handleRequest } from './routes.ts';
 import { getTextPool } from './agents/workbuddyPool.ts';
 import { getDocumentProjectStore } from './documents/projectStore.ts';
@@ -41,10 +41,7 @@ export function startLocalAgentServer() {
       sendJson(res, 403, { error: '本机服务不接受普通网页来源；请从浏览器扩展或本机命令行调用' });
       return;
     }
-    const hostHeader = String(req.headers.host || '').trim().toLowerCase();
-    const hostname = hostHeader.startsWith('[')
-      ? hostHeader.slice(1, hostHeader.indexOf(']'))
-      : hostHeader.replace(/:\d+$/, '');
+    const hostname = requestHostname(req);
     if (!isAllowedHost(hostname, ALLOWED_HOSTS)) {
       sendJson(res, 403, { error: '此服务只允许通过 localhost/127.0.0.1 或已配置的隧道域名访问' });
       return;

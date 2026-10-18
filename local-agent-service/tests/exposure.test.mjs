@@ -153,7 +153,7 @@ async function startService(extraEnv) {
   };
 }
 
-test('隧道域名 + 正确 token 可访问，缺 token 401，非白名单域名 403', async () => {
+test('隧道域名 + 正确 token 可访问，缺 token 401，非白名单域名 403，loopback 免 token', async () => {
   const svc = await startService({
     LOCAL_AGENT_ALLOWED_HOSTS: 'local.example.com',
     LOCAL_AGENT_TOKEN: 'test-token-123',
@@ -170,9 +170,17 @@ test('隧道域名 + 正确 token 可访问，缺 token 401，非白名单域名
     const wrongHost = await call(svc.port, { host: 'evil.example.net', token: 'test-token-123' });
     assert.equal(wrongHost.status, 403, '非白名单域名必须 403：' + wrongHost.body.slice(0, 200));
 
-    // 本机路径不受影响：扩展/CLI 仍走 loopback
-    const loopback = await call(svc.port, { token: 'test-token-123' });
-    assert.equal(loopback.status, 200, 'loopback 仍应可用：' + loopback.body.slice(0, 200));
+    // 本机 loopback 不要求 token：扩展/CLI 默认配置即可用，不需要额外填写。
+    const loopbackNoToken = await call(svc.port, {});
+    assert.equal(
+      loopbackNoToken.status,
+      200,
+      'loopback 无 token 必须可用（token 只约束非本机访问）：' + loopbackNoToken.body.slice(0, 200),
+    );
+
+    // 服务端设了 token 也不影响 loopback —— 否则扩展不填 token 就用不了。
+    const loopbackWrongToken = await call(svc.port, { token: 'wrong-token' });
+    assert.equal(loopbackWrongToken.status, 200, 'loopback 不校验 token：' + loopbackWrongToken.body.slice(0, 200));
   } finally {
     await svc.stop();
   }
