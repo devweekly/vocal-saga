@@ -43,7 +43,7 @@ test('TranslationBrief is revision-pinned, bounded and hashes the source selecti
   assert.equal(first.memoryRevisionId, run.literaryMemoryRevisionId);
   assert.deepEqual(first.sourceSegmentIds, ['c1-1']);
   assert.equal(first.chapterPath, 'Chapter 1');
-  assert.equal(first.policyVersion, 'translation-brief-v4-temporal-glossary-boundary');
+  assert.equal(first.policyVersion, 'translation-brief-v5-evidence-ranked-context');
   assert.ok(first.contextChars <= MAX_TRANSLATION_BRIEF_CHARS);
   assert.match(first.contextHash, /^[a-f0-9]{64}$/);
   assert.notEqual(first.contextHash, second.contextHash, 'context identity changes when source IDs and preceding context change');
@@ -53,7 +53,7 @@ test('TranslationBrief is revision-pinned, bounded and hashes the source selecti
   assert.equal(snapshots.length, 1);
   assert.equal(snapshots[0].contextHash, first.contextHash);
   assert.deepEqual(snapshots[0].sourceSegmentIds, ['c1-1']);
-  assert.equal(snapshots[0].brief.policyVersion, 'translation-brief-v4-temporal-glossary-boundary');
+  assert.equal(snapshots[0].brief.policyVersion, 'translation-brief-v5-evidence-ranked-context');
 
   const configuredContext = {
     ...context,
@@ -288,7 +288,7 @@ test('both reviewer focuses consume the same bounded TranslationBrief glossary a
     glossary: { document_terms: [{ source: 'Mara Voss', target: '玛拉·沃斯' }] },
     precedingSegments: [{ id: 'prior-1', text: 'Mara Voss entered the archive.', contextPath: 'Chapter 1' }],
     contextGraph: {
-      policyVersion: 'context-graph-v2-temporal',
+      policyVersion: 'context-graph-v3-temporal-target-evidence',
       knowledgeBoundaryOrdinal: 12,
       characters: [{ name: 'Mara Voss', voice: ['measured'] }],
       entities: [],
@@ -296,7 +296,7 @@ test('both reviewer focuses consume the same bounded TranslationBrief glossary a
       chapterSummaries: [{ chapter: 'Chapter 1', summary: 'Mara entered the archive.' }],
     },
     voiceContext: {
-      policyVersion: 'character-voice-v3',
+      policyVersion: 'character-voice-v4-dialogue-participants',
       characterVoices: [{ canonicalSourceName: 'Mara Voss', voiceCore: { register: 'measured' } }],
       relationshipVoiceRules: [],
       voiceAnchors: [],
