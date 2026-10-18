@@ -244,19 +244,28 @@ function buildTemporallyVisibleMemory(
   const currentTokens = sourceTokens(currentExampleSource);
   const currentKinds = new Set(items.map((item) => String(item.kind || '')).filter(Boolean));
   const currentChapters = new Set(items.map((item) => String(item.contextPath || '')).filter(Boolean));
+  const visibleReferenceNames = [
+    ...(Array.isArray(rawMemory.entities) ? rawMemory.entities.flatMap((entity: any) =>
+      [entity?.source, ...(Array.isArray(entity?.aliases) ? entity.aliases : [])]) : []),
+    ...(Array.isArray(rawMemory.characterVoices) ? rawMemory.characterVoices.flatMap((profile: any) =>
+      [profile?.canonicalSourceName, ...(Array.isArray(profile?.aliases) ? profile.aliases : [])]) : []),
+  ].filter((name: unknown) => typeof name === 'string' && appearedBefore(name));
   const scoredExamples = acceptedExampleRows.map((row) => {
     const tokens = sourceTokens(row.source);
     const shared = Array.from(tokens).filter((token) => currentTokens.has(token)).length;
     const overlap = shared / Math.max(1, Math.min(currentTokens.size, 12));
     const exactPhrase = normalizedSourceText(row.source).length >= 12 &&
       normalizedSourceText(currentExampleSource).includes(normalizedSourceText(row.source)) ? 1 : 0;
+    const sharedNamedEntity = visibleReferenceNames.some((name: unknown) =>
+      sourceNameMatches(currentExampleSource, name) && sourceNameMatches(row.source, name)) ? 1 : 0;
     const sameChapter = currentChapters.has(String(row.chapter || '')) ? 0.8 : 0;
     const sameKind = currentKinds.has(String(row.kind || '')) ? 0.25 : 0;
     const manual = row.origin === 'manual' ? 1.2 : 0;
     const recency = 0.5 / (1 + Math.max(0, firstOrdinal - Number(row.ordinal)) / 40);
-    const score = overlap * 6 + Math.min(shared, 3) * 0.15 + exactPhrase * 2 + sameChapter + sameKind + manual + recency;
-    return { ...row, score, shared, exactPhrase };
-  }).filter((row) => row.shared >= 2 || row.exactPhrase > 0)
+    const score = overlap * 6 + Math.min(shared, 3) * 0.15 + exactPhrase * 2 +
+      sharedNamedEntity * 3.2 + sameChapter + sameKind + manual + recency;
+    return { ...row, score, shared, exactPhrase, sharedNamedEntity };
+  }).filter((row) => row.shared >= 2 || row.exactPhrase > 0 || row.sharedNamedEntity > 0)
     .sort((a, b) => b.score - a.score || Number(b.origin === 'manual') - Number(a.origin === 'manual') ||
       Number(b.ordinal) - Number(a.ordinal));
   const retrievedExamples = scoredExamples.slice(0, 4).map((row) => ({
