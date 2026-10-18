@@ -7,7 +7,7 @@ import { buildProjectVoiceContext } from './voiceContext.ts';
 import { buildProjectContextGraphBundle } from './contextGraph.ts';
 import { getDocumentProjectStore, normalizeDocumentTranslationStrategy } from './projectStore.ts';
 
-export const TRANSLATION_BRIEF_POLICY_VERSION = 'translation-brief-v4-temporal-glossary-boundary';
+export const TRANSLATION_BRIEF_POLICY_VERSION = 'translation-brief-v5-evidence-ranked-context';
 export const MAX_TRANSLATION_BRIEF_CHARS = 18_000;
 
 export interface BriefSegment {
@@ -645,7 +645,7 @@ export function buildTranslationBrief(
     // source-evidenced LiteraryMemory. The previous null result skipped that entire merge path,
     // so confirmed names silently disappeared from the actual translation request.
     graph = {
-      policyVersion: 'context-graph-v5-language-pinned',
+      policyVersion: 'context-graph-v6-target-evidence-guard',
       knowledgeBoundaryOrdinal: null,
       currentChapter: chapterPath,
       chapterSummaries: [],
@@ -773,7 +773,7 @@ export function buildTranslationBrief(
   // Keep only per-batch, evidence-bounded characters/entities/relationships and chapter prefix summaries.
   if (graph) {
     graph.styleGuide = { narrativeStyle: '', rules: [] };
-    graph.policyVersion = 'context-graph-v2-temporal';
+    graph.policyVersion = 'context-graph-v3-temporal-target-evidence';
   }
   // Graph chapter order is derived from source segment order and therefore is the canonical
   // boundary. Do not use memory-only summaries when chapter matching could be ambiguous.
