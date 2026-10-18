@@ -40,7 +40,7 @@ test('parseCredits 覆盖三种真实形态', () => {
   assert.equal(parseCredits('1.5'), 1.5);
 });
 
-test('目录完整且目标免费时选中 deepseek-v4.1-flash', () => {
+test('目录里有免费的目标模型时选中 deepseek-v4.1-flash', () => {
   const catalog = [
     { id: 'gpt-6-astra', credits: 6.67 },
     { id: 'gpt-5.4', credits: 1.65 },
@@ -49,13 +49,42 @@ test('目录完整且目标免费时选中 deepseek-v4.1-flash', () => {
   assert.equal(pickPreferredWorkbuddyModel(catalog), PREFERRED_WORKBUDDY_MODEL);
 });
 
-test('目录里没有 gpt-* 时视为不完整，不切换', () => {
-  // 只有目标模型，无法证明拿到的是完整目录
-  assert.equal(pickPreferredWorkbuddyModel([{ id: PREFERRED_WORKBUDDY_MODEL, credits: 0 }]), null);
-  assert.equal(pickPreferredWorkbuddyModel([]), null);
+test('没有 gpt-* 也照常选：厂商下线不该让完整目录被判成残缺', () => {
+  // 2026-10-18 的真实目录：33 个模型，gpt-* 一个都没有
+  const catalog = [
+    { id: 'default', credits: 2 },
+    { id: PREFERRED_WORKBUDDY_MODEL, credits: 0 },
+    { id: 'hy3', credits: 0 },
+  ];
+  assert.equal(pickPreferredWorkbuddyModel(catalog), PREFERRED_WORKBUDDY_MODEL);
 });
 
-test('目标模型费率非 0 时不切换', () => {
+test('目标模型不再免费时退到 hy3', () => {
+  const catalog = [
+    { id: PREFERRED_WORKBUDDY_MODEL, credits: 0.11 },
+    { id: 'hy3', credits: 0 },
+    { id: 'step-5-preview', credits: 0 },
+  ];
+  assert.equal(pickPreferredWorkbuddyModel(catalog), 'hy3');
+});
+
+test('偏好表都没命中时取目录里第一个免费模型', () => {
+  const catalog = [
+    { id: 'glm-5.3', credits: 0.79 },
+    { id: 'some-new-model', credits: 0 },
+  ];
+  assert.equal(pickPreferredWorkbuddyModel(catalog), 'some-new-model');
+});
+
+test('一个 credits=0 的模型都没有时返回 null', () => {
+  const catalog = [
+    { id: 'gpt-5.4', credits: 1.65 },
+    { id: PREFERRED_WORKBUDDY_MODEL, credits: 0.11 },
+  ];
+  assert.equal(pickPreferredWorkbuddyModel(catalog), null);
+});
+
+test('费率非 0 的目标模型不会被选中', () => {
   const catalog = [
     { id: 'gpt-5.4', credits: 1.65 },
     { id: PREFERRED_WORKBUDDY_MODEL, credits: 0.03 },
@@ -71,8 +100,8 @@ test('费率未标注（null）不能被当成免费', () => {
   assert.equal(pickPreferredWorkbuddyModel(catalog), null);
 });
 
-test('目标模型不在目录里时不切换', () => {
-  assert.equal(pickPreferredWorkbuddyModel([{ id: 'gpt-5.4', credits: 1.65 }]), null);
+test('空目录不猜模型', () => {
+  assert.equal(pickPreferredWorkbuddyModel([]), null);
 });
 
 /**
@@ -101,8 +130,8 @@ test('显式配置了真实模型时不覆盖', () => {
 
 test('auto 且目录不可用时留空，交给 CLI 默认模型', () => {
   assert.equal(resolveWorkbuddyModel('auto', []), '');
-  // 目录不完整（没有 gpt-*）同样不猜
-  assert.equal(resolveWorkbuddyModel('auto', [{ id: PREFERRED_WORKBUDDY_MODEL, credits: 0 }]), '');
+  // 目录读到了，但没有任何确认免费的模型：同样不猜
+  assert.equal(resolveWorkbuddyModel('auto', [{ id: PREFERRED_WORKBUDDY_MODEL, credits: 0.11 }]), '');
 });
 
 test('readModelCatalog 优先读 ACC_PRODUCT_CONFIG_PATH', async () => {

@@ -84,9 +84,11 @@ test('workbuddy 文本模式禁用工具，JSON 模式开启原生 structured ou
   assert.deepEqual(text.allowedTools, []);
   assert.equal(text.maxTurns, 1);
   assert.equal(text.outputFormat, undefined);
-  // 翻译任务关思考、推理深度 floor 到 minimal（经 extraArgs 直传 --effort）。
+  // 翻译任务关思考、推理深度压到 low。
+  // effort 现在是 SDK 的一级选项（transport 直接拼 --effort），不再经 extraArgs 传。
   assert.deepEqual(text.thinking, { type: 'disabled' });
-  assert.deepEqual(text.extraArgs, { effort: 'minimal' });
+  assert.equal(text.effort, 'low');
+  assert.equal(text.extraArgs, undefined);
 
   const schema = { type: 'object', properties: { a: { type: 'string' } }, required: ['a'] };
   const json = buildWorkbuddyOptions({ provider: 'workbuddy', model: '' }, schema);
