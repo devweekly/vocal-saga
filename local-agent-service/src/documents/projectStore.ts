@@ -1374,6 +1374,37 @@ export class DocumentProjectStore {
     return (this.catalogDb().prepare(sql).all() as any[]).map((row) => this.summaryFromCatalog(row));
   }
 
+  /**
+   * Resolve a parsed document to an existing durable project without trusting the extension's
+   * local project map. An exact source fingerprint is safe to hydrate; a same-name/title match
+   * is only a change candidate and must not receive the new document's old translations.
+   */
+  resolveProjectForSource(input: CreateProjectInput): {
+    exactProject: ProjectSummary | null;
+    relatedProject: ProjectSummary | null;
+  } {
+    const segments = validateSegments(input.segments);
+    const format = normalizeFormat(input.format);
+    const title = (input.title || input.sourceFileName || '').trim().toLocaleLowerCase();
+    const fileName = (input.sourceFileName || input.title || '').trim().toLocaleLowerCase();
+    const fingerprint = sourceFingerprint(segments);
+    const projects = this.listProjects().filter((project) => project.format === format);
+    const score = (project: ProjectSummary) =>
+      (project.sourceFileName.trim().toLocaleLowerCase() === fileName ? 4 : 0) +
+      (project.title.trim().toLocaleLowerCase() === title ? 2 : 0);
+    const newestFirst = (a: ProjectSummary, b: ProjectSummary) =>
+      score(b) - score(a) || b.updatedAt.localeCompare(a.updatedAt);
+    const exactProject = projects
+      .filter((project) => project.sourceFingerprint === fingerprint)
+      .sort(newestFirst)[0] || null;
+    const relatedProject = exactProject ? null : projects
+      .filter((project) =>
+        project.sourceFileName.trim().toLocaleLowerCase() === fileName ||
+        project.title.trim().toLocaleLowerCase() === title)
+      .sort(newestFirst)[0] || null;
+    return { exactProject, relatedProject };
+  }
+
   getProject(projectId: string): ProjectSummary | null {
     const row = this.catalogDb().prepare('SELECT * FROM document_projects WHERE project_id = ? AND archived = 0').get(projectId) as any;
     if (!row) return null;
