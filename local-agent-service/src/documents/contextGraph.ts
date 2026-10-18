@@ -1369,6 +1369,10 @@ export function buildProjectContextGraphBundle(
     'FROM translation_results tr JOIN source_segments s ' +
       'ON s.source_revision_id = tr.source_revision_id AND s.segment_id = tr.segment_id ' +
     'WHERE tr.source_revision_id = ? AND tr.accepted = 1 AND tr.source_hash = s.source_hash AND s.ordinal < ? ' +
+      'AND tr.rowid = (SELECT latest.rowid FROM translation_results latest ' +
+        'WHERE latest.source_revision_id = s.source_revision_id AND latest.segment_id = s.segment_id ' +
+          'AND latest.accepted = 1 AND latest.source_hash = s.source_hash ' +
+        'ORDER BY COALESCE(latest.accepted_at, latest.created_at) DESC, latest.created_at DESC, latest.rowid DESC LIMIT 1) ' +
     'ORDER BY s.ordinal DESC'
   ).all(revisionId, firstOrdinal) as Array<{ segmentId: string; source: string; ordinal: number; target: string }>;
   const graphNameRows = db.prepare(
