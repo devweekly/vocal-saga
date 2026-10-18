@@ -1374,34 +1374,61 @@ export function buildProjectContextGraphBundle(
   const graphNameRows = db.prepare(
     `SELECT * FROM context_graph_nodes WHERE source_revision_id = ? AND status IN ('candidate', 'confirmed') ORDER BY kind, name`
   ).all(revisionId) as any[];
+  const nameMappingDiagnostics = {
+    graphNameMappingCandidates: graphNameRows.length,
+    graphNameMappingExcludedNameNotVisible: 0,
+    graphNameMappingExcludedAliasBoundary: 0,
+    graphNameMappingExcludedEvidenceNotVisible: 0,
+    graphNameMappingExcludedTargetNotPreviouslyAccepted: 0,
+    graphNameMappingExcludedTargetLanguage: 0,
+  };
   const nameMappings = graphNameRows.flatMap((row) => {
     // A model-generated alias alone cannot reveal a canonical identity whose formal name first
     // appears later. Only expose generated graph mappings when the canonical source name itself
     // is visible in the current or preceding source.
-    if (!appearsInContext(row.name)) return [];
+    if (!appearsInContext(row.name)) {
+      nameMappingDiagnostics.graphNameMappingExcludedNameNotVisible++;
+      return [];
+    }
     let attributes: any = {};
     try { attributes = JSON.parse(row.attributes_json); } catch { attributes = {}; }
     const target = safeText(attributes.suggestedTranslation, 120);
-    if (!target || (targetLang && attributes.targetLang !== targetLang)) return [];
+    if (!target) {
+      nameMappingDiagnostics.graphNameMappingExcludedEvidenceNotVisible++;
+      return [];
+    }
+    if (targetLang && attributes.targetLang !== targetLang) {
+      nameMappingDiagnostics.graphNameMappingExcludedTargetLanguage++;
+      return [];
+    }
     const visibleEvidence = db.prepare(
       'SELECT e.quote, e.segment_id AS segmentId, s.ordinal FROM context_graph_evidence e ' +
       'JOIN source_segments s ON s.source_revision_id = e.source_revision_id AND s.segment_id = e.segment_id ' +
       'WHERE e.source_revision_id = ? AND e.node_id = ? AND s.ordinal <= ? ORDER BY s.ordinal'
     ).all(revisionId, row.node_id, knowledgeBoundary) as Array<{ quote: string; segmentId: string; ordinal: number }>;
-    if (!visibleEvidence.some((evidence) => quoteMentions(evidence.quote, row.name))) return [];
+    if (!visibleEvidence.some((evidence) => quoteMentions(evidence.quote, row.name))) {
+      nameMappingDiagnostics.graphNameMappingExcludedEvidenceNotVisible++;
+      return [];
+    }
     if (row.status !== 'confirmed') {
       const targetWasPreviouslyUsed = priorAcceptedTranslations.some((entry) =>
         quoteMentions(entry.source, row.name) && normalize(entry.target).includes(normalize(target)));
       // Omit an unconfirmed full-book target until an earlier accepted translation independently
       // demonstrates that this target was already used for the source name. Do not reveal a
       // future identity through a mapping merely because the canonical name appeared earlier.
-      if (!targetWasPreviouslyUsed) return [];
+      if (!targetWasPreviouslyUsed) {
+        nameMappingDiagnostics.graphNameMappingExcludedTargetNotPreviouslyAccepted++;
+        return [];
+      }
     }
     const allAliases = uniqueStrings(attributes.aliases, 12, 100)
       .filter((alias) => normalize(alias) !== normalize(row.name));
     // Do not leak aliases that appear only in later chapters. An alias visible in the current
     // batch is already part of the source being translated and must not suppress the mapping.
-    if (allAliases.some((alias) => !appearedBefore(alias) && !appearsInContext(alias))) return [];
+    if (allAliases.some((alias) => !appearedBefore(alias) && !appearsInContext(alias))) {
+      nameMappingDiagnostics.graphNameMappingExcludedAliasBoundary++;
+      return [];
+    }
     const aliases = allAliases.filter((alias) => appearedBefore(alias) || appearsInContext(alias));
     return [{
       source: safeText(row.name, 120),
@@ -1419,6 +1446,7 @@ export function buildProjectContextGraphBundle(
     policyVersion: 'context-graph-v6-target-evidence-guard',
     knowledgeBoundaryOrdinal: knowledgeBoundary,
     nameMappings,
+    retrievalDiagnostics: nameMappingDiagnostics,
     styleGuide: {
       narrativeStyle: safeText(getMeta(db, revisionId, 'narrativeStyle'), 1000),
       rules: uniqueStrings(getMeta(db, revisionId, 'styleRules'), 12, 180),
@@ -1440,5 +1468,6 @@ export function buildProjectContextGraphBundle(
   while (JSON.stringify(result).length > 8500 && (result.entities as any[]).length > 2) (result.entities as any[]).pop();
   while (JSON.stringify(result).length > 8500 && (result.chapterSummaries as any[]).length > 1) (result.chapterSummaries as any[]).shift();
   while (JSON.stringify(result).length > 8500 && (result.relationships as any[]).length > 0) (result.relationships as any[]).pop();
-  return selectedNodes.length || (result.nameMappings as any[]).length || chapterSummaries.length || normalize(result.styleGuide.narrativeStyle) ? result : null;
+  return selectedNodes.length || (result.nameMappings as any[]).length || chapterSummaries.length ||
+    graphNameRows.length || normalize(result.styleGuide.narrativeStyle) ? result : null;
 }
