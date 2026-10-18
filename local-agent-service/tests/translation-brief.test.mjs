@@ -668,3 +668,193 @@ test('a cancelled Run cannot persist a late TranslationBrief snapshot', () => {
   assert.deepEqual(store.listTranslationBriefSnapshots(project.projectId, run.runId), [],
     'the audit log must not claim that a brief was committed after the Run was cancelled');
 });
+
+
+test('an unconfirmed whole-book target is not injected just because the canonical name appeared earlier', () => {
+  const store = getDocumentProjectStore();
+  const project = store.createProject({
+    title: 'Do not leak graph target',
+    format: 'txt',
+    sourceFileName: 'graph-target-boundary.txt',
+    prompt: { translationMode: 'literary', sourceLang: 'en', targetLang: 'zh' },
+    segments: [
+      { id: 'king-prior', text: 'The King watched Max from the doorway.', kind: 'paragraph', contextPath: 'Chapter 1' },
+      { id: 'king-reveal', text: 'The King was secretly the Pirate Queen.', kind: 'paragraph', contextPath: 'Chapter 8' },
+      { id: 'king-current', text: 'The King entered the room again.', kind: 'paragraph', contextPath: 'Chapter 9' },
+    ],
+  });
+  store.saveManualEdit(project.projectId, 'king-prior', '国王从门口注视着麦克斯。');
+  ensureTestContextGraph(store, project);
+  const { db, currentSourceRevisionId } = store.getProjectContext(project.projectId);
+  buildProjectContextGraphBundle(project.projectId, [
+    { id: 'king-current', text: 'The King entered the room again.', contextPath: 'Chapter 9' },
+  ], [], currentSourceRevisionId, 'zh');
+  const now = new Date().toISOString();
+  db.prepare(
+    'INSERT INTO context_graph_nodes(node_id, source_revision_id, kind, name, normalized_name, attributes_json, status, created_at, updated_at) ' +
+    'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
+  ).run(
+    'graph-king-spoiler', currentSourceRevisionId, 'character', 'The King', 'the king',
+    JSON.stringify({ suggestedTranslation: '海盗女王', aliases: [], targetLang: 'zh' }),
+    'candidate', now, now,
+  );
+  db.prepare(
+    'INSERT INTO context_graph_evidence(source_revision_id, node_id, edge_id, segment_id, quote, role, created_at) ' +
+    'VALUES (?, ?, NULL, ?, ?, ?, ?)'
+  ).run(
+    currentSourceRevisionId, 'graph-king-spoiler', 'king-prior',
+    'The King watched Max from the doorway.', 'name', now,
+  );
+  const run = store.createRun(project.projectId, { scope: { type: 'ids', ids: ['king-current'] } });
+  const context = store.getRunContext(project.projectId, run.runId);
+  const source = store.getSegments(project.projectId, { limit: 20 }).find((item) => item.id === 'king-current');
+  const brief = buildTranslationBrief(context, [source], []);
+
+  assert.equal(brief.contextGraph.nameMappings.some((item) =>
+    item.source === 'The King' && item.target === '海盗女王'), false,
+  'source-name evidence cannot validate a target inferred from a future identity reveal');
+});
+
+test('accepted examples are retrieved by relevance only from the same source revision before the batch', () => {
+  const store = getDocumentProjectStore();
+  const project = store.createProject({
+    title: 'Accepted example retrieval',
+    format: 'txt',
+    sourceFileName: 'accepted-example-retrieval.txt',
+    prompt: { translationMode: 'literary', sourceLang: 'en', targetLang: 'zh' },
+    segments: [
+      { id: 'example-prior', text: 'Mara Voss watched the western lamp burning beside the silver door.', kind: 'paragraph', contextPath: 'Chapter 1' },
+      { id: 'example-current', text: 'Mara Voss noticed the western lamp burning beside the silver door again.', kind: 'paragraph', contextPath: 'Chapter 2' },
+      { id: 'example-future', text: 'Mara Voss was secretly the Queen of Ash.', kind: 'paragraph', contextPath: 'Chapter 8' },
+    ],
+  });
+  store.saveManualEdit(project.projectId, 'example-prior', '玛拉·沃斯看着银门旁的西侧灯火燃烧。');
+  store.saveManualEdit(project.projectId, 'example-future', '玛拉·沃斯其实是灰烬女王。');
+  store.saveLiteraryMemory(project.projectId, {
+    entities: [], relationships: [], styleGuide: {}, chapterSummaries: [],
+    recentExamples: [{
+      source: 'Mara Voss was secretly the Queen of Ash.',
+      target: '玛拉·沃斯其实是灰烬女王。',
+      chapter: 'Chapter 8',
+    }],
+    characterVoices: [], relationshipVoiceRules: [], voiceAnchors: [],
+  });
+  ensureTestContextGraph(store, project);
+  const run = store.createRun(project.projectId, { scope: { type: 'ids', ids: ['example-current'] } });
+  const context = store.getRunContext(project.projectId, run.runId);
+  const source = store.getSegments(project.projectId, { limit: 20 }).find((item) => item.id === 'example-current');
+  const brief = buildTranslationBrief(context, [source], []);
+
+  assert.ok(brief.voiceContext.recentExamples.some((item) =>
+    item.segmentId === 'example-prior' && item.origin === 'manual' &&
+    item.source.includes('western lamp') && item.target.includes('西侧灯火')),
+  'a prior accepted human translation with strong lexical overlap should be injected');
+  assert.equal(brief.voiceContext.recentExamples.some((item) =>
+    item.segmentId === 'example-future' || item.source.includes('Queen of Ash') || item.target.includes('灰烬女王')), false,
+  'later accepted translations and unscoped book-level examples must not enter an earlier brief');
+  assert.equal(brief.contextDiagnostics.selectedAcceptedExamples, brief.voiceContext.recentExamples.length);
+});
+
+test('voice retrieval can select an evidence-backed dialogue participant when current lines use only pronouns', () => {
+  const store = getDocumentProjectStore();
+  const project = store.createProject({
+    title: 'Dialogue participant retrieval',
+    format: 'txt',
+    sourceFileName: 'dialogue-participant.txt',
+    prompt: {
+      translationMode: 'literary',
+      sourceLang: 'en',
+      targetLang: 'zh',
+      translationStrategy: { precedingContextSegments: 1 },
+    },
+    segments: [
+      { id: 'dialogue-name', text: 'Iven was waiting at the platform.', kind: 'paragraph', contextPath: 'Chapter 1' },
+      { id: 'dialogue-anchor', text: 'The train is already gone, she said.', kind: 'dialogue', contextPath: 'Chapter 1' },
+      { id: 'dialogue-current', text: 'Then what do we do?', kind: 'dialogue', contextPath: 'Chapter 1' },
+    ],
+  });
+  store.saveLiteraryMemory(project.projectId, {
+    entities: [], relationships: [], styleGuide: {}, chapterSummaries: [], recentExamples: [],
+    characterVoices: [{
+      characterId: 'iven',
+      canonicalSourceName: 'Iven',
+      targetName: '伊文',
+      aliases: [],
+      status: 'confirmed',
+      voiceCore: { register: 'Measured and restrained' },
+      evidence: [{
+        segmentId: 'dialogue-name',
+        sourceQuote: 'Iven was waiting at the platform.',
+        observation: 'Uses restrained, measured phrasing',
+        dimension: 'register',
+      }],
+      contrastRules: [],
+      openQuestions: [],
+    }],
+    relationshipVoiceRules: [],
+    voiceAnchors: [{
+      anchorId: 'approved-iven-anchor',
+      speakerId: 'iven',
+      source: 'The train is already gone',
+      target: '火车已经开走了',
+      chapter: 'Chapter 1',
+      segmentId: 'dialogue-anchor',
+      attributionEvidence: 'Speaker attribution was reviewed against the preceding scene.',
+      attributionConfidence: 0.95,
+      status: 'approved',
+    }],
+  });
+  ensureTestContextGraph(store, project);
+  const run = store.createRun(project.projectId, { scope: { type: 'ids', ids: ['dialogue-current'] } });
+  const context = store.getRunContext(project.projectId, run.runId);
+  const source = store.getSegments(project.projectId, { limit: 20 }).find((item) => item.id === 'dialogue-current');
+  const preceding = store.getPrecedingSegments(project.projectId, run.runId, 'dialogue-current', 1);
+  const brief = buildTranslationBrief(context, [source], preceding);
+
+  assert.equal(brief.precedingSegments.length, 1);
+  assert.equal(brief.voiceContext.characterVoices.some((profile) => profile.characterId === 'iven'), true,
+    'the profile can be retrieved through a source-linked approved speaker anchor despite no name in the current dialogue');
+  assert.equal(brief.voiceContext.dialogueParticipants.some((participant) =>
+    participant.characterId === 'iven' && participant.role === 'speaker' &&
+    participant.evidenceSegmentId === 'dialogue-anchor'), true);
+});
+
+test('source occurrence lookup normalizes apostrophes and dash variants before temporal filtering', () => {
+  const store = getDocumentProjectStore();
+  const project = store.createProject({
+    title: 'Normalized source evidence',
+    format: 'txt',
+    sourceFileName: 'normalized-source-evidence.txt',
+    prompt: { translationMode: 'literary', sourceLang: 'en', targetLang: 'zh' },
+    segments: [
+      { id: 'normalized-prior', text: 'O’Connor carried the blue–green box across the street.', kind: 'paragraph', contextPath: 'Chapter 1' },
+      { id: 'normalized-current', text: "He followed O'Connor with the blue-green box.", kind: 'paragraph', contextPath: 'Chapter 1' },
+    ],
+  });
+  ensureTestContextGraph(store, project);
+  store.saveLiteraryMemory(project.projectId, {
+    entities: [{
+      source: "O'Connor",
+      target: '奥康纳',
+      aliases: [],
+      kind: 'person',
+      reviewStatus: 'suggested',
+      evidence: 'O’Connor carried the blue–green box across the street.',
+      evidenceRefs: [{
+        segmentId: 'normalized-prior',
+        sourceQuote: 'O’Connor carried the blue–green box across the street.',
+      }],
+    }],
+    relationships: [], styleGuide: {}, chapterSummaries: [], recentExamples: [],
+    characterVoices: [], relationshipVoiceRules: [], voiceAnchors: [],
+  });
+  const run = store.createRun(project.projectId, { scope: { type: 'ids', ids: ['normalized-current'] } });
+  const context = store.getRunContext(project.projectId, run.runId);
+  const source = store.getSegments(project.projectId, { limit: 20 }).find((item) => item.id === 'normalized-current');
+  const brief = buildTranslationBrief(context, [source], []);
+
+  assert.equal(brief.contextGraph.nameMappings.some((mapping) =>
+    mapping.source === "O'Connor" && mapping.target === '奥康纳'), true,
+  'normalized source lookup should validate prior evidence despite punctuation variants');
+  assert.equal(brief.contextDiagnostics.memoryEntityExcludedByBoundary, 0);
+});
