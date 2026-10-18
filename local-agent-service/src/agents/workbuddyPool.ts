@@ -65,7 +65,7 @@ export class WorkbuddySessionPool {
     scopeKey = 'shared-text-translation',
     schema?: Record<string, unknown>,
   ): Promise<number> {
-    // Shared text requests only reuse sessions when their CodeBuddy task settings also match.
+    // Shared text requests reuse a bounded slot; tasks needing explicit thinking/effort use query() instead.
     if (scopeKey === 'shared-text-translation' && !schema) return this.acquireSharedTextSlot(agent);
 
     const schemaKey = schema ? JSON.stringify(schema) : '';
