@@ -1,6 +1,7 @@
 import { runOpenCode } from './opencode.ts';
 import { runWorkbuddy, runWorkbuddyJson, runWorkbuddyStructured } from './workbuddy.ts';
 import { parseJsonValue } from '../json.ts';
+import { applyCodeBuddyTaskPrompt, type CodeBuddyTaskProfile } from './taskProfiles.ts';
 
 type AgentSpec = { provider: string; model: string };
 
@@ -80,18 +81,23 @@ export async function runAgent(
   systemPrompt: string,
   requestId = 'unknown',
   sessionScope?: string,
+  taskProfile?: CodeBuddyTaskProfile,
 ): Promise<string> {
   const startedAt = Date.now();
-  logModelStart(agent, prompt, systemPrompt, requestId, sessionScope, '文本');
+  const effective = taskProfile ? applyCodeBuddyTaskPrompt(prompt, systemPrompt, taskProfile) : { prompt, systemPrompt };
+  const effectiveAgent = agent.provider === 'workbuddy' && taskProfile?.model
+    ? { ...agent, model: taskProfile.model }
+    : agent;
+  logModelStart(effectiveAgent, effective.prompt, effective.systemPrompt, requestId, sessionScope, '文本');
   try {
     let output: string;
-    if (agent.provider === 'workbuddy') output = await runWorkbuddy(agent, prompt, systemPrompt, requestId, sessionScope);
-    else if (agent.provider === 'opencode') output = await runOpenCode(agent, prompt, systemPrompt);
-    else throw new Error('不支持的本机 Agent：' + agent.provider);
-    logModelSuccess(agent, output, requestId, sessionScope, startedAt, '文本');
+    if (effectiveAgent.provider === 'workbuddy') output = await runWorkbuddy(effectiveAgent, effective.prompt, effective.systemPrompt, requestId, sessionScope, taskProfile);
+    else if (effectiveAgent.provider === 'opencode') output = await runOpenCode(effectiveAgent, effective.prompt, effective.systemPrompt);
+    else throw new Error('不支持的本机 Agent：' + effectiveAgent.provider);
+    logModelSuccess(effectiveAgent, output, requestId, sessionScope, startedAt, '文本');
     return output;
   } catch (error) {
-    logModelFailure(agent, error, requestId, sessionScope, startedAt, '文本');
+    logModelFailure(effectiveAgent, error, requestId, sessionScope, startedAt, '文本');
     throw error;
   }
 }
@@ -104,25 +110,30 @@ export async function runAgentJson(
   schema: Record<string, unknown>,
   requestId = 'unknown',
   sessionScope?: string,
+  taskProfile?: CodeBuddyTaskProfile,
 ): Promise<Record<string, any>> {
   const startedAt = Date.now();
-  logModelStart(agent, prompt, systemPrompt, requestId, sessionScope, 'JSON 对象');
+  const effective = taskProfile ? applyCodeBuddyTaskPrompt(prompt, systemPrompt, taskProfile) : { prompt, systemPrompt };
+  const effectiveAgent = agent.provider === 'workbuddy' && taskProfile?.model
+    ? { ...agent, model: taskProfile.model }
+    : agent;
+  logModelStart(effectiveAgent, effective.prompt, effective.systemPrompt, requestId, sessionScope, 'JSON 对象');
   try {
     let parsed: Record<string, any>;
-    if (agent.provider === 'workbuddy') {
-      parsed = await runWorkbuddyJson(agent, prompt, systemPrompt, schema, requestId, sessionScope);
-    } else if (agent.provider === 'opencode') {
-      const output = await runOpenCode(agent, prompt, systemPrompt);
+    if (effectiveAgent.provider === 'workbuddy') {
+      parsed = await runWorkbuddyJson(effectiveAgent, effective.prompt, effective.systemPrompt, schema, requestId, sessionScope, taskProfile);
+    } else if (effectiveAgent.provider === 'opencode') {
+      const output = await runOpenCode(effectiveAgent, effective.prompt, effective.systemPrompt);
       const value = parseJsonValue(output);
       if (!value || Array.isArray(value)) throw new Error('OpenCode 返回内容不是预期 JSON 对象');
       parsed = value as Record<string, any>;
     } else {
       throw new Error('不支持的本机 Agent：' + agent.provider);
     }
-    logModelSuccess(agent, parsed, requestId, sessionScope, startedAt, 'JSON 对象');
+    logModelSuccess(effectiveAgent, parsed, requestId, sessionScope, startedAt, 'JSON 对象');
     return parsed;
   } catch (error) {
-    logModelFailure(agent, error, requestId, sessionScope, startedAt, 'JSON 对象');
+    logModelFailure(effectiveAgent, error, requestId, sessionScope, startedAt, 'JSON 对象');
     throw error;
   }
 }
@@ -135,25 +146,30 @@ export async function runAgentStructured(
   schema: Record<string, unknown>,
   requestId = 'unknown',
   sessionScope?: string,
+  taskProfile?: CodeBuddyTaskProfile,
 ): Promise<Record<string, any> | any[]> {
   const startedAt = Date.now();
-  logModelStart(agent, prompt, systemPrompt, requestId, sessionScope, '结构化 JSON');
+  const effective = taskProfile ? applyCodeBuddyTaskPrompt(prompt, systemPrompt, taskProfile) : { prompt, systemPrompt };
+  const effectiveAgent = agent.provider === 'workbuddy' && taskProfile?.model
+    ? { ...agent, model: taskProfile.model }
+    : agent;
+  logModelStart(effectiveAgent, effective.prompt, effective.systemPrompt, requestId, sessionScope, '结构化 JSON');
   try {
     let result: Record<string, any> | any[];
-    if (agent.provider === 'workbuddy') {
-      result = await runWorkbuddyStructured(agent, prompt, systemPrompt, schema, requestId, sessionScope);
-    } else if (agent.provider === 'opencode') {
-      const output = await runOpenCode(agent, prompt, systemPrompt);
+    if (effectiveAgent.provider === 'workbuddy') {
+      result = await runWorkbuddyStructured(effectiveAgent, effective.prompt, effective.systemPrompt, schema, requestId, sessionScope, taskProfile);
+    } else if (effectiveAgent.provider === 'opencode') {
+      const output = await runOpenCode(effectiveAgent, effective.prompt, effective.systemPrompt);
       const value = parseJsonValue(output);
       if (value === null) throw new Error('OpenCode 返回内容不是有效 JSON');
       result = value;
     } else {
       throw new Error('不支持的本机 Agent：' + agent.provider);
     }
-    logModelSuccess(agent, result, requestId, sessionScope, startedAt, '结构化 JSON');
+    logModelSuccess(effectiveAgent, result, requestId, sessionScope, startedAt, '结构化 JSON');
     return result;
   } catch (error) {
-    logModelFailure(agent, error, requestId, sessionScope, startedAt, '结构化 JSON');
+    logModelFailure(effectiveAgent, error, requestId, sessionScope, startedAt, '结构化 JSON');
     throw error;
   }
 }
