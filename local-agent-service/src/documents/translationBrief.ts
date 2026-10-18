@@ -870,6 +870,25 @@ export function buildTranslationBrief(
     contextChars: 0,
     contextHash: '',
   };
+  const budgetBaseline = {
+    graphNameMappings: Array.isArray((brief.contextGraph as any)?.nameMappings) ? (brief.contextGraph as any).nameMappings.length : 0,
+    strongNameMappings: Array.isArray((brief.contextGraph as any)?.nameMappings)
+      ? (brief.contextGraph as any).nameMappings.filter((mapping: any) =>
+          ['confirmed', 'confirmed-memory', 'auto'].includes(String(mapping.sourceStatus))).length : 0,
+    graphCharacters: Array.isArray((brief.contextGraph as any)?.characters) ? (brief.contextGraph as any).characters.length : 0,
+    graphEntities: Array.isArray((brief.contextGraph as any)?.entities) ? (brief.contextGraph as any).entities.length : 0,
+    graphRelationships: Array.isArray((brief.contextGraph as any)?.relationships) ? (brief.contextGraph as any).relationships.length : 0,
+    voiceEntities: Array.isArray((brief.voiceContext as any)?.entities) ? (brief.voiceContext as any).entities.length : 0,
+    voiceRelationships: Array.isArray((brief.voiceContext as any)?.relationships) ? (brief.voiceContext as any).relationships.length : 0,
+    characterVoices: Array.isArray((brief.voiceContext as any)?.characterVoices) ? (brief.voiceContext as any).characterVoices.length : 0,
+    relationshipVoiceRules: Array.isArray((brief.voiceContext as any)?.relationshipVoiceRules) ? (brief.voiceContext as any).relationshipVoiceRules.length : 0,
+    voiceAnchors: Array.isArray((brief.voiceContext as any)?.voiceAnchors) ? (brief.voiceContext as any).voiceAnchors.length : 0,
+    recentExamples: Array.isArray((brief.voiceContext as any)?.recentExamples) ? (brief.voiceContext as any).recentExamples.length : 0,
+    dialogueParticipants: Array.isArray((brief.voiceContext as any)?.dialogueParticipants) ? (brief.voiceContext as any).dialogueParticipants.length : 0,
+    chapterSummaries: Array.isArray((brief.voiceContext as any)?.chapterSummaries) ? (brief.voiceContext as any).chapterSummaries.length : 0,
+    precedingSegments: brief.precedingSegments.length,
+    glossaryTerms: Array.isArray((brief.glossary as any)?.document_terms) ? (brief.glossary as any).document_terms.length : 0,
+  };
   let serialized = serializedContext(brief);
   while (serialized.length > maxBriefChars && removeLowestPriorityContext(brief)) {
     (brief.contextDiagnostics as any).budgetTrimCount =
@@ -913,6 +932,35 @@ export function buildTranslationBrief(
   if (serialized.length > maxBriefChars) {
     throw Object.assign(new Error('TranslationBrief 超过当前上下文预算（' + maxBriefChars + ' 字符），已拒绝发送不受限上下文。'), { status: 413 });
   }
+  const finalGraph = brief.contextGraph as any;
+  const finalVoice = brief.voiceContext as any;
+  const finalMappings = Array.isArray(finalGraph?.nameMappings) ? finalGraph.nameMappings : [];
+  const finalCount = (value: unknown) => Array.isArray(value) ? value.length : 0;
+  const diagnostic = brief.contextDiagnostics as any;
+  diagnostic.graphNameMappingsAfterBudget = finalMappings.length;
+  diagnostic.graphNameMappingsTrimmedByBudget = Math.max(0, budgetBaseline.graphNameMappings - finalMappings.length);
+  diagnostic.strongNameMappingsAfterBudget = finalMappings.filter((mapping: any) =>
+    ['confirmed', 'confirmed-memory', 'auto'].includes(String(mapping.sourceStatus))).length;
+  diagnostic.strongNameMappingsTrimmedByBudget = Math.max(0,
+    budgetBaseline.strongNameMappings - diagnostic.strongNameMappingsAfterBudget);
+  diagnostic.graphCharactersTrimmedByBudget = Math.max(0, budgetBaseline.graphCharacters - finalCount(finalGraph?.characters));
+  diagnostic.graphEntitiesTrimmedByBudget = Math.max(0, budgetBaseline.graphEntities - finalCount(finalGraph?.entities));
+  diagnostic.graphRelationshipsTrimmedByBudget = Math.max(0, budgetBaseline.graphRelationships - finalCount(finalGraph?.relationships));
+  diagnostic.voiceEntitiesTrimmedByBudget = Math.max(0, budgetBaseline.voiceEntities - finalCount(finalVoice?.entities));
+  diagnostic.voiceRelationshipsTrimmedByBudget = Math.max(0, budgetBaseline.voiceRelationships - finalCount(finalVoice?.relationships));
+  diagnostic.characterVoicesTrimmedByBudget = Math.max(0, budgetBaseline.characterVoices - finalCount(finalVoice?.characterVoices));
+  diagnostic.relationshipVoiceRulesTrimmedByBudget = Math.max(0, budgetBaseline.relationshipVoiceRules - finalCount(finalVoice?.relationshipVoiceRules));
+  diagnostic.voiceAnchorsTrimmedByBudget = Math.max(0, budgetBaseline.voiceAnchors - finalCount(finalVoice?.voiceAnchors));
+  diagnostic.acceptedExamplesAfterBudget = finalCount(finalVoice?.recentExamples);
+  diagnostic.acceptedExamplesTrimmedByBudget = Math.max(0, budgetBaseline.recentExamples - diagnostic.acceptedExamplesAfterBudget);
+  diagnostic.dialogueParticipantsAfterBudget = finalCount(finalVoice?.dialogueParticipants);
+  diagnostic.dialogueParticipantsTrimmedByBudget = Math.max(0, budgetBaseline.dialogueParticipants - diagnostic.dialogueParticipantsAfterBudget);
+  diagnostic.chapterSummariesTrimmedByBudget = Math.max(0, budgetBaseline.chapterSummaries - finalCount(finalVoice?.chapterSummaries));
+  diagnostic.precedingSegmentsAfterBudget = brief.precedingSegments.length;
+  diagnostic.precedingSegmentsTrimmedByBudget = Math.max(0, budgetBaseline.precedingSegments - brief.precedingSegments.length);
+  diagnostic.glossaryTermsAfterBudget = finalCount((brief.glossary as any)?.document_terms);
+  diagnostic.glossaryTermsTrimmedByBudget = Math.max(0, budgetBaseline.glossaryTerms - diagnostic.glossaryTermsAfterBudget);
+  diagnostic.contextDeltaCandidatesAvailable = Math.max(0, Number(brief.contextDeltaCount || 0));
   brief.contextChars = serialized.length;
   brief.contextHash = createHash('sha256').update(serialized, 'utf8').digest('hex');
   return brief;
