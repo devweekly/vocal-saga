@@ -107,8 +107,10 @@ function buildMatcher(terms, global = false) {
     .sort((a, b) => b.length - a.length)
     .map((term) => {
       const escaped = escapeRegex(term);
+      // Use ASCII word boundaries in a dynamically constructed string. Writing \p{L}
+      // inside a normal JS string silently loses the backslash and creates false hits (e.g. Chungking).
       return /^[A-Za-z0-9][A-Za-z0-9\s._'’\-]*$/u.test(term)
-        ? '(?<![\p{L}\p{N}])' + escaped + '(?![\p{L}\p{N}])'
+        ? '(?<![A-Za-z0-9])' + escaped + '(?![A-Za-z0-9])'
         : escaped;
     });
   return new RegExp(alternatives.join('|'), global ? 'giu' : 'iu');
