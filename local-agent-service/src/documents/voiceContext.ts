@@ -453,7 +453,15 @@ export function buildProjectVoiceContext(
       contextPaths: Array.from(new Set(segments.map((segment) => text(segment.contextPath, 160)).filter(Boolean))).slice(0, 6),
       segmentIds: segments.map((segment) => text(segment.id, 160)).filter(Boolean).slice(0, 24),
     },
-    entities: entities.map(({ source, target, kind, aliases, reviewStatus }: any) => ({ source, target, kind, aliases, reviewStatus })),
+    entities: entities.map((entity: any) => ({
+      source: entity.source, target: entity.target, kind: entity.kind, aliases: entity.aliases,
+      reviewStatus: entity.reviewStatus,
+      targetConfidence: entity.reviewStatus === 'confirmed' ? 'confirmed' :
+        entity.targetConfidence === 'corroborated' ? 'corroborated' : 'candidate',
+      targetEvidenceCount: new Set((Array.isArray(entity.targetEvidenceRefs) ? entity.targetEvidenceRefs : [])
+        .filter((ref: any) => normalizeEntityName(String(ref?.targetSurface || '')) === normalizeEntityName(String(entity.target || '')))
+        .map((ref: any) => String(ref?.segmentId || '')).filter(Boolean)).size,
+    })),
     relationships,
     characterVoices: chosen.map((profile: any) => ({
       characterId: profile.characterId, canonicalSourceName: profile.canonicalSourceName, targetName: profile.targetName,
@@ -479,6 +487,7 @@ export function buildProjectVoiceContext(
       '全书 styleGuide 只有在用户明确确认后才会注入；它只约束叙述语域、节奏、措辞与表达习惯，不提供剧情事实。',
       'dialogueParticipants 只表示由已批准声音锚点或明确关联当前前文对白的关系规则支持的参与者；这不是自由推断。没有此类证据时不得猜测说话人或听话人。',
       'recentExamples 只来自同一来源版本、当前片段之前且已经采纳的译文；它们是表达参考，不是必须逐字复用的模板。',
+      'entities 中 targetConfidence=candidate 的目标译名只是待核对参考，不能被视为已确认译名或强制约束；只有 confirmed 或已独立佐证的 corroborated 映射可获得更高优先级。',
       '不确定说话人或听话人时，不得猜测身份或强行套用人物画像；原意、叙事事实与当前场景优先，不添加无证据口头禅、方言、情绪或修辞。',
     ],
   };
