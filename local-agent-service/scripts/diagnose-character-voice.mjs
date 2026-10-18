@@ -242,7 +242,7 @@ function readProjectCatalog(catalogPath) {
 
 function isBookTitleOrIdiom(value) {
   const normalized = normalize(value);
-  return /^king rat(?:\b|:)/iu.test(normalized) || /\bking['’]s english\b/iu.test(normalized);
+  return /^(?:the\s+)?king rat(?:\b|:)/iu.test(normalized) || /\bking['’]s english\b/iu.test(normalized);
 }
 
 function identityValueMatches(value, matcher) {
