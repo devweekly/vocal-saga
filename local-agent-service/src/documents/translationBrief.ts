@@ -34,6 +34,8 @@ export interface TranslationBrief {
   precedingSegments: Array<{ id: string; text: string; contextPath: string }>;
   contextGraph: Record<string, any> | null;
   voiceContext: Record<string, any>;
+  /** Retrieval, temporal-boundary and budget-trimming counters for the trajectory/audit log. */
+  contextDiagnostics: Record<string, unknown>;
   contextChars: number;
   contextHash: string;
 }
@@ -152,6 +154,11 @@ function buildTemporallyVisibleMemory(
   const rawMemory = context?.memory && typeof context.memory === 'object'
     ? JSON.parse(JSON.stringify(context.memory)) as Record<string, any>
     : empty;
+  const initialMemoryCounts = {
+    entities: Array.isArray(rawMemory.entities) ? rawMemory.entities.length : 0,
+    relationships: Array.isArray(rawMemory.relationships) ? rawMemory.relationships.length : 0,
+    characterVoices: Array.isArray(rawMemory.characterVoices) ? rawMemory.characterVoices.length : 0,
+  };
   const referencedIds = new Set<string>();
   for (const entity of Array.isArray(rawMemory.entities) ? rawMemory.entities : []) {
     for (const evidence of Array.isArray(entity?.evidenceRefs) ? entity.evidenceRefs : []) {
@@ -381,6 +388,21 @@ function buildTemporallyVisibleMemory(
   rawMemory.chapterSummaries = [];
   rawMemory.recentExamples = retrievedExamples;
   rawMemory.openQuestions = [];
+  // The voice-context sanitizer intentionally ignores these counters; TranslationBrief copies
+  // them into its durable diagnostic summary so zero-injection and boundary exclusions are visible.
+  rawMemory.__translationBriefDiagnostics = {
+    memoryEntityCandidates: initialMemoryCounts.entities,
+    temporallyVisibleMemoryEntities: rawMemory.entities.length,
+    memoryEntityExcludedByBoundary: Math.max(0, initialMemoryCounts.entities - rawMemory.entities.length),
+    memoryRelationshipCandidates: initialMemoryCounts.relationships,
+    temporallyVisibleMemoryRelationships: rawMemory.relationships.length,
+    memoryRelationshipExcludedByBoundary: Math.max(0, initialMemoryCounts.relationships - rawMemory.relationships.length),
+    characterVoiceCandidates: initialMemoryCounts.characterVoices,
+    temporallyVisibleCharacterVoices: rawMemory.characterVoices.length,
+    characterVoicesExcludedByBoundary: Math.max(0, initialMemoryCounts.characterVoices - rawMemory.characterVoices.length),
+    acceptedExampleCandidates: scoredExamples.length,
+    selectedAcceptedExamples: retrievedExamples.length,
+  };
   return rawMemory;
 }
 
@@ -718,6 +740,16 @@ export function buildTranslationBrief(
         }
       }
     }
+    const mappingRelevance = (mapping: any) => {
+      const names = [mapping.source, ...(Array.isArray(mapping.aliases) ? mapping.aliases : [])];
+      const inCurrent = names.some((name: unknown) => items.some((item) => sourceNameMatches(item.text, name))) ? 2 : 0;
+      const inPreceding = names.some((name: unknown) => visiblePrecedingSegments.some((item) =>
+        sourceNameMatches(item.text, name))) ? 1 : 0;
+      const statusRank = ['confirmed', 'confirmed-memory'].includes(String(mapping.sourceStatus)) ? 4 :
+        mapping.sourceStatus === 'auto' ? 3 : 1;
+      return statusRank + inCurrent + inPreceding;
+    };
+    graph.nameMappings.sort((a: any, b: any) => mappingRelevance(b) - mappingRelevance(a));
     graph.nameMappings = graph.nameMappings.slice(0, 16);
   }
   const voiceContext = context?.run?.translationMode === 'literary'
@@ -754,14 +786,34 @@ export function buildTranslationBrief(
     })),
     contextGraph: graph,
     voiceContext,
+    contextDiagnostics: {
+      ...(typeof (temporalMemory as any)?.__translationBriefDiagnostics === 'object'
+        ? (temporalMemory as any).__translationBriefDiagnostics : {}),
+      precedingContextAvailable: precedingSegments.length,
+      precedingContextConfigured: strategy.precedingContextSegments,
+      precedingContextInjected: visiblePrecedingSegments.length,
+      graphNameMappingsBeforeBudget: Array.isArray((graph as any)?.nameMappings) ? (graph as any).nameMappings.length : 0,
+      strongNameMappingsBeforeBudget: Array.isArray((graph as any)?.nameMappings)
+        ? (graph as any).nameMappings.filter((mapping: any) =>
+            ['confirmed', 'confirmed-memory', 'auto'].includes(String(mapping.sourceStatus))).length : 0,
+      acceptedExamplesInjected: Array.isArray((voiceContext as any)?.recentExamples) ? (voiceContext as any).recentExamples.length : 0,
+      dialogueParticipantsInjected: Array.isArray((voiceContext as any)?.dialogueParticipants)
+        ? (voiceContext as any).dialogueParticipants.length : 0,
+      contextBudgetChars: maxBriefChars,
+      budgetTrimCount: 0,
+      budgetFallbackUsed: false,
+    },
     contextChars: 0,
     contextHash: '',
   };
   let serialized = serializedContext(brief);
   while (serialized.length > maxBriefChars && removeLowestPriorityContext(brief)) {
+    (brief.contextDiagnostics as any).budgetTrimCount =
+      Number((brief.contextDiagnostics as any).budgetTrimCount || 0) + 1;
     serialized = serializedContext(brief);
   }
   if (serialized.length > maxBriefChars) {
+    (brief.contextDiagnostics as any).budgetFallbackUsed = true;
     // Last-resort safe fallback: keep the batch IDs, only current/previous-source canonical
     // name mappings, and minimal source-near context. Dropping the whole graph here used to
     // silently disable deterministic glossary enforcement for large books.
@@ -832,6 +884,9 @@ export function summarizeTranslationBrief(brief: TranslationBrief): Record<strin
     characterVoices: voiceCharacterCount,
     relationshipVoiceRules: count(voice?.relationshipVoiceRules),
     voiceAnchors: count(voice?.voiceAnchors),
+    recentExamples: count(voice?.recentExamples),
+    dialogueParticipants: count(voice?.dialogueParticipants),
+    contextDiagnostics: brief.contextDiagnostics || {},
     // Compatibility fields consumed by the Agent Trajectory UI. Keep them aligned with the
     // detailed fields above so the UI doesn't silently display zero for populated context.
     entityCount: graphCharacterCount + graphEntityCount,
