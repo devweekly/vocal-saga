@@ -1,13 +1,16 @@
 /**
- * CodeBuddy 模型目录与「免费模型」选择规则。
+ * CodeBuddy 模型目录与自动选模型规则。
  *
  * 回归背景：workbuddy provider 未显式配置模型时，过去一律交给 CLI 默认模型，
- * 而默认模型可能是计费的。现在先从 CLI 的产品配置里读模型目录，
- * 只在「目录里存在 credits 明确为 0 的模型」时才自动切换。
+ * 而默认模型可能是计费的。现在先从 CLI 的产品配置里读模型目录，按偏好表挑选。
  *
  * 2026-10-18 账号目录刷新后 gpt-* 全部下线、deepseek-v4.1-flash 变成 0.11 credits，
  * 早期用「目录里必须有 gpt-*」反推完整性的判据把正常目录判成残缺，一个模型都选不出来，
- * 因此改为只依据 credits 本身判断免费与否。
+ * 因此改为只依据 credits 本身判断价格。
+ *
+ * 选型标准后来从「必须免费」放宽为「够快 + 够便宜」：
+ * glm-5.3-flash（0.06）升为首选，space-bunny 加价格闸门（只在 0.08 时用），
+ * hy3 因为太慢从表里移除并列入排除名单。
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -21,6 +24,7 @@ import {
   pickPreferredWorkbuddyModel,
   readModelCatalog,
   resolveWorkbuddyModel,
+  PREFERRED_MODELS,
   PREFERRED_WORKBUDDY_MODEL,
 } from '../src/agents/modelCatalog.ts';
 
@@ -40,32 +44,71 @@ test('parseCredits 覆盖三种真实形态', () => {
   assert.equal(parseCredits('1.5'), 1.5);
 });
 
-test('目录里有免费的目标模型时选中 deepseek-v4.1-flash', () => {
+test('偏好表首位是 glm-5.3-flash', () => {
+  assert.equal(PREFERRED_WORKBUDDY_MODEL, 'glm-5.3-flash');
+  assert.deepEqual(PREFERRED_MODELS.map((rule) => rule.id), [
+    'glm-5.3-flash',
+    'space-bunny',
+    'deepseek-v4.1-flash',
+    'step-5-preview',
+  ]);
+});
+
+test('首选不看价格：glm-5.3-flash 收费 0.06 也照选', () => {
   const catalog = [
     { id: 'gpt-6-astra', credits: 6.67 },
-    { id: 'gpt-5.4', credits: 1.65 },
-    { id: PREFERRED_WORKBUDDY_MODEL, credits: 0 },
+    { id: 'deepseek-v4.1-flash', credits: 0 },
+    { id: 'glm-5.3-flash', credits: 0.06 },
   ];
-  assert.equal(pickPreferredWorkbuddyModel(catalog), PREFERRED_WORKBUDDY_MODEL);
+  assert.equal(pickPreferredWorkbuddyModel(catalog), 'glm-5.3-flash');
 });
 
-test('没有 gpt-* 也照常选：厂商下线不该让完整目录被判成残缺', () => {
-  // 2026-10-18 的真实目录：33 个模型，gpt-* 一个都没有
-  const catalog = [
-    { id: 'default', credits: 2 },
-    { id: PREFERRED_WORKBUDDY_MODEL, credits: 0 },
-    { id: 'hy3', credits: 0 },
-  ];
-  assert.equal(pickPreferredWorkbuddyModel(catalog), PREFERRED_WORKBUDDY_MODEL);
-});
-
-test('目标模型不再免费时退到 hy3', () => {
-  const catalog = [
-    { id: PREFERRED_WORKBUDDY_MODEL, credits: 0.11 },
-    { id: 'hy3', credits: 0 },
+test('首选缺席时退到 space-bunny，但只在 0.08 时', () => {
+  const base = [
+    { id: 'deepseek-v4.1-flash', credits: 0 },
     { id: 'step-5-preview', credits: 0 },
   ];
-  assert.equal(pickPreferredWorkbuddyModel(catalog), 'hy3');
+  // 目录确认 0.08：采用
+  assert.equal(
+    pickPreferredWorkbuddyModel([...base, { id: 'space-bunny', credits: 0.08 }]),
+    'space-bunny',
+  );
+  // 涨价到 0.11：跳过，退到免费的 deepseek
+  assert.equal(
+    pickPreferredWorkbuddyModel([...base, { id: 'space-bunny', credits: 0.11 }]),
+    'deepseek-v4.1-flash',
+  );
+  // 降价到 0.05：同样跳过（闸门是精确匹配，不做「小于等于」猜测）
+  assert.equal(
+    pickPreferredWorkbuddyModel([...base, { id: 'space-bunny', credits: 0.05 }]),
+    'deepseek-v4.1-flash',
+  );
+});
+
+test('价格未标注（null）不能满足闸门', () => {
+  const catalog = [
+    { id: 'space-bunny', credits: null },
+    { id: 'step-5-preview', credits: 0 },
+  ];
+  assert.equal(pickPreferredWorkbuddyModel(catalog), 'step-5-preview');
+});
+
+test('deepseek 涨价到 0.11 时不再被当作免费兜底', () => {
+  const catalog = [
+    { id: 'deepseek-v4.1-flash', credits: 0.11 },
+    { id: 'step-5-preview', credits: 0 },
+  ];
+  assert.equal(pickPreferredWorkbuddyModel(catalog), 'step-5-preview');
+});
+
+test('hy3 被排除：即使免费也不会被选中', () => {
+  const catalog = [
+    { id: 'hy3', credits: 0 },
+    { id: 'some-other-free', credits: 0 },
+  ];
+  assert.equal(pickPreferredWorkbuddyModel(catalog), 'some-other-free');
+  // 只剩 hy3 一个免费模型时宁可返回 null（由调用方打日志提示），也不选它
+  assert.equal(pickPreferredWorkbuddyModel([{ id: 'hy3', credits: 0 }]), null);
 });
 
 test('偏好表都没命中时取目录里第一个免费模型', () => {
@@ -76,26 +119,10 @@ test('偏好表都没命中时取目录里第一个免费模型', () => {
   assert.equal(pickPreferredWorkbuddyModel(catalog), 'some-new-model');
 });
 
-test('一个 credits=0 的模型都没有时返回 null', () => {
+test('一个可用的免费模型都没有时返回 null', () => {
   const catalog = [
     { id: 'gpt-5.4', credits: 1.65 },
-    { id: PREFERRED_WORKBUDDY_MODEL, credits: 0.11 },
-  ];
-  assert.equal(pickPreferredWorkbuddyModel(catalog), null);
-});
-
-test('费率非 0 的目标模型不会被选中', () => {
-  const catalog = [
-    { id: 'gpt-5.4', credits: 1.65 },
-    { id: PREFERRED_WORKBUDDY_MODEL, credits: 0.03 },
-  ];
-  assert.equal(pickPreferredWorkbuddyModel(catalog), null);
-});
-
-test('费率未标注（null）不能被当成免费', () => {
-  const catalog = [
-    { id: 'gpt-5.4', credits: 1.65 },
-    { id: PREFERRED_WORKBUDDY_MODEL, credits: null },
+    { id: 'deepseek-v4.1-flash', credits: 0.11 },
   ];
   assert.equal(pickPreferredWorkbuddyModel(catalog), null);
 });
@@ -112,26 +139,28 @@ test('空目录不猜模型', () => {
 test('显式配置写成 auto 时按「没配置」处理，走目录挑选', () => {
   const catalog = [
     { id: 'gpt-5.4', credits: 1.65 },
-    { id: PREFERRED_WORKBUDDY_MODEL, credits: 0 },
+    { id: 'glm-5.3-flash', credits: 0.06 },
   ];
-  assert.equal(resolveWorkbuddyModel('auto', catalog), PREFERRED_WORKBUDDY_MODEL);
-  assert.equal(resolveWorkbuddyModel('  AUTO  ', catalog), PREFERRED_WORKBUDDY_MODEL);
-  assert.equal(resolveWorkbuddyModel('', catalog), PREFERRED_WORKBUDDY_MODEL);
-  assert.equal(resolveWorkbuddyModel(undefined, catalog), PREFERRED_WORKBUDDY_MODEL);
+  assert.equal(resolveWorkbuddyModel('auto', catalog), 'glm-5.3-flash');
+  assert.equal(resolveWorkbuddyModel('  AUTO  ', catalog), 'glm-5.3-flash');
+  assert.equal(resolveWorkbuddyModel('', catalog), 'glm-5.3-flash');
+  assert.equal(resolveWorkbuddyModel(undefined, catalog), 'glm-5.3-flash');
 });
 
 test('显式配置了真实模型时不覆盖', () => {
   const catalog = [
     { id: 'gpt-5.4', credits: 1.65 },
-    { id: PREFERRED_WORKBUDDY_MODEL, credits: 0 },
+    { id: 'glm-5.3-flash', credits: 0.06 },
   ];
+  // 显式指定 hy3 也照用：排除名单只管自动挑选，不否决用户的选择
   assert.equal(resolveWorkbuddyModel('gpt-5.4', catalog), 'gpt-5.4');
+  assert.equal(resolveWorkbuddyModel('hy3', catalog), 'hy3');
 });
 
 test('auto 且目录不可用时留空，交给 CLI 默认模型', () => {
   assert.equal(resolveWorkbuddyModel('auto', []), '');
-  // 目录读到了，但没有任何确认免费的模型：同样不猜
-  assert.equal(resolveWorkbuddyModel('auto', [{ id: PREFERRED_WORKBUDDY_MODEL, credits: 0.11 }]), '');
+  // 目录读到了，但偏好表和免费兜底都没命中：同样不猜
+  assert.equal(resolveWorkbuddyModel('auto', [{ id: 'glm-5.3', credits: 0.79 }]), '');
 });
 
 test('readModelCatalog 优先读 ACC_PRODUCT_CONFIG_PATH', async () => {
@@ -140,7 +169,7 @@ test('readModelCatalog 优先读 ACC_PRODUCT_CONFIG_PATH', async () => {
   await writeFile(file, JSON.stringify({
     models: [
       { id: 'gpt-5.4', credits: 'x1.65' },
-      { id: PREFERRED_WORKBUDDY_MODEL, credits: 'x0.00' },
+      { id: 'glm-5.3-flash', credits: 'x0.06' },
     ],
   }));
   const previous = process.env.ACC_PRODUCT_CONFIG_PATH;
@@ -148,8 +177,8 @@ test('readModelCatalog 优先读 ACC_PRODUCT_CONFIG_PATH', async () => {
   try {
     const catalog = readModelCatalog();
     assert.equal(catalog.length, 2);
-    assert.equal(catalog.find((m) => m.id === PREFERRED_WORKBUDDY_MODEL)?.credits, 0);
-    assert.equal(pickPreferredWorkbuddyModel(catalog), PREFERRED_WORKBUDDY_MODEL);
+    assert.equal(catalog.find((m) => m.id === 'glm-5.3-flash')?.credits, 0.06);
+    assert.equal(pickPreferredWorkbuddyModel(catalog), 'glm-5.3-flash');
   } finally {
     if (previous === undefined) delete process.env.ACC_PRODUCT_CONFIG_PATH;
     else process.env.ACC_PRODUCT_CONFIG_PATH = previous;
@@ -162,7 +191,7 @@ test('readModelCatalog 能从 local_storage 的 gzip+base64 缓存回退读取',
   const config = {
     models: [
       { id: 'gpt-6-sol', credits: 'x1.33' },
-      { id: PREFERRED_WORKBUDDY_MODEL, credits: 'x0.00' },
+      { id: 'deepseek-v4.1-flash', credits: 'x0.00' },
     ],
   };
   // 与真实缓存同格式：JSON 字符串包裹的 base64(gzip(json))
@@ -173,7 +202,7 @@ test('readModelCatalog 能从 local_storage 的 gzip+base64 缓存回退读取',
   delete process.env.ACC_PRODUCT_CONFIG_PATH;
   try {
     const catalog = readModelCatalog({ localStorageDir: dir });
-    assert.equal(pickPreferredWorkbuddyModel(catalog), PREFERRED_WORKBUDDY_MODEL);
+    assert.equal(pickPreferredWorkbuddyModel(catalog), 'deepseek-v4.1-flash');
   } finally {
     if (previous !== undefined) process.env.ACC_PRODUCT_CONFIG_PATH = previous;
     await rm(dir, { recursive: true, force: true });
@@ -189,7 +218,7 @@ test('readModelCatalog 能读明文 JSON 形态的 local_storage 缓存', async 
     productName: 'WorkBuddy AI',
     models: [
       { id: 'hy4-preview', credits: 'x0.29' },
-      { id: PREFERRED_WORKBUDDY_MODEL, credits: 'x0.00' },
+      { id: 'glm-5.3-flash', credits: 'x0.06' },
     ],
   }));
 
@@ -198,7 +227,7 @@ test('readModelCatalog 能读明文 JSON 形态的 local_storage 缓存', async 
   try {
     const catalog = readModelCatalog({ localStorageDir: dir });
     assert.equal(catalog.length, 2);
-    assert.equal(pickPreferredWorkbuddyModel(catalog), PREFERRED_WORKBUDDY_MODEL);
+    assert.equal(pickPreferredWorkbuddyModel(catalog), 'glm-5.3-flash');
   } finally {
     if (previous !== undefined) process.env.ACC_PRODUCT_CONFIG_PATH = previous;
     await rm(dir, { recursive: true, force: true });
@@ -209,7 +238,7 @@ test('新产品配置被无关缓存条目挤到后面时仍能读到', async ()
   // 回归：曾按「最近 6 份」截断候选文件。CLI 一次刷新写入 4 个非产品配置条目
   // （键值存储、用户数据、字符串），加上 2 个解析失败的，真配置正好被挤出窗口。
   const dir = await mkdtemp(path.join(os.tmpdir(), 'model-catalog-window-'));
-  const config = { models: [{ id: PREFERRED_WORKBUDDY_MODEL, credits: 'x0.00' }] };
+  const config = { models: [{ id: 'glm-5.3-flash', credits: 'x0.06' }] };
   await writeFile(path.join(dir, 'entry_oldest_product.info'), JSON.stringify(config));
   // 8 个更新的干扰文件，全部不是产品配置
   for (let i = 0; i < 8; i += 1) {
@@ -223,7 +252,7 @@ test('新产品配置被无关缓存条目挤到后面时仍能读到', async ()
   delete process.env.ACC_PRODUCT_CONFIG_PATH;
   try {
     const catalog = readModelCatalog({ localStorageDir: dir });
-    assert.equal(pickPreferredWorkbuddyModel(catalog), PREFERRED_WORKBUDDY_MODEL);
+    assert.equal(pickPreferredWorkbuddyModel(catalog), 'glm-5.3-flash');
   } finally {
     if (previous !== undefined) process.env.ACC_PRODUCT_CONFIG_PATH = previous;
     await rm(dir, { recursive: true, force: true });

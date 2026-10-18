@@ -91,9 +91,11 @@ export function startLocalAgentServer() {
     // 所以启动时把解析结果打出来，并说明没选上的原因与可选项。
     console.log('[local-agent] workbuddy model: ' + (DEFAULT_WORKBUDDY_MODEL || '<CLI 默认模型>'));
     if (!DEFAULT_WORKBUDDY_MODEL) {
-      console.log('[local-agent] 未自动选模型：' + (WORKBUDDY_FREE_MODELS.length
-        ? '目录里的免费模型是 ' + WORKBUDDY_FREE_MODELS.join(', ') + '，可用 LOCAL_WORKBUDDY_MODEL 指定'
-        : '模型目录里没有 credits=0 的模型，可用 LOCAL_WORKBUDDY_MODEL 指定任意可用模型'));
+      console.log('[local-agent] 未自动选模型：偏好表里的模型都不在目录中'
+        + (WORKBUDDY_FREE_MODELS.length
+          ? '（当前可用的免费模型：' + WORKBUDDY_FREE_MODELS.join(', ') + '）'
+          : '（目录里也没有 credits=0 的模型）')
+        + '，可用 LOCAL_WORKBUDDY_MODEL 指定');
     }
     console.log('[local-agent] SQLite: ' + DATABASE_PATH);
     console.log('[local-agent] prompt/translation content storage: ' + String(STORE_CONTENT));

@@ -21,14 +21,39 @@ export interface CatalogModel {
   credits: number | null;
 }
 
-/** 目标模型：目录确认它免费时优先使用。 */
-export const PREFERRED_WORKBUDDY_MODEL = 'deepseek-v4.1-flash';
+/**
+ * 自动选模型的一条偏好规则。
+ *
+ * `credits` 是价格闸门：写了就必须**精确等于**该值才采用，省略则不限制价格。
+ * 闸门的作用是防止厂商调价后悄悄换成更贵的档位 —— 例如 space-bunny 只在 0.08 时用，
+ * 一旦涨到 0.11 就跳过，继续往后退。
+ */
+export interface PreferredModel {
+  id: string;
+  credits?: number;
+}
 
 /**
- * 免费模型的偏好顺序。前一个不可用（下线、或不再免费）时退到下一个。
- * hy3 / step-5-preview 是当前账号里另外两个 credits=0 的模型，中文输出质量可用。
+ * 偏好顺序，逐个退让。
+ *
+ * 选型依据是「够快 + 够便宜」，不再强求免费：
+ *   - glm-5.3-flash 0.06 credits，目前最快的廉价档，做文档翻译的主模型；
+ *   - space-bunny 0.08 credits，速度接近，价格被闸门锁死；
+ *   - deepseek-v4.1-flash / step-5-preview 作为免费的兜底（deepseek 有时会变成 0.11，那就跳过）。
+ * hy3 曾经是免费兜底，但实测太慢（单轮 5s 起步、冷启动 40s+），已从表里移除。
  */
-const PREFERRED_FREE_MODELS = [PREFERRED_WORKBUDDY_MODEL, 'hy3', 'step-5-preview'] as const;
+export const PREFERRED_MODELS: readonly PreferredModel[] = [
+  { id: 'glm-5.3-flash' },
+  { id: 'space-bunny', credits: 0.08 },
+  { id: 'deepseek-v4.1-flash', credits: 0 },
+  { id: 'step-5-preview', credits: 0 },
+];
+
+/** 偏好表第一位，便于日志和测试引用。 */
+export const PREFERRED_WORKBUDDY_MODEL = PREFERRED_MODELS[0]!.id;
+
+/** 明确排除的模型：hy3 免费但太慢，跑文档翻译会把整条流水线拖住。 */
+const EXCLUDED_MODELS = new Set(['hy3']);
 
 /**
  * 解析 credits 字段。
@@ -140,24 +165,26 @@ export function readModelCatalog(options: { localStorageDir?: string } = {}): Ca
 }
 
 /**
- * 从目录里挑目标模型：只挑 credits 明确为 0 的，按 PREFERRED_FREE_MODELS 的顺序退让。
+ * 从目录里挑模型：按 PREFERRED_MODELS 的顺序找第一个「在目录里、且满足价格闸门」的。
  *
  * 这里**不再**要求「目录里必须存在 gpt-* 才算完整目录」。那个判据来自早期实现，
  * 用某个厂商的模型是否下发来反推目录完整性；一旦该厂商整批下线（2026-10-18 就发生过，
  * gpt-* 全部消失、deepseek 也变成 0.11 credits），完整目录会被误判成残缺目录，
- * 结果一个模型都选不出来。credits 本身已经是「是否免费」的直接证据，
+ * 结果一个模型都选不出来。credits 本身已经是价格的直接证据，
  * 不需要再借道第三方模型来间接证明。
  *
- * 一个 credits=0 的模型都没有时返回 null（不猜、不硬编码），由调用方回退 CLI 默认模型。
+ * 偏好表全部落空时退到「目录里第一个免费的」（排除 EXCLUDED_MODELS）；
+ * 连免费模型都没有才返回 null（不猜、不硬编码），由调用方回退 CLI 默认模型。
  */
 export function pickPreferredWorkbuddyModel(catalog: readonly CatalogModel[]): string | null {
-  const free = catalog.filter((model) => model.credits === 0);
-  if (!free.length) return null;
-  for (const id of PREFERRED_FREE_MODELS) {
-    if (free.some((model) => model.id === id)) return id;
+  for (const rule of PREFERRED_MODELS) {
+    const hit = catalog.find((model) => model.id === rule.id
+      && (rule.credits === undefined || model.credits === rule.credits));
+    if (hit) return hit.id;
   }
-  // 偏好表都没命中：取目录里第一个确认免费的（目录顺序即产品侧的推荐顺序）。
-  return free[0]!.id;
+  // 兜底：目录顺序即产品侧的推荐顺序，取第一个确认免费且没被排除的。
+  const free = catalog.filter((model) => model.credits === 0 && !EXCLUDED_MODELS.has(model.id));
+  return free.length ? free[0]!.id : null;
 }
 
 /**
