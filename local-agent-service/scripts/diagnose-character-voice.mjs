@@ -723,7 +723,7 @@ function buildDiagnosisHints(report, terms) {
       (identityValueMatches(value, buildMatcher(terms)) || /\b(?:the\s+)?king\b/iu.test(value)));
   };
 
-  if (report.projectSelection?.ambiguous) {
+  if (report.projectSelectionAmbiguous) {
     hints.push('项目标题匹配到多个独立项目数据库；当前报告按各 projectId 分别诊断。请用最新活动项目的 UUID 重跑，避免把旧项目的空图谱和当前项目混在一起。');
   }
   if (!source.matchingSegmentCount) {
@@ -1052,6 +1052,8 @@ function run() {
   for (const report of projectReports) {
     report.projectSelectionAmbiguous = projectSelection.ambiguous;
     report.projectSelectionActiveCandidateId = projectSelection.activeProjectCandidate?.projectId || null;
+    // Recompute after project disambiguation metadata has been added.
+    report.diagnosisHints = buildDiagnosisHints(report, terms);
   }
   const requestHistory = scanRequestHistory(requestDb, matcher);
   const logRoots = [
