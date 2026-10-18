@@ -34,10 +34,15 @@ export const ALLOWED_HOSTS = (process.env.LOCAL_AGENT_ALLOWED_HOSTS || '')
   .filter(Boolean);
 
 export const DEFAULT_PROVIDER = (process.env.LOCAL_AGENT_PROVIDER || 'workbuddy').toLowerCase();
-// 显式配置优先；没配（或写成 auto）时从 CodeBuddy 模型目录里挑「确认免费」的 deepseek-v4.1-flash。
-// 目录读不到或条件不满足就留空，交给 CLI 运行时默认模型 —— 不猜、不硬编码。
+// 显式配置优先；没配（或写成 auto）时从 CodeBuddy 模型目录里挑「确认免费」的模型。
+// 目录读不到或没有任何 credits=0 的模型就留空，交给 CLI 运行时默认模型 —— 不猜、不硬编码。
 const explicitWorkbuddyModel = (process.env.LOCAL_WORKBUDDY_MODEL || process.env.WORKBUDDY_MODEL || process.env.CODEBUDDY_DEFAULT_MODEL || '').trim();
-export const DEFAULT_WORKBUDDY_MODEL = resolveWorkbuddyModel(explicitWorkbuddyModel, readModelCatalog());
+const workbuddyCatalog = readModelCatalog();
+export const DEFAULT_WORKBUDDY_MODEL = resolveWorkbuddyModel(explicitWorkbuddyModel, workbuddyCatalog);
+/** 目录里 credits 明确为 0 的模型，启动日志用来说明「为什么没选上」以及可手动指定什么。 */
+export const WORKBUDDY_FREE_MODELS = workbuddyCatalog
+  .filter((model) => model.credits === 0)
+  .map((model) => model.id);
 export const DEFAULT_OPENCODE_MODEL = (process.env.LOCAL_OPENCODE_MODEL || process.env.OPENCODE_MODEL || '').trim();
 
 /** Parse optional integer settings without allowing malformed .env values to poison runtime timers/SQL. */

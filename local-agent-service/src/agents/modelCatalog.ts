@@ -25,6 +25,12 @@ export interface CatalogModel {
 export const PREFERRED_WORKBUDDY_MODEL = 'deepseek-v4.1-flash';
 
 /**
+ * 免费模型的偏好顺序。前一个不可用（下线、或不再免费）时退到下一个。
+ * hy3 / step-5-preview 是当前账号里另外两个 credits=0 的模型，中文输出质量可用。
+ */
+const PREFERRED_FREE_MODELS = [PREFERRED_WORKBUDDY_MODEL, 'hy3', 'step-5-preview'] as const;
+
+/**
  * 解析 credits 字段。
  *
  * 真实取值：`"x0.00"`（免费）、`"x0.34 credits"`（带单位）、`""`（未填，如 default-model）。
@@ -118,11 +124,25 @@ export function readModelCatalog(options: { localStorageDir?: string } = {}): Ca
  * 任一不满足返回 null，由调用方回退到 CLI 默认模型。这里不做猜测：
  * 把「未标注费率」当成免费会让账单不可预期。
  */
+/**
+ * 从目录里挑目标模型：只挑 credits 明确为 0 的，按 PREFERRED_FREE_MODELS 的顺序退让。
+ *
+ * 这里**不再**要求「目录里必须存在 gpt-* 才算完整目录」。那个判据来自早期实现，
+ * 用某个厂商的模型是否下发来反推目录完整性；一旦该厂商整批下线（2026-10-18 就发生过，
+ * gpt-* 全部消失、deepseek 也变成 0.11 credits），完整目录会被误判成残缺目录，
+ * 结果一个模型都选不出来。credits 本身已经是「是否免费」的直接证据，
+ * 不需要再借道第三方模型来间接证明。
+ *
+ * 一个 credits=0 的模型都没有时返回 null（不猜、不硬编码），由调用方回退 CLI 默认模型。
+ */
 export function pickPreferredWorkbuddyModel(catalog: readonly CatalogModel[]): string | null {
-  if (!catalog.some((model) => model.id.startsWith('gpt-'))) return null;
-  const target = catalog.find((model) => model.id === PREFERRED_WORKBUDDY_MODEL);
-  if (!target || target.credits !== 0) return null;
-  return target.id;
+  const free = catalog.filter((model) => model.credits === 0);
+  if (!free.length) return null;
+  for (const id of PREFERRED_FREE_MODELS) {
+    if (free.some((model) => model.id === id)) return id;
+  }
+  // 偏好表都没命中：取目录里第一个确认免费的（目录顺序即产品侧的推荐顺序）。
+  return free[0]!.id;
 }
 
 /**

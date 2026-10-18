@@ -3,7 +3,11 @@
  *
  * 回归背景：workbuddy provider 未显式配置模型时，过去一律交给 CLI 默认模型，
  * 而默认模型可能是计费的。现在先从 CLI 的产品配置里读模型目录，
- * 只有在「目录完整 + 目标模型存在 + 费率明确为 0」三个条件同时成立时才切到免费模型。
+ * 只在「目录里存在 credits 明确为 0 的模型」时才自动切换。
+ *
+ * 2026-10-18 账号目录刷新后 gpt-* 全部下线、deepseek-v4.1-flash 变成 0.11 credits，
+ * 早期用「目录里必须有 gpt-*」反推完整性的判据把正常目录判成残缺，一个模型都选不出来，
+ * 因此改为只依据 credits 本身判断免费与否。
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';

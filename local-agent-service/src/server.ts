@@ -8,7 +8,7 @@ import express, { type Request, type Response, type NextFunction } from 'express
 
 import {
   DEFAULT_PROVIDER, DEFAULT_WORKBUDDY_MODEL, HOST, PORT, MAX_BODY_BYTES, MAX_DOCUMENT_BODY_BYTES, DATABASE_PATH, STORE_CONTENT,
-  ALLOWED_HOSTS, LOCAL_TOKEN,
+  ALLOWED_HOSTS, LOCAL_TOKEN, WORKBUDDY_FREE_MODELS,
 } from './config.ts';
 import { initDatabase } from './db.ts';
 import { sendJson, addCors, isAllowedHost, assertExposureIsSafe, requestHostname } from './middleware.ts';
@@ -88,8 +88,13 @@ export function startLocalAgentServer() {
     console.log('[local-agent] listening on http://' + HOST + ':' + PORT);
     console.log('[local-agent] provider default: ' + DEFAULT_PROVIDER);
     // 空模型不会报错，只会让 CLI 静默用账号默认模型（计费且可能不支持 json-schema），
-    // 所以启动时把解析结果打出来，避免「以为在用免费模型，其实没有」。
+    // 所以启动时把解析结果打出来，并说明没选上的原因与可选项。
     console.log('[local-agent] workbuddy model: ' + (DEFAULT_WORKBUDDY_MODEL || '<CLI 默认模型>'));
+    if (!DEFAULT_WORKBUDDY_MODEL) {
+      console.log('[local-agent] 未自动选模型：' + (WORKBUDDY_FREE_MODELS.length
+        ? '目录里的免费模型是 ' + WORKBUDDY_FREE_MODELS.join(', ') + '，可用 LOCAL_WORKBUDDY_MODEL 指定'
+        : '模型目录里没有 credits=0 的模型，可用 LOCAL_WORKBUDDY_MODEL 指定任意可用模型'));
+    }
     console.log('[local-agent] SQLite: ' + DATABASE_PATH);
     console.log('[local-agent] prompt/translation content storage: ' + String(STORE_CONTENT));
     // 仅默认 Provider 为 Workbuddy 时预热会话池，避免 OpenCode 模式启动无用 CLI。
