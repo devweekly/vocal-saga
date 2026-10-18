@@ -30,6 +30,8 @@
 
 如果《King Rat》等小说中的称谓没有进入“人物角色与声音档案”，可在服务目录执行只读诊断：
 
+针对 James Clavell 的《King Rat》，`King Rat` 只用于按书名定位项目，不作为人物名；人物检索会使用 `the King`、`King` 和 `Corporal King`。公开出版方简介与人物资料将该人物称为一名美国下士（Corporal King / the King），我没有找到可可靠核实的名字或首名，因此诊断不会编造更完整的姓名。
+
 ```bash
 npm run diagnose:character-voice -- --project "King Rat" --term "the King"
 # 若标题不同，传入项目 ID：
