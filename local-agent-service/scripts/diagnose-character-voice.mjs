@@ -882,8 +882,30 @@ function walkTextFiles(roots) {
 }
 
 function scanWorkspaceText(roots, terms, matcher) {
+  const rootInventory = roots.map((root) => {
+    try {
+      if (!existsSync(root)) return { root, exists: false, kind: 'missing' };
+      const info = statSync(root);
+      if (info.isFile()) return {
+        root, exists: true, kind: 'file', sizeBytes: info.size,
+        extension: path.extname(root).toLowerCase(),
+      };
+      let entries = [];
+      try { entries = readdirSync(root, { withFileTypes: true }); } catch { /* record the root, not its contents */ }
+      return {
+        root, exists: true, kind: 'directory', directEntryCount: entries.length,
+        directTextFileCount: entries.filter((entry) => entry.isFile() &&
+          ['.log', '.txt', '.jsonl', '.ndjson', '.json', '.md', '.out'].includes(path.extname(entry.name).toLowerCase())).length,
+      };
+    } catch (error) {
+      return { root, exists: false, kind: 'unreadable', error: error instanceof Error ? error.message : String(error) };
+    }
+  });
   const files = walkTextFiles(roots);
-  const result = { roots, filesChecked: 0, bytesChecked: 0, matchingFileCount: 0, matches: [], warnings: [] };
+  const result = {
+    roots, rootInventory, discoveredTextFileCount: files.length,
+    filesChecked: 0, bytesChecked: 0, matchingFileCount: 0, matches: [], warnings: [],
+  };
   for (const file of files) {
     if (result.bytesChecked >= MAX_TEXT_SCAN_BYTES || result.matches.length >= MAX_REPORT_LOG_MATCHES) break;
     let info;
@@ -910,6 +932,7 @@ function scanWorkspaceText(roots, terms, matcher) {
   }
   if (foundFilesLimitReached(files.length)) result.warnings.push('达到文本扫描文件数上限 ' + MAX_TEXT_SCAN_FILES);
   if (result.bytesChecked >= MAX_TEXT_SCAN_BYTES) result.warnings.push('达到文本扫描字节上限 ' + MAX_TEXT_SCAN_BYTES);
+  if (files.length === 0) result.warnings.push('指定的数据目录/工作区/日志目录下没有可扫描的文本日志文件；filesChecked=0 不是“检查了日志但没有命中”，服务输出可能只留在启动终端。');
   return result;
 }
 
