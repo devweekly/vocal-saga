@@ -307,7 +307,7 @@ export const DEFAULT_LITERARY_ANALYSIS_USER_PROMPT_TEMPLATE = [
   '{{BOOK_MEMORY_JSON}}',
   '本章原文片段：',
   '{{CHAPTER_SEGMENTS_JSON}}',
-].join('\\n\\n');
+].join('\n\n');
 
 export const DEFAULT_LITERARY_ANALYSIS_SYSTEM_PROMPT = [
   '你是文学作品的书籍记忆分析器，不是翻译器。',
