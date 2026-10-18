@@ -54,6 +54,11 @@ export class WorkbuddySessionPool {
   }
 
   // 取一个空闲槽位并保证会话就绪；全忙时排队等（不另起进程，避免无界膨胀）。
+  /**
+   * 获取与 provider/model/session scope/schema 匹配的空闲会话。
+   * 池满时通过 waiter 排队而非无限创建进程；scopeKey 正在执行中的会话不可被第二个请求并发复用。
+   * 会话达到 maxUses 或模型/schema 不匹配时应重建，避免历史上下文持续增长或类型约束串线。
+   */
   async acquire(
     agent: WorkbuddyAgent,
     scopeKey = 'shared-text-translation',
@@ -182,6 +187,11 @@ export class WorkbuddySessionPool {
 
   // 在指定槽位跑一轮：发 prompt、收文本与 structured_output，超时则中断。
   // 成功用满 maxUses 轮即重建；失败/超时直接丢弃会话（状态不可信），下次懒重建。
+  /**
+   * 在独占槽位中执行一次 Prompt，并在 finally 路径释放槽位。
+   * 同一 scope 的重试可以复用会话，但调用方仍须传入完整、显式的当前批次上下文；
+   * 不能把 SDK 对话历史当作权威记忆或跨批次的安全上下文。
+   */
   async runPrompt(
     index: number,
     combinedPrompt: string,
@@ -252,6 +262,10 @@ export class WorkbuddySessionPool {
   }
 
   // 关停/测试用：关闭全部 CLI 子进程并清空。
+  /**
+   * 关闭池内全部活动/空闲 SDK 会话并清空可复用状态。
+   * 用于服务关闭、测试隔离和故障恢复；关闭后不得继续使用旧 Slot 中的 session 引用。
+   */
   closeAll(): void {
     for (let i = 0; i < this.slots.length; i++) this.dropSession(i);
     this.waiters.splice(0).forEach((wake) => { wake(); });

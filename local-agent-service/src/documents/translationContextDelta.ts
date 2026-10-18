@@ -100,7 +100,11 @@ function hasName(source: string, name: string): boolean {
   return normalized(source).includes(value);
 }
 
-/** Validate context_delta independently from translations: invalid metadata never discards a valid translation. */
+/**
+ * 独立校验初译返回的 context_delta，不让无效记忆元数据污染有效译文。
+ * 每条声明必须引用当前输入 segments 中的原文 quote；target_surface 还必须能在对应译文中找到。
+ * 输出保持 candidate/suggested 语义，不能由模型输出自行升级为人工确认事实。
+ */
 export function validateTranslationContextDelta(
   raw: unknown,
   segments: Array<{ id: string; text: string }>,
@@ -251,7 +255,11 @@ export function validateTranslationContextDelta(
   return { delta, diagnostics };
 }
 
-/** Combine retry responses for one source batch without letting one retry's IDs shadow another. */
+/**
+ * 合并同一源批次多个模型尝试的 context_delta。
+ * 重试生成的 local entity ID 不稳定，因此合并时要规范化实体引用；同一实体的冲突目标保留为冲突诊断，
+ * 不能用最后一次响应无声覆盖前一次证据。
+ */
 export function combineTranslationContextDeltas(
   deltas: ValidatedTranslationContextDelta[],
 ): ValidatedTranslationContextDelta {
@@ -315,7 +323,11 @@ function sameKind(a: unknown, b: unknown): boolean {
   return left === right || left === 'other' || right === 'other';
 }
 
-/** Build a temporary or persisted memory projection in source order; confirmed mappings are immutable. */
+/**
+ * 按源顺序把已验证的 context_delta 合并为后续批次可见的记忆投影。
+ * 已确认映射不可被候选覆盖；自动目标译名需要独立的实际译文证据。调用方应只传入当前 wave 结束后
+ * 可见的增量，避免并发批次观察到彼此尚未提交的记忆。
+ */
 export function mergeTranslationContextDeltasIntoMemory(
   memoryInput: unknown,
   deltas: ValidatedTranslationContextDelta[],
