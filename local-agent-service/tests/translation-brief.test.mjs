@@ -820,11 +820,18 @@ test('voice retrieval can select an evidence-backed dialogue participant when cu
   const brief = buildTranslationBrief(context, [source], preceding);
 
   assert.equal(brief.precedingSegments.length, 1);
+  assert.equal(brief.precedingSegments[0].id, 'dialogue-anchor');
   assert.equal(brief.voiceContext.characterVoices.some((profile) => profile.characterId === 'iven'), true,
     'the profile can be retrieved through a source-linked approved speaker anchor despite no name in the current dialogue');
   assert.equal(brief.voiceContext.dialogueParticipants.some((participant) =>
     participant.characterId === 'iven' && participant.role === 'speaker' &&
-    participant.evidenceSegmentId === 'dialogue-anchor'), true);
+    participant.evidenceSegmentId === 'dialogue-anchor'), true,
+    JSON.stringify({
+      profiles: brief.voiceContext.characterVoices.map((profile) => profile.characterId),
+      anchors: brief.voiceContext.voiceAnchors,
+      participants: brief.voiceContext.dialogueParticipants,
+      diagnostics: brief.contextDiagnostics,
+    }));
 });
 
 test('source occurrence lookup normalizes apostrophes and dash variants before temporal filtering', () => {
