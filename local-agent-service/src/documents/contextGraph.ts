@@ -395,19 +395,35 @@ function getMeta(db: DatabaseSync, revisionId: string, key: string): any {
 function validateEvidence(
   raw: unknown,
   samplesById: Map<string, Segment>,
-  onInvalid?: () => void,
+  onInvalid?: (reason: string) => void,
 ): Evidence[] {
-  if (!Array.isArray(raw) || raw.length === 0) {
-    onInvalid?.();
+  if (!Array.isArray(raw)) {
+    onInvalid?.('evidence-not-array');
+    return [];
+  }
+  if (raw.length === 0) {
+    onInvalid?.('evidence-empty');
     return [];
   }
   const result: Evidence[] = [];
   for (const item of raw.slice(0, 8)) {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) {
+      onInvalid?.('evidence-item-not-object');
+      continue;
+    }
     const segmentId = safeText((item as any)?.segmentId, 200);
     const quote = safeText((item as any)?.quote, 240);
     const sample = samplesById.get(segmentId);
-    if (!sample || !quote || !hasQuote(sample.text, quote)) {
-      onInvalid?.();
+    if (!sample) {
+      onInvalid?.('segment-not-in-model-samples');
+      continue;
+    }
+    if (!quote) {
+      onInvalid?.('quote-empty-after-sanitization');
+      continue;
+    }
+    if (!hasQuote(sample.text, quote)) {
+      onInvalid?.('quote-not-found-in-cited-sample');
       continue;
     }
     if (!result.some((prior) => prior.segmentId === segmentId && normalize(prior.quote) === normalize(quote))) {
@@ -677,7 +693,31 @@ async function runAnalysis(projectId: string, runId: string): Promise<void> {
   }
 
   let invalidEvidenceCount = 0;
-  const evidenceFromModel = (raw: unknown) => validateEvidence(raw, allowedEvidence, () => { invalidEvidenceCount++; });
+  const invalidEvidenceByReason: Record<string, number> = {};
+  const invalidEvidenceByCategory: Record<string, number> = {};
+  type CandidateAudit = {
+    category: string;
+    name: string;
+    aliases: string[];
+    suggestedTranslation?: string;
+    role?: string;
+    traits?: string[];
+    voice?: string[];
+    rawEvidenceCount: number;
+    acceptedEvidenceCount: number;
+    invalidEvidenceReasons: Record<string, number>;
+    disposition: string;
+    nodeId?: string;
+  };
+  const characterAudits: CandidateAudit[] = [];
+  const entityAudits: CandidateAudit[] = [];
+  const evidenceFromModel = (raw: unknown, category = 'other', audit?: CandidateAudit) =>
+    validateEvidence(raw, allowedEvidence, (reason) => {
+      invalidEvidenceCount++;
+      invalidEvidenceByReason[reason] = (invalidEvidenceByReason[reason] || 0) + 1;
+      invalidEvidenceByCategory[category] = (invalidEvidenceByCategory[category] || 0) + 1;
+      if (audit) audit.invalidEvidenceReasons[reason] = (audit.invalidEvidenceReasons[reason] || 0) + 1;
+    });
   db.exec('BEGIN IMMEDIATE');
   try {
     saveMeta(db, revisionId, 'bookSummary', safeText(data.bookSummary, 4000));
@@ -687,31 +727,69 @@ async function runAnalysis(projectId: string, runId: string): Promise<void> {
     const persistedNodes: Array<{ id: string; name: string; aliases: string[]; kind: string }> = [];
     for (const raw of (Array.isArray(data.characters) ? data.characters : []).slice(0, 40)) {
       const name = safeText(raw?.name, 120);
-      if (!name) continue;
-      const evidence = evidenceFromModel(raw.evidence);
-      if (!evidence.length) continue;
-      const aliases = uniqueStrings(raw.aliases, 12, 100).filter((item) => normalize(item) !== normalize(name));
+      const audit: CandidateAudit = {
+        category: 'character', name,
+        aliases: uniqueStrings(raw?.aliases, 12, 100),
+        suggestedTranslation: safeText(raw?.suggestedTranslation, 120),
+        role: safeText(raw?.role, 240),
+        traits: uniqueStrings(raw?.traits, 6, 100),
+        voice: uniqueStrings(raw?.voice, 6, 120),
+        rawEvidenceCount: Array.isArray(raw?.evidence) ? raw.evidence.length : 0,
+        acceptedEvidenceCount: 0, invalidEvidenceReasons: {}, disposition: 'not-evaluated',
+      };
+      characterAudits.push(audit);
+      if (!name) {
+        audit.disposition = 'dropped-empty-name';
+        continue;
+      }
+      const evidence = evidenceFromModel(raw.evidence, 'character', audit);
+      audit.acceptedEvidenceCount = evidence.length;
+      if (!evidence.length) {
+        audit.disposition = 'dropped-no-valid-evidence';
+        continue;
+      }
+      const aliases = audit.aliases.filter((item) => normalize(item) !== normalize(name));
       const attributes = {
-        aliases, suggestedTranslation: safeText(raw.suggestedTranslation, 120), targetLang,
+        aliases, suggestedTranslation: audit.suggestedTranslation || '', targetLang,
         role: safeText(raw.role, 360), traits: uniqueStrings(raw.traits, 10, 160),
         voice: uniqueStrings(raw.voice, 10, 180), evidenceCount: evidence.length,
       };
       const id = saveNode(db, revisionId, 'character', name, attributes, evidence);
+      audit.disposition = 'persisted';
+      audit.nodeId = id;
       persistedNodes.push({ id, name, aliases, kind: 'character' });
     }
     for (const raw of (Array.isArray(data.entities) ? data.entities : []).slice(0, 120)) {
       const name = safeText(raw?.name, 120);
-      if (!name) continue;
-      const evidence = evidenceFromModel(raw.evidence);
-      if (!evidence.length) continue;
-      const aliases = uniqueStrings(raw.aliases, 12, 100).filter((item) => normalize(item) !== normalize(name));
+      const audit: CandidateAudit = {
+        category: 'entity', name,
+        aliases: uniqueStrings(raw?.aliases, 12, 100),
+        suggestedTranslation: safeText(raw?.suggestedTranslation, 120),
+        role: safeText(raw?.significance, 240),
+        rawEvidenceCount: Array.isArray(raw?.evidence) ? raw.evidence.length : 0,
+        acceptedEvidenceCount: 0, invalidEvidenceReasons: {}, disposition: 'not-evaluated',
+      };
+      entityAudits.push(audit);
+      if (!name) {
+        audit.disposition = 'dropped-empty-name';
+        continue;
+      }
+      const evidence = evidenceFromModel(raw.evidence, 'entity', audit);
+      audit.acceptedEvidenceCount = evidence.length;
+      if (!evidence.length) {
+        audit.disposition = 'dropped-no-valid-evidence';
+        continue;
+      }
+      const aliases = audit.aliases.filter((item) => normalize(item) !== normalize(name));
       const attributes = {
         aliases, entityKind: safeText(raw.kind, 50) || 'other',
         significance: safeText(raw.significance, 360),
-        suggestedTranslation: safeText(raw.suggestedTranslation, 120), targetLang,
+        suggestedTranslation: audit.suggestedTranslation || '', targetLang,
         evidenceCount: evidence.length,
       };
       const id = saveNode(db, revisionId, 'entity', name, attributes, evidence);
+      audit.disposition = 'persisted';
+      audit.nodeId = id;
       persistedNodes.push({ id, name, aliases, kind: 'entity' });
     }
 
@@ -721,7 +799,7 @@ async function runAnalysis(projectId: string, runId: string): Promise<void> {
       const fromId = identities.get(normalize(raw?.from));
       const toId = identities.get(normalize(raw?.to));
       if (!fromId || !toId || fromId === toId) continue;
-      const evidence = evidenceFromModel(raw.evidence);
+      const evidence = evidenceFromModel(raw.evidence, 'relationship');
       if (!evidence.length) continue;
       const edge = saveEdge(db, revisionId, fromId, toId, safeText(raw.kind, 80) || 'relationship', {
         description: safeText(raw.description, 500), voiceRule: safeText(raw.voiceRule, 500), evidenceCount: evidence.length,
@@ -739,7 +817,7 @@ async function runAnalysis(projectId: string, runId: string): Promise<void> {
       const matchingChapter = chapterRows.find((chapter) =>
         normalize(chapter.chapter_title) === normalize(title) || normalize(chapter.chapter_key) === normalize(title));
       if (!matchingChapter) continue;
-      const evidence = evidenceFromModel(raw.evidence);
+      const evidence = evidenceFromModel(raw.evidence, 'chapterSummary');
       if (!evidence.length) continue;
       const evidenceBelongsToChapter = evidence.some((item) => {
         const segment = sourceById.get(item.segmentId);
@@ -751,7 +829,15 @@ async function runAnalysis(projectId: string, runId: string): Promise<void> {
         'WHERE source_revision_id = ? AND chapter_key = ?'
       ).run(summary, JSON.stringify(evidence.map((item) => item.segmentId)), new Date().toISOString(), revisionId, matchingChapter.chapter_key);
     }
-    const now = new Date().toISOString();
+    const normalizedNameMatches = (candidateName: string, audit: CandidateAudit) => {
+      const names = [audit.name, ...audit.aliases].map(normalize).filter(Boolean);
+      return names.includes(normalize(candidateName));
+    };
+    const candidateCoverage = scan.nameCandidates.slice(0, 32).map((candidate, index) => {
+      const characterMatches = characterAudits.filter((audit) => normalizedNameMatches(candidate.name, audit));
+      const entityMatches = entityAudits.filter((audit) => normalizedNameMatches(candidate.name, audit));
+      const matchingSamples = samples.filter((sample) => {
+        const escaped = candidate.name.replace(/[.*+?^$()|[\]\\]/g, '\\    const now = new Date().toISOString();
     db.prepare('UPDATE context_graph_runs SET status = \'completed\', phase = \'completed\', progress_json = ?, finished_at = ?, error = NULL WHERE run_id = ?')
       .run(JSON.stringify({
         analysisVersion: 'context-graph-v5-language-pinned',
@@ -767,12 +853,84 @@ async function runAnalysis(projectId: string, runId: string): Promise<void> {
         openQuestions: uniqueStrings(data.openQuestions, 24, 200),
         invalidEvidenceCount,
         scan: scanSummary,
+      }), now, runId);');
+        try { return new RegExp('(?<![A-Za-z0-9])' + escaped + '(?![A-Za-z0-9])', 'iu').test(sample.text); }
+        catch { return normalize(sample.text).includes(normalize(candidate.name)); }
+      });
+      return {
+        rank: index + 1, name: candidate.name, mentions: candidate.mentions,
+        chapterCount: candidate.chapterCount, dialogueSegmentCount: candidate.dialogueSegmentCount,
+        regionCount: candidate.regionCount, score: candidate.score,
+        earlySegmentId: candidate.earlySegmentId, middleSegmentId: candidate.middleSegmentId, lateSegmentId: candidate.lateSegmentId,
+        sampleHitCount: matchingSamples.length,
+        sampleHits: matchingSamples.slice(0, 4).map((sample) => ({
+          segmentId: sample.id, ordinal: sample.ordinal, chapter: sample.contextPath,
+          reasons: sampleReasons.get(sample.id) || [],
+        })),
+        returnedAsCharacter: characterMatches.length > 0,
+        returnedAsEntity: entityMatches.length > 0,
+        characterDisposition: characterMatches.map((audit) => ({ name: audit.name, disposition: audit.disposition, acceptedEvidenceCount: audit.acceptedEvidenceCount })),
+        entityDisposition: entityMatches.map((audit) => ({ name: audit.name, disposition: audit.disposition, acceptedEvidenceCount: audit.acceptedEvidenceCount })),
+      };
+    });
+    const outputAudit = {
+      auditVersion: 'context-graph-model-output-audit-v1',
+      runId, sourceRevisionId: revisionId,
+      provider: agent.provider, model: agent.model || '<runtime-default>',
+      sampleCount: samples.length,
+      rawCounts: {
+        characters: Array.isArray(data.characters) ? data.characters.length : 0,
+        entities: Array.isArray(data.entities) ? data.entities.length : 0,
+        relationships: Array.isArray(data.relationships) ? data.relationships.length : 0,
+        chapterSummaries: Array.isArray(data.chapterSummaries) ? data.chapterSummaries.length : 0,
+      },
+      persistedCounts: {
+        characters: persistedNodes.filter((node) => node.kind === 'character').length,
+        entities: persistedNodes.filter((node) => node.kind === 'entity').length,
+        relationships: savedEdges.size,
+        characterCandidatesDroppedForEvidence: characterAudits.filter((audit) => audit.disposition === 'dropped-no-valid-evidence').length,
+        entityCandidatesDroppedForEvidence: entityAudits.filter((audit) => audit.disposition === 'dropped-no-valid-evidence').length,
+      },
+      evidenceValidation: {
+        invalidEvidenceCount,
+        byReason: { ...invalidEvidenceByReason },
+        byCategory: { ...invalidEvidenceByCategory },
+      },
+      candidateCoverage,
+      modelCharacters: characterAudits.slice(0, 40),
+      modelEntities: entityAudits.slice(0, 60),
+    };
+    const now = new Date().toISOString();
+    db.prepare('UPDATE context_graph_runs SET status = \'completed\', phase = \'completed\', progress_json = ?, finished_at = ?, error = NULL WHERE run_id = ?')
+      .run(JSON.stringify({
+        analysisVersion: 'context-graph-v5-language-pinned',
+        sourceLang, targetLang,
+        sampleCount: samples.length, chapterCount: chapters.length,
+        characterCount: persistedNodes.filter((node) => node.kind === 'character').length,
+        entityCount: persistedNodes.filter((node) => node.kind === 'entity').length,
+        relationshipCount: savedEdges.size,
+        canonicalNameMappingCount: persistedNodes.filter((node) => {
+          const row = db.prepare('SELECT attributes_json FROM context_graph_nodes WHERE node_id = ?').get(node.id) as { attributes_json?: string } | undefined;
+          try { return !!safeText(JSON.parse(row?.attributes_json || '{}').suggestedTranslation, 120); } catch { return false; }
+        }).length,
+        openQuestions: uniqueStrings(data.openQuestions, 24, 200),
+        invalidEvidenceCount,
+        invalidEvidenceByReason,
+        invalidEvidenceByCategory,
+        outputAuditVersion: outputAudit.auditVersion,
+        modelCandidateCounts: outputAudit.rawCounts,
+        droppedCandidateCounts: {
+          characters: outputAudit.persistedCounts.characterCandidatesDroppedForEvidence,
+          entities: outputAudit.persistedCounts.entityCandidatesDroppedForEvidence,
+        },
+        scan: scanSummary,
       }), now, runId);
     db.exec('COMMIT');
     const canonicalNameMappingCount = persistedNodes.filter((node) => {
       const row = db.prepare('SELECT attributes_json FROM context_graph_nodes WHERE node_id = ?').get(node.id) as { attributes_json?: string } | undefined;
       try { return !!safeText(JSON.parse(row?.attributes_json || '{}').suggestedTranslation, 120); } catch { return false; }
     }).length;
+    store.appendEvent(projectId, runId, 'context-graph.output-audit', outputAudit);
     store.appendEvent(projectId, runId, 'context-graph.completed', {
       sampleCount: samples.length,
       chapterCount: chapters.length,
@@ -781,6 +939,10 @@ async function runAnalysis(projectId: string, runId: string): Promise<void> {
       relationshipCount: savedEdges.size,
       canonicalNameMappingCount,
       invalidEvidenceCount,
+      invalidEvidenceByReason,
+      invalidEvidenceByCategory,
+      modelCandidateCounts: outputAudit.rawCounts,
+      droppedCandidateCounts: outputAudit.persistedCounts,
       sourceLang, targetLang,
       analysisVersion: 'context-graph-v5-language-pinned',
     });
