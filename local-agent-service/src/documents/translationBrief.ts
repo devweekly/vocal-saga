@@ -159,6 +159,17 @@ function buildTemporallyVisibleMemory(
     relationships: Array.isArray(rawMemory.relationships) ? rawMemory.relationships.length : 0,
     characterVoices: Array.isArray(rawMemory.characterVoices) ? rawMemory.characterVoices.length : 0,
   };
+  const exclusionDiagnostics = {
+    memoryEntityExcludedFutureAlias: 0,
+    memoryEntityExcludedNameNotVisible: 0,
+    memoryEntityExcludedEvidenceNotVisible: 0,
+    memoryRelationshipExcludedNameNotVisible: 0,
+    memoryRelationshipExcludedEvidenceNotVisible: 0,
+    characterVoiceExcludedFutureEvidence: 0,
+    characterVoiceExcludedIncompleteEvidence: 0,
+    characterVoiceExcludedNameNotVisible: 0,
+    characterVoiceExcludedFutureAlias: 0,
+  };
   const referencedIds = new Set<string>();
   for (const entity of Array.isArray(rawMemory.entities) ? rawMemory.entities : []) {
     for (const evidence of Array.isArray(entity?.evidenceRefs) ? entity.evidenceRefs : []) {
@@ -282,7 +293,10 @@ function buildTemporallyVisibleMemory(
     // A later-only alias can contaminate the canonical target itself. Do not just remove that
     // alias while keeping a target inferred from the future identity reveal.
     if (aliases.some((alias: unknown) =>
-      !appearedBefore(alias) && !items.some((item) => sourceNameMatches(item.text, alias)))) return [];
+      !appearedBefore(alias) && !items.some((item) => sourceNameMatches(item.text, alias)))) {
+      exclusionDiagnostics.memoryEntityExcludedFutureAlias++;
+      return [];
+    }
     // A complete, explicitly confirmed source→target mapping is user-authored authority.
     // It may activate on the first visible mention without model-generated evidence, but must
     // never leak into a batch where neither the source nor an alias is visible.
@@ -292,7 +306,10 @@ function buildTemporallyVisibleMemory(
       sourceNameMatches(item.text, entity?.source) ||
       aliases.some((alias: unknown) => sourceNameMatches(item.text, alias)));
     if (!entity || (!appearedBefore(entity.source) &&
-        !(explicitCanonicalMapping && visibleInCurrentBatch))) return [];
+        !(explicitCanonicalMapping && visibleInCurrentBatch))) {
+      exclusionDiagnostics.memoryEntityExcludedNameNotVisible++;
+      return [];
+    }
     const priorEvidenceRefs = evidenceRefs.filter((ref: any) => {
       if (!ref || !isPrior(ref.segmentId)) return false;
       const source = sourceById.get(ref.segmentId);
@@ -315,7 +332,16 @@ function buildTemporallyVisibleMemory(
     const evidenceVisible = explicitCanonicalMapping || (evidenceRefs.length
       ? priorEvidenceRefs.length > 0
       : sourceNameMatches(entity.evidence, entity.source) && appearsAsEarlierEvidence(entity.evidence));
-    if (!evidenceVisible) return [];
+    if (!evidenceVisible) {
+      const hasFutureEvidence = evidenceRefs.some((ref: any) => {
+        const source = typeof ref?.segmentId === 'string' ? sourceById.get(ref.segmentId) : undefined;
+        return !!source && Number(source.ordinal) >= firstOrdinal;
+      });
+      exclusionDiagnostics.memoryEntityExcludedEvidenceNotVisible++;
+      if (hasFutureEvidence) (exclusionDiagnostics as any).memoryEntityExcludedFutureEvidence =
+        Number((exclusionDiagnostics as any).memoryEntityExcludedFutureEvidence || 0) + 1;
+      return [];
+    }
     const visibleAliases = aliases.filter((alias: unknown) =>
       appearedBefore(alias) || items.some((item) => sourceNameMatches(item.text, alias)));
     return [{
@@ -327,7 +353,10 @@ function buildTemporallyVisibleMemory(
     }];
   });
   rawMemory.relationships = (Array.isArray(rawMemory.relationships) ? rawMemory.relationships : []).flatMap((relation: any) => {
-    if (!relation || !appearedBefore(relation.subject) || !appearedBefore(relation.object)) return [];
+    if (!relation || !appearedBefore(relation.subject) || !appearedBefore(relation.object)) {
+      exclusionDiagnostics.memoryRelationshipExcludedNameNotVisible++;
+      return [];
+    }
     const evidenceRefs = Array.isArray(relation.evidenceRefs) ? relation.evidenceRefs : [];
     const priorEvidenceRefs = evidenceRefs.filter((ref: any) => {
       if (!ref || !isPrior(ref.segmentId)) return false;
@@ -340,7 +369,10 @@ function buildTemporallyVisibleMemory(
       : sourceNameMatches(relation.evidence, relation.subject) &&
         sourceNameMatches(relation.evidence, relation.object) &&
         appearsAsEarlierEvidence(relation.evidence);
-    if (!evidenceVisible) return [];
+    if (!evidenceVisible) {
+      exclusionDiagnostics.memoryRelationshipExcludedEvidenceNotVisible++;
+      return [];
+    }
     return [{ ...relation, ...(evidenceRefs.length ? { evidenceRefs: priorEvidenceRefs } : {}) }];
   });
 
@@ -351,14 +383,29 @@ function buildTemporallyVisibleMemory(
     // aggregate profile synthesized from omitted future dialogue into an early batch.
     const evidenceIncomplete = profile.evidenceTruncated === true ||
       (profile.evidencePolicyVersion !== 'character-evidence-v2-complete' && rawEvidence.length >= 8);
-    if (evidenceIncomplete || !rawEvidence.length || rawEvidence.some((item: any) => {
+    const hasFutureEvidence = rawEvidence.some((item: any) => {
+      const source = typeof item?.segmentId === 'string' ? sourceById.get(item.segmentId) : undefined;
+      return !!source && Number(source.ordinal) >= firstOrdinal;
+    });
+    const invalidEvidence = rawEvidence.some((item: any) => {
       if (!item || !isPrior(item.segmentId)) return true;
       const source = sourceById.get(item.segmentId);
       return !source || !sourceQuoteMatches(source.text, item.sourceQuote);
-    })) return [];
-    if (!appearedBefore(profile.canonicalSourceName)) return [];
+    });
+    if (evidenceIncomplete || !rawEvidence.length || invalidEvidence) {
+      if (hasFutureEvidence) exclusionDiagnostics.characterVoiceExcludedFutureEvidence++;
+      else exclusionDiagnostics.characterVoiceExcludedIncompleteEvidence++;
+      return [];
+    }
+    if (!appearedBefore(profile.canonicalSourceName)) {
+      exclusionDiagnostics.characterVoiceExcludedNameNotVisible++;
+      return [];
+    }
     const aliases = Array.isArray(profile.aliases) ? profile.aliases : [];
-    if (aliases.some((alias: unknown) => !appearedBefore(alias))) return [];
+    if (aliases.some((alias: unknown) => !appearedBefore(alias))) {
+      exclusionDiagnostics.characterVoiceExcludedFutureAlias++;
+      return [];
+    }
     const contrastRules = (Array.isArray(profile.contrastRules) ? profile.contrastRules : []).filter((rule: any) => {
       const ids = Array.isArray(rule.evidenceSegmentIds) ? rule.evidenceSegmentIds : [];
       return ids.length > 0 && ids.every(isPrior) && rawMemory.characterVoices.some((other: any) =>
@@ -400,6 +447,7 @@ function buildTemporallyVisibleMemory(
   // The voice-context sanitizer intentionally ignores these counters; TranslationBrief copies
   // them into its durable diagnostic summary so zero-injection and boundary exclusions are visible.
   rawMemory.__translationBriefDiagnostics = {
+    ...exclusionDiagnostics,
     memoryEntityCandidates: initialMemoryCounts.entities,
     temporallyVisibleMemoryEntities: rawMemory.entities.length,
     memoryEntityExcludedByBoundary: Math.max(0, initialMemoryCounts.entities - rawMemory.entities.length),
@@ -657,6 +705,12 @@ export function buildTranslationBrief(
       constraints: ['Only source-visible explicit mappings and evidence-backed memory may be added to this empty graph.'],
     };
   }
+  const graphRetrievalDiagnostics = (graph as any)?.retrievalDiagnostics &&
+    typeof (graph as any).retrievalDiagnostics === 'object'
+    ? { ...(graph as any).retrievalDiagnostics } : {};
+  if (graph && Object.prototype.hasOwnProperty.call(graph, 'retrievalDiagnostics')) {
+    delete (graph as any).retrievalDiagnostics;
+  }
   if (graph && Array.isArray(graph.nameMappings)) {
     const sourceText = [...visiblePrecedingSegments, ...items].map((item) => item.text).join('\n');
     const priorSourceText = visiblePrecedingSegments.map((item) => item.text).join('\n');
@@ -798,6 +852,7 @@ export function buildTranslationBrief(
     contextDiagnostics: {
       ...(typeof (temporalMemory as any)?.__translationBriefDiagnostics === 'object'
         ? (temporalMemory as any).__translationBriefDiagnostics : {}),
+      ...graphRetrievalDiagnostics,
       precedingContextAvailable: precedingSegments.length,
       precedingContextConfigured: strategy.precedingContextSegments,
       precedingContextInjected: visiblePrecedingSegments.length,
