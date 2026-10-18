@@ -1,10 +1,7 @@
 import { REQUEST_TIMEOUT_MS, WORKBUDDY_POOL_MAX_USES, WORKBUDDY_POOL_SIZE } from '../config.ts';
 import { buildWorkbuddyOptions, type WorkbuddyAgent } from './workbuddy.ts';
-<<<<<<< HEAD
 import { parseTurnUsage, type TurnUsage } from './usage.ts';
-=======
-import type { CodeBuddyTaskProfile } from './taskProfiles.ts';
->>>>>>> 0feee1178869920eb5291de8df541df36441d80d
+import type { CodeBuddyTaskProfile } from './taskProfiles.ts'
 
 // SDK 会话的最小使用面：正式用 Session，测试用假对象。
 export interface PooledSession {
