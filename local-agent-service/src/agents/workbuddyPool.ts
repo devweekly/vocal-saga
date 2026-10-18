@@ -269,7 +269,7 @@ export class WorkbuddySessionPool {
         logWarn('pool', '调用超时 · slot=' + index + ' · ' + (timeoutMs / 1000).toFixed(0) + 's · request=' +
           requestId.slice(0, 40) + ' · scope=' + describeScope(slot.scopeKey));
         try { Promise.resolve(session.interrupt()).catch(() => {}); } catch { /* timeout is handled below */ }
-        reject(new Error('Workbuddy 调用超时（' + timeoutMs + ' ms）'));
+        reject(new Error('Workbuddy 调用超时（' + (timeoutMs / 1000).toFixed(0) + 's 内未返回）'));
       }, timeoutMs);
       timer.unref?.();
     });
@@ -278,7 +278,7 @@ export class WorkbuddySessionPool {
       turn = await Promise.race([runSessionTurn(session, combinedPrompt), timeoutPromise]);
     } catch (error) {
       this.dropSession(index, timedOut ? '调用超时' : '调用失败');
-      if (timedOut) throw new Error('Workbuddy 调用超时（' + timeoutMs + ' ms）');
+      if (timedOut) throw new Error('Workbuddy 调用超时（' + (timeoutMs / 1000).toFixed(0) + 's 内未返回）');
       throw new Error('Workbuddy Agent SDK 调用失败：' + (error instanceof Error ? error.message : String(error)));
     } finally {
       clearTimeout(timer);
@@ -286,7 +286,7 @@ export class WorkbuddySessionPool {
     const { text, structuredOutput, usage } = turn;
     if (timedOut) {
       this.dropSession(index, '调用超时');
-      throw new Error('Workbuddy 调用超时（' + timeoutMs + ' ms）');
+      throw new Error('Workbuddy 调用超时（' + (timeoutMs / 1000).toFixed(0) + 's 内未返回）');
     }
     // 原生 --json-schema 成功时，SDK 可能只返回 StructuredOutput tool_use，
     // 最终数据放在 result.structured_output，而没有任何 assistant text。

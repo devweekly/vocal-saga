@@ -8,7 +8,7 @@ import express, { type Request, type Response, type NextFunction } from 'express
 
 import {
   DEFAULT_PROVIDER, DEFAULT_WORKBUDDY_MODEL, HOST, PORT, MAX_BODY_BYTES, MAX_DOCUMENT_BODY_BYTES, DATABASE_PATH, STORE_CONTENT,
-  ALLOWED_HOSTS, LOCAL_TOKEN, WORKBUDDY_FREE_MODELS,
+  ALLOWED_HOSTS, LOCAL_TOKEN, WORKBUDDY_FREE_MODELS, REQUEST_TIMEOUT_MS, ANALYSIS_TIMEOUT_MS,
 } from './config.ts';
 import { initDatabase } from './db.ts';
 import { sendJson, addCors, isAllowedHost, assertExposureIsSafe, requestHostname } from './middleware.ts';
@@ -125,6 +125,10 @@ export function startLocalAgentServer() {
     }
     console.log('[local-agent] SQLite: ' + DATABASE_PATH);
     console.log('[local-agent] prompt/translation content storage: ' + String(STORE_CONTENT));
+    // 超时是排查「卡住 / 报超时」时最需要的第一手信息，启动即可见，
+    // 不用去翻代码猜当前生效的上限。
+    console.log('[local-agent] timeouts: 单次调用 ' + (REQUEST_TIMEOUT_MS / 1000).toFixed(0)
+      + 's · 全书预处理 ' + (ANALYSIS_TIMEOUT_MS / 1000).toFixed(0) + 's');
     // 仅默认 Provider 为 Workbuddy 时预热会话池，避免 OpenCode 模式启动无用 CLI。
     // 预热只 boot 进程、不调用模型；失败时首单仍可懒创建。测试可设 LOCAL_AGENT_PREWARM=false 关闭。
     if (DEFAULT_PROVIDER === 'workbuddy' && (process.env.LOCAL_AGENT_PREWARM || 'true').trim().toLowerCase() !== 'false') {

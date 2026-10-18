@@ -58,6 +58,10 @@ export function positiveIntegerEnv(name: string, fallback: number, minimum = 1):
 }
 
 export const REQUEST_TIMEOUT_MS = positiveIntegerEnv('LOCAL_AGENT_TIMEOUT_MS', 180_000, 10_000);
+// 全书预处理要在一个调用里读完数十段样本，输出人物/实体/关系/章节摘要，
+// 单个调用常常超过普通翻译批次的阈值。给这类长任务单独设上限，
+// 避免把「正常的慢」误判成超时；仍然保留硬上限，防止真卡死时无限等待。
+export const ANALYSIS_TIMEOUT_MS = positiveIntegerEnv('LOCAL_AGENT_ANALYSIS_TIMEOUT_MS', 900_000, 30_000);
 // 长驻会话池：大小对齐扩展侧扇出；单会话最多复用轮数（防历史变长导致变慢变贵）。
 // 复用轮数只是上限；实际上下文长度、时延与成本取决于 Prompt、输入长度和运行时。
 export const WORKBUDDY_POOL_SIZE = positiveIntegerEnv('LOCAL_AGENT_POOL_SIZE', 6, 1);

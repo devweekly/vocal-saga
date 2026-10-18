@@ -799,3 +799,11 @@ test('会话卡住不返回时 runPrompt 按超时报错并丢弃会话', async 
   pool.release(index);
   pool.closeAll();
 });
+
+test('全书预处理使用独立的长任务超时上限', async () => {
+  const { ANALYSIS_TIMEOUT_MS, REQUEST_TIMEOUT_MS } = await import('../src/config.ts');
+  // 全书分析在单次调用里处理数十段样本并输出人物/实体/关系，耗时远超翻译批次；
+  // 若这里退回到单次调用阈值，正常分析会被误判成超时。
+  assert.ok(ANALYSIS_TIMEOUT_MS >= 300_000, '分析上限不能低于 5 分钟');
+  assert.ok(ANALYSIS_TIMEOUT_MS > REQUEST_TIMEOUT_MS, '分析上限必须明显大于单次调用上限');
+});

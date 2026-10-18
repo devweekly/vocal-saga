@@ -7,6 +7,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import type { DatabaseSync } from 'node:sqlite';
 import { parseAgentModel } from '../json.ts';
+import { ANALYSIS_TIMEOUT_MS } from '../config.ts';
 import { runAgentStructured } from '../agents/runner.ts';
 import { formatTurnUsageLog } from '../agents/usage.ts';
 import { getCodeBuddyTaskProfile } from '../agents/taskProfiles.ts';
@@ -772,6 +773,9 @@ async function runAnalysis(projectId: string, runId: string): Promise<void> {
     runId,
     'context-graph:' + projectId + ':' + revisionId + ':' + runId,
     taskProfile,
+    // 全书分析在一次调用里处理数十段样本，输出人物/实体/关系/章节摘要，
+    // 用翻译批次的 180s 阈值会把正常的慢分析误判为超时。
+    { timeoutMs: ANALYSIS_TIMEOUT_MS },
   );
   // 每轮 token 计量只进日志（预处理非计费重点）；形状校验逻辑保持不变。
   if (analysisRun.usage) console.info('[context-graph] ' + formatTurnUsageLog(analysisRun.usage));

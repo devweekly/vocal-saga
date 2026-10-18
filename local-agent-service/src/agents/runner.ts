@@ -153,6 +153,7 @@ export async function runAgentStructured(
   requestId = 'unknown',
   sessionScope?: string,
   taskProfile?: CodeBuddyTaskProfile,
+  options: { timeoutMs?: number } = {},
 ): Promise<AgentRunResult<Record<string, any> | any[]>> {
   const startedAt = Date.now();
   const effective = taskProfile ? applyCodeBuddyTaskPrompt(prompt, systemPrompt, taskProfile) : { prompt, systemPrompt };
@@ -164,7 +165,7 @@ export async function runAgentStructured(
     let result: Record<string, any> | any[];
     let usage: TurnUsage | null = null;
     if (effectiveAgent.provider === 'workbuddy') {
-      const r = await runWorkbuddyStructured(effectiveAgent, effective.prompt, effective.systemPrompt, schema, requestId, sessionScope, taskProfile);
+      const r = await runWorkbuddyStructured(effectiveAgent, effective.prompt, effective.systemPrompt, schema, requestId, sessionScope, taskProfile, options);
       result = r.parsed;
       usage = r.usage;
     } else if (effectiveAgent.provider === 'opencode') {
