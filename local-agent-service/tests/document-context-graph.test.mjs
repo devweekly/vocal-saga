@@ -118,7 +118,7 @@ test('retrieval injects matched graph records and excludes future chapter summar
   assert.deepEqual(incremental.map((item) => item.payload.sequence), [3]);
 });
 
-test('current-batch aliases do not suppress evidence-backed automatic canonical name mappings', () => {
+test('current-batch name evidence cannot promote a book-level target to an automatic canonical mapping', () => {
   const store = getDocumentProjectStore();
   const project = store.createProject({
     title: 'Auto Canonical Mapping Test',
@@ -147,10 +147,8 @@ test('current-batch aliases do not suppress evidence-backed automatic canonical 
     { id: 'king-first', text: 'Timsen had been taken up by the King.', contextPath: 'Chapter 1' },
   ]);
   const mapping = bundle?.nameMappings.find((item) => item.source === 'the King');
-  assert.ok(mapping, 'the canonical mapping must be exposed when its alias first appears in the current segment');
-  assert.equal(mapping.target, '国王');
-  assert.equal(mapping.sourceStatus, 'auto',
-    'valid source evidence activates canonical naming without a per-entity confirmation click');
+  assert.equal(mapping, undefined,
+    'evidence appearing only in the current batch must not validate a target inferred from whole-book analysis');
 });
 
 test('a prior alias cannot reveal a canonical identity whose name appears only later', () => {
