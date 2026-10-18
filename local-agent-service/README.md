@@ -36,7 +36,7 @@
 
 ```bash
 npm run diagnose:character-voice -- \
-  --project "fcd6d06d-f057-4e82-9328-40b40ce0ee77" \
+  --project "<project-id>" \
   --term "the King" \
   --out ./king-character-diagnosis.json
 ```
