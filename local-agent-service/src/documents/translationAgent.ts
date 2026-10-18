@@ -10,11 +10,8 @@
 import { parseAgentModel } from '../json.ts';
 import { positiveIntegerEnv, WORKBUDDY_POOL_SIZE } from '../config.ts';
 import { runAgentStructured } from '../agents/runner.ts';
-<<<<<<< HEAD
 import { addTurnUsage, summarizeTurnUsage, type TurnUsage } from '../agents/usage.ts';
-=======
 import { getCodeBuddyTaskProfile } from '../agents/taskProfiles.ts';
->>>>>>> 0feee1178869920eb5291de8df541df36441d80d
 import { runLiteraryReview } from '../literary.ts';
 import { getDocumentProjectStore, normalizeDocumentTranslationStrategy, type DocumentTranslationStrategy } from './projectStore.ts';
 import { buildProjectVoiceContext, sanitizeProjectLiteraryMemory } from './voiceContext.ts';
@@ -874,10 +871,11 @@ async function translateBatch(context: any, items: TranslationItem[], requestId:
 
   let value: unknown;
   try {
-<<<<<<< HEAD
-    const modelRun = await runAgentStructured(agent, userPrompt, systemPrompt, TRANSLATION_SCHEMA, requestId, sessionScope);
+    const modelRun = await runAgentStructured(
+      agent, userPrompt, systemPrompt, TRANSLATION_SCHEMA, requestId, sessionScope,
+      getCodeBuddyTaskProfile(context.prompt.config || {}, 'translation'),
+    );
     value = modelRun.result;
-    // 每轮 token 消耗：随批次响应事件透出，并累计进 Run 总账。
     const turnUsage = modelRun.usage;
     addRunUsage(context.run.runId, turnUsage);
     if (turnUsage) {
@@ -887,12 +885,6 @@ async function translateBatch(context: any, items: TranslationItem[], requestId:
         ...summarizeTurnUsage(turnUsage),
       });
     }
-=======
-    value = await runAgentStructured(
-      agent, userPrompt, systemPrompt, TRANSLATION_SCHEMA, requestId, sessionScope,
-      getCodeBuddyTaskProfile(context.prompt.config || {}, 'translation'),
-    );
->>>>>>> 0feee1178869920eb5291de8df541df36441d80d
   } catch (error) {
     store.appendEvent(context.project.projectId, context.run.runId, 'model.call.failed', {
       stage: 'translate', batchIndex, requestId,
