@@ -294,11 +294,46 @@ function scanProject(project, args, dataDir, matcher, terms) {
     }));
     matcher.lastIndex = 0;
     const matchRows = segments.filter((segment) => { matcher.lastIndex = 0; return matcher.test(segment.text); });
+    const exactTheKingPattern = /\bthe\s+king\b/iu;
+    const exactCorporalKingPattern = /\bcorporal\s+king\b/iu;
+    const bookTitlePattern = /\bking\s+rat\b/iu;
+    const kingsEnglishPattern = /\bking['’]s\s+english\b/iu;
+    const containsPattern = (segment, pattern) => pattern.test(segment.text);
+    const countPatternOccurrences = (text, pattern) => Array.from(String(text || '').matchAll(
+      new RegExp(pattern.source, 'giu'),
+    )).length;
+    const personMentionSegments = segments.filter((segment) =>
+      exactTheKingPattern.test(segment.text) || exactCorporalKingPattern.test(segment.text) ||
+      (segment.ordinal > 80 && /\bking\b/iu.test(segment.text) && !bookTitlePattern.test(segment.text) && !kingsEnglishPattern.test(segment.text)));
     result.source.matchingSegmentCount = matchRows.length;
     result.source.matchingOccurrenceCount = segments.reduce((sum, segment) => sum + countMatches(segment.text, terms), 0);
-    result.source.matchingSegments = matchRows.slice(0, MAX_REPORT_SOURCE_MATCHES).map((segment) => ({
+    result.source.matchBreakdown = {
+      term: args.term,
+      segmentsContainingTheKing: segments.filter((segment) => containsPattern(segment, exactTheKingPattern)).length,
+      theKingOccurrences: segments.reduce((sum, segment) => sum + countPatternOccurrences(segment.text, exactTheKingPattern), 0),
+      segmentsContainingCorporalKing: segments.filter((segment) => containsPattern(segment, exactCorporalKingPattern)).length,
+      corporalKingOccurrences: segments.reduce((sum, segment) => sum + countPatternOccurrences(segment.text, exactCorporalKingPattern), 0),
+      segmentsContainingBookTitleKingRat: segments.filter((segment) => containsPattern(segment, bookTitlePattern)).length,
+      bookTitleOccurrences: segments.reduce((sum, segment) => sum + countPatternOccurrences(segment.text, bookTitlePattern), 0),
+      kingEnglishIdioms: segments.filter((segment) => containsPattern(segment, kingsEnglishPattern)).length,
+      likelyCharacterReferenceSegments: personMentionSegments.length,
+      note: '宽泛 King 匹配会包含书名 King Rat 与 the King’s English；以上分类把书名/习语单独计数，不能只看 broad matchingSegmentCount。',
+    };
+    const representativeRows = matchRows.slice().sort((a, b) => {
+      const rank = (segment) => {
+        if (exactTheKingPattern.test(segment.text) || exactCorporalKingPattern.test(segment.text)) return 0;
+        if (segment.ordinal > 80 && /\bking\b/iu.test(segment.text) && !bookTitlePattern.test(segment.text) && !kingsEnglishPattern.test(segment.text)) return 1;
+        if (bookTitlePattern.test(segment.text) || kingsEnglishPattern.test(segment.text)) return 3;
+        return 2;
+      };
+      return rank(a) - rank(b) || a.ordinal - b.ordinal;
+    });
+    result.source.matchingSegments = representativeRows.slice(0, MAX_REPORT_SOURCE_MATCHES).map((segment) => ({
       segmentId: segment.id, ordinal: segment.ordinal, contextPath: segment.contextPath,
       charCount: segment.text.length, occurrenceCount: countMatches(segment.text, terms),
+      hasTheKing: exactTheKingPattern.test(segment.text),
+      hasCorporalKing: exactCorporalKingPattern.test(segment.text),
+      hasKingRatTitle: bookTitlePattern.test(segment.text),
       excerpt: excerpt(segment.text, matcher, 300),
     }));
 
@@ -330,8 +365,10 @@ function scanProject(project, args, dataDir, matcher, terms) {
           matchingNameCandidates: scan.nameCandidates
             .map((candidate, index) => ({ ...candidate, rank: index + 1 }))
             .filter((candidate) => {
+              const name = normalize(candidate.name);
+              if (/^king rat(?:\b|:)/iu.test(name) || /\bking['’]s$/iu.test(name)) return false;
               matcher.lastIndex = 0;
-              return matcher.test(candidate.name) || /\bking\b/iu.test(candidate.name);
+              return matcher.test(candidate.name) || /\b(?:the\s+)?king\b/iu.test(candidate.name);
             })
             .slice(0, 30)
             .map((candidate) => ({
