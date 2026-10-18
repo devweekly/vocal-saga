@@ -94,7 +94,6 @@ function mergeProjectEntityRecord(prior: Record<string, any>, candidate: Record<
     aliases: Array.from(aliases.values()).slice(0, 8),
     targetEvidenceRefs,
     targetConfidence: prior.reviewStatus === 'confirmed' ? 'confirmed' :
-      (prior.targetConfidence === 'corroborated' || candidate.targetConfidence === 'corroborated') &&
       targetEvidenceCount >= 2 ? 'corroborated' : 'candidate',
     ...(evidenceRefs.length ? { evidenceRefs } : {}),
     ...(prior.reviewStatus !== 'confirmed' && candidate.reviewStatus === 'confirmed' &&
