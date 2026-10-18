@@ -16,6 +16,7 @@ import { runLiteraryReview } from '../literary.ts';
 import { getDocumentProjectStore, normalizeDocumentTranslationStrategy, type DocumentTranslationStrategy } from './projectStore.ts';
 import { buildProjectVoiceContext, sanitizeProjectLiteraryMemory } from './voiceContext.ts';
 import { buildTranslationBrief, summarizeTranslationBrief, type TranslationBrief } from './translationBrief.ts';
+import { logError, logWarn } from '../log.ts';
 import {
   combineTranslationContextDeltas,
   emptyTranslationContextDelta,
@@ -1409,7 +1410,7 @@ async function executeRun(projectId: string, runId: string): Promise<void> {
             });
           }
         } catch (persistError) {
-          console.error('[document-agent] failed to persist review warning', persistError);
+          logError('document-agent', 'failed to persist review warning · ' + (persistError instanceof Error ? persistError.message : String(persistError)));
         }
         if (!styleReviewAttempted && store.getRunStatus(projectId, runId) !== 'cancelled') {
           await runStyleReview();
@@ -1576,7 +1577,7 @@ async function executeRun(projectId: string, runId: string): Promise<void> {
               warning: '初译已保存，但本批人物/上下文增量未能持久化：' + warning,
             });
           } catch (eventError) {
-            console.warn('[document-agent] context-delta persistence failed', { runId, batchIndex, warning, eventError });
+            logWarn('document-agent', 'context-delta persistence failed · run=' + runId + ' batch=' + batchIndex + ' · ' + warning + ' · ' + (eventError instanceof Error ? eventError.message : String(eventError)));
           }
         }
       }
@@ -1762,7 +1763,7 @@ async function executeRun(projectId: string, runId: string): Promise<void> {
         });
       }
     } catch (persistError) {
-      console.error('[document-agent] failed to persist run failure', persistError);
+      logError('document-agent', 'failed to persist run failure · ' + (persistError instanceof Error ? persistError.message : String(persistError)));
     }
   }
 }

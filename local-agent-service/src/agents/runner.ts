@@ -1,6 +1,7 @@
 import { runOpenCode } from './opencode.ts';
 import { runWorkbuddy, runWorkbuddyJson, runWorkbuddyStructured } from './workbuddy.ts';
 import { parseJsonValue } from '../json.ts';
+import { logError, logInfo } from '../log.ts';
 import { formatTurnUsageLog, type TurnUsage } from './usage.ts';
 import { applyCodeBuddyTaskPrompt, type CodeBuddyTaskProfile } from './taskProfiles.ts';
 
@@ -36,7 +37,7 @@ function logModelStart(
   sessionScope: string | undefined, mode: string,
 ): void {
   if (isWorkflowManaged(sessionScope)) return;
-  console.info('[model] ' + describeTask(requestId, sessionScope) + ' · 开始 · request=' + requestId.slice(0, 12) +
+  logInfo('model', describeTask(requestId, sessionScope) + ' · 开始 · request=' + requestId.slice(0, 12) +
     ' · ' + agent.provider + '/' + (agent.model || '运行时默认模型') +
     ' · 模式=' + mode + ' · 输入=' + prompt.length.toLocaleString() +
     ' 字符 · 系统指令=' + systemPrompt.length.toLocaleString() + ' 字符');
@@ -47,7 +48,7 @@ function logModelSuccess(
   startedAt: number, mode: string, usage: TurnUsage | null = null,
 ): void {
   if (isWorkflowManaged(sessionScope)) return;
-  console.info('[model] ' + describeTask(requestId, sessionScope) + ' · 完成 · request=' + requestId.slice(0, 12) +
+  logInfo('model', describeTask(requestId, sessionScope) + ' · 完成 · request=' + requestId.slice(0, 12) +
     ' · ' + agent.provider + '/' + (agent.model || '运行时默认模型') +
     ' · 耗时=' + ((Date.now() - startedAt) / 1000).toFixed(1) + 's · 输出=' + compactOutputSummary(output) +
     ' · ' + formatTurnUsageLog(usage) + ' · 模式=' + mode);
@@ -60,10 +61,10 @@ function logModelFailure(
   const message = error instanceof Error ? error.message : String(error);
   const duration = ((Date.now() - startedAt) / 1000).toFixed(1) + 's';
   if (isWorkflowManaged(sessionScope)) return;
-  console.error('[model] ' + describeTask(requestId, sessionScope) + ' · 失败 · request=' + requestId.slice(0, 12) +
+  logError('model', describeTask(requestId, sessionScope) + ' · 失败 · request=' + requestId.slice(0, 12) +
     ' · ' + agent.provider + '/' + (agent.model || '运行时默认模型') + ' · 耗时=' + duration + ' · ' + message);
   if (process.env.LOCAL_AGENT_LOG_LEVEL === 'debug' && error instanceof Error && error.stack) {
-    console.error(error.stack);
+    logError('model', error.stack);
   }
 }
 

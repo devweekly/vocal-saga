@@ -9,6 +9,7 @@ import { getDocumentProjectStore } from './projectStore.ts';
 import { startProjectTranslationRun } from './translationAgent.ts';
 import { parseDocumentFile } from './ingest.ts';
 import { startContextGraphAnalysis, getContextGraph, getContextGraphStatus, reviewContextGraphItem } from './contextGraph.ts';
+import { logError, logProgress } from '../log.ts';
 
 function usage(): never {
   console.error([
@@ -82,7 +83,7 @@ export async function runDocumentCli(argv = process.argv.slice(2)): Promise<void
     while (status.status === 'queued' || status.status === 'running') {
       await sleep(1000);
       status = getContextGraphStatus(project.projectId, preprocessing.runId);
-      console.error('[context-graph] ' + String(status.status) + ' phase=' + String(status.phase));
+      logProgress('context-graph', String(status.status) + ' phase=' + String(status.phase));
     }
     print({ projectId: project.projectId, preprocessing: status });
     if (status.status !== 'completed') process.exitCode = 1;
@@ -103,7 +104,7 @@ export async function runDocumentCli(argv = process.argv.slice(2)): Promise<void
     while (status.status === 'queued' || status.status === 'running') {
       await sleep(1000);
       status = getContextGraphStatus(args[0], started.runId);
-      console.error('[context-graph] ' + String(status.status) + ' phase=' + String(status.phase));
+      logProgress('context-graph', String(status.status) + ' phase=' + String(status.phase));
     }
     print({ preprocessing: status });
     if (status.status !== 'completed') process.exitCode = 1;
@@ -155,7 +156,7 @@ export async function runDocumentCli(argv = process.argv.slice(2)): Promise<void
     while (true) {
       await sleep(1000);
       current = store.getRun(projectId, run.runId);
-      console.error('[document-agent] ' + current.status + ' ' + JSON.stringify(current.counts));
+      logProgress('document-agent', current.status + ' ' + JSON.stringify(current.counts));
       if (!['queued', 'running'].includes(current.status)) break;
     }
     const next = current.status === 'awaiting_acceptance'
@@ -230,7 +231,7 @@ export async function runDocumentCli(argv = process.argv.slice(2)): Promise<void
 
 if (import.meta.url === new URL(process.argv[1] ? 'file://' + path.resolve(process.argv[1]) : import.meta.url).href) {
   runDocumentCli().catch((error) => {
-    console.error(error instanceof Error ? error.message : String(error));
+    logError('document-cli', error instanceof Error ? error.message : String(error));
     process.exitCode = 1;
   });
 }

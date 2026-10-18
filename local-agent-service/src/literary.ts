@@ -3,6 +3,7 @@ import { formatTurnUsageLog } from './agents/usage.ts';
 import { getCodeBuddyTaskProfile } from './agents/taskProfiles.ts';
 import { parseAgentModel } from './json.ts';
 import { buildProjectVoiceContext, sanitizeProjectLiteraryMemory } from './documents/voiceContext.ts';
+import { logInfo } from './log.ts';
 
 // 文学分析的 structured output schema，只约束顶层形状，不禁止扩展字段。
 export const LITERARY_ANALYSIS_SCHEMA: Record<string, unknown> = {
@@ -344,7 +345,7 @@ export async function runLiteraryAnalysis(body: any, requestId: string, sessionS
     getCodeBuddyTaskProfile(body, 'literaryAnalysis'),
   );
   const parsed = modelRun.result;
-  if (modelRun.usage) console.info('[literary-analyze] ' + formatTurnUsageLog(modelRun.usage) + ' · request=' + requestId.slice(0, 12));
+  if (modelRun.usage) logInfo('literary-analyze', formatTurnUsageLog(modelRun.usage) + ' · request=' + requestId.slice(0, 12));
   if (!Array.isArray(parsed.entities) || !Array.isArray(parsed.relationships)) {
     throw new Error('本章分析结果不是预期 JSON；请重试分析');
   }
@@ -473,7 +474,7 @@ export async function runLiteraryReview(body: any, requestId: string, sessionSco
     getCodeBuddyTaskProfile(body, reviewFocus === 'style' ? 'styleReview' : 'accuracyReview'),
   );
   const parsed = modelRun.result;
-  if (modelRun.usage) console.info('[literary-review] ' + formatTurnUsageLog(modelRun.usage) + ' · request=' + requestId.slice(0, 12));
+  if (modelRun.usage) logInfo('literary-review', formatTurnUsageLog(modelRun.usage) + ' · request=' + requestId.slice(0, 12));
   if (!Array.isArray(parsed.results)) throw new Error('Reviewer 返回格式异常；请重试，扩展端会保留初译');
   const byId = new Map(segments.map((item) => [item.id, item]));
   const translations: Record<string, string> = {};

@@ -111,23 +111,23 @@ export function startLocalAgentServer() {
   });
 
   const server = app.listen(PORT, HOST, () => {
-    console.log('[local-agent] listening on http://' + HOST + ':' + PORT + ' · pid=' + process.pid);
-    console.log('[local-agent] provider default: ' + DEFAULT_PROVIDER);
+    logInfo('local-agent', 'listening on http://' + HOST + ':' + PORT + ' · pid=' + process.pid);
+    logInfo('local-agent', 'provider default: ' + DEFAULT_PROVIDER);
     // 空模型不会报错，只会让 CLI 静默用账号默认模型（计费且可能不支持 json-schema），
     // 所以启动时把解析结果打出来，并说明没选上的原因与可选项。
-    console.log('[local-agent] workbuddy model: ' + (DEFAULT_WORKBUDDY_MODEL || '<CLI 默认模型>'));
+    logInfo('local-agent', 'workbuddy model: ' + (DEFAULT_WORKBUDDY_MODEL || '<CLI 默认模型>'));
     if (!DEFAULT_WORKBUDDY_MODEL) {
-      console.log('[local-agent] 未自动选模型：偏好表里的模型都不在目录中'
+      logInfo('local-agent', '未自动选模型：偏好表里的模型都不在目录中'
         + (WORKBUDDY_FREE_MODELS.length
           ? '（当前可用的免费模型：' + WORKBUDDY_FREE_MODELS.join(', ') + '）'
           : '（目录里也没有 credits=0 的模型）')
         + '，可用 LOCAL_WORKBUDDY_MODEL 指定');
     }
-    console.log('[local-agent] SQLite: ' + DATABASE_PATH);
-    console.log('[local-agent] prompt/translation content storage: ' + String(STORE_CONTENT));
+    logInfo('local-agent', 'SQLite: ' + DATABASE_PATH);
+    logInfo('local-agent', 'prompt/translation content storage: ' + String(STORE_CONTENT));
     // 超时是排查「卡住 / 报超时」时最需要的第一手信息，启动即可见，
     // 不用去翻代码猜当前生效的上限。
-    console.log('[local-agent] timeouts: 单次调用 ' + (REQUEST_TIMEOUT_MS / 1000).toFixed(0)
+    logInfo('local-agent', 'timeouts: 单次调用 ' + (REQUEST_TIMEOUT_MS / 1000).toFixed(0)
       + 's · 全书预处理 ' + (ANALYSIS_TIMEOUT_MS / 1000).toFixed(0) + 's');
     // 仅默认 Provider 为 Workbuddy 时预热会话池，避免 OpenCode 模式启动无用 CLI。
     // 预热只 boot 进程、不调用模型；失败时首单仍可懒创建。测试可设 LOCAL_AGENT_PREWARM=false 关闭。
@@ -147,10 +147,10 @@ export function startLocalAgentServer() {
    */
   server.on('error', (error: any) => {
     if (error?.code === 'EADDRINUSE') {
-      console.error('[local-agent] 端口 ' + PORT + ' 已被占用：另一个 local-agent-service 实例正在运行，本进程退出。'
+      logError('local-agent', '端口 ' + PORT + ' 已被占用：另一个 local-agent-service 实例正在运行，本进程退出。'
         + ' 查看占用进程：lsof -nP -iTCP:' + PORT + ' -sTCP:LISTEN');
     } else {
-      console.error('[local-agent] 监听 ' + HOST + ':' + PORT + ' 失败：' + (error?.message || String(error)));
+      logError('local-agent', '监听 ' + HOST + ':' + PORT + ' 失败：' + (error?.message || String(error)));
     }
     process.exit(1);
   });

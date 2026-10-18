@@ -1,4 +1,5 @@
 import { DEFAULT_OPENCODE_MODEL, DEFAULT_PROVIDER, DEFAULT_WORKBUDDY_MODEL } from './config.ts';
+import { logInfo } from './log.ts';
 import { jsonrepair } from 'jsonrepair';
 
 export function parseAgentModel(modelValue: unknown, providerHint = '') {
@@ -132,7 +133,7 @@ export function parseJsonValue(text: unknown): Record<string, any> | any[] | nul
   try {
     const repaired = parseContainer(jsonrepair(value));
     if (repaired !== null && containerItemCount(repaired) > containerItemCount(scanned)) {
-      console.info('[local-agent] json-repair salvaged invalid model output (inputChars=' + value.length + ')');
+      logInfo('local-agent', 'json-repair salvaged invalid model output (inputChars=' + value.length + ')');
       return repaired;
     }
   } catch {

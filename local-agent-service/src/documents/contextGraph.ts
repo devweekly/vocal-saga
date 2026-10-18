@@ -13,6 +13,7 @@ import { formatTurnUsageLog } from '../agents/usage.ts';
 import { getCodeBuddyTaskProfile } from '../agents/taskProfiles.ts';
 import { getDocumentProjectStore } from './projectStore.ts';
 import { planBookSamples, scanBookSegments, scanBookSegmentsConcurrent, type BookScanResult } from './bookScan.ts';
+import { logError, logInfo } from '../log.ts';
 
 type Segment = { id: string; ordinal: number; text: string; kind: string; contextPath: string };
 type Evidence = { segmentId: string; quote: string };
@@ -778,7 +779,7 @@ async function runAnalysis(projectId: string, runId: string): Promise<void> {
     { timeoutMs: ANALYSIS_TIMEOUT_MS },
   );
   // 每轮 token 计量只进日志（预处理非计费重点）；形状校验逻辑保持不变。
-  if (analysisRun.usage) console.info('[context-graph] ' + formatTurnUsageLog(analysisRun.usage));
+  if (analysisRun.usage) logInfo('context-graph', formatTurnUsageLog(analysisRun.usage));
   const output = analysisRun.result;
   if (!output || Array.isArray(output)) throw new Error('Context Graph 分析返回了非对象结果。');
   const data = output as Record<string, any>;
@@ -1097,7 +1098,7 @@ export function startContextGraphAnalysis(projectId: string): { accepted: boolea
         .run(message, new Date().toISOString(), runId);
       getDocumentProjectStore().appendEvent(projectId, runId, 'context-graph.failed', { error: message });
     } catch (persistError) {
-      console.error('[context-graph] unable to persist failure', persistError);
+      logError('context-graph', 'unable to persist failure · ' + (persistError instanceof Error ? persistError.message : String(persistError)));
     }
     // context-graph.failed already writes a concise terminal summary with the same error.
     // Avoid dumping the same Error object/stack a second time for ordinary failures.

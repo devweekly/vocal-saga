@@ -26,6 +26,14 @@ export function logError(scope: string, message: string): void {
   console.error(formatLogLine(scope, message));
 }
 
+/**
+ * 进度/状态行：走 stderr，避免污染 CLI 的 JSON stdout，同时保持统一时间戳格式。
+ * 语义上是「正在进行」而非「出错」，所以不占用 logError 的红色级别。
+ */
+export function logProgress(scope: string, message: string): void {
+  console.error(formatLogLine(scope, message));
+}
+
 /** 单行错误摘要：去掉换行、限制长度，日志里永远只占一行。 */
 export function summarizeError(error: unknown, limit = 300): string {
   const message = error instanceof Error ? error.message : String(error);

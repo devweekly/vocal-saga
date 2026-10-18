@@ -14,6 +14,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { DATA_DIR } from '../config.ts';
 import { sanitizeProjectLiteraryMemory } from './voiceContext.ts';
 import { normalizeCodeBuddyTaskProfiles } from '../agents/taskProfiles.ts';
+import { formatLogLine, logError, logWarn } from '../log.ts';
 
 export type DocumentFormat = 'epub' | 'pdf' | 'txt' | 'md' | 'html' | 'docx' | 'srt' | 'vtt' | 'json';
 export const MAX_DOCUMENT_SOURCE_BYTES = 20 * 1024 * 1024;
@@ -400,8 +401,7 @@ function logWorkflowEvent(runId: string | null, type: string, rawPayload: unknow
       return;
   }
   if (!message) return;
-  const stamp = new Date().toLocaleTimeString('zh-CN', { hour12: false });
-  const line = '[agent ' + stamp + '] run=' + run + ' ' + message;
+  const line = formatLogLine('agent', 'run=' + run + ' ' + message);
   if (level === 'error') console.error(line);
   else if (level === 'warn') console.warn(line);
   else console.info(line);
@@ -565,7 +565,7 @@ export class DocumentProjectStore {
         }
         db.close();
       } catch (error) {
-        console.warn('[document-projects] catalog repair skipped ' + entry.name + ': ' + (error instanceof Error ? error.message : String(error)));
+        logWarn('document-projects', 'catalog repair skipped ' + entry.name + ': ' + (error instanceof Error ? error.message : String(error)));
       }
     }
   }
@@ -594,7 +594,7 @@ export class DocumentProjectStore {
         db.exec('COMMIT');
       } catch (error) {
         try { this.projectDbs.get(row.project_id)?.exec('ROLLBACK'); } catch { /* no active transaction */ }
-        console.warn('[document-projects] recovery check failed for ' + row.project_id + ': ' + (error instanceof Error ? error.message : String(error)));
+        logWarn('document-projects', 'recovery check failed for ' + row.project_id + ': ' + (error instanceof Error ? error.message : String(error)));
       }
     }
   }
@@ -1240,7 +1240,7 @@ export class DocumentProjectStore {
     try {
       this.addEvent(projectId, runId, type, payload);
     } catch (error) {
-      console.error('[document-agent] 事件写入失败 · ' + type + ' · ' + (error instanceof Error ? error.message : String(error)));
+      logError('document-agent', '事件写入失败 · ' + type + ' · ' + (error instanceof Error ? error.message : String(error)));
       throw error;
     }
   }

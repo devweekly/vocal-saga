@@ -13,6 +13,7 @@ import {
   normalizeDocumentSegments, saveDocumentSession,
 } from './db.ts';
 import { authorize, sendJson } from './middleware.ts';
+import { logError, logInfo, logWarn } from './log.ts';
 import { parseAgentModel, buildAgentPrompt, normalizeMessages, parseJsonValue } from './json.ts';
 import { runAgent, runAgentStructured } from './agents/runner.ts';
 import { getCodeBuddyTaskProfile } from './agents/taskProfiles.ts';
@@ -175,7 +176,7 @@ export async function handleRequest(req: Request, res: Response): Promise<void> 
     try { sendJson(res, 200, { found: true, session: { sessionId: row.session_id, title: row.title, format: row.format, updatedAt: row.updated_at, payload: JSON.parse(row.payload_json) } }); }
     catch (error) {
       // 损坏的会话会被删除：这是数据丢失，必须在终端留痕，不能静默当成「没找到」。
-      console.warn('[local-agent] 文档会话数据损坏，已删除 · session=' + sessionId.slice(0, 40) + ' · ' +
+      logWarn('local-agent', '文档会话数据损坏，已删除 · session=' + sessionId.slice(0, 40) + ' · ' +
         (error instanceof Error ? error.message : String(error)));
       db.prepare('DELETE FROM document_sessions WHERE session_id = ?').run(sessionId);
       sendJson(res, 200, { found: false });
@@ -277,8 +278,8 @@ export async function handleRequest(req: Request, res: Response): Promise<void> 
         ? normalized.userPrompt + '\n\n输出约束：只返回与系统指令和用户请求一致的严格合法 JSON 对象或数组，不要 Markdown、前言或后记。'
         : normalized.userPrompt;
       const requestMeta = requestMetadata(body);
-      console.info(
-        '[local-agent][' + requestId + '] start endpoint=' + url.pathname +
+      logInfo('local-agent',
+        '[' + requestId + '] start endpoint=' + url.pathname +
         ' provider=' + agent.provider +
         ' model=' + (agent.model || '<runtime-default>') +
         ' inputChars=' + requestMeta.inputChars +
@@ -292,7 +293,7 @@ export async function handleRequest(req: Request, res: Response): Promise<void> 
         ? getCodeBuddyTaskProfile({ taskProfiles }, 'translation')
         : undefined;
       if (sessionScope) {
-        console.info('[local-agent][' + requestId + '] session-scope role=translation scope=document-task');
+        logInfo('local-agent', '[' + requestId + '] session-scope role=translation scope=document-task');
       }
       let turnUsage: { result: unknown; usage: unknown } | null = null;
       if (jsonSchema) {
@@ -309,8 +310,8 @@ export async function handleRequest(req: Request, res: Response): Promise<void> 
             const preview = LOG_RESPONSE_PREVIEW
               ? ' preview=' + JSON.stringify(output.slice(0, 600))
               : ' preview=<disabled>';
-            console.error(
-              '[local-agent][' + requestId + '] invalid-json endpoint=' + url.pathname +
+            logError('local-agent',
+              '[' + requestId + '] invalid-json endpoint=' + url.pathname +
               ' provider=' + agent.provider +
               ' model=' + (agent.model || '<runtime-default>') +
               ' outputChars=' + output.length + preview,
@@ -338,8 +339,8 @@ export async function handleRequest(req: Request, res: Response): Promise<void> 
       });
     } else if (url.pathname.endsWith('/analyze')) {
       agent = parseAgentModel(body.model || 'auto', body.runtime || body.provider || '');
-      console.info(
-        '[local-agent][' + requestId + '] start endpoint=' + url.pathname +
+      logInfo('local-agent',
+        '[' + requestId + '] start endpoint=' + url.pathname +
         ' provider=' + agent.provider +
         ' model=' + (agent.model || '<runtime-default>') +
         ' inputChars=' + JSON.stringify(body.segments || []).length +
@@ -352,8 +353,8 @@ export async function handleRequest(req: Request, res: Response): Promise<void> 
       sendJson(res, 200, result);
     } else {
       agent = parseAgentModel(body.model || 'auto', body.runtime || body.provider || '');
-      console.info(
-        '[local-agent][' + requestId + '] start endpoint=' + url.pathname +
+      logInfo('local-agent',
+        '[' + requestId + '] start endpoint=' + url.pathname +
         ' provider=' + agent.provider +
         ' model=' + (agent.model || '<runtime-default>') +
         ' inputChars=' + JSON.stringify(body.segments || []).length +
@@ -408,8 +409,8 @@ export async function handleRequest(req: Request, res: Response): Promise<void> 
     const durationMs = Date.now() - startedAt;
     saveHistory({ id: requestId, endpoint: url.pathname, agent, body, output,
       durationMs, status: 'success' });
-    console.info(
-      '[local-agent][' + requestId + '] success endpoint=' + url.pathname +
+    logInfo('local-agent',
+      '[' + requestId + '] success endpoint=' + url.pathname +
       ' provider=' + agent.provider +
       ' model=' + (agent.model || '<runtime-default>') +
       ' durationMs=' + durationMs +
@@ -422,8 +423,8 @@ export async function handleRequest(req: Request, res: Response): Promise<void> 
     const requestMeta = requestMetadata(body || {});
     saveHistory({ id: requestId, endpoint: url.pathname, agent, body, output,
       error: message, durationMs, status: 'error' });
-    console.error(
-      '[local-agent][' + requestId + '] failed endpoint=' + url.pathname +
+    logError('local-agent',
+      '[' + requestId + '] failed endpoint=' + url.pathname +
       ' provider=' + agent.provider +
       ' model=' + (agent.model || '<runtime-default>') +
       ' status=' + status +
@@ -433,7 +434,7 @@ export async function handleRequest(req: Request, res: Response): Promise<void> 
       ' error=' + message,
     );
     if (error instanceof Error && error.stack) {
-      console.error('[local-agent][' + requestId + '] stack=' + error.stack);
+      logError('local-agent', '[' + requestId + '] stack=' + error.stack);
     }
     const { LOG_RESPONSE_PREVIEW: _ignored } = await import('./config.ts');
     void _ignored;

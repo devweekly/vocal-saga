@@ -8,6 +8,7 @@ import path from 'node:path';
 import { homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { readModelCatalog, resolveWorkbuddyModel } from './agents/modelCatalog.ts';
+import { logWarn } from './log.ts';
 
 export const HOST = (process.env.LOCAL_AGENT_HOST || '127.0.0.1').trim();
 export const PORT = Number.parseInt(process.env.LOCAL_AGENT_PORT || '8789', 10);
@@ -51,7 +52,7 @@ export function positiveIntegerEnv(name: string, fallback: number, minimum = 1):
   if (raw == null || !raw.trim()) return fallback;
   const parsed = Number.parseInt(raw, 10);
   if (!Number.isFinite(parsed) || parsed < 1) {
-    console.warn('[local-agent] Ignoring invalid ' + name + '=' + JSON.stringify(raw) + '; using default ' + fallback);
+    logWarn('local-agent', 'Ignoring invalid ' + name + '=' + JSON.stringify(raw) + '; using default ' + fallback);
     return fallback;
   }
   return Math.max(minimum, parsed);
