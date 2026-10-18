@@ -693,3 +693,86 @@ test('pure prose with no JSON still returns null', () => {
   assert.equal(parseJsonValue('抱歉，我无法翻译这段内容。'), null);
   assert.equal(parseJsonValue(''), null);
 });
+
+// ── 每轮 token 消耗（费用口径） ─────────────────────────────
+
+test('parseTurnUsage 解析 SDK result 的 usage 并拒绝无效计量', async () => {
+  const { parseTurnUsage } = await import('../src/agents/usage.ts');
+  const usage = parseTurnUsage({
+    subtype: 'success',
+    usage: { input_tokens: 120, output_tokens: 45, cache_read_input_tokens: 3000, cache_creation_input_tokens: 500 },
+    total_cost_usd: 0,
+    duration_ms: 3658,
+    num_turns: 3,
+  });
+  assert.deepEqual(usage, {
+    inputTokens: 120, outputTokens: 45, cacheReadTokens: 3000, cacheCreationTokens: 500,
+    totalCostUsd: null, durationMs: 3658, numTurns: 3,
+  });
+  // CodeBuddy 订阅 cost=0 → 不透出美元字段
+  assert.equal(usage.totalCostUsd, null);
+
+  // usage 全 0 或缺失 → 视为未计量
+  assert.equal(parseTurnUsage({ subtype: 'success', usage: {} }), null);
+  assert.equal(parseTurnUsage({ subtype: 'success' }), null);
+  assert.equal(parseTurnUsage(null), null);
+
+  // cost > 0 时透出
+  const paid = parseTurnUsage({ usage: { input_tokens: 10, output_tokens: 5 }, total_cost_usd: 0.0123 });
+  assert.equal(paid.totalCostUsd, 0.0123);
+});
+
+test('addTurnUsage 累加多轮 token 并合计轮数', async () => {
+  const { addTurnUsage } = await import('../src/agents/usage.ts');
+  const a = { inputTokens: 100, outputTokens: 50, cacheReadTokens: 200, cacheCreationTokens: 0, totalCostUsd: null, durationMs: 1000, numTurns: 1 };
+  const b = { inputTokens: 30, outputTokens: 20, cacheReadTokens: 0, cacheCreationTokens: 400, totalCostUsd: 0.01, durationMs: 2000, numTurns: 2 };
+  const total = addTurnUsage(a, b);
+  assert.equal(total.inputTokens, 130);
+  assert.equal(total.outputTokens, 70);
+  assert.equal(total.cacheReadTokens, 200);
+  assert.equal(total.cacheCreationTokens, 400);
+  assert.equal(total.totalCostUsd, 0.01);
+  assert.equal(total.numTurns, 3);
+  assert.equal(total.durationMs, null, '合计不再表示单轮耗时');
+  assert.deepEqual(addTurnUsage(null, null), null);
+});
+
+test('summarizeTurnUsage 输出 totalInputTokens/totalTokens 供事件与前端使用', async () => {
+  const { summarizeTurnUsage } = await import('../src/agents/usage.ts');
+  const summary = summarizeTurnUsage({
+    inputTokens: 120, outputTokens: 45, cacheReadTokens: 3000, cacheCreationTokens: 500,
+    totalCostUsd: null, durationMs: 3658, numTurns: 1,
+  });
+  assert.equal(summary.totalInputTokens, 3620);
+  assert.equal(summary.totalTokens, 3665);
+  assert.equal(summary.durationMs, 3658);
+  assert.equal('totalCostUsd' in summary, false, '订阅模式下没有美元费用，不透出该字段');
+  assert.equal(summarizeTurnUsage(null), null);
+});
+
+test('会话池 runPrompt 透出 result.usage，空响应仍按原语义报错', async () => {
+  const { WorkbuddySessionPool } = await import('../src/agents/workbuddyPool.ts');
+  const factory = () => ({
+    sent: [],
+    async send(m) { this.sent.push(m); },
+    async *stream() {
+      yield { type: 'assistant', message: { content: [{ type: 'text', text: '译文' }] } };
+      yield {
+        type: 'result', subtype: 'success',
+        usage: { input_tokens: 3287, output_tokens: 97, cache_read_input_tokens: 512, cache_creation_input_tokens: 2775 },
+        total_cost_usd: 0, duration_ms: 3658, num_turns: 1,
+      };
+    },
+    async interrupt() {}, close() {}, async setModel() {},
+  });
+  const pool = new WorkbuddySessionPool(1, 10, factory);
+  const index = await pool.acquire({ provider: 'workbuddy', model: '' });
+  const outcome = await pool.runPrompt(index, 'hello', 'req-usage', 5000);
+  assert.equal(outcome.text, '译文');
+  assert.deepEqual(outcome.usage, {
+    inputTokens: 3287, outputTokens: 97, cacheReadTokens: 512, cacheCreationTokens: 2775,
+    totalCostUsd: null, durationMs: 3658, numTurns: 1,
+  });
+  pool.release(index);
+  pool.closeAll();
+});

@@ -258,11 +258,15 @@ export async function handleRequest(req: Request, res: Response): Promise<void> 
       if (sessionScope) {
         console.info('[local-agent][' + requestId + '] session-scope role=translation scope=document-task');
       }
+      let turnUsage: { result: unknown; usage: unknown } | null = null;
       if (jsonSchema) {
         const structured = await runAgentStructured(agent, prompt, normalized.systemPrompt, jsonSchema, requestId, sessionScope);
-        output = JSON.stringify(structured);
+        output = JSON.stringify(structured.result);
+        turnUsage = structured;
       } else {
-        output = await runAgent(agent, prompt, normalized.systemPrompt, requestId, sessionScope);
+        const r = await runAgent(agent, prompt, normalized.systemPrompt, requestId, sessionScope);
+        output = r.result;
+        turnUsage = r;
         if (jsonMode) {
           const parsedOutput = parseJsonValue(output);
           if (!parsedOutput) {
@@ -283,11 +287,18 @@ export async function handleRequest(req: Request, res: Response): Promise<void> 
           output = JSON.stringify(parsedOutput);
         }
       }
+      // usage 填真实计量值（费用口径 = token 数；CodeBuddy 订阅的 total_cost_usd 恒为 0），
+      // 供扩展端与本机客户端展示每轮消耗；计量不可用时保持 0 以兼容 OpenAI 客户端。
+      const usageMeta = turnUsage?.usage as { inputTokens?: number; outputTokens?: number } | null | undefined;
       sendJson(res, 200, {
         id: 'chatcmpl-' + requestId, object: 'chat.completion',
         created: Math.floor(Date.now() / 1000), model: body.model,
         choices: [{ index: 0, message: { role: 'assistant', content: output }, finish_reason: 'stop' }],
-        usage: { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 },
+        usage: {
+          prompt_tokens: usageMeta?.inputTokens ?? 0,
+          completion_tokens: usageMeta?.outputTokens ?? 0,
+          total_tokens: (usageMeta?.inputTokens ?? 0) + (usageMeta?.outputTokens ?? 0),
+        },
       });
     } else if (url.pathname.endsWith('/analyze')) {
       agent = parseAgentModel(body.model || 'auto', body.runtime || body.provider || '');

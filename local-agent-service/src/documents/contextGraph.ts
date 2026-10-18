@@ -8,6 +8,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import type { DatabaseSync } from 'node:sqlite';
 import { parseAgentModel } from '../json.ts';
 import { runAgentStructured } from '../agents/runner.ts';
+import { formatTurnUsageLog } from '../agents/usage.ts';
 import { getDocumentProjectStore } from './projectStore.ts';
 import { planBookSamples, scanBookSegments, scanBookSegmentsConcurrent, type BookScanResult } from './bookScan.ts';
 
@@ -713,7 +714,7 @@ async function runAnalysis(projectId: string, runId: string): Promise<void> {
       dialogueSegmentCount: scan.dialogueSegmentCount, targetedNameCount: samplePlan.diagnostics.targetedNameCount,
     },
   });
-  const output = await runAgentStructured(
+  const analysisRun = await runAgentStructured(
     { provider: agent.provider, model: agent.model },
     prompt,
     [
@@ -725,6 +726,9 @@ async function runAnalysis(projectId: string, runId: string): Promise<void> {
     runId,
     'context-graph:' + projectId + ':' + revisionId + ':' + runId,
   );
+  // 每轮 token 计量只进日志（预处理非计费重点）；形状校验逻辑保持不变。
+  if (analysisRun.usage) console.info('[context-graph] ' + formatTurnUsageLog(analysisRun.usage));
+  const output = analysisRun.result;
   if (!output || Array.isArray(output)) throw new Error('Context Graph 分析返回了非对象结果。');
   const data = output as Record<string, any>;
   const sourceById = new Map(segments.map((segment) => [segment.id, segment]));

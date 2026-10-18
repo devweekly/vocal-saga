@@ -1,4 +1,5 @@
 import { runAgentJson } from './agents/runner.ts';
+import { formatTurnUsageLog } from './agents/usage.ts';
 import { parseAgentModel } from './json.ts';
 import { buildProjectVoiceContext, sanitizeProjectLiteraryMemory } from './documents/voiceContext.ts';
 
@@ -320,7 +321,9 @@ export async function runLiteraryAnalysis(body: any, requestId: string, sessionS
     '本章原文片段：', JSON.stringify(segments),
   ].join('\n\n');
   const agent = parseAgentModel(body.model || 'auto', body.runtime || body.provider || '');
-  const parsed = await runAgentJson(agent, prompt, systemPrompt, LITERARY_ANALYSIS_SCHEMA, requestId, sessionScope);
+  const { parsed, usage } = await runAgentJson(agent, prompt, systemPrompt, LITERARY_ANALYSIS_SCHEMA, requestId, sessionScope);
+  // 工作流托管 scope 下 runner 不打日志，这里补一行每轮 token 消耗。
+  if (usage) console.info('[literary-analyze] ' + formatTurnUsageLog(usage) + ' · request=' + requestId.slice(0, 12));
   if (!Array.isArray(parsed.entities) || !Array.isArray(parsed.relationships)) {
     throw new Error('本章分析结果不是预期 JSON；请重试分析');
   }
@@ -444,7 +447,9 @@ export async function runLiteraryReview(body: any, requestId: string, sessionSco
     body, segments, reviewFocus, translationBrief, precedingSegments, voiceContext, contextGraph,
   });
   const agent = parseAgentModel(body.model || 'auto', body.runtime || body.provider || '');
-  const parsed = await runAgentJson(agent, prompt, systemPrompt, LITERARY_REVIEW_SCHEMA, requestId, sessionScope);
+  const { parsed, usage } = await runAgentJson(agent, prompt, systemPrompt, LITERARY_REVIEW_SCHEMA, requestId, sessionScope);
+  // 工作流托管 scope 下 runner 不打日志，这里补一行每轮 token 消耗。
+  if (usage) console.info('[literary-review] ' + formatTurnUsageLog(usage) + ' · request=' + requestId.slice(0, 12));
   if (!Array.isArray(parsed.results)) throw new Error('Reviewer 返回格式异常；请重试，扩展端会保留初译');
   const byId = new Map(segments.map((item) => [item.id, item]));
   const translations: Record<string, string> = {};

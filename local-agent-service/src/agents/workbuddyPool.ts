@@ -1,5 +1,6 @@
 import { REQUEST_TIMEOUT_MS, WORKBUDDY_POOL_MAX_USES, WORKBUDDY_POOL_SIZE } from '../config.ts';
 import { buildWorkbuddyOptions, type WorkbuddyAgent } from './workbuddy.ts';
+import { parseTurnUsage, type TurnUsage } from './usage.ts';
 
 // SDK 会话的最小使用面：正式用 Session，测试用假对象。
 export interface PooledSession {
@@ -187,12 +188,13 @@ export class WorkbuddySessionPool {
     combinedPrompt: string,
     requestId: string,
     timeoutMs = REQUEST_TIMEOUT_MS,
-  ): Promise<{ text: string; structuredOutput: unknown }> {
+  ): Promise<{ text: string; structuredOutput: unknown; usage: TurnUsage | null }> {
     const slot = this.slots[index];
     const session = slot.session;
     if (!session) throw new Error('会话槽位没有可用会话');
     let text = '';
     let structuredOutput: unknown;
+    let usage: TurnUsage | null = null;
     let timedOut = false;
     const timer = setTimeout(() => {
       timedOut = true;
@@ -218,6 +220,8 @@ export class WorkbuddySessionPool {
             throw new Error('Workbuddy 执行失败：' + String(raw.subtype));
           }
           if (raw.structured_output !== undefined) structuredOutput = raw.structured_output;
+          // 每轮计费口径：result.usage 的 token 计数（CodeBuddy 订阅下 total_cost_usd 恒为 0）。
+          usage = parseTurnUsage(raw);
           break;
         }
       }
@@ -248,7 +252,7 @@ export class WorkbuddySessionPool {
     // Keep internal Session reuse counters out of the default terminal output.
     slot.uses += 1;
     if (slot.uses >= this.maxUses) this.dropSession(index);
-    return { text: text.trim(), structuredOutput };
+    return { text: text.trim(), structuredOutput, usage };
   }
 
   // 关停/测试用：关闭全部 CLI 子进程并清空。

@@ -10,6 +10,7 @@
 import { parseAgentModel } from '../json.ts';
 import { positiveIntegerEnv, WORKBUDDY_POOL_SIZE } from '../config.ts';
 import { runAgentStructured } from '../agents/runner.ts';
+import { addTurnUsage, summarizeTurnUsage, type TurnUsage } from '../agents/usage.ts';
 import { runLiteraryReview } from '../literary.ts';
 import { getDocumentProjectStore, normalizeDocumentTranslationStrategy, type DocumentTranslationStrategy } from './projectStore.ts';
 import { buildProjectVoiceContext, sanitizeProjectLiteraryMemory } from './voiceContext.ts';
@@ -27,8 +28,7 @@ const evidenceSchema = {
   maxItems: 4,
   items: {
     type: 'object',
-    properties: { segment_id: { type: 'string' }, quote: { type: 'string' } },
-    required: ['segment_id', 'quote'],
+    properties: { segment_id: { type: 'string' }, quote: { type: 'string' } },    required: ['segment_id', 'quote'],
   },
 };
 
@@ -247,6 +247,21 @@ export function createConcurrencyLimiter(concurrency: number): <T>(task: () => P
 }
 
 const activeRuns = new Set<string>();
+
+// 每个 Run 的 token 消耗累计（费用口径）。初译每次模型调用成功后累加，
+// run.finished / run.failed 时随事件透出并清理。Review/审校轮各有独立事件，不计入这里。
+const runUsageTotals = new Map<string, TurnUsage | null>();
+
+function addRunUsage(runId: string, usage: TurnUsage | null): void {
+  if (!usage) return;
+  runUsageTotals.set(runId, addTurnUsage(runUsageTotals.get(runId) ?? null, usage));
+}
+
+function takeRunUsage(runId: string): TurnUsage | null {
+  const usage = runUsageTotals.get(runId) ?? null;
+  runUsageTotals.delete(runId);
+  return usage;
+}
 
 export function buildBatches(
   items: TranslationItem[],
@@ -845,7 +860,18 @@ async function translateBatch(context: any, items: TranslationItem[], requestId:
 
   let value: unknown;
   try {
-    value = await runAgentStructured(agent, userPrompt, systemPrompt, TRANSLATION_SCHEMA, requestId, sessionScope);
+    const modelRun = await runAgentStructured(agent, userPrompt, systemPrompt, TRANSLATION_SCHEMA, requestId, sessionScope);
+    value = modelRun.result;
+    // 每轮 token 消耗：随批次响应事件透出，并累计进 Run 总账。
+    const turnUsage = modelRun.usage;
+    addRunUsage(context.run.runId, turnUsage);
+    if (turnUsage) {
+      store.appendEvent(context.project.projectId, context.run.runId, 'model.usage', {
+        stage: 'translate', batchIndex, requestId,
+        provider: agent.provider, model: agent.model || '<runtime-default>',
+        ...summarizeTurnUsage(turnUsage),
+      });
+    }
   } catch (error) {
     store.appendEvent(context.project.projectId, context.run.runId, 'model.call.failed', {
       stage: 'translate', batchIndex, requestId,
@@ -1686,6 +1712,8 @@ async function executeRun(projectId: string, runId: string): Promise<void> {
       status: finishedRun.status,
       counts: finishedRun.counts || {},
       error: finishedRun.error || null,
+      // 本运行累计 token 消耗（仅初译模型调用；审校/预处理各自有 model.usage 事件）。
+      usage: summarizeTurnUsage(takeRunUsage(runId)),
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -1702,7 +1730,11 @@ async function executeRun(projectId: string, runId: string): Promise<void> {
           .map((item: any) => item.id);
         if (stuckIds.length) store.markRunSegments(projectId, runId, stuckIds, 'failed', message);
         store.setRunStatus(projectId, runId, 'failed', message);
-        store.appendEvent(projectId, runId, 'run.failed', { error: message });
+        store.appendEvent(projectId, runId, 'run.failed', {
+          error: message,
+          // 失败也要清账：把已发生的 token 消耗随失败事件透出，避免累加到下一次重试。
+          usage: summarizeTurnUsage(takeRunUsage(runId)),
+        });
       }
     } catch (persistError) {
       console.error('[document-agent] failed to persist run failure', persistError);

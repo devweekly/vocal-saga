@@ -1,6 +1,7 @@
 import { runOpenCode } from './opencode.ts';
 import { runWorkbuddy, runWorkbuddyJson, runWorkbuddyStructured } from './workbuddy.ts';
 import { parseJsonValue } from '../json.ts';
+import { formatTurnUsageLog, type TurnUsage } from './usage.ts';
 
 type AgentSpec = { provider: string; model: string };
 
@@ -43,12 +44,13 @@ function logModelStart(
 
 function logModelSuccess(
   agent: AgentSpec, output: unknown, requestId: string, sessionScope: string | undefined,
-  startedAt: number, mode: string,
+  startedAt: number, mode: string, usage: TurnUsage | null = null,
 ): void {
   if (isWorkflowManaged(sessionScope)) return;
   console.info('[model] ' + describeTask(requestId, sessionScope) + ' · 完成 · request=' + requestId.slice(0, 12) +
     ' · ' + agent.provider + '/' + (agent.model || '运行时默认模型') +
-    ' · 耗时=' + ((Date.now() - startedAt) / 1000).toFixed(1) + 's · 输出=' + compactOutputSummary(output) + ' · 模式=' + mode);
+    ' · 耗时=' + ((Date.now() - startedAt) / 1000).toFixed(1) + 's · 输出=' + compactOutputSummary(output) +
+    ' · ' + formatTurnUsageLog(usage) + ' · 模式=' + mode);
 }
 
 function logModelFailure(
@@ -69,22 +71,33 @@ function logModelFailure(
   }
 }
 
+export interface AgentRunResult<T> {
+  result: T;
+  /** 本轮 token 消耗（费用口径）；provider 不支持计量时为 null。 */
+  usage: TurnUsage | null;
+}
+
 export async function runAgent(
   agent: AgentSpec,
   prompt: string,
   systemPrompt: string,
   requestId = 'unknown',
   sessionScope?: string,
-): Promise<string> {
+): Promise<AgentRunResult<string>> {
   const startedAt = Date.now();
   logModelStart(agent, prompt, systemPrompt, requestId, sessionScope, '文本');
   try {
     let output: string;
-    if (agent.provider === 'workbuddy') output = await runWorkbuddy(agent, prompt, systemPrompt, requestId, sessionScope);
-    else if (agent.provider === 'opencode') output = await runOpenCode(agent, prompt, systemPrompt);
-    else throw new Error('不支持的本机 Agent：' + agent.provider);
-    logModelSuccess(agent, output, requestId, sessionScope, startedAt, '文本');
-    return output;
+    let usage: TurnUsage | null = null;
+    if (agent.provider === 'workbuddy') {
+      const r = await runWorkbuddy(agent, prompt, systemPrompt, requestId, sessionScope);
+      output = r.text;
+      usage = r.usage;
+    } else if (agent.provider === 'opencode') {
+      output = await runOpenCode(agent, prompt, systemPrompt);
+    } else throw new Error('不支持的本机 Agent：' + agent.provider);
+    logModelSuccess(agent, output, requestId, sessionScope, startedAt, '文本', usage);
+    return { result: output, usage };
   } catch (error) {
     logModelFailure(agent, error, requestId, sessionScope, startedAt, '文本');
     throw error;
@@ -99,13 +112,16 @@ export async function runAgentJson(
   schema: Record<string, unknown>,
   requestId = 'unknown',
   sessionScope?: string,
-): Promise<Record<string, any>> {
+): Promise<AgentRunResult<Record<string, any>>> {
   const startedAt = Date.now();
   logModelStart(agent, prompt, systemPrompt, requestId, sessionScope, 'JSON 对象');
   try {
     let parsed: Record<string, any>;
+    let usage: TurnUsage | null = null;
     if (agent.provider === 'workbuddy') {
-      parsed = await runWorkbuddyJson(agent, prompt, systemPrompt, schema, requestId, sessionScope);
+      const r = await runWorkbuddyJson(agent, prompt, systemPrompt, schema, requestId, sessionScope);
+      parsed = r.parsed;
+      usage = r.usage;
     } else if (agent.provider === 'opencode') {
       const output = await runOpenCode(agent, prompt, systemPrompt);
       const value = parseJsonValue(output);
@@ -114,8 +130,8 @@ export async function runAgentJson(
     } else {
       throw new Error('不支持的本机 Agent：' + agent.provider);
     }
-    logModelSuccess(agent, parsed, requestId, sessionScope, startedAt, 'JSON 对象');
-    return parsed;
+    logModelSuccess(agent, parsed, requestId, sessionScope, startedAt, 'JSON 对象', usage);
+    return { result: parsed, usage };
   } catch (error) {
     logModelFailure(agent, error, requestId, sessionScope, startedAt, 'JSON 对象');
     throw error;
@@ -130,13 +146,16 @@ export async function runAgentStructured(
   schema: Record<string, unknown>,
   requestId = 'unknown',
   sessionScope?: string,
-): Promise<Record<string, any> | any[]> {
+): Promise<AgentRunResult<Record<string, any> | any[]>> {
   const startedAt = Date.now();
   logModelStart(agent, prompt, systemPrompt, requestId, sessionScope, '结构化 JSON');
   try {
     let result: Record<string, any> | any[];
+    let usage: TurnUsage | null = null;
     if (agent.provider === 'workbuddy') {
-      result = await runWorkbuddyStructured(agent, prompt, systemPrompt, schema, requestId, sessionScope);
+      const r = await runWorkbuddyStructured(agent, prompt, systemPrompt, schema, requestId, sessionScope);
+      result = r.parsed;
+      usage = r.usage;
     } else if (agent.provider === 'opencode') {
       const output = await runOpenCode(agent, prompt, systemPrompt);
       const value = parseJsonValue(output);
@@ -145,8 +164,8 @@ export async function runAgentStructured(
     } else {
       throw new Error('不支持的本机 Agent：' + agent.provider);
     }
-    logModelSuccess(agent, result, requestId, sessionScope, startedAt, '结构化 JSON');
-    return result;
+    logModelSuccess(agent, result, requestId, sessionScope, startedAt, '结构化 JSON', usage);
+    return { result, usage };
   } catch (error) {
     logModelFailure(agent, error, requestId, sessionScope, startedAt, '结构化 JSON');
     throw error;

@@ -1,6 +1,7 @@
 import { REQUEST_TIMEOUT_MS, WORK_DIR } from '../config.ts';
 import { parseJsonValue } from '../json.ts';
 import { getTextPool } from './workbuddyPool.ts';
+import { parseTurnUsage, type TurnUsage } from './usage.ts';
 
 // 原生 structured output 的工具名（CLI 内置，见 SDK 的 StructuredOutputTool 说明）。
 const STRUCTURED_OUTPUT_TOOL = 'StructuredOutput';
@@ -60,12 +61,13 @@ async function queryWorkbuddyRaw(
   systemPrompt: string,
   options: Record<string, any>,
   _requestId = 'unknown',
-): Promise<{ text: string; structuredOutput: unknown }> {
+): Promise<{ text: string; structuredOutput: unknown; usage: TurnUsage | null }> {
   const sdk = await import('@tencent-ai/agent-sdk');
   const combinedPrompt = buildCombinedPrompt(prompt, systemPrompt);
   const query = sdk.query({ prompt: combinedPrompt, options });
   let text = '';
   let structuredOutput: unknown;
+  let usage: TurnUsage | null = null;
   let timedOut = false;
   const timer = setTimeout(() => {
     timedOut = true;
@@ -87,6 +89,7 @@ async function queryWorkbuddyRaw(
           throw new Error('Workbuddy 执行失败：' + String(raw.error?.message || raw.error || raw.subtype));
         }
         if (raw.structured_output !== undefined) structuredOutput = raw.structured_output;
+        usage = parseTurnUsage(raw);
       }
     }
   } catch (error) {
@@ -98,7 +101,7 @@ async function queryWorkbuddyRaw(
   if (timedOut) throw new Error('Workbuddy 调用超时（' + REQUEST_TIMEOUT_MS + ' ms）');
   // Provider-level TTFT/JSON implementation details are intentionally not printed here.
   // The workflow trace records task, batch, total duration and output validity once, at the boundary.
-  return { text: text.trim(), structuredOutput };
+  return { text: text.trim(), structuredOutput, usage };
 }
 
 export async function runWorkbuddy(
@@ -107,7 +110,7 @@ export async function runWorkbuddy(
   systemPrompt: string,
   requestId = 'unknown',
   sessionScope?: string,
-): Promise<string> {
+): Promise<{ text: string; usage: TurnUsage | null }> {
   // 普通文本沿用已有池；书籍任务必须传专属 scope，绝不与网页/其他书共用上下文。
   const pool = getTextPool();
   const index = await pool.acquire(agent, sessionScope || 'shared-text-translation');
@@ -117,9 +120,9 @@ export async function runWorkbuddy(
     const firstMessage = !sessionScope || pool.isFresh(index)
       ? buildCombinedPrompt(prompt, systemPrompt)
       : prompt;
-    const { text } = await pool.runPrompt(index, firstMessage, requestId);
+    const { text, usage } = await pool.runPrompt(index, firstMessage, requestId);
     if (!text) throw new Error('Workbuddy 已结束，但没有返回译文');
-    return text;
+    return { text, usage };
   } finally {
     pool.release(index);
   }
@@ -154,9 +157,10 @@ export async function runWorkbuddyStructured(
   schema: Record<string, unknown>,
   requestId = 'unknown',
   sessionScope?: string,
-): Promise<Record<string, any> | any[]> {
+): Promise<{ parsed: Record<string, any> | any[]; usage: TurnUsage | null }> {
   let text: string;
   let structuredOutput: unknown;
+  let usage: TurnUsage | null = null;
   if (sessionScope) {
     // 文学分析与 Reviewer 也使用会话，但按职责隔离，并使用各自固定的 JSON schema。
     const pool = getTextPool();
@@ -166,6 +170,7 @@ export async function runWorkbuddyStructured(
       const result = await pool.runPrompt(index, promptForTurn, requestId);
       text = result.text;
       structuredOutput = result.structuredOutput;
+      usage = result.usage;
     } finally {
       pool.release(index);
     }
@@ -174,11 +179,12 @@ export async function runWorkbuddyStructured(
     const result = await queryWorkbuddyRaw(agent, prompt, systemPrompt, buildWorkbuddyOptions(agent, schema), requestId);
     text = result.text;
     structuredOutput = result.structuredOutput;
+    usage = result.usage;
   }
   const parsed = resolveWorkbuddyStructured(structuredOutput, text);
   // Keep the native-vs-text parsing decision available to the caller through shape validation.
   // Printing it for every model call duplicated the useful workflow summary without explaining the task.
-  return parsed;
+  return { parsed, usage };
 }
 
 // 需要严格 JSON 对象的调用走这里，返回解析好的对象而不是文本。
@@ -189,10 +195,10 @@ export async function runWorkbuddyJson(
   schema: Record<string, unknown>,
   requestId = 'unknown',
   sessionScope?: string,
-): Promise<Record<string, any>> {
-  const parsed = await runWorkbuddyStructured(agent, prompt, systemPrompt, schema, requestId, sessionScope);
+): Promise<{ parsed: Record<string, any>; usage: TurnUsage | null }> {
+  const { parsed, usage } = await runWorkbuddyStructured(agent, prompt, systemPrompt, schema, requestId, sessionScope);
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
     throw new Error('Workbuddy 返回内容不是预期 JSON 对象');
   }
-  return parsed as Record<string, any>;
+  return { parsed, usage };
 }
