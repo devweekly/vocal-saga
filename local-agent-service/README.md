@@ -30,15 +30,24 @@
 
 如果《King Rat》等小说中的称谓没有进入“人物角色与声音档案”，可在服务目录执行只读诊断：
 
-针对 James Clavell 的《King Rat》，`King Rat` 只用于按书名定位项目，不作为人物名；人物检索会使用 `the King`、`King` 和 `Corporal King`。公开出版方简介与人物资料将该人物称为一名美国下士（Corporal King / the King），我没有找到可可靠核实的名字或首名，因此诊断不会编造更完整的姓名。
+针对 James Clavell 的《King Rat》，King Rat 只用于按书名定位项目，不作为人物名；人物检索会使用 the King、King 和 Corporal King。当前人物候选是 King 下士，但不应在没有原文依据时臆造首名。
+
+请优先使用**项目 UUID**，不要只用书名。诊断报告显示同名 EPUB 可能存在多个独立项目，传入标题会同时扫描所有同名项目：
 
 ```bash
-npm run diagnose:character-voice -- --project "King Rat" --term "the King"
-# 若标题不同，传入项目 ID：
-npm run diagnose:character-voice -- --project <project-id> --term "the King"
+npm run diagnose:character-voice -- \
+  --project "fcd6d06d-f057-4e82-9328-40b40ce0ee77" \
+  --term "the King" \
+  --out ./king-character-diagnosis.json
 ```
 
-脚本会重算与正式预处理相同的确定性 BookScan 和样本计划，并读取当前来源版本、Context Graph 节点/证据、literary-memory 声音画像、已持久化 TranslationBrief、项目事件、请求历史数据库，以及配置工作区中的可读日志记录。报告 JSON 写到执行目录，可用 `--out /path/to/report.json` 指定位置，也可以用 `--logs /path/to/log-or-directory` 添加日志位置。脚本不会调用模型、发网络请求、修改 SQLite 或写入工作区；报告只保留限长摘录并对常见 Token/Secret 字段脱敏。分享前仍建议检查一下输出文件。
+如果要检查其他项目，将 --project 替换为实际 UUID。脚本会重算 BookScan 和当前确定性采样计划，并读取当前来源版本、Context Graph 的节点和证据、人物声音档案、已保存的 TranslationBrief、项目事件、模型请求历史以及配置的工作区/日志目录。
+
+报告新增以下信息：原文中 the King、Corporal King、King Rat 书名和 the King's English 的分项计数；当前采样计划与持久化预处理样本的重合率；模型结构化输出中的人物/实体候选、证据拒绝原因、候选是否最终持久化；请求历史中的端点/模型统计和可解析的结构化响应摘要；以及每个日志扫描根目录是否存在、实际发现和检查了多少文件。
+
+**重要：旧 run 没有逐候选模型输出审计。** 更新版本后，需要在 UI 针对当前 project UUID 重新执行一次“重新分析全书”，才能为新 run 持久化 context-graph.output-audit；诊断脚本会明确标记历史 run 缺失审计信息，避免把“没有历史记录”误判成“模型没有返回人物”。
+
+脚本本身仍是只读的：不调用模型、不发送网络请求、不修改 SQLite 或工作区；报告中的原文/请求摘录有长度限制，并对常见 Token/Secret 字段脱敏，但分享前仍建议人工检查报告文件。
 
 本机模式是强制 Provider 路由，不是“本机优先、失败切远程”：翻译、侧栏对话、文学分析或审校的本机模型调用失败时会返回明确错误；扩展不会因此向 DeepSeek 或远程 Vocal Saga 重试。文档批次规划遇到服务不可用时使用的只是扩展端确定性 CPU 算法，不会发送模型/API 请求；阅读状态持久化失败也只影响恢复副本，不会改变翻译 Provider。
 
