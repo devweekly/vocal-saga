@@ -15,6 +15,7 @@ import {
 import { authorize, sendJson } from './middleware.ts';
 import { parseAgentModel, buildAgentPrompt, normalizeMessages, parseJsonValue } from './json.ts';
 import { runAgent, runAgentStructured } from './agents/runner.ts';
+import { getCodeBuddyTaskProfile } from './agents/taskProfiles.ts';
 import { validateSegments, runLiteraryAnalysis } from './literary.ts';
 import path from 'node:path';
 import { handleDocumentProjectRequest } from './documents/projectRoutes.ts';
@@ -260,16 +261,20 @@ export async function handleRequest(req: Request, res: Response): Promise<void> 
         ' storeContent=' + String(STORE_CONTENT),
       );
       const sessionScope = buildDocumentSessionScope(body, agent, 'translation', body.metadata);
+      const taskProfiles = body.metadata?.taskProfiles;
+      const taskProfile = taskProfiles && typeof taskProfiles === 'object'
+        ? getCodeBuddyTaskProfile({ taskProfiles }, 'translation')
+        : undefined;
       if (sessionScope) {
         console.info('[local-agent][' + requestId + '] session-scope role=translation scope=document-task');
       }
       let turnUsage: { result: unknown; usage: unknown } | null = null;
       if (jsonSchema) {
-        const structured = await runAgentStructured(agent, prompt, normalized.systemPrompt, jsonSchema, requestId, sessionScope);
+        const structured = await runAgentStructured(agent, prompt, normalized.systemPrompt, jsonSchema, requestId, sessionScope, taskProfile);
         output = JSON.stringify(structured.result);
         turnUsage = structured;
       } else {
-        const r = await runAgent(agent, prompt, normalized.systemPrompt, requestId, sessionScope);
+        const r = await runAgent(agent, prompt, normalized.systemPrompt, requestId, sessionScope, taskProfile);
         output = r.result;
         turnUsage = r;
         if (jsonMode) {
