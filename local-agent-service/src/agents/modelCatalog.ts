@@ -140,17 +140,6 @@ export function readModelCatalog(options: { localStorageDir?: string } = {}): Ca
 }
 
 /**
- * 从目录里挑目标模型。
- *
- * 三个条件缺一不可：
- *   1. 目录里存在 gpt-* 模型 —— 说明拿到的是完整目录，而不是被裁剪过的子集；
- *   2. 目录里有 deepseek-v4.1-flash；
- *   3. 该模型的 credits 明确为 0（不是 null、不是「没填」）。
- *
- * 任一不满足返回 null，由调用方回退到 CLI 默认模型。这里不做猜测：
- * 把「未标注费率」当成免费会让账单不可预期。
- */
-/**
  * 从目录里挑目标模型：只挑 credits 明确为 0 的，按 PREFERRED_FREE_MODELS 的顺序退让。
  *
  * 这里**不再**要求「目录里必须存在 gpt-* 才算完整目录」。那个判据来自早期实现，
