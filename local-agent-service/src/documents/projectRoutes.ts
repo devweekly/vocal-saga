@@ -75,6 +75,18 @@ export async function handleDocumentProjectRequest(req: Request, res: Response, 
       return true;
     }
     const store = getDocumentProjectStore();
+    // Resolve from the service catalog so extension IndexedDB/session loss cannot create duplicate projects.
+    if (pathParts.length === 4 && pathParts[3] === 'resolve' && method === 'POST') {
+      const body = bodyObject(req.body);
+      const resolution = store.resolveProjectForSource({
+        title: String(body.title || ''),
+        format: String(body.format || ''),
+        sourceFileName: typeof body.sourceFileName === 'string' ? body.sourceFileName : undefined,
+        segments: body.segments,
+      });
+      sendJson(res, 200, resolution);
+      return true;
+    }
     // Import raw files within the local service. The extension does not parse or split documents.
     if (pathParts.length === 4 && pathParts[3] === 'import-file' && method === 'POST') {
       const contentType = String(req.headers['content-type'] || '').split(';')[0]!.trim().toLowerCase();
