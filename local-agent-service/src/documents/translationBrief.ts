@@ -132,7 +132,7 @@ function buildTemporallyVisibleMemory(
   const revisionId = String(context?.run?.sourceRevisionId || '');
   const store = getDocumentProjectStore();
   const projectContext = store.getProjectContext(projectId);
-  const empty = {
+  const empty: Record<string, any> = {
     version: 2, entities: [], relationships: [], styleGuide: {}, styleGuideStatus: 'candidate',
     chapterSummaries: [], recentExamples: [], characterVoices: [],
     relationshipVoiceRules: [], voiceAnchors: [], openQuestions: [],
