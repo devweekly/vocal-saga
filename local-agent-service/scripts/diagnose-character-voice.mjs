@@ -434,7 +434,7 @@ function scanProject(project, args, dataDir, matcher, terms) {
             .map((candidate, index) => ({ ...candidate, rank: index + 1 }))
             .filter((candidate) => {
               const name = normalize(candidate.name);
-              if (/^king rat(?:\b|:)/iu.test(name) || /\bking['’]s$/iu.test(name)) return false;
+              if (/^(?:the\s+)?king rat(?:\b|:)/iu.test(name) || /\bking['’]s$/iu.test(name)) return false;
               matcher.lastIndex = 0;
               return matcher.test(candidate.name) || /\b(?:the\s+)?king\b/iu.test(candidate.name);
             })
