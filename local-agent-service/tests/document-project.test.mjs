@@ -11,7 +11,7 @@ async function withStore(run) {
   const root = await mkdtemp(path.join(os.tmpdir(), 'vocal-doc-project-'));
   try {
     const store = new DocumentProjectStore(root);
-    await run(store);
+    await run(store, root);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -21,6 +21,36 @@ const segments = [
   { id: 'ch1-p1', text: 'The door was open.', kind: 'paragraph', contextPath: 'Chapter 1' },
   { id: 'ch1-p2', text: 'Nobody came inside.', kind: 'paragraph', contextPath: 'Chapter 1' },
 ];
+
+test('same-timestamp Prompt revisions consistently use the most recently inserted revision', async () => {
+  await withStore((store, root) => {
+    const project = store.createProject({
+      title: 'Prompt ordering',
+      format: 'txt',
+      sourceFileName: 'prompt-ordering.txt',
+      segments,
+    });
+    const first = store.savePrompt(project.projectId, {
+      name: 'first', systemPrompt: 'first prompt', userPromptTemplate: '',
+      sourceLang: 'en', targetLang: 'zh', provider: 'workbuddy', model: 'auto',
+      translationMode: 'technical', literaryReview: false,
+    });
+    const second = store.savePrompt(project.projectId, {
+      name: 'second', systemPrompt: 'second prompt', userPromptTemplate: '',
+      sourceLang: 'en', targetLang: 'zh', provider: 'workbuddy', model: 'auto',
+      translationMode: 'technical', literaryReview: false,
+    });
+
+    const db = new DatabaseSync(path.join(root, project.projectId, 'project.sqlite'));
+    db.prepare('UPDATE prompt_revisions SET created_at = ?').run('2026-01-01T00:00:00.000Z');
+    db.close();
+
+    assert.equal(store.listPrompts(project.projectId)[0].promptRevisionId, second.promptRevisionId);
+    const run = store.createRun(project.projectId, { scope: { type: 'all' } });
+    assert.equal(run.promptRevisionId, second.promptRevisionId);
+    assert.notEqual(first.promptRevisionId, second.promptRevisionId);
+  });
+});
 
 test('document projects persist each source segment, Prompt revision and run independently', async () => {
   await withStore((store) => {
