@@ -8,6 +8,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import type { DatabaseSync } from 'node:sqlite';
 import { parseAgentModel } from '../json.ts';
 import { runAgentStructured } from '../agents/runner.ts';
+import { getCodeBuddyTaskProfile } from '../agents/taskProfiles.ts';
 import { getDocumentProjectStore } from './projectStore.ts';
 import { planBookSamples, scanBookSegments, scanBookSegmentsConcurrent, type BookScanResult } from './bookScan.ts';
 
@@ -718,6 +719,8 @@ async function runAnalysis(projectId: string, runId: string): Promise<void> {
       dialogueSegmentCount: scan.dialogueSegmentCount, targetedNameCount: samplePlan.diagnostics.targetedNameCount,
     },
   });
+  const latestPrompt = store.listPrompts(projectId)[0];
+  const taskProfile = getCodeBuddyTaskProfile({ taskProfiles: latestPrompt?.config?.taskProfiles || {} }, 'contextGraph');
   const output = await runAgentStructured(
     { provider: agent.provider, model: agent.model },
     prompt,
@@ -729,6 +732,7 @@ async function runAnalysis(projectId: string, runId: string): Promise<void> {
     ANALYSIS_SCHEMA,
     runId,
     'context-graph:' + projectId + ':' + revisionId + ':' + runId,
+    taskProfile,
   );
   if (!output || Array.isArray(output)) throw new Error('Context Graph 分析返回了非对象结果。');
   const data = output as Record<string, any>;
