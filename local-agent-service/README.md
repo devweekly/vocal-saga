@@ -33,6 +33,38 @@
 
 启用本机 Provider 后，扩展会优先走本机服务，不会发送到 s.sunxiunan.com。EPUB/PDF 文学模式的实体分析与 Reviewer 也使用相同的本机服务。取消勾选后，原来的 DeepSeek 和远程 vocal-saga 配置继续可用。
 
+## 通过 Cloudflare Tunnel 暴露到公网
+
+本机服务依赖 Node、SQLite 和本机 CLI Agent，无法部署到 Cloudflare Workers，因此公网访问走 Tunnel（`cloudflared` 从本机主动连出，不需要公网 IP、不需要路由器端口映射）。
+
+```bash
+# 1. 一次性：浏览器授权，选择域名所属 zone
+cloudflared tunnel login
+
+# 2. 创建命名隧道 + 绑定域名 + 生成 ~/.cloudflared/config.yml
+TUNNEL_HOSTNAME=local.sunxiunan.com ./scripts/setup-tunnel.sh
+
+# 3. 前台试跑，确认可用后再常驻
+cloudflared tunnel run vocal-saga-local
+sudo cloudflared service install
+```
+
+服务端要同时配两项，缺一不可：
+
+```dotenv
+LOCAL_AGENT_TOKEN=<openssl rand -hex 32 生成>
+LOCAL_AGENT_ALLOWED_HOSTS=local.sunxiunan.com
+```
+
+`LOCAL_AGENT_ALLOWED_HOSTS` 控制 Host 头白名单。默认只接受 `localhost` / `127.0.0.1`（防 DNS rebinding），隧道域名不在其中会一律 403；`*.example.com` 可匹配子域。**该变量非空即代表服务可被非本机访问，此时 `LOCAL_AGENT_TOKEN` 为空会让服务直接拒绝启动**，不存在"忘了设 token 但照常开放"的降级路径。扩展侧把服务地址改成 `https://local.sunxiunan.com`，并把同一个 token 填进「本机服务 Token」字段。
+
+两个必须知道的限制：
+
+- **请求时长**：Cloudflare 代理对单个 HTTP 请求有 100 秒上限，超出返回 524。短文本翻译和单批文档片段没问题，文学审校、整章翻译这类长任务会被切断（服务自身 `LOCAL_AGENT_TIMEOUT_MS` 默认 180 秒，比这更宽）。要跑长任务需要给响应加 SSE 心跳或改成 job + 轮询，属于架构改动。
+- **请求体大小**：免费/Pro 套餐的 Cloudflare 请求体上限是 100 MB，与 `MAX_DOCUMENT_BODY_BYTES`（100 MiB）基本持平，超大文档会先被边缘拒绝。
+
+安全边界：这个服务能读写本机 SQLite、调起本机 CLI Agent、读取本机文档，公网暴露等于把本机执行入口挂上去。token 泄露的后果是别人能在你的机器上跑模型、读你的书稿。除了 token，建议再加 Cloudflare Access（Service Token 方式，扩展侧需补 `CF-Access-Client-Id` / `CF-Access-Client-Secret` 两个请求头）；如果只是自己几台设备用，Tailscale/WireGuard 比公网暴露更合适，也没有 100 秒超时问题。
+
 ## WorkBuddy/CodeBuddy 调用方式与性能说明
 
 网页翻译与旧式单次文档请求属于单轮、无工具的结构化文本任务，不需要 Agent 检索仓库、调用 Shell 或运行 MCP。Workbuddy 对这类通用请求使用官方 `@tencent-ai/agent-sdk` 的 `query()`，并显式禁用工具和配置加载；同时设置 `persistSession: false`，避免把每个请求写成持久化会话记录（需要 CodeBuddy CLI >= 2.125.1）。Project-based EPUB/PDF Agent 是另一条路径：它使用按 run/role/batch 隔离的 structured Session，并由服务端 workflow 管理重试、审校和持久化。高频纯文本翻译走长驻会话池（`src/agents/workbuddyPool.ts`，`LOCAL_AGENT_POOL_SIZE` 默认 6，`LOCAL_AGENT_POOL_MAX_USES` 默认 10）：CLI 进程可跨多次纯文本请求复用，以减少重复启动与初始化；实际收益取决于模型、输入、机器和排队情况。在至少 60 段、同环境重复 3 次的基准完成前，不把单次观察外推为固定节省或提速比例。默认 Provider 为 Workbuddy 且 `LOCAL_AGENT_PREWARM` 未设为 false 时，服务启动后预热池中空闲槽位（只 boot、不调模型）；默认 Provider 为 OpenCode 时不会启动 Workbuddy CLI。不用 daemon（`--serve`）：它是交互式 Agent 服务，走 Gateway Protocol 的 `/api/v1/runs`，给按 chunk 计量的无头翻译用是重协议+多一层 HTTP；池用的是 SDK Session，即文档里 `--input-format stream-json` 长驻进程的 SDK 等价物。文学分析仍沿用单次 `query()`；EPUB/PDF 文档翻译 Agent 则使用独立的批次 Session，并将文学审校从翻译 worker 中解耦，详见下方 Document projects 说明。Project Agent 为避免批次间共享历史会创建独立 scope，因此新批次可能重新初始化 Session，不能假设每批都享受预热收益。需要严格 JSON 对象时走 `runAgentJson`：Workbuddy 侧通过 `--json-schema` 进程参数启用 CLI 原生 structured output（`StructuredOutput` 工具收口，`result.structured_output` 优先），同时保留 `outputFormat` 字段等官方 SDK 修复透传后生效。`POST /v1/chat/completions` 接受 `response_format: { type: 'json_schema', json_schema }`：文档分批缺失后的升级轮用它把翻译数组形状写死做约束解码（普通 `json_object` 只保证"是 JSON"，确定性单条失败必须升级形状约束才走得出来；schema 必须包一层 object，CLI StructuredOutput 工具拒收顶层 array）。纯文本翻译带 `thinking: { type: 'disabled' }`（CLI `alwaysThinkingEnabled=false`）并经 `extraArgs` 直传 `--effort minimal`（transport 只在思考未关闭时才拼它；CLI 若在思考关闭时忽略 effort 也无害）；分析/审校需判断，保持默认。当前机器的 Workbuddy/CodeBuddy 模型由本机 `~/.codebuddy/settings.json` 等运行时配置决定；仓库不保证统一的默认模型，也不能在未对目标模型做实时基准前断言模型不是瓶颈。本机服务自己的 SQLite 请求历史、译文缓存和文档断点仍独立保留，不依赖 SDK 的 Agent transcript。
