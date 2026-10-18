@@ -16,7 +16,8 @@ import { authorize, sendJson } from './middleware.ts';
 import { parseAgentModel, buildAgentPrompt, normalizeMessages, parseJsonValue } from './json.ts';
 import { runAgent, runAgentStructured } from './agents/runner.ts';
 import { getCodeBuddyTaskProfile } from './agents/taskProfiles.ts';
-import { validateSegments, runLiteraryAnalysis } from './literary.ts';
+import { validateSegments, runLiteraryAnalysis, getDefaultLiteraryTaskPromptPreviews } from './literary.ts';
+import { DEFAULT_CONTEXT_GRAPH_SYSTEM_PROMPT } from './documents/contextGraph.ts';
 import path from 'node:path';
 import { handleDocumentProjectRequest } from './documents/projectRoutes.ts';
 import { buildStandaloneReviewContextGraph, buildStandaloneReviewMemory, buildStandaloneReviewVoiceContext, runLiteraryReviewWithMissingRetry } from './documents/translationAgent.ts';
@@ -209,6 +210,19 @@ export async function handleRequest(req: Request, res: Response): Promise<void> 
     }
     if (current.length) batches.push(current);
     sendJson(res, 200, { batches, totalSegments: segments.length, totalChars: segments.reduce((n: number, item: any) => n + item.text.length, 0) });
+    return;
+  }
+
+  if (req.method === 'GET' && url.pathname === '/api/config/task-prompts') {
+    const literaryPrompts = getDefaultLiteraryTaskPromptPreviews();
+    sendJson(res, 200, {
+      prompts: {
+        accuracyReview: literaryPrompts.accuracyReview,
+        styleReview: literaryPrompts.styleReview,
+        literaryAnalysis: literaryPrompts.literaryAnalysis,
+        contextGraph: DEFAULT_CONTEXT_GRAPH_SYSTEM_PROMPT,
+      },
+    });
     return;
   }
 
