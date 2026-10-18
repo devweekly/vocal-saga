@@ -300,6 +300,15 @@ export function validateSegments(input: any, max: number, type: string) {
   return segments;
 }
 
+export const DEFAULT_LITERARY_ANALYSIS_USER_PROMPT_TEMPLATE = [
+  '目标语言：{{TARGET_LANGUAGE}}',
+  '章节：{{CHAPTER_TITLE}}',
+  '当前书籍记忆（只读参考；模型条目不能当作人工确认）：',
+  '{{BOOK_MEMORY_JSON}}',
+  '本章原文片段：',
+  '{{CHAPTER_SEGMENTS_JSON}}',
+].join('\\n\\n');
+
 export const DEFAULT_LITERARY_ANALYSIS_SYSTEM_PROMPT = [
   '你是文学作品的书籍记忆分析器，不是翻译器。',
   '只根据给定原文提取记忆，不猜测未出现的事实。新建实体与关系均是建议项，reviewStatus 必须是 suggested；模型不能声称任何条目已经过人工确认。',
@@ -318,11 +327,11 @@ export async function runLiteraryAnalysis(body: any, requestId: string, sessionS
   const segments = validateSegments(body.segments, 24, 'analyze');
   const memory = body.memory && typeof body.memory === 'object' ? body.memory : {};
   const systemPrompt = DEFAULT_LITERARY_ANALYSIS_SYSTEM_PROMPT;
-  const prompt = [
-    '目标语言：' + (body.target || 'zh'), '章节：' + chapterTitle,
-    '当前书籍记忆（只读参考；模型条目不能当作人工确认）：', JSON.stringify(buildAnalysisMemoryContext(memory)),
-    '本章原文片段：', JSON.stringify(segments),
-  ].join('\n\n');
+  const prompt = DEFAULT_LITERARY_ANALYSIS_USER_PROMPT_TEMPLATE
+    .replace('{{TARGET_LANGUAGE}}', body.target || 'zh')
+    .replace('{{CHAPTER_TITLE}}', chapterTitle)
+    .replace('{{BOOK_MEMORY_JSON}}', JSON.stringify(buildAnalysisMemoryContext(memory)))
+    .replace('{{CHAPTER_SEGMENTS_JSON}}', JSON.stringify(segments));
   const agent = parseAgentModel(body.model || 'auto', body.runtime || body.provider || '');
   const modelRun = await runAgentJson(
     agent, prompt, systemPrompt, LITERARY_ANALYSIS_SCHEMA, requestId, sessionScope,
@@ -534,9 +543,37 @@ export async function runLiteraryReview(body: any, requestId: string, sessionSco
 
 /** Actual built-in reviewer/analysis prompts used by the service; exposed read-only for the extension UI. */
 export function getDefaultLiteraryTaskPromptPreviews(): {
-  literaryAnalysis: string;
-  accuracyReview: string;
-  styleReview: string;
+  systemPrompts: { literaryAnalysis: string; accuracyReview: string; styleReview: string };
+  userPromptTemplates: { literaryAnalysis: string; accuracyReview: string; styleReview: string };
+} {
+  const previewSegment = [{
+    id: '{{SEGMENT_ID}}',
+    source: '{{SOURCE_TEXT}}',
+    draft: '{{DRAFT_TRANSLATION}}',
+    contextPath: '{{CHAPTER_PATH}}',
+  }];
+  const common = {
+    body: { target: '{{TARGET_LANGUAGE}}', chapterTitle: '{{CHAPTER_TITLE}}', glossary: '{{GLOSSARY_JSON}}' },
+    segments: previewSegment,
+    translationBrief: null,
+    precedingSegments: [{ id: '{{PREVIOUS_SEGMENT_ID}}', text: '{{PREVIOUS_SOURCE_TEXT}}', contextPath: '{{PREVIOUS_CHAPTER_PATH}}' }],
+    voiceContext: { templatePlaceholder: '{{VOICE_CONTEXT_JSON}}' },
+    contextGraph: { templatePlaceholder: '{{CONTEXT_GRAPH_JSON}}' },
+  };
+  const accuracy = buildLiteraryReviewPrompt({ ...common, reviewFocus: 'accuracy' });
+  const style = buildLiteraryReviewPrompt({ ...common, reviewFocus: 'style' });
+  return {
+    systemPrompts: {
+      literaryAnalysis: DEFAULT_LITERARY_ANALYSIS_SYSTEM_PROMPT,
+      accuracyReview: accuracy.systemPrompt,
+      styleReview: style.systemPrompt,
+    },
+    userPromptTemplates: {
+      literaryAnalysis: DEFAULT_LITERARY_ANALYSIS_USER_PROMPT_TEMPLATE,
+      accuracyReview: accuracy.prompt,
+      styleReview: style.prompt,
+    },
+  };
 } {
   const common = {
     body: { target: 'zh' },
