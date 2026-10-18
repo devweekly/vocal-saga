@@ -443,7 +443,7 @@ export function buildProjectVoiceContext(
     : [];
 
   const result = {
-    version: 1, policyVersion: 'character-voice-v3',
+    version: 1, policyVersion: 'character-voice-v4-dialogue-participants',
     styleGuide: memory.styleGuideStatus === 'confirmed' ? memory.styleGuide : {},
     styleGuideStatus: memory.styleGuideStatus,
     chapterSummaries,
