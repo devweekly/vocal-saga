@@ -39,7 +39,11 @@ export interface TranslationBrief {
 }
 
 function normalizedSourceText(value: unknown): string {
-  return String(value || '').normalize('NFKC').toLocaleLowerCase().replace(/\s+/g, ' ').trim();
+  return String(value || '').normalize('NFKC')
+    .replace(/[‘’‛]/g, "'")
+    .replace(/[“”„‟]/g, '"')
+    .replace(/[‐‑‒–—−]/g, '-')
+    .toLocaleLowerCase().replace(/\s+/g, ' ').trim();
 }
 
 function sourceQuoteMatches(source: unknown, quote: unknown): boolean {
@@ -49,6 +53,28 @@ function sourceQuoteMatches(source: unknown, quote: unknown): boolean {
 }
 
 const firstSourceOccurrenceCache = new Map<string, number>();
+const sourceRowsByRevision = new Map<string, Array<{ ordinal: number; text: string }>>();
+
+function sourceRowsForRevision(db: any, revisionId: string): Array<{ ordinal: number; text: string }> {
+  const cached = sourceRowsByRevision.get(revisionId);
+  if (cached) {
+    sourceRowsByRevision.delete(revisionId);
+    sourceRowsByRevision.set(revisionId, cached);
+    return cached;
+  }
+  // Source revisions are immutable. A bounded two-revision LRU avoids rescanning SQLite for
+  // every alias while keeping memory usage bounded when several books are open.
+  const rows = db.prepare(
+    'SELECT ordinal, text FROM source_segments WHERE source_revision_id = ? ORDER BY ordinal'
+  ).all(revisionId) as Array<{ ordinal: number; text: string }>;
+  sourceRowsByRevision.set(revisionId, rows);
+  while (sourceRowsByRevision.size > 2) {
+    const oldest = sourceRowsByRevision.keys().next().value;
+    if (oldest) sourceRowsByRevision.delete(oldest);
+    else break;
+  }
+  return rows;
+}
 
 function firstMatchingSourceOrdinal(
   db: any,
@@ -62,11 +88,9 @@ function firstMatchingSourceOrdinal(
   const cacheKey = revisionId + '\u0000' + kind + '\u0000' + normalizedTerm;
   const cached = firstSourceOccurrenceCache.get(cacheKey);
   if (cached !== undefined) return cached;
-  const rows = db.prepare(
-    'SELECT ordinal, text FROM source_segments WHERE source_revision_id = ? ' +
-      'AND instr(lower(text), lower(?)) > 0 ORDER BY ordinal'
-  ).all(revisionId, term) as Array<{ ordinal: number; text: string }>;
-  const match = rows.find((row) => kind === 'quote'
+  // Do not prefilter using SQLite instr(lower(text), lower(term)): that literal comparison
+  // rejects normalized-equivalent forms such as O’Connor/O'Connor before JS can compare them.
+  const match = sourceRowsForRevision(db, revisionId).find((row) => kind === 'quote'
     ? sourceQuoteMatches(row.text, term)
     : sourceNameMatches(row.text, term));
   const ordinal = match ? Number(match.ordinal) : Number.POSITIVE_INFINITY;
@@ -183,6 +207,58 @@ function buildTemporallyVisibleMemory(
   const appearsAsEarlierEvidence = (quoteInput: unknown): boolean =>
     firstMatchingSourceOrdinal(projectContext.db, revisionId, quoteInput, 'quote') < firstOrdinal;
 
+  // Never trust book-level recentExamples: retrieve examples from the accepted translation
+  // ledger, pinned to this source revision and strictly before the current batch.
+  const acceptedExampleRows = projectContext.db.prepare(
+    'SELECT s.segment_id AS segmentId, s.ordinal, s.text AS source, s.context_path AS chapter, ' +
+      's.kind, tr.translation_text AS target, tr.origin, COALESCE(tr.accepted_at, tr.created_at) AS acceptedAt ' +
+    'FROM translation_results tr JOIN source_segments s ' +
+      'ON s.source_revision_id = tr.source_revision_id AND s.segment_id = tr.segment_id ' +
+    'WHERE tr.source_revision_id = ? AND tr.accepted = 1 AND tr.source_hash = s.source_hash AND s.ordinal < ? ' +
+    'ORDER BY s.ordinal DESC, COALESCE(tr.accepted_at, tr.created_at) DESC LIMIT 240'
+  ).all(revisionId, firstOrdinal) as Array<{
+    segmentId: string; ordinal: number; source: string; chapter: string; kind: string;
+    target: string; origin: string; acceptedAt: string;
+  }>;
+  const currentExampleSource = [...precedingSegments, ...items].map((item) => String(item.text || '')).join(' ');
+  const stopWords = new Set([
+    'about','after','again','against','almost','also','among','another','around','because','before','being',
+    'between','could','does','during','each','every','from','have','hers','himself','into','just','more',
+    'most','other','over','same','should','some','such','than','that','their','them','then','there','these',
+    'they','this','those','through','under','very','were','what','when','where','which','while','with','would',
+    'your','you','the','and','for','are','was','were','but','not','you','his','her','she','him','our','out',
+    'who','how','why','can','did','had','has','its','let','may','now','off','once','one','only','own','say',
+    'said','see','too','two','all','any','day','get','got','new','old','way'
+  ]);
+  const sourceTokens = (value: unknown) => new Set(
+    (normalizedSourceText(value).match(/[\\p{L}\\p{N}]{2,}/gu) || [])
+      .filter((token) => !stopWords.has(token))
+  );
+  const currentTokens = sourceTokens(currentExampleSource);
+  const currentKinds = new Set(items.map((item) => String(item.kind || '')).filter(Boolean));
+  const scoredExamples = acceptedExampleRows.map((row) => {
+    const tokens = sourceTokens(row.source);
+    const shared = Array.from(tokens).filter((token) => currentTokens.has(token)).length;
+    const overlap = shared / Math.max(1, Math.min(currentTokens.size, 12));
+    const exactPhrase = normalizedSourceText(row.source).length >= 12 &&
+      normalizedSourceText(currentExampleSource).includes(normalizedSourceText(row.source)) ? 1 : 0;
+    const sameChapter = !!chapterPath && String(row.chapter || '') === chapterPath ? 0.8 : 0;
+    const sameKind = currentKinds.has(String(row.kind || '')) ? 0.25 : 0;
+    const manual = row.origin === 'manual' ? 1.2 : 0;
+    const recency = 0.5 / (1 + Math.max(0, firstOrdinal - Number(row.ordinal)) / 40);
+    const score = overlap * 6 + Math.min(shared, 3) * 0.15 + exactPhrase * 2 + sameChapter + sameKind + manual + recency;
+    return { ...row, score, shared, exactPhrase };
+  }).filter((row) => row.shared >= 2 || row.exactPhrase > 0)
+    .sort((a, b) => b.score - a.score || Number(b.origin === 'manual') - Number(a.origin === 'manual') ||
+      Number(b.ordinal) - Number(a.ordinal));
+  const retrievedExamples = scoredExamples.slice(0, 4).map((row) => ({
+    segmentId: String(row.segmentId),
+    source: String(row.source || '').slice(0, 260),
+    target: String(row.target || '').slice(0, 320),
+    chapter: String(row.chapter || '').slice(0, 120),
+    origin: ['manual', 'agent', 'imported'].includes(String(row.origin)) ? String(row.origin) : 'imported',
+  })).filter((row) => row.source && row.target);
+
   rawMemory.entities = (Array.isArray(rawMemory.entities) ? rawMemory.entities : []).flatMap((entity: any) => {
     const aliases = Array.isArray(entity?.aliases) ? entity.aliases : [];
     const evidenceRefs = Array.isArray(entity.evidenceRefs) ? entity.evidenceRefs : [];
@@ -204,11 +280,21 @@ function buildTemporallyVisibleMemory(
       if (!ref || !isPrior(ref.segmentId)) return false;
       const source = sourceById.get(ref.segmentId);
       return !!source && sourceQuoteMatches(source.text, ref.sourceQuote) &&
-        sourceNameMatches(ref.sourceQuote, entity.source);
+        [entity.source, ...aliases].some((name: unknown) => sourceNameMatches(ref.sourceQuote, name));
     });
-    // Dynamic candidates retain their exact source segment. A later observation cannot become
-    // visible merely because the same character title happened to occur in an earlier chapter.
-    // Legacy/user-authored mappings keep the older quote-based validation when no refs exist.
+    const rawTargetEvidence = Array.isArray(entity.targetEvidenceRefs) ? entity.targetEvidenceRefs : [];
+    const visibleTargetEvidence = rawTargetEvidence.filter((ref: any) => {
+      if (!ref || !isPrior(ref.segmentId) ||
+          normalizedSourceText(ref.targetSurface) !== normalizedSourceText(entity.target)) return false;
+      const source = sourceById.get(ref.segmentId);
+      return !!source && sourceQuoteMatches(source.text, ref.sourceQuote) &&
+        [entity.source, ...aliases].some((name: unknown) => sourceNameMatches(ref.sourceQuote, name));
+    });
+    const independentTargetEvidenceCount = new Set(visibleTargetEvidence.map((ref: any) => ref.segmentId)).size;
+    const targetConfidence = entity.targetConfidence === 'corroborated' && independentTargetEvidenceCount >= 2
+      ? 'corroborated' : 'candidate';
+    // Dynamic candidates retain exact source and target evidence segments; source-name
+    // recognition alone is not enough to make the proposed target a forced canonical mapping.
     const evidenceVisible = explicitCanonicalMapping || (evidenceRefs.length
       ? priorEvidenceRefs.length > 0
       : sourceNameMatches(entity.evidence, entity.source) && appearsAsEarlierEvidence(entity.evidence));
@@ -219,6 +305,8 @@ function buildTemporallyVisibleMemory(
       ...entity,
       aliases: visibleAliases,
       ...(evidenceRefs.length ? { evidenceRefs: priorEvidenceRefs } : {}),
+      targetEvidenceRefs: visibleTargetEvidence,
+      targetConfidence,
     }];
   });
   rawMemory.relationships = (Array.isArray(rawMemory.relationships) ? rawMemory.relationships : []).flatMap((relation: any) => {
@@ -290,7 +378,7 @@ function buildTemporallyVisibleMemory(
   rawMemory.styleGuide = rawMemory.styleGuideStatus === 'confirmed' ? rawMemory.styleGuide : {};
   rawMemory.styleGuideStatus = rawMemory.styleGuideStatus === 'confirmed' ? 'confirmed' : 'candidate';
   rawMemory.chapterSummaries = [];
-  rawMemory.recentExamples = [];
+  rawMemory.recentExamples = retrievedExamples;
   rawMemory.openQuestions = [];
   return rawMemory;
 }
@@ -550,7 +638,7 @@ export function buildTranslationBrief(
     const sourceVisible = (name: unknown) =>
       firstMatchingSourceOrdinal(projectContext.db, sourceRevisionId, name, 'name') < firstOrdinal ||
       sourceNameMatches(sourceText, name);
-    const memoryEntities = Array.isArray(context?.memory?.entities) ? context.memory.entities : [];
+    const memoryEntities = Array.isArray((temporalMemory as any)?.entities) ? (temporalMemory as any).entities : [];
     const sourceRowCache = new Map<string, { ordinal: number; text: string } | null>();
     const sourceRowFor = (segmentId: unknown) => {
       const id = typeof segmentId === 'string' ? segmentId : '';
@@ -599,11 +687,17 @@ export function buildTranslationBrief(
       const aliases = rawAliases.filter((alias: unknown) =>
         firstMatchingSourceOrdinal(projectContext.db, sourceRevisionId, alias, 'name') < firstOrdinal ||
         sourceNameMatches(sourceText, alias));
+      const targetRefs = Array.isArray(entity.targetEvidenceRefs) ? entity.targetEvidenceRefs : [];
+      const corroboratedTarget = entity.targetConfidence === 'corroborated' &&
+        new Set(targetRefs.map((ref: any) => ref?.segmentId).filter(Boolean)).size >= 2;
       const incoming = {
         source, target, aliases,
         kind: String(entity.kind || 'other'),
         evidenceBacked: true,
-        sourceStatus: entity.reviewStatus === 'confirmed' ? 'confirmed-memory' : 'auto',
+        targetConfidence: entity.reviewStatus === 'confirmed' ? 'confirmed' :
+          corroboratedTarget ? 'corroborated' : 'candidate',
+        sourceStatus: entity.reviewStatus === 'confirmed' ? 'confirmed-memory' :
+          corroboratedTarget ? 'auto' : 'candidate',
       };
       const names = new Set([source, ...aliases].map((name) => normalizedSourceText(name)));
       const index = graph.nameMappings.findIndex((mapping: any) =>
@@ -628,9 +722,9 @@ export function buildTranslationBrief(
   const voiceContext = context?.run?.translationMode === 'literary'
     ? buildProjectVoiceContext(
         temporalMemory,
-        items.map((item) => ({ id: item.id, text: item.text, contextPath: item.contextPath })),
+        items.map((item) => ({ id: item.id, text: item.text, contextPath: item.contextPath, kind: item.kind })),
         chapterPath || undefined,
-        visiblePrecedingSegments,
+        visiblePrecedingSegments.map((item) => ({ id: item.id, text: item.text, contextPath: item.contextPath, kind: item.kind })),
       ) as Record<string, any>
     : {};
   // Context Graph style notes are book-wide and have no ordinal-bearing evidence links.
