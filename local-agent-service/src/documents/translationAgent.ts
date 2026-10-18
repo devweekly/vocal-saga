@@ -460,7 +460,7 @@ export function buildStandaloneReviewMemory(input: Record<string, any>): Record<
     return [{ id: item.id, text: item.source, contextPath: typeof item.contextPath === 'string' ? item.contextPath : '' }];
   });
   const preceding = (Array.isArray(input.precedingSegments) ? input.precedingSegments : [])
-    .slice(-4).flatMap((item: any) => {
+    .slice(-6).flatMap((item: any) => {
       if (!item || typeof item.id !== 'string' || typeof item.text !== 'string' || !item.text.trim()) return [];
       return [{ id: item.id, text: item.text.slice(-900), contextPath: typeof item.contextPath === 'string' ? item.contextPath : '' }];
     });
@@ -568,7 +568,7 @@ export function buildStandaloneReviewVoiceContext(input: Record<string, any>): R
     return [{ id: item.id, text: item.source, contextPath: typeof item.contextPath === 'string' ? item.contextPath : '' }];
   });
   const preceding = (Array.isArray(input.precedingSegments) ? input.precedingSegments : [])
-    .slice(-4).flatMap((item: any) => {
+    .slice(-6).flatMap((item: any) => {
       if (!item || typeof item.id !== 'string' || typeof item.text !== 'string' || !item.text.trim()) return [];
       return [{ id: item.id, text: item.text.slice(-900), contextPath: typeof item.contextPath === 'string' ? item.contextPath : '' }];
     });
@@ -623,7 +623,7 @@ export function buildStandaloneReviewContextGraph(input: Record<string, any>): R
 }
 
 export function buildUserPrompt(template: string, items: TranslationItem[], context: any, precedingSegments: TranslationItem[] = [], contextGraph: Record<string, unknown> | null = null, translationBrief?: TranslationBrief): string {
-  const promptPrecedingSegments = translationBrief?.precedingSegments ?? precedingSegments.slice(-4).map((item) => ({
+  const promptPrecedingSegments = translationBrief?.precedingSegments ?? precedingSegments.slice(-6).map((item) => ({
     id: item.id, text: item.text, contextPath: item.contextPath || '',
   }));
   const effectiveContextGraph = context.run.translationMode === 'literary'
