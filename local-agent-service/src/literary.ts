@@ -530,3 +530,25 @@ export async function runLiteraryReview(body: any, requestId: string, sessionSco
     translationBriefHash: translationBrief?.contextHash || null,
   };
 }
+
+
+/** Actual built-in reviewer/analysis prompts used by the service; exposed read-only for the extension UI. */
+export function getDefaultLiteraryTaskPromptPreviews(): {
+  literaryAnalysis: string;
+  accuracyReview: string;
+  styleReview: string;
+} {
+  const common = {
+    body: { target: 'zh' },
+    segments: [],
+    translationBrief: null,
+    precedingSegments: [],
+    voiceContext: {},
+    contextGraph: null,
+  };
+  return {
+    literaryAnalysis: DEFAULT_LITERARY_ANALYSIS_SYSTEM_PROMPT,
+    accuracyReview: buildLiteraryReviewPrompt({ ...common, reviewFocus: 'accuracy' }).systemPrompt,
+    styleReview: buildLiteraryReviewPrompt({ ...common, reviewFocus: 'style' }).systemPrompt,
+  };
+}
