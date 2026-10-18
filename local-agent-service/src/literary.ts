@@ -548,7 +548,7 @@ export function getDefaultLiteraryTaskPromptPreviews(): {
   };
   return {
     literaryAnalysis: DEFAULT_LITERARY_ANALYSIS_SYSTEM_PROMPT,
-    accuracyReview: buildLiteraryReviewPrompt({ ...common, reviewFocus: 'accuracy' }).systemPrompt,
-    styleReview: buildLiteraryReviewPrompt({ ...common, reviewFocus: 'style' }).systemPrompt,
+    accuracyReview: buildLiteraryReviewPrompt({ ...common, reviewFocus: 'accuracy' as const }).systemPrompt,
+    styleReview: buildLiteraryReviewPrompt({ ...common, reviewFocus: 'style' as const }).systemPrompt,
   };
 }
