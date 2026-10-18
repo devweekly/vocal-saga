@@ -10,6 +10,7 @@
 import { parseAgentModel } from '../json.ts';
 import { positiveIntegerEnv, WORKBUDDY_POOL_SIZE } from '../config.ts';
 import { runAgentStructured } from '../agents/runner.ts';
+import { getCodeBuddyTaskProfile } from '../agents/taskProfiles.ts';
 import { runLiteraryReview } from '../literary.ts';
 import { getDocumentProjectStore, normalizeDocumentTranslationStrategy, type DocumentTranslationStrategy } from './projectStore.ts';
 import { buildProjectVoiceContext, sanitizeProjectLiteraryMemory } from './voiceContext.ts';
@@ -855,7 +856,10 @@ async function translateBatch(context: any, items: TranslationItem[], requestId:
 
   let value: unknown;
   try {
-    value = await runAgentStructured(agent, userPrompt, systemPrompt, TRANSLATION_SCHEMA, requestId, sessionScope);
+    value = await runAgentStructured(
+      agent, userPrompt, systemPrompt, TRANSLATION_SCHEMA, requestId, sessionScope,
+      getCodeBuddyTaskProfile(context.prompt.config || {}, 'translation'),
+    );
   } catch (error) {
     store.appendEvent(context.project.projectId, context.run.runId, 'model.call.failed', {
       stage: 'translate', batchIndex, requestId,
@@ -1217,6 +1221,7 @@ async function executeRun(projectId: string, runId: string): Promise<void> {
           const styleReview = await runLiteraryReviewWithMissingRetry({
             projectId, runId,
             reviewType: 'style',
+            taskProfiles: batchContext.prompt.config?.taskProfiles || {},
             chapterTitle: batch[0]?.contextPath || batchContext.project.title,
             target: batchContext.run.targetLang,
             provider: batchContext.run.provider,
@@ -1296,6 +1301,7 @@ async function executeRun(projectId: string, runId: string): Promise<void> {
         const review = await runLiteraryReviewWithMissingRetry({
           projectId, runId,
           reviewType: 'accuracy-terminology',
+          taskProfiles: batchContext.prompt.config?.taskProfiles || {},
           chapterTitle: batch[0]?.contextPath || batchContext.project.title,
           target: batchContext.run.targetLang,
           provider: batchContext.run.provider,
