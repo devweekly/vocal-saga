@@ -7,6 +7,11 @@ import {
 
 export let db: DatabaseSync | undefined;
 
+/**
+ * 初始化通用 API/请求历史数据库并执行兼容性迁移。
+ * 文档项目的业务状态另存在 per-project SQLite 中；不要把长文档 Run、候选译文或上下文快照
+ * 转存到这个通用请求历史库，以免两套存储出现不一致的双写关系。
+ */
 export function initDatabase(): DatabaseSync {
   mkdirSync(DATA_DIR, { recursive: true });
   mkdirSync(path.dirname(DATABASE_PATH), { recursive: true });
