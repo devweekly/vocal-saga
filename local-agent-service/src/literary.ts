@@ -183,7 +183,12 @@ export function stabilizeVoiceAnalysis(
         aliases: Array.from(new Set([...(existingProfile?.aliases || []), ...aliases])).slice(0, 12),
         // 旧画像一旦由用户确认后，新章节只能增加证据/提出冲突，不得覆盖画像核心。
         voiceCore: existingProfile?.status === 'confirmed' ? existingProfile.voiceCore : raw.voiceCore,
-        status: existingProfile?.status === 'confirmed' ? 'confirmed' : 'candidate',
+        status: existingProfile?.status === 'confirmed' ? 'confirmed'
+          : existingProfile?.status === 'rejected' ? 'rejected' : 'candidate',
+        // Translation inclusion is a user preference, not something the model may decide.
+        useForTranslation: existingProfile
+          ? existingProfile.useForTranslation !== false && existingProfile.status !== 'rejected'
+          : true,
         confidence: profileConfidence,
         confidenceSource: profileConfidenceSource,
         evidence: stableEvidence,
