@@ -70,7 +70,9 @@ const validThinkingModes = new Set<CodeBuddyThinkingMode>(['disabled', 'adaptive
 const validEfforts = new Set<CodeBuddyEffort>(['low', 'medium', 'high', 'xhigh']);
 
 function text(value: unknown, maxLength: number): string {
-  return typeof value === 'string' ? value.trim().slice(0, maxLength) : '';
+  if (typeof value !== 'string') return '';
+  const normalized = value.trim().slice(0, maxLength);
+  return normalized.toLowerCase() === 'auto' ? '' : normalized;
 }
 
 /** Merge partial/old stored settings with explicit task defaults and hard bounds. */
