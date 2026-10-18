@@ -382,16 +382,20 @@ export function buildProjectVoiceContext(
     });
   }
 
+  const hasDirectNameMatch = (profile: any) =>
+    [profile.canonicalSourceName, ...profile.aliases].filter(Boolean)
+      .some((name: string) => containsEntityName(source, name));
   const scoreProfile = (profile: any) => {
-    const names = [profile.canonicalSourceName, ...profile.aliases].filter(Boolean);
-    const direct = names.some((name: string) => containsEntityName(source, name)) ? 10 : 0;
+    const direct = hasDirectNameMatch(profile) ? 10 : 0;
     const participant = participantScore.get(profile.characterId) || 0;
     const confirmed = profile.status === 'confirmed' ? 1 : 0;
     const confidence = Number(profile.confidence) || 0;
     return direct + participant + confirmed + confidence;
   };
   const matched = profiles
-    .filter((profile: any) => scoreProfile(profile) > 0)
+    // Confirmation/confidence rank an eligible profile; they are not retrieval evidence.
+    // A profile needs a direct source-name hit or a source-linked participant attribution.
+    .filter((profile: any) => hasDirectNameMatch(profile) || (participantScore.get(profile.characterId) || 0) > 0)
     .sort((a: any, b: any) => scoreProfile(b) - scoreProfile(a));
   // Never insert arbitrary profiles just to fill the four-profile allowance.
   const chosen = matched.slice(0, 4);
