@@ -232,6 +232,7 @@ export async function handleDocumentProjectRequest(req: Request, res: Response, 
         glossary: body.glossary,
         translationStrategy: body.translationStrategy && typeof body.translationStrategy === 'object'
           ? body.translationStrategy : undefined,
+        taskProfiles: body.taskProfiles && typeof body.taskProfiles === 'object' ? body.taskProfiles : undefined,
         literaryMemory: body.literaryMemory,
       });
       sendJson(res, 201, { prompt, literaryMemory: store.getCurrentLiteraryMemory(projectId) });
