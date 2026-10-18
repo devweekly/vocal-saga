@@ -15,6 +15,7 @@ import { sendJson, addCors, isAllowedHost, assertExposureIsSafe, requestHostname
 import { handleRequest } from './routes.ts';
 import { getTextPool } from './agents/workbuddyPool.ts';
 import { getDocumentProjectStore } from './documents/projectStore.ts';
+import { logError, logWarn, logInfo, requestPath, summarizeError, errorStackTail } from './log.ts';
 
 // 兼容旧入口与测试：继续从 server.ts 导出这些函数。
 export { parseAgentModel, buildAgentPrompt, parseJsonObject, parseJsonValue, normalizeMessages } from './json.ts';
@@ -41,6 +42,28 @@ export function startLocalAgentServer() {
   // Create/repair the catalog and mark interrupted document runs resumable before serving requests.
   getDocumentProjectStore();
 
+  // 请求日志必须挂在来源校验之前：这样被 CORS/Host 拦掉的请求（浏览器只看到 Failed to fetch）
+  // 也能在终端留下痕迹，否则「请求根本没到」「被 403 拦了」两种情况无法区分。
+  // 轮询型 GET（run 详情、事件流、预处理状态）成功时静默，避免每秒一条日志刷屏；
+  // 出错、慢请求和所有写操作照常输出。
+  const SLOW_REQUEST_MS = 3000;
+  app.use((req: Request, res: Response, next: NextFunction) => {
+    const startedAt = Date.now();
+    const path = requestPath(req.originalUrl);
+    res.on('finish', () => {
+      const duration = Date.now() - startedAt;
+      const status = res.statusCode;
+      const isPolling = req.method === 'GET' && (/\/runs\/[^/]+$/.test(path) || /\/events$/.test(path) || /\/context-graph$/.test(path));
+      if (status < 400 && isPolling && duration < SLOW_REQUEST_MS) return;
+      const origin = typeof req.headers.origin === 'string' ? ' · origin=' + req.headers.origin : '';
+      const line = req.method + ' ' + path + ' → ' + status + ' · ' + duration + 'ms' + (status >= 400 ? origin : '');
+      if (status >= 500) logError('http', line);
+      else if (status >= 400 || duration >= SLOW_REQUEST_MS) logWarn('http', line);
+      else logInfo('http', line);
+    });
+    next();
+  });
+
   // Run the origin/Host checks before parsing potentially large request bodies.
   app.use((req: Request, res: Response, next: NextFunction) => {
     if (!addCors(req, res)) {
@@ -58,7 +81,6 @@ export function startLocalAgentServer() {
     }
     next();
   });
-
   // 文档项目创建会把整本书的片段正文塞进一个 JSON 请求，其余接口没有这种体量。
   // body-parser 2.x 靠 onFinished.isFinished(req) 判断流已读完，先跑的解析器会消费掉请求流，
   // 后面的全局解析器因此直接 next() 跳过，所以放宽的那个必须挂在前面。
@@ -66,6 +88,9 @@ export function startLocalAgentServer() {
   app.use(express.json({ limit: MAX_BODY_BYTES, strict: true }));
   app.use((req: Request, res: Response) => {
     void handleRequest(req, res).catch((error) => {
+      // 之前这里直接回 500、终端什么都不打印：故障现场只剩浏览器里的一句错误。
+      const tail = errorStackTail(error);
+      logError('http', req.method + ' ' + requestPath(req.originalUrl) + ' 未处理异常 · ' + summarizeError(error) + (tail ? ' · ' + tail : ''));
       if (!res.headersSent) sendJson(res, 500, { error: error instanceof Error ? error.message : String(error) });
       else res.end();
     });
@@ -75,6 +100,7 @@ export function startLocalAgentServer() {
     const limitMb = Math.round(
       (req.originalUrl.split('?')[0]!.startsWith('/api/documents') ? MAX_DOCUMENT_BODY_BYTES : MAX_BODY_BYTES) / 1024 / 1024,
     );
+    logWarn('http', req.method + ' ' + requestPath(req.originalUrl) + ' 请求被拒绝 → ' + status + ' · ' + summarizeError(error));
     sendJson(res, status, {
       error: status === 413
         ? '请求体超过 ' + limitMb + ' MiB 上限'

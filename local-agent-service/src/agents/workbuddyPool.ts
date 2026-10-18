@@ -1,6 +1,7 @@
 import { REQUEST_TIMEOUT_MS, WORKBUDDY_POOL_MAX_USES, WORKBUDDY_POOL_SIZE } from '../config.ts';
 import { buildWorkbuddyOptions, type WorkbuddyAgent } from './workbuddy.ts';
 import { parseTurnUsage, type TurnUsage } from './usage.ts';
+import { logInfo, logWarn, summarizeError } from '../log.ts';
 
 // SDK 会话的最小使用面：正式用 Session，测试用假对象。
 export interface PooledSession {
@@ -24,6 +25,61 @@ interface Slot {
   uses: number;
   busy: boolean;
   lastUsedAt: number;
+}
+
+/**
+ * 日志里描述 scope：scopeKey 可能是 JSON 数组（含整份 schema），直接打印会淹没一行。
+ * 只取第一个元素（真正的作用域名）并截断。
+ */
+function describeScope(scopeKey: string): string {
+  if (!scopeKey) return '<空>';
+  if (scopeKey.startsWith('shared-slot:')) return '通用槽位';
+  if (scopeKey.startsWith('[')) {
+    try {
+      const parsed = JSON.parse(scopeKey);
+      if (Array.isArray(parsed) && typeof parsed[0] === 'string') return parsed[0].slice(0, 80);
+    } catch { /* 非 JSON 就按原文截断 */ }
+  }
+  return scopeKey.slice(0, 80);
+}
+
+/**
+ * 跑完一轮会话并聚合文本、结构化输出与 token 计量。
+ *
+ * 单独抽出来是为了让超时能通过 Promise.race 接管：如果 CLI 卡住或事件流已断，
+ * stream() 不会自己结束，外层的超时只能靠竞速，不能靠 interrupt() 的副作用。
+ */
+async function runSessionTurn(
+  session: PooledSession,
+  combinedPrompt: string,
+): Promise<{ text: string; structuredOutput: unknown; usage: TurnUsage | null }> {
+  let text = '';
+  let structuredOutput: unknown;
+  let usage: TurnUsage | null = null;
+  await session.send(combinedPrompt);
+  for await (const message of session.stream()) {
+    const raw: any = message && typeof message === 'object' ? message : {};
+    if (raw.type === 'assistant' && raw.message && Array.isArray(raw.message.content)) {
+      for (const part of raw.message.content) {
+        if (part?.type === 'text' && typeof part.text === 'string' && part.text.trim()) {
+          text += (text ? '\n' : '') + part.text;
+        }
+      }
+    }
+    if (raw.type === 'result') {
+      if (raw.is_error && Array.isArray(raw.errors) && raw.errors.length > 0) {
+        throw new Error('Workbuddy 执行失败：' + String(raw.errors[0]));
+      }
+      if (raw.subtype && raw.subtype !== 'success') {
+        throw new Error('Workbuddy 执行失败：' + String(raw.subtype));
+      }
+      if (raw.structured_output !== undefined) structuredOutput = raw.structured_output;
+      // 每轮计费口径：result.usage 的 token 计数（CodeBuddy 订阅下 total_cost_usd 恒为 0）。
+      usage = parseTurnUsage(raw);
+      break;
+    }
+  }
+  return { text, structuredOutput, usage };
 }
 
 // 有界 Workbuddy Session 池。普通网页文本使用可复用的 shared-slot 会话来摊薄启动开销；
@@ -77,7 +133,7 @@ export class WorkbuddySessionPool {
       if (existingIndex >= 0) {
         const slot = this.slots[existingIndex];
         if (slot.busy) {
-          await new Promise<void>((resolve) => { this.waiters.push(resolve); });
+          await this.waitForSlot();
           continue;
         }
         slot.busy = true;
@@ -102,13 +158,13 @@ export class WorkbuddySessionPool {
         if (idle) index = idle.slotIndex;
       }
       if (index < 0) {
-        await new Promise<void>((resolve) => { this.waiters.push(resolve); });
+        await this.waitForSlot();
         continue;
       }
 
       const slot = this.slots[index];
       slot.busy = true;
-      if (slot.session) this.dropSession(index);
+      if (slot.session) this.dropSession(index, '槽位复用');
       slot.scopeKey = requestedKey;
       slot.schemaKey = schemaKey;
       try {
@@ -151,13 +207,13 @@ export class WorkbuddySessionPool {
         if (idle) index = idle.slotIndex;
       }
       if (index < 0) {
-        await new Promise<void>((resolve) => { this.waiters.push(resolve); });
+        await this.waitForSlot();
         continue;
       }
 
       const slot = this.slots[index];
       slot.busy = true;
-      if (slot.session) this.dropSession(index);
+      if (slot.session) this.dropSession(index, '槽位复用');
       const slotKey = 'shared-slot:' + index + ':' + (agent.model || '<runtime-default>');
       slot.scopeKey = slotKey;
       try {
@@ -201,48 +257,35 @@ export class WorkbuddySessionPool {
     const slot = this.slots[index];
     const session = slot.session;
     if (!session) throw new Error('会话槽位没有可用会话');
-    let text = '';
-    let structuredOutput: unknown;
-    let usage: TurnUsage | null = null;
     let timedOut = false;
-    const timer = setTimeout(() => {
-      timedOut = true;
-      try { Promise.resolve(session.interrupt()).catch(() => {}); } catch { /* timeout is handled below */ }
-    }, timeoutMs);
-    timer.unref();
+    // interrupt() 只是请求 CLI 停下；CLI 卡住或事件流已断时它不会让 stream() 结束，
+    // 只靠它做超时会让调用永久悬着：既不返回也不报错，整个 Run 就停在「运行中」。
+    // 这里用 race 让超时成为权威判定，并在超时后丢弃会话，下一轮换新 CLI 进程。
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timeoutPromise = new Promise<never>((_resolve, reject) => {
+      timer = setTimeout(() => {
+        timedOut = true;
+        // 卡死现场必须留痕：哪一轮、哪个 scope、超时阈值多少。
+        logWarn('pool', '调用超时 · slot=' + index + ' · ' + (timeoutMs / 1000).toFixed(0) + 's · request=' +
+          requestId.slice(0, 40) + ' · scope=' + describeScope(slot.scopeKey));
+        try { Promise.resolve(session.interrupt()).catch(() => {}); } catch { /* timeout is handled below */ }
+        reject(new Error('Workbuddy 调用超时（' + timeoutMs + ' ms）'));
+      }, timeoutMs);
+      timer.unref?.();
+    });
+    let turn: { text: string; structuredOutput: unknown; usage: TurnUsage | null };
     try {
-      await session.send(combinedPrompt);
-      for await (const message of session.stream()) {
-        const raw: any = message && typeof message === 'object' ? message : {};
-        if (raw.type === 'assistant' && raw.message && Array.isArray(raw.message.content)) {
-          for (const part of raw.message.content) {
-            if (part?.type === 'text' && typeof part.text === 'string' && part.text.trim()) {
-              text += (text ? '\n' : '') + part.text;
-            }
-          }
-        }
-        if (raw.type === 'result') {
-          if (raw.is_error && Array.isArray(raw.errors) && raw.errors.length > 0) {
-            throw new Error('Workbuddy 执行失败：' + String(raw.errors[0]));
-          }
-          if (raw.subtype && raw.subtype !== 'success') {
-            throw new Error('Workbuddy 执行失败：' + String(raw.subtype));
-          }
-          if (raw.structured_output !== undefined) structuredOutput = raw.structured_output;
-          // 每轮计费口径：result.usage 的 token 计数（CodeBuddy 订阅下 total_cost_usd 恒为 0）。
-          usage = parseTurnUsage(raw);
-          break;
-        }
-      }
+      turn = await Promise.race([runSessionTurn(session, combinedPrompt), timeoutPromise]);
     } catch (error) {
-      this.dropSession(index);
+      this.dropSession(index, timedOut ? '调用超时' : '调用失败');
       if (timedOut) throw new Error('Workbuddy 调用超时（' + timeoutMs + ' ms）');
       throw new Error('Workbuddy Agent SDK 调用失败：' + (error instanceof Error ? error.message : String(error)));
     } finally {
       clearTimeout(timer);
     }
+    const { text, structuredOutput, usage } = turn;
     if (timedOut) {
-      this.dropSession(index);
+      this.dropSession(index, '调用超时');
       throw new Error('Workbuddy 调用超时（' + timeoutMs + ' ms）');
     }
     // 原生 --json-schema 成功时，SDK 可能只返回 StructuredOutput tool_use，
@@ -251,7 +294,7 @@ export class WorkbuddySessionPool {
     // schemaKey 在 acquire 时记录本槽位的模式，用于让日志区分纯文本与结构化调用。
     const structuredMode = slot.schemaKey.length > 0;
     if (!text.trim() && structuredOutput === undefined) {
-      this.dropSession(index);
+      this.dropSession(index, '空响应');
       throw new Error(
         'Workbuddy 返回了空内容（mode=' + (structuredMode ? 'structured' : 'text') +
         '），会话已丢弃重建；请重试该批次',
@@ -260,7 +303,7 @@ export class WorkbuddySessionPool {
     // The document workflow logs role, batch, latency and output counts at the project boundary.
     // Keep internal Session reuse counters out of the default terminal output.
     slot.uses += 1;
-    if (slot.uses >= this.maxUses) this.dropSession(index);
+    if (slot.uses >= this.maxUses) this.dropSession(index, '用满 ' + this.maxUses + ' 轮');
     return { text: text.trim(), structuredOutput, usage };
   }
 
@@ -270,7 +313,7 @@ export class WorkbuddySessionPool {
    * 用于服务关闭、测试隔离和故障恢复；关闭后不得继续使用旧 Slot 中的 session 引用。
    */
   closeAll(): void {
-    for (let i = 0; i < this.slots.length; i++) this.dropSession(i);
+    for (let i = 0; i < this.slots.length; i++) this.dropSession(i, '关闭池');
     this.waiters.splice(0).forEach((wake) => { wake(); });
   }
 
@@ -288,8 +331,9 @@ export class WorkbuddySessionPool {
           const prewarmKey = 'shared-slot:' + i + ':' + (agent.model || '<runtime-default>');
           await this.ensureSession(i, agent, prewarmKey);
           await slot.session?.connect?.();
-        } catch {
-          this.dropSession(i);
+        } catch (error) {
+          logWarn('pool', '预热失败 · slot=' + i + ' · ' + summarizeError(error));
+          this.dropSession(i, '预热失败');
         } finally {
           slot.busy = false;
           this.wakeNext();
@@ -307,32 +351,44 @@ export class WorkbuddySessionPool {
     schema?: Record<string, unknown>,
   ): Promise<void> {
     const slot = this.slots[index];
-    if (!slot.session) {
-      slot.session = await this.factory(buildTextSessionOptions(agent, schema));
+    const create = async (reason: string) => {
+      const startedAt = Date.now();
+      try {
+        slot.session = await this.factory(buildTextSessionOptions(agent, schema));
+      } catch (error) {
+        logWarn('pool', '新建会话失败 · slot=' + index + ' · ' + reason + ' · ' + summarizeError(error));
+        throw error;
+      }
+      logInfo('pool', '新建会话 · slot=' + index + ' · ' + reason + ' · scope=' + describeScope(requestedKey) +
+        ' · model=' + (agent.model || '<运行时默认>') + ' · ' + (Date.now() - startedAt) + 'ms');
       slot.model = agent.model || '';
       slot.scopeKey = requestedKey;
       slot.schemaKey = schema ? JSON.stringify(schema) : '';
       slot.uses = 0;
+    };
+    if (!slot.session) {
+      await create('槽位为空');
       return;
     }
     if (slot.scopeKey !== requestedKey) {
-      this.dropSession(index);
-      slot.session = await this.factory(buildTextSessionOptions(agent, schema));
-      slot.model = agent.model || '';
-      slot.scopeKey = requestedKey;
-      slot.schemaKey = schema ? JSON.stringify(schema) : '';
-      slot.uses = 0;
+      this.dropSession(index, 'scope 切换');
+      await create('重建');
       return;
     }
     if ((agent.model || '') !== slot.model) {
       await slot.session.setModel?.(agent.model);
+      logInfo('pool', '会话换模型 · slot=' + index + ' · ' + (slot.model || '<运行时默认>') + ' → ' + (agent.model || '<运行时默认>'));
       slot.model = agent.model || '';
     }
   }
 
-  private dropSession(index: number): void {
+  private dropSession(index: number, reason = '关闭'): void {
     const slot = this.slots[index];
     if (slot.session) {
+      // 会话生命周期是排查「调用卡住/空响应」的关键线索：谁被丢弃、为什么，必须留一行。
+      logInfo('pool', '丢弃会话 · slot=' + index + ' · ' + reason +
+        (slot.scopeKey ? ' · scope=' + describeScope(slot.scopeKey) : '') +
+        (slot.uses ? ' · 已用 ' + slot.uses + ' 轮' : ''));
       try { slot.session.close(); } catch { /* 关闭失败直接丢弃 */ }
       slot.session = null;
     }
@@ -346,6 +402,18 @@ export class WorkbuddySessionPool {
   private wakeNext(): void {
     const wake = this.waiters.shift();
     if (wake) wake();
+  }
+
+  /**
+   * 等一个空闲槽位。
+   * 池满时请求会停在这里，日志里必须能看出「不是模型慢，而是在排队」；
+   * 只有真正等久了才输出，避免正常排队刷屏。
+   */
+  private async waitForSlot(): Promise<void> {
+    const startedAt = Date.now();
+    await new Promise<void>((resolve) => { this.waiters.push(resolve); });
+    const waited = Date.now() - startedAt;
+    if (waited >= 2000) logInfo('pool', '排队等待槽位 · ' + (waited / 1000).toFixed(1) + 's');
   }
 }
 

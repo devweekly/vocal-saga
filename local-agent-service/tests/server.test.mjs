@@ -778,3 +778,24 @@ test('会话池 runPrompt 透出 result.usage，空响应仍按原语义报错',
   pool.release(index);
   pool.closeAll();
 });
+
+test('会话卡住不返回时 runPrompt 按超时报错并丢弃会话', async () => {
+  const { WorkbuddySessionPool } = await import('../src/agents/workbuddyPool.ts');
+  let closed = 0;
+  const factory = () => ({
+    async send() {},
+    // CLI 卡死或事件流已断：stream() 既不产出也不结束。
+    async *stream() { await new Promise(() => {}); },
+    async interrupt() {},
+    close() { closed += 1; },
+    async setModel() {},
+  });
+  const pool = new WorkbuddySessionPool(1, 10, factory);
+  const index = await pool.acquire({ provider: 'workbuddy', model: '' });
+  const started = Date.now();
+  await assert.rejects(() => pool.runPrompt(index, 'x', 'req-timeout', 120), /调用超时/);
+  assert.ok(Date.now() - started < 3000, '不能在超时后继续挂着');
+  assert.equal(closed, 1, '超时后必须丢弃会话，下一轮换新 CLI 进程');
+  pool.release(index);
+  pool.closeAll();
+});
