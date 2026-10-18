@@ -327,11 +327,17 @@ export async function runLiteraryAnalysis(body: any, requestId: string, sessionS
   const segments = validateSegments(body.segments, 24, 'analyze');
   const memory = body.memory && typeof body.memory === 'object' ? body.memory : {};
   const systemPrompt = DEFAULT_LITERARY_ANALYSIS_SYSTEM_PROMPT;
-  const prompt = DEFAULT_LITERARY_ANALYSIS_USER_PROMPT_TEMPLATE
-    .replace('{{TARGET_LANGUAGE}}', body.target || 'zh')
-    .replace('{{CHAPTER_TITLE}}', chapterTitle)
-    .replace('{{BOOK_MEMORY_JSON}}', JSON.stringify(buildAnalysisMemoryContext(memory)))
-    .replace('{{CHAPTER_SEGMENTS_JSON}}', JSON.stringify(segments));
+  const promptValues: Record<string, string> = {
+    TARGET_LANGUAGE: body.target || 'zh',
+    CHAPTER_TITLE: chapterTitle,
+    BOOK_MEMORY_JSON: JSON.stringify(buildAnalysisMemoryContext(memory)),
+    CHAPTER_SEGMENTS_JSON: JSON.stringify(segments),
+  };
+  // Single-pass replacement avoids interpreting placeholder-looking text inside source/book memory.
+  const prompt = DEFAULT_LITERARY_ANALYSIS_USER_PROMPT_TEMPLATE.replace(
+    /\\{\\{(TARGET_LANGUAGE|CHAPTER_TITLE|BOOK_MEMORY_JSON|CHAPTER_SEGMENTS_JSON)\\}\\}/g,
+    (_match, key: string) => promptValues[key] ?? '',
+  );
   const agent = parseAgentModel(body.model || 'auto', body.runtime || body.provider || '');
   const modelRun = await runAgentJson(
     agent, prompt, systemPrompt, LITERARY_ANALYSIS_SCHEMA, requestId, sessionScope,
