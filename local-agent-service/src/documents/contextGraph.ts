@@ -8,11 +8,8 @@ import { createHash, randomUUID } from 'node:crypto';
 import type { DatabaseSync } from 'node:sqlite';
 import { parseAgentModel } from '../json.ts';
 import { runAgentStructured } from '../agents/runner.ts';
-<<<<<<< HEAD
 import { formatTurnUsageLog } from '../agents/usage.ts';
-=======
 import { getCodeBuddyTaskProfile } from '../agents/taskProfiles.ts';
->>>>>>> 0feee1178869920eb5291de8df541df36441d80d
 import { getDocumentProjectStore } from './projectStore.ts';
 import { planBookSamples, scanBookSegments, scanBookSegmentsConcurrent, type BookScanResult } from './bookScan.ts';
 
@@ -723,13 +720,9 @@ async function runAnalysis(projectId: string, runId: string): Promise<void> {
       dialogueSegmentCount: scan.dialogueSegmentCount, targetedNameCount: samplePlan.diagnostics.targetedNameCount,
     },
   });
-<<<<<<< HEAD
-  const analysisRun = await runAgentStructured(
-=======
   const latestPrompt = store.listPrompts(projectId)[0];
   const taskProfile = getCodeBuddyTaskProfile({ taskProfiles: latestPrompt?.config?.taskProfiles || {} }, 'contextGraph');
-  const output = await runAgentStructured(
->>>>>>> 0feee1178869920eb5291de8df541df36441d80d
+  const analysisRun = await runAgentStructured(
     { provider: agent.provider, model: agent.model },
     prompt,
     [
