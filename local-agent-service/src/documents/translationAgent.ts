@@ -16,7 +16,7 @@ import { runLiteraryReview } from '../literary.ts';
 import { getDocumentProjectStore, normalizeDocumentTranslationStrategy, type DocumentTranslationStrategy } from './projectStore.ts';
 import { buildProjectVoiceContext, sanitizeProjectLiteraryMemory } from './voiceContext.ts';
 import { buildTranslationBrief, summarizeTranslationBrief, type TranslationBrief } from './translationBrief.ts';
-import { logError, logWarn } from '../log.ts';
+import { logError, logInfo, logWarn } from '../log.ts';
 import {
   combineTranslationContextDeltas,
   emptyTranslationContextDelta,
@@ -357,7 +357,7 @@ export function buildCanonicalTermProtections(
       }
     }
   }
-  return Array.from(candidateByName.entries())
+  const protections = Array.from(candidateByName.entries())
     .filter(([key]) => !conflictingNames.has(key))
     .map(([, item]) => item)
     .sort((a, b) => b.sourceForm.length - a.sourceForm.length)
@@ -366,6 +366,11 @@ export function buildCanonicalTermProtections(
       sourceForm: item.sourceForm,
       target: item.target,
     }));
+  logInfo('canonical-terms', 'protections=' + protections.length +
+    ' · candidates=' + candidateByName.size +
+    ' · conflicting=' + conflictingNames.size +
+    (protections.length ? ' · ' + protections.map((p) => p.sourceForm + '→' + p.target).join(', ') : ''));
+  return protections;
 }
 
 export function maskCanonicalTermText(text: string, protections: CanonicalTermProtection[]): string {
@@ -791,6 +796,13 @@ async function translateBatch(context: any, items: TranslationItem[], requestId:
   const termProtections = context.run.translationMode === 'literary'
     ? buildCanonicalTermProtections(items, contextGraph)
     : [];
+  logInfo('document-agent', 'batch ready · batch=' + batchIndex +
+    ' · mode=' + context.run.translationMode +
+    ' · segments=' + items.length +
+    ' · contextGraphMappings=' + (Array.isArray((contextGraph as any)?.nameMappings) ? (contextGraph as any).nameMappings.length : 0) +
+    ' · protectedTerms=' + termProtections.length +
+    ' · voiceEntities=' + (Array.isArray((translationBrief?.voiceContext as any)?.entities) ? (translationBrief?.voiceContext as any).entities.length : 0) +
+    ' · voiceCharacters=' + (Array.isArray((translationBrief?.voiceContext as any)?.characterVoices) ? (translationBrief?.voiceContext as any).characterVoices.length : 0));
   const maskedSourceById = new Map(items.map((item) => [
     item.id, maskCanonicalTermText(item.text, termProtections),
   ]));

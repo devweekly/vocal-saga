@@ -1543,6 +1543,18 @@ export function buildProjectContextGraphBundle(
   while (JSON.stringify(result).length > 8500 && (result.entities as any[]).length > 2) (result.entities as any[]).pop();
   while (JSON.stringify(result).length > 8500 && (result.chapterSummaries as any[]).length > 1) (result.chapterSummaries as any[]).shift();
   while (JSON.stringify(result).length > 8500 && (result.relationships as any[]).length > 0) (result.relationships as any[]).pop();
+  const _cgMappings = Array.isArray(result.nameMappings) ? result.nameMappings : [];
+  logInfo('context-graph', 'bundle · firstOrdinal=' + firstOrdinal +
+    ' · knowledgeBoundary=' + knowledgeBoundary +
+    ' · mappings=' + _cgMappings.length +
+    ' (strong=' + _cgMappings.filter((m: any) => ['confirmed','confirmed-memory','auto'].includes(String(m.sourceStatus))).length +
+    ', candidate=' + _cgMappings.filter((m: any) => m.sourceStatus === 'candidate').length + ')' +
+    ' · nodes=' + selectedNodes.length +
+    ' · excluded(nameNotVisible=' + nameMappingDiagnostics.graphNameMappingExcludedNameNotVisible +
+    ', aliasBoundary=' + nameMappingDiagnostics.graphNameMappingExcludedAliasBoundary +
+    ', evidenceNotVisible=' + nameMappingDiagnostics.graphNameMappingExcludedEvidenceNotVisible +
+    ', targetNotPrev=' + nameMappingDiagnostics.graphNameMappingExcludedTargetNotPreviouslyAccepted +
+    ', invalidTarget=' + nameMappingDiagnostics.graphNameMappingExcludedInvalidTarget + ')');
   return selectedNodes.length || (result.nameMappings as any[]).length || chapterSummaries.length ||
     graphNameRows.length || normalize(result.styleGuide.narrativeStyle) ? result : null;
 }

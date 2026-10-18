@@ -14,7 +14,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { DATA_DIR } from '../config.ts';
 import { sanitizeProjectLiteraryMemory } from './voiceContext.ts';
 import { normalizeCodeBuddyTaskProfiles } from '../agents/taskProfiles.ts';
-import { formatLogLine, logError, logWarn } from '../log.ts';
+import { formatLogLine, logError, logInfo, logWarn } from '../log.ts';
 
 export type DocumentFormat = 'epub' | 'pdf' | 'txt' | 'md' | 'html' | 'docx' | 'srt' | 'vtt' | 'json';
 export const MAX_DOCUMENT_SOURCE_BYTES = 20 * 1024 * 1024;
@@ -861,6 +861,7 @@ export class DocumentProjectStore {
       return characterIds.has(rule.speakerId) && characterIds.has(rule.addresseeId) && evidenceSegmentIds.length
         ? [{ ...rule, evidenceSegmentIds, status }] : [];
     });
+    const confirmedVoicesBefore = memory.characterVoices.filter((p: any) => p.status === 'confirmed').length;
     memory.voiceAnchors = memory.voiceAnchors.map((anchor: any) => {
       const sourceValid = validEvidence(anchor.segmentId, anchor.source);
       const attributionValid = validEvidence(anchor.segmentId, anchor.attributionEvidence) &&
@@ -881,6 +882,12 @@ export class DocumentProjectStore {
         status: anchor.status === 'rejected' ? 'rejected' : approved ? 'approved' : 'candidate',
       };
     });
+    const confirmedVoicesAfter = memory.characterVoices.filter((p: any) => p.status === 'confirmed').length;
+    logInfo('document-projects', 'literary memory validated · project=' + projectId +
+      ' · voices ' + confirmedVoicesBefore + '→' + confirmedVoicesAfter + ' confirmed' +
+      ' · entities=' + memory.entities.length +
+      ' · anchors=' + memory.voiceAnchors.length +
+      ' (approved=' + memory.voiceAnchors.filter((a: any) => a.status === 'approved').length + ')');
     return memory;
   }
 

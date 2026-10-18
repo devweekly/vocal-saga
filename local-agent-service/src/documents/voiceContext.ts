@@ -6,6 +6,7 @@
  * for each batch. It never places this material in contextPath or treats it as executable prompt.
  */
 import { createHash } from 'node:crypto';
+import { logInfo } from '../log.ts';
 
 const MAX_MEMORY_BYTES = 120_000;
 const MAX_CHARACTERS = 80;
@@ -514,5 +515,11 @@ export function buildProjectVoiceContext(
   while (JSON.stringify(result).length > budgetChars && (result.chapterSummaries as any[]).length > 1) (result.chapterSummaries as any[]).shift();
   while (JSON.stringify(result).length > budgetChars && (result.chapterSummaries as any[]).length > 0) (result.chapterSummaries as any[]).pop();
   while (JSON.stringify(result).length > budgetChars && (result.characterVoices as any[]).length > 1) (result.characterVoices as any[]).pop();
+  logInfo('voice-context', 'built · entities=' + (Array.isArray(result.entities) ? result.entities.length : 0) +
+    ' · relationships=' + (Array.isArray(result.relationships) ? result.relationships.length : 0) +
+    ' · characterVoices=' + (Array.isArray(result.characterVoices) ? result.characterVoices.length : 0) +
+    ' · voiceAnchors=' + (Array.isArray(result.voiceAnchors) ? result.voiceAnchors.length : 0) +
+    ' · dialogueParticipants=' + (Array.isArray(result.dialogueParticipants) ? result.dialogueParticipants.length : 0) +
+    ' · chars=' + JSON.stringify(result).length);
   return result;
 }

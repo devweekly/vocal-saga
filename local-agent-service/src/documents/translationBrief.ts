@@ -3,6 +3,7 @@
  * The persisted snapshot contains references and compact memory, not the full novel or draft text.
  */
 import { createHash } from 'node:crypto';
+import { logInfo } from '../log.ts';
 import { buildProjectVoiceContext } from './voiceContext.ts';
 import { buildProjectContextGraphBundle } from './contextGraph.ts';
 import { getDocumentProjectStore, normalizeDocumentTranslationStrategy } from './projectStore.ts';
@@ -1028,6 +1029,13 @@ export function buildTranslationBrief(
   diagnostic.contextDeltaCandidatesAvailable = Math.max(0, Number(brief.contextDeltaCount || 0));
   brief.contextChars = serialized.length;
   brief.contextHash = createHash('sha256').update(serialized, 'utf8').digest('hex');
+  logInfo('translation-brief', 'assembled · segments=' + brief.sourceSegmentIds.length +
+    ' · chars=' + brief.contextChars +
+    ' · graphMappings=' + (Array.isArray((brief.contextGraph as any)?.nameMappings) ? (brief.contextGraph as any).nameMappings.length : 0) +
+    ' (strong=' + (Array.isArray((brief.contextGraph as any)?.nameMappings) ? (brief.contextGraph as any).nameMappings.filter((m: any) => ['confirmed','confirmed-memory','auto'].includes(String(m.sourceStatus))).length : 0) + ')' +
+    ' · voiceEntities=' + (Array.isArray((brief.voiceContext as any)?.entities) ? (brief.voiceContext as any).entities.length : 0) +
+    ' · voiceCharacters=' + (Array.isArray((brief.voiceContext as any)?.characterVoices) ? (brief.voiceContext as any).characterVoices.length : 0) +
+    ' · preceding=' + brief.precedingSegments.length);
   return brief;
 }
 

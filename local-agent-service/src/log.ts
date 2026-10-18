@@ -5,9 +5,35 @@
  * 操作时间对齐；错误统一带一行摘要，栈只保留尾部若干行，避免刷屏盖住上下文。
  */
 
+import fs from 'node:fs';
+import path from 'node:path';
+import { homedir } from 'node:os';
+
 /** 本地时间戳（时:分:秒），与 `[agent …]` 现有格式一致。 */
 export function logStamp(): string {
   return new Date().toLocaleTimeString('zh-CN', { hour12: false });
+}
+
+/**
+ * 日志文件路径。优先读取 LOCAL_AGENT_LOG_FILE；未设置时写入数据目录下的 logs/local-agent.log，
+ * 便于离线排查（与 diagnose 脚本扫描的 logs 目录一致）。
+ */
+export function getLogFilePath(): string {
+  const explicit = (process.env.LOCAL_AGENT_LOG_FILE || '').trim();
+  if (explicit) return path.resolve(explicit);
+  const dataDir = path.resolve(process.env.LOCAL_AGENT_DATA_DIR || path.join(homedir(), '.vocal-saga-local-agent'));
+  return path.join(dataDir, 'logs', 'local-agent.log');
+}
+
+/** 追加一行到日志文件；失败时静默，避免日志本身影响主流程。 */
+export function appendLogToFile(line: string): void {
+  try {
+    const file = getLogFilePath();
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.appendFileSync(file, line + '\\n', { encoding: 'utf8' });
+  } catch {
+    // 日志落盘失败不应影响主流程；终端输出仍保留。
+  }
 }
 
 export function formatLogLine(scope: string, message: string): string {
@@ -15,15 +41,21 @@ export function formatLogLine(scope: string, message: string): string {
 }
 
 export function logInfo(scope: string, message: string): void {
-  console.info(formatLogLine(scope, message));
+  const line = formatLogLine(scope, message);
+  console.info(line);
+  appendLogToFile(line);
 }
 
 export function logWarn(scope: string, message: string): void {
-  console.warn(formatLogLine(scope, message));
+  const line = formatLogLine(scope, message);
+  console.warn(line);
+  appendLogToFile(line);
 }
 
 export function logError(scope: string, message: string): void {
-  console.error(formatLogLine(scope, message));
+  const line = formatLogLine(scope, message);
+  console.error(line);
+  appendLogToFile(line);
 }
 
 /**
@@ -31,7 +63,9 @@ export function logError(scope: string, message: string): void {
  * 语义上是「正在进行」而非「出错」，所以不占用 logError 的红色级别。
  */
 export function logProgress(scope: string, message: string): void {
-  console.error(formatLogLine(scope, message));
+  const line = formatLogLine(scope, message);
+  console.error(line);
+  appendLogToFile(line);
 }
 
 /** 单行错误摘要：去掉换行、限制长度，日志里永远只占一行。 */
