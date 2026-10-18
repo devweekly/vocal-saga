@@ -896,7 +896,7 @@ export class DocumentProjectStore {
     let revisionId = db.prepare('SELECT value FROM project_meta WHERE key = ?').get('current_literary_memory_revision_id') as { value?: string } | undefined;
     // 兼容早期 Project API：历史 Prompt 把整本书的记忆放在 config_json 内。首次读取时迁移一次。
     if (!revisionId?.value) {
-      const prompt = db.prepare('SELECT * FROM prompt_revisions ORDER BY created_at DESC LIMIT 1').get() as any;
+      const prompt = db.prepare('SELECT * FROM prompt_revisions ORDER BY created_at DESC, rowid DESC LIMIT 1').get() as any;
       const oldConfig = prompt ? parseJson<any>(prompt.config_json, {}) : {};
       if (oldConfig.literaryMemory) {
         const saved = this.saveLiteraryMemory(projectId, oldConfig.literaryMemory);
@@ -1081,7 +1081,7 @@ export class DocumentProjectStore {
       ? this.savePromptRevision(projectId, input.prompt)
       : input.promptRevisionId
         ? db.prepare('SELECT * FROM prompt_revisions WHERE prompt_revision_id = ?').get(input.promptRevisionId)
-        : db.prepare('SELECT * FROM prompt_revisions ORDER BY created_at DESC LIMIT 1').get();
+        : db.prepare('SELECT * FROM prompt_revisions ORDER BY created_at DESC, rowid DESC LIMIT 1').get();
     if (!promptRow) throw Object.assign(new Error('找不到指定 Prompt 版本'), { status: 404 });
     if (input.parentRunId) {
       const parent = db.prepare('SELECT source_revision_id FROM translation_runs WHERE run_id = ?').get(input.parentRunId) as { source_revision_id?: string } | undefined;
@@ -2050,7 +2050,7 @@ export class DocumentProjectStore {
       (db.prepare('SELECT segment_id, source_hash FROM source_segments WHERE source_revision_id = ?').all(currentSourceRevisionId) as Array<{ segment_id: string; source_hash: string }>)
         .map((row) => [row.segment_id, row]),
     );
-    const promptRow = db.prepare('SELECT * FROM prompt_revisions ORDER BY created_at DESC LIMIT 1').get() as any;
+    const promptRow = db.prepare('SELECT * FROM prompt_revisions ORDER BY created_at DESC, rowid DESC LIMIT 1').get() as any;
     if (!promptRow) throw new Error('导入译文前必须先保存当前 Prompt');
     const config = parseJson<any>(promptRow.config_json, {});
     const currentMemory = this.getCurrentLiteraryMemory(projectId);
@@ -2103,7 +2103,7 @@ export class DocumentProjectStore {
     const source = db.prepare('SELECT * FROM source_segments WHERE source_revision_id = ? AND segment_id = ?').get(currentSourceRevisionId, segmentId) as any;
     if (!source) throw Object.assign(new Error('找不到源片段：' + segmentId), { status: 404 });
     const meta = new Map((db.prepare('SELECT key, value FROM project_meta').all() as Array<{ key: string; value: string }>).map((row) => [row.key, row.value]));
-    const latestPrompt = db.prepare('SELECT prompt_revision_id FROM prompt_revisions ORDER BY created_at DESC LIMIT 1').get() as any;
+    const latestPrompt = db.prepare('SELECT prompt_revision_id FROM prompt_revisions ORDER BY created_at DESC, rowid DESC LIMIT 1').get() as any;
     const resultId = randomUUID();
     db.prepare('INSERT INTO translation_results(result_id, run_id, source_revision_id, prompt_revision_id, segment_id, source_hash, run_fingerprint, translation_text, origin, accepted, created_at, accepted_at) VALUES (?, NULL, ?, ?, ?, ?, \'manual\', ?, \'manual\', 1, ?, ?)' )
       .run(resultId, currentSourceRevisionId, latestPrompt?.prompt_revision_id || null, segmentId, source.source_hash, text, isoNow(), isoNow());
@@ -2126,7 +2126,7 @@ export class DocumentProjectStore {
         latestAccepted.set(row.segment_id, row);
       }
     }
-    const latestPrompt = db.prepare('SELECT * FROM prompt_revisions ORDER BY created_at DESC LIMIT 1').get() as any;
+    const latestPrompt = db.prepare('SELECT * FROM prompt_revisions ORDER BY created_at DESC, rowid DESC LIMIT 1').get() as any;
     const currentMemory = this.getCurrentLiteraryMemory(projectId);
     const currentFingerprint = latestPrompt
       ? this.makeRunFingerprint(projectId, currentSourceRevisionId, latestPrompt, parseJson<any>(latestPrompt.config_json, {}), currentMemory.fingerprint || null)
