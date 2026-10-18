@@ -45,6 +45,11 @@ function stableCharacterId(name: string): string {
   for (let i = 0; i < normalized.length; i++) value = Math.imul(value ^ normalized.charCodeAt(i), 0x01000193);
   return 'char_' + (value >>> 0).toString(16).padStart(8, '0');
 }
+function confidenceScore(value: unknown): number | null {
+  if (value === null || value === undefined || value === '') return null;
+  const score = typeof value === 'number' ? value : typeof value === 'string' ? Number(value) : NaN;
+  return Number.isFinite(score) ? Math.max(0, Math.min(1, score)) : null;
+}
 function normalizeEvidenceText(value: string): string {
   return value.normalize('NFKC').replace(/\s+/g, ' ').trim().toLocaleLowerCase();
 }
@@ -131,7 +136,15 @@ export function stabilizeVoiceAnalysis(
         const dimension = ['register','syntax_rhythm','lexicon','discourse','stance','humor_irony','disfluency','relationship','role_traits'].includes(item.dimension) ? item.dimension : '';
         const observation = typeof item.observation === 'string' ? item.observation.trim().slice(0, 240) : '';
         if (!dimension || !observation) return [];
-        return [{ ...item, segmentId: String(item.segmentId).slice(0, 160), sourceQuote: String(item.sourceQuote).slice(0, 240), dimension, observation, confidence: Number.isFinite(Number(item.confidence)) ? Math.max(0, Math.min(1, Number(item.confidence))) : 0.4 }];
+        const confidence = confidenceScore(item.confidence);
+        const confidenceSource = confidence === null ? undefined : 'model_self_report' as const;
+        return [{
+          ...item,
+          segmentId: String(item.segmentId).slice(0, 160),
+          sourceQuote: String(item.sourceQuote).slice(0, 240),
+          dimension, observation, confidence,
+          confidenceSource,
+        }];
       }) : [];
       if (!evidence.length) {
         // 无可核对的原文证据，不创建可用于翻译的声音画像。
@@ -144,6 +157,12 @@ export function stabilizeVoiceAnalysis(
             all.findIndex((other: any) => other.segmentId === item.segmentId && other.dimension === item.dimension) === index,
           )
         : evidence;
+      const reportedConfidence = confidenceScore(raw.confidence);
+      const priorConfidence = existingProfile?.confidenceSource === 'model_self_report'
+        ? confidenceScore(existingProfile.confidence)
+        : null;
+      const profileConfidence = reportedConfidence ?? priorConfidence;
+      const profileConfidenceSource = profileConfidence === null ? undefined : 'model_self_report' as const;
       const evidenceTruncated = rawEvidenceTruncated ||
         existingProfile?.evidenceTruncated === true ||
         combinedEvidence.length > 12;
@@ -165,7 +184,8 @@ export function stabilizeVoiceAnalysis(
         // 旧画像一旦由用户确认后，新章节只能增加证据/提出冲突，不得覆盖画像核心。
         voiceCore: existingProfile?.status === 'confirmed' ? existingProfile.voiceCore : raw.voiceCore,
         status: existingProfile?.status === 'confirmed' ? 'confirmed' : 'candidate',
-        confidence: Number.isFinite(Number(raw.confidence)) ? Math.max(0, Math.min(1, Number(raw.confidence))) : 0.4,
+        confidence: profileConfidence,
+        confidenceSource: profileConfidenceSource,
         evidence: stableEvidence,
         evidencePolicyVersion: 'character-evidence-v2-complete',
         evidenceTruncated,
