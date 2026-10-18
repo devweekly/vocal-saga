@@ -24,6 +24,11 @@ function list(value: unknown, maxItems: number, maxLength = 180): string[] {
 function status(value: unknown, allowed: string[], fallback = 'candidate'): string {
   return typeof value === 'string' && allowed.includes(value) ? value : fallback;
 }
+function numericConfidence(value: unknown): number | null {
+  if (value === null || value === undefined || value === '') return null;
+  const score = typeof value === 'number' ? value : typeof value === 'string' ? Number(value) : NaN;
+  return Number.isFinite(score) ? Math.max(0, Math.min(1, score)) : null;
+}
 function safeHash(value: string): string {
   return createHash('sha256').update(value, 'utf8').digest('hex');
 }
@@ -172,6 +177,13 @@ export function sanitizeProjectLiteraryMemory(input: unknown): Record<string, an
     if (!item || typeof item !== 'object' || Array.isArray(item)) return [];
     const canonicalSourceName = text(item.canonicalSourceName || item.source || item.name, 120);
     const characterId = text(item.characterId, 100);
+    // Legacy Context Graph profiles used a fixed 0.55; without explicit provenance, treat it as unassessed.
+    const isContextGraphProfile = characterId.startsWith('context-graph-');
+    const profileConfidence = numericConfidence(item.confidence);
+    const profileConfidenceSource = profileConfidence !== null &&
+      (item.confidenceSource === 'model_self_report' || !isContextGraphProfile)
+      ? 'model_self_report' as const
+      : undefined;
     const voice = item.voiceCore && typeof item.voiceCore === 'object' && !Array.isArray(item.voiceCore) ? item.voiceCore : {};
     const rawEvidence = Array.isArray(item.evidence) ? item.evidence : [];
     // Old persisted records capped evidence to eight rows without recording whether more existed.
@@ -184,8 +196,16 @@ export function sanitizeProjectLiteraryMemory(input: unknown): Record<string, an
       const segmentId = text(ev.segmentId, 160); const sourceQuote = text(ev.sourceQuote, 240);
       const observation = text(ev.observation, 240); const dimension = text(ev.dimension, 32);
       if (!segmentId || !sourceQuote || !observation || !['register','syntax_rhythm','lexicon','discourse','stance','humor_irony','disfluency','relationship','role_traits'].includes(dimension)) return [];
-      const confidence = Number(ev.confidence);
-      return [{ segmentId, sourceQuote, observation, dimension, confidence: Number.isFinite(confidence) ? Math.max(0, Math.min(1, confidence)) : 0.4 }];
+      const evidenceConfidence = numericConfidence(ev.confidence);
+      const confidenceSource = evidenceConfidence !== null &&
+        (ev.confidenceSource === 'model_self_report' || !isContextGraphProfile)
+        ? 'model_self_report' as const
+        : undefined;
+      return [{
+        segmentId, sourceQuote, observation, dimension,
+        confidence: confidenceSource ? evidenceConfidence : null,
+        ...(confidenceSource ? { confidenceSource } : {}),
+      }];
     });
     if (!canonicalSourceName || !characterId || !evidence.length) return [];
     return [{
@@ -193,7 +213,8 @@ export function sanitizeProjectLiteraryMemory(input: unknown): Record<string, an
       ...(text(item.role, 360) ? { role: text(item.role, 360) } : {}),
       ...(list(item.traits, 10, 160).length ? { traits: list(item.traits, 10, 160) } : {}),
       status: status(item.status, ['candidate','confirmed','rejected']),
-      confidence: Number.isFinite(Number(item.confidence)) ? Math.max(0, Math.min(1, Number(item.confidence))) : 0.4,
+      confidence: profileConfidenceSource ? profileConfidence : null,
+      ...(profileConfidenceSource ? { confidenceSource: profileConfidenceSource } : {}),
       voiceCore: {
         register: text(voice.register, 180), syntaxRhythm: list(voice.syntaxRhythm, 6), lexicalPreferences: list(voice.lexicalPreferences, 6),
         discourseHabits: list(voice.discourseHabits, 6), stanceModality: list(voice.stanceModality, 6),
