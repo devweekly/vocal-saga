@@ -301,6 +301,20 @@ function logWorkflowEvent(runId: string | null, type: string, rawPayload: unknow
       message = '运行失败 · ' + String(p.error || '未知错误').replace(/\s+/g, ' ').slice(0, 240);
       level = 'error';
       break;
+    case 'literary-memory.saved': {
+      const profiles = Array.isArray(p.characterProfiles) ? p.characterProfiles : [];
+      const kings = profiles.filter((profile: any) =>
+        /\b(?:the\s+)?king\b/iu.test(String(profile.canonicalSourceName || '')) ||
+        (Array.isArray(profile.aliases) && profile.aliases.some((alias: unknown) => /\b(?:the\s+)?king\b/iu.test(String(alias)))));
+      message = '文学记忆已保存 · 实体 ' + (p.entityCount ?? '?') +
+        ' · 人物声音 ' + (p.characterCount ?? '?') +
+        '（确认 ' + (p.confirmedCharacterCount ?? '?') + ' / 候选 ' + (p.candidateCharacterCount ?? '?') + ' / 拒绝 ' + (p.rejectedCharacterCount ?? '?') + '）' +
+        (kings.length ? ' · King画像 ' + kings.map((profile: any) =>
+          String(profile.canonicalSourceName || '?') + ':' + String(profile.status || '?')).join('、')
+          : ' · 未保存 King/the King 声音画像');
+      if (!kings.length) level = 'warn';
+      break;
+    }
     case 'context-graph.phase':
       message = '全书预处理 · ' + traceStage(p.phase) + ' · ' +
         (p.sampleCount != null ? '样本 ' + p.sampleCount + ' 段' : (p.segmentCount ?? '?') + ' 段原文') +
@@ -824,17 +838,57 @@ export class DocumentProjectStore {
     const memoryJson = JSON.stringify(memory);
     const fingerprint = hash(memoryJson);
     const existing = db.prepare('SELECT * FROM literary_memory_revisions WHERE fingerprint = ? ORDER BY created_at DESC LIMIT 1').get(fingerprint) as any;
+    const reusedRevision = !!existing;
+    const memoryRevisionId = existing?.memory_revision_id || randomUUID();
+    const createdAt = existing?.created_at || isoNow();
     if (existing) {
       this.projectMeta(db, 'current_literary_memory_revision_id', existing.memory_revision_id);
-      return { memoryRevisionId: existing.memory_revision_id, fingerprint: existing.fingerprint, version: existing.version, createdAt: existing.created_at };
+    } else {
+      db.prepare('INSERT INTO literary_memory_revisions(memory_revision_id, version, memory_json, fingerprint, created_at) VALUES (?, ?, ?, ?, ?)')
+        .run(memoryRevisionId, 2, memoryJson, fingerprint, createdAt);
+      this.projectMeta(db, 'current_literary_memory_revision_id', memoryRevisionId);
     }
-    const memoryRevisionId = randomUUID();
-    const createdAt = isoNow();
-    db.prepare('INSERT INTO literary_memory_revisions(memory_revision_id, version, memory_json, fingerprint, created_at) VALUES (?, ?, ?, ?, ?)')
-      .run(memoryRevisionId, 2, memoryJson, fingerprint, createdAt);
-    this.projectMeta(db, 'current_literary_memory_revision_id', memoryRevisionId);
-    this.addEvent(projectId, null, 'literary-memory.saved', { memoryRevisionId, fingerprint, characterCount: memory.characterVoices.length, relationshipVoiceRuleCount: memory.relationshipVoiceRules.length, voiceAnchorCount: memory.voiceAnchors.length });
-    return { memoryRevisionId, fingerprint, version: 2, createdAt };
+
+    const characterProfiles = memory.characterVoices.slice(0, 80).map((profile: any) => ({
+      characterId: String(profile.characterId || '').slice(0, 100),
+      canonicalSourceName: String(profile.canonicalSourceName || '').slice(0, 120),
+      targetName: String(profile.targetName || '').slice(0, 120),
+      aliases: (Array.isArray(profile.aliases) ? profile.aliases : []).slice(0, 12)
+        .map((alias: unknown) => String(alias).slice(0, 80)),
+      status: String(profile.status || ''),
+      hasRole: !!String(profile.role || '').trim(),
+      traitCount: Array.isArray(profile.traits) ? profile.traits.length : 0,
+      voiceDimensionKeys: profile.voiceCore && typeof profile.voiceCore === 'object'
+        ? Object.keys(profile.voiceCore).slice(0, 10) : [],
+      evidenceCount: Array.isArray(profile.evidence) ? profile.evidence.length : 0,
+    }));
+    const literaryEntities = memory.entities.slice(0, 120).map((entity: any) => ({
+      source: String(entity.source || '').slice(0, 120),
+      target: String(entity.target || '').slice(0, 120),
+      aliases: (Array.isArray(entity.aliases) ? entity.aliases : []).slice(0, 8)
+        .map((alias: unknown) => String(alias).slice(0, 80)),
+      kind: String(entity.kind || ''),
+      reviewStatus: String(entity.reviewStatus || ''),
+      evidenceRefCount: Array.isArray(entity.evidenceRefs) ? entity.evidenceRefs.length : 0,
+    }));
+    const statusCount = (status: string) => memory.characterVoices.filter((profile: any) => profile.status === status).length;
+    const payload = {
+      memoryRevisionId, fingerprint, reusedRevision,
+      entityCount: memory.entities.length,
+      characterCount: memory.characterVoices.length,
+      confirmedCharacterCount: statusCount('confirmed'),
+      candidateCharacterCount: statusCount('candidate'),
+      rejectedCharacterCount: statusCount('rejected'),
+      relationshipCount: memory.relationships.length,
+      relationshipVoiceRuleCount: memory.relationshipVoiceRules.length,
+      voiceAnchorCount: memory.voiceAnchors.length,
+      literaryEntities,
+      characterProfiles,
+    };
+    // Emit even when the fingerprint already exists: this event records that the UI's graph-to-memory
+    // synchronization path was reached, not merely that a new revision was inserted.
+    this.appendEvent(projectId, null, 'literary-memory.saved', payload);
+    return { memoryRevisionId, fingerprint, version: existing?.version || 2, createdAt };
   }
 
   getCurrentLiteraryMemory(projectId: string): any {
