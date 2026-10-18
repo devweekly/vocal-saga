@@ -23,6 +23,15 @@ export const LOCAL_TOKEN = configuredToken && !/replace-with-a-long-random-token
   ? configuredToken
   : '';
 
+// 通过 Cloudflare Tunnel 等反向代理暴露到公网时，请求的 Host 头是隧道域名而非 loopback，
+// 默认的 Host 校验会一律 403。这里列出额外允许的主机名（逗号分隔，小写），
+// `*.example.com` 匹配任意层级子域。留空 = 只允许 localhost/127.0.0.1（默认行为）。
+// 注意：非空即代表服务可被非本机访问，必须同时设置 LOCAL_AGENT_TOKEN，见 server.ts 的启动校验。
+export const ALLOWED_HOSTS = (process.env.LOCAL_AGENT_ALLOWED_HOSTS || '')
+  .split(',')
+  .map((item) => item.trim().toLowerCase())
+  .filter(Boolean);
+
 export const DEFAULT_PROVIDER = (process.env.LOCAL_AGENT_PROVIDER || 'workbuddy').toLowerCase();
 export const DEFAULT_WORKBUDDY_MODEL = (process.env.LOCAL_WORKBUDDY_MODEL || process.env.WORKBUDDY_MODEL || process.env.CODEBUDDY_DEFAULT_MODEL || '').trim();
 export const DEFAULT_OPENCODE_MODEL = (process.env.LOCAL_OPENCODE_MODEL || process.env.OPENCODE_MODEL || '').trim();

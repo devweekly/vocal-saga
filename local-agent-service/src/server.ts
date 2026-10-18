@@ -8,9 +8,10 @@ import express, { type Request, type Response, type NextFunction } from 'express
 
 import {
   DEFAULT_PROVIDER, DEFAULT_WORKBUDDY_MODEL, HOST, PORT, MAX_BODY_BYTES, MAX_DOCUMENT_BODY_BYTES, DATABASE_PATH, STORE_CONTENT,
+  ALLOWED_HOSTS, LOCAL_TOKEN,
 } from './config.ts';
 import { initDatabase } from './db.ts';
-import { sendJson, addCors, isLoopbackHost } from './middleware.ts';
+import { sendJson, addCors, isAllowedHost, assertExposureIsSafe } from './middleware.ts';
 import { handleRequest } from './routes.ts';
 import { getTextPool } from './agents/workbuddyPool.ts';
 import { getDocumentProjectStore } from './documents/projectStore.ts';
@@ -27,6 +28,9 @@ export function startLocalAgentServer() {
     throw new Error('LOCAL_AGENT_HOST 必须是 loopback 地址（默认 127.0.0.1），本服务不允许监听局域网');
   }
   if (!Number.isInteger(PORT) || PORT < 1 || PORT > 65535) throw new Error('LOCAL_AGENT_PORT 不合法');
+  // 监听地址仍是 loopback：隧道/反代从本机连进来，不需要也不允许直接监听局域网。
+  // 对外开放只靠 ALLOWED_HOSTS 放行 Host 头，因此必须先确认 token 存在。
+  assertExposureIsSafe(ALLOWED_HOSTS, LOCAL_TOKEN);
   initDatabase();
   // Create/repair the catalog and mark interrupted document runs resumable before serving requests.
   getDocumentProjectStore();
@@ -41,8 +45,8 @@ export function startLocalAgentServer() {
     const hostname = hostHeader.startsWith('[')
       ? hostHeader.slice(1, hostHeader.indexOf(']'))
       : hostHeader.replace(/:\d+$/, '');
-    if (!isLoopbackHost(hostname)) {
-      sendJson(res, 403, { error: '此服务只允许通过 localhost/127.0.0.1 访问' });
+    if (!isAllowedHost(hostname, ALLOWED_HOSTS)) {
+      sendJson(res, 403, { error: '此服务只允许通过 localhost/127.0.0.1 或已配置的隧道域名访问' });
       return;
     }
     if (req.method === 'OPTIONS') {
