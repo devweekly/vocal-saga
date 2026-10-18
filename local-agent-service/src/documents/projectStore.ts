@@ -13,6 +13,7 @@ import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { DATA_DIR } from '../config.ts';
 import { sanitizeProjectLiteraryMemory } from './voiceContext.ts';
+import { normalizeCodeBuddyTaskProfiles } from '../agents/taskProfiles.ts';
 
 export type DocumentFormat = 'epub' | 'pdf' | 'txt' | 'md' | 'html' | 'docx' | 'srt' | 'vtt' | 'json';
 export const MAX_DOCUMENT_SOURCE_BYTES = 20 * 1024 * 1024;
@@ -94,6 +95,8 @@ export interface ProjectPrompt {
   literaryReview?: boolean;
   glossary?: unknown;
   translationStrategy?: Partial<DocumentTranslationStrategy>;
+  /** Immutable per-task CodeBuddy reasoning and supplemental prompt settings. */
+  taskProfiles?: unknown;
   /** Confirmed book entities/style memory included as read-only Agent context. */
   literaryMemory?: unknown;
 }
@@ -734,6 +737,7 @@ export class DocumentProjectStore {
       literaryReview: Boolean(prompt.literaryReview),
       glossary: prompt.glossary ?? null,
       translationStrategy: normalizeDocumentTranslationStrategy(prompt.translationStrategy),
+      taskProfiles: normalizeCodeBuddyTaskProfiles(prompt.taskProfiles),
       // 动态书籍记忆存入独立 literary_memory_revisions，不参与静态 Prompt fingerprint。
     };
     const systemPrompt = String(prompt.systemPrompt || DEFAULT_SYSTEM_PROMPT).slice(0, 50000);
