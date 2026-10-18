@@ -317,6 +317,24 @@ export function mergeTranslationContextDeltasIntoMemory(
   const before = JSON.stringify(memory);
   const summary = { addedEntities: 0, mergedEntities: 0, entityTargetConflicts: 0, addedRelationships: 0, addedOpenQuestions: 0 };
   const normalizeName = (value: unknown) => normalized(value).replace(/[._'’\-]+/g, ' ').trim();
+  const targetEvidenceFor = (candidate: ContextEntityCandidate, delta: ValidatedTranslationContextDelta) => {
+    const names = new Set([candidate.localId, candidate.canonicalSource, ...candidate.aliases]
+      .map(normalizeName).filter(Boolean));
+    const seenSegments = new Set<string>();
+    return delta.entityMentions.flatMap((mention) => {
+      if (!names.has(normalizeName(mention.entityRef)) ||
+          normalizeName(mention.targetSurface) !== normalizeName(candidate.targetProposal) ||
+          seenSegments.has(mention.segmentId)) return [];
+      seenSegments.add(mention.segmentId);
+      return [{
+        segmentId: mention.segmentId,
+        sourceQuote: mention.sourceQuote,
+        targetSurface: mention.targetSurface,
+      }];
+    }).slice(0, 8);
+  };
+  const targetConfidence = (refs: Array<{ segmentId: string }>) =>
+    new Set(refs.map((item) => item.segmentId)).size >= 2 ? 'corroborated' : 'candidate';
   const addQuestion = (value: string) => {
     const question = text(value, 200);
     if (!question || memory.openQuestions.some((item: unknown) => normalized(item) === normalized(question))) return;
@@ -328,6 +346,7 @@ export function mergeTranslationContextDeltasIntoMemory(
   for (const delta of deltas) {
     for (const candidate of delta.entityCandidates) {
       const names = new Set([candidate.canonicalSource, ...candidate.aliases].map(normalizeName).filter(Boolean));
+      const newTargetEvidence = targetEvidenceFor(candidate, delta);
       const matching = memory.entities
         .map((entity: any, index: number) => ({ entity, index }))
         .filter(({ entity }: any) => sameKind(entity.kind, candidate.kind) &&
@@ -343,6 +362,8 @@ export function mergeTranslationContextDeltasIntoMemory(
           evidenceRefs: candidate.evidence.slice(0, 4).map((item) => ({
             segmentId: item.segmentId, sourceQuote: item.sourceQuote,
           })),
+          targetEvidenceRefs: newTargetEvidence,
+          targetConfidence: targetConfidence(newTargetEvidence),
           reviewStatus: 'suggested',
         });
         memory.entities = memory.entities.slice(0, 120);
@@ -360,6 +381,15 @@ export function mergeTranslationContextDeltasIntoMemory(
       const aliases = Array.from(new Set([...existingAliases, ...candidate.aliases, candidate.canonicalSource]
         .filter((name) => normalizeName(name) && normalizeName(name) !== normalizeName(prior.source))));
       prior.aliases = aliases.slice(0, 8);
+      const priorTargetEvidence = Array.isArray(prior.targetEvidenceRefs) ? prior.targetEvidenceRefs : [];
+      const targetEvidenceBySegment = new Map<string, any>();
+      for (const ref of [...priorTargetEvidence, ...newTargetEvidence]) {
+        if (ref && typeof ref.segmentId === 'string' && ref.segmentId.trim()) {
+          targetEvidenceBySegment.set(ref.segmentId, ref);
+        }
+      }
+      prior.targetEvidenceRefs = Array.from(targetEvidenceBySegment.values()).slice(-8);
+      prior.targetConfidence = targetConfidence(prior.targetEvidenceRefs);
       if (!prior.evidence && candidate.evidence[0]?.sourceQuote) prior.evidence = candidate.evidence[0].sourceQuote;
       // Preserve source-positioned evidence for suggested entities, but don't let a later model
       // observation replace the provenance of a user-confirmed legacy mapping.
