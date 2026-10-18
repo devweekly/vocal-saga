@@ -810,7 +810,7 @@ test('voice retrieval can select an evidence-backed dialogue participant when cu
       target: '火车已经开走了',
       chapter: 'Chapter 1',
       segmentId: 'dialogue-anchor',
-      attributionEvidence: 'Speaker attribution was reviewed against the preceding scene.',
+      attributionEvidence: 'The train is already gone',
       attributionConfidence: 0.95,
       status: 'approved',
     }],
