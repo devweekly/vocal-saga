@@ -1379,6 +1379,7 @@ export function buildProjectContextGraphBundle(
     graphNameMappingExcludedNameNotVisible: 0,
     graphNameMappingExcludedAliasBoundary: 0,
     graphNameMappingExcludedEvidenceNotVisible: 0,
+    graphNameMappingExcludedInvalidTarget: 0,
     graphNameMappingExcludedTargetNotPreviouslyAccepted: 0,
     graphNameMappingExcludedTargetLanguage: 0,
   };
@@ -1394,7 +1395,7 @@ export function buildProjectContextGraphBundle(
     try { attributes = JSON.parse(row.attributes_json); } catch { attributes = {}; }
     const target = safeText(attributes.suggestedTranslation, 120);
     if (!target) {
-      nameMappingDiagnostics.graphNameMappingExcludedEvidenceNotVisible++;
+      nameMappingDiagnostics.graphNameMappingExcludedInvalidTarget++;
       return [];
     }
     if (targetLang && attributes.targetLang !== targetLang) {
