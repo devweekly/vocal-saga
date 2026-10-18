@@ -360,7 +360,7 @@ function scanProject(project, args, dataDir, matcher, terms) {
     }));
     matcher.lastIndex = 0;
     const matchRows = segments.filter((segment) => { matcher.lastIndex = 0; return matcher.test(segment.text); });
-    const exactTheKingPattern = /\bthe\s+king\b/iu;
+    const exactTheKingPattern = /\bthe\s+king\b(?!\s+rat\b)/iu;
     const exactCorporalKingPattern = /\bcorporal\s+king\b/iu;
     const bookTitlePattern = /\bking\s+rat\b/iu;
     const kingsEnglishPattern = /\bking['’]s\s+english\b/iu;
