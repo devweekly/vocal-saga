@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   validateTranslationContextDelta,
   mergeTranslationContextDeltasIntoMemory,
+  combineTranslationContextDeltas,
   emptyTranslationContextDelta,
 } from '../src/documents/translationContextDelta.ts';
 
@@ -106,4 +107,40 @@ test('source-ordered merging preserves the first candidate and records later con
   assert.equal(merged.memory.entities[0].target, '国王');
   assert.ok(merged.memory.openQuestions.some((item) => item.includes('大王')));
   assert.equal(merged.summary.entityTargetConflicts, 1);
+});
+
+
+test('a dynamic target stays a candidate until actual translated surfaces corroborate it in distinct segments', () => {
+  const makeDelta = (segmentId, prefix) => {
+    const source = 'The King looked at Max during the rain.';
+    const translations = new Map([[segmentId, '国王看着麦克斯。']]);
+    return validateTranslationContextDelta({
+      entity_candidates: [{
+        local_id: 'king',
+        canonical_source: 'The King',
+        aliases: ['King'],
+        kind: 'character_epithet',
+        target_proposal: '国王',
+        evidence: [{ segment_id: segmentId, quote: source }],
+      }],
+      entity_mentions: [{
+        segment_id: segmentId,
+        source_quote: 'The King',
+        entity_ref: 'king',
+        target_surface: '国王',
+      }],
+    }, [{ id: segmentId, text: source }], translations, prefix, []);
+  };
+
+  const first = makeDelta('segment-a', 'attempt-a:');
+  const second = makeDelta('segment-b', 'attempt-b:');
+  const single = mergeTranslationContextDeltasIntoMemory({ entities: [] }, [first.delta]);
+  assert.equal(single.memory.entities[0].targetConfidence, 'candidate');
+  assert.equal(single.memory.entities[0].targetEvidenceRefs.length, 1);
+
+  const combined = combineTranslationContextDeltas([first.delta, second.delta]);
+  const corroborated = mergeTranslationContextDeltasIntoMemory({ entities: [] }, [combined]);
+  assert.equal(corroborated.memory.entities[0].targetConfidence, 'corroborated');
+  assert.equal(corroborated.memory.entities[0].targetEvidenceRefs.length, 2);
+  assert.equal(new Set(corroborated.memory.entities[0].targetEvidenceRefs.map((item) => item.segmentId)).size, 2);
 });
