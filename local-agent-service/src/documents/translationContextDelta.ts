@@ -258,6 +258,15 @@ export function combineTranslationContextDeltas(
   const combined = emptyTranslationContextDelta();
   const entityKeyIndex = new Map<string, number>();
   for (const delta of deltas) {
+    // Retry-local entity IDs are not stable across model attempts. Normalize mentions to the
+    // canonical source name before combining so verified target surfaces can corroborate one entity.
+    const sourceNameByRef = new Map<string, string>();
+    for (const candidate of delta.entityCandidates) {
+      for (const name of [candidate.localId, candidate.canonicalSource, ...candidate.aliases]) {
+        const key = normalized(name);
+        if (key && !sourceNameByRef.has(key)) sourceNameByRef.set(key, candidate.canonicalSource);
+      }
+    }
     for (const candidate of delta.entityCandidates) {
       const key = normalized(candidate.canonicalSource) + '\u0000' + normalized(candidate.targetProposal);
       const index = entityKeyIndex.get(key);
@@ -271,7 +280,10 @@ export function combineTranslationContextDeltas(
           all.findIndex((other) => other.segmentId === item.segmentId && normalized(other.sourceQuote) === normalized(item.sourceQuote)) === i).slice(0, 4);
       }
     }
-    combined.entityMentions.push(...delta.entityMentions);
+    combined.entityMentions.push(...delta.entityMentions.map((mention) => ({
+      ...mention,
+      entityRef: sourceNameByRef.get(normalized(mention.entityRef)) || mention.entityRef,
+    })));
     combined.relationshipDeltas.push(...delta.relationshipDeltas);
     combined.openQuestions.push(...delta.openQuestions);
     combined.conflicts.push(...delta.conflicts);
