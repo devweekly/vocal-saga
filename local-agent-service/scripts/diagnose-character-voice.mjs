@@ -613,7 +613,12 @@ function scanProject(project, args, dataDir, matcher, terms) {
 
     if (tableExists(db, 'project_events')) {
       const events = safeRows(db, 'SELECT event_id, run_id, event_type, payload_json, created_at FROM project_events ORDER BY event_id DESC LIMIT 1200');
-      const auditEvent = events.find((event) => event.event_type === 'context-graph.output-audit');
+      const currentGraphRunIds = new Set(graphRunRows
+        .filter((row) => String(row.source_revision_id || '') === revisionId)
+        .map((row) => String(row.run_id || '')));
+      const auditEvent = events.find((event) =>
+        event.event_type === 'context-graph.output-audit' &&
+        currentGraphRunIds.has(String(event.run_id || '')));
       if (auditEvent) {
         const audit = safeJson(auditEvent.payload_json, {});
         const relatedCandidate = (item) => {
@@ -703,8 +708,11 @@ function buildDiagnosisHints(report, terms) {
   const memory = report.literaryMemory || {};
   const matchingVoices = memory.matchingVoiceProfiles || [];
   const matchingEntities = memory.matchingEntities || [];
-  const graphCharacters = (graph.matchingNodes || []).filter((node) => node.kind === 'character');
-  const graphEntities = (graph.matchingNodes || []).filter((node) => node.kind === 'entity');
+  // A node whose evidence mentions "the King" is not necessarily the King. Count only
+  // graph node names/aliases that directly match the character search; keep evidence-only hits separate.
+  const namedGraphNodes = (graph.allNodes || []).filter((node) => node.matchesPersonSearch);
+  const graphCharacters = namedGraphNodes.filter((node) => node.kind === 'character');
+  const graphEntities = namedGraphNodes.filter((node) => node.kind === 'entity');
   const audit = graph.outputAudit || {};
   const kingLike = (item) => {
     const names = [
@@ -1092,10 +1100,13 @@ function run() {
   }
   for (const item of projectReports) {
     const audit = item.contextGraph?.outputAudit || {};
+    const targetNodes = (item.contextGraph?.allNodes || []).filter((node) => node.matchesPersonSearch);
+    const evidenceOnlyNodes = (item.contextGraph?.matchingNodes || []).filter((node) =>
+      !(targetNodes || []).some((target) => target.nodeId === node.nodeId));
     console.log('- ' + item.project.title + ' (' + item.project.projectId + '): 原文命中 ' +
-      (item.source?.matchingSegmentCount ?? 0) + ' 段；图谱目标节点 ' +
-      (item.contextGraph?.matchingNodes?.length ?? 0) + '；声音档案目标画像 ' +
-      (item.literaryMemory?.matchingVoiceProfiles?.length ?? 0) +
+      (item.source?.matchingSegmentCount ?? 0) + ' 段；人物名/别名命中节点 ' +
+      targetNodes.length + '（另有 ' + evidenceOnlyNodes.length + ' 个节点仅因证据引文提到 King 命中）' +
+      '；声音档案目标画像 ' + (item.literaryMemory?.matchingVoiceProfiles?.length ?? 0) +
       '；输出审计 ' + (audit.available ? '有' : '缺失'));
     if (item.source?.matchBreakdown) {
       console.log('  原文：the King ' + item.source.matchBreakdown.theKingOccurrences + ' 次；King Rat 书名 ' +
