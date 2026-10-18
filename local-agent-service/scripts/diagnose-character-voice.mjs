@@ -369,6 +369,8 @@ function scanProject(project, args, dataDir, matcher, terms) {
             quantityMentionsTruncated: scan.indexDiagnostics.quantityMentionsTruncated,
           },
           samplePlanner: plan.diagnostics,
+          selectedSampleIds: plan.samples.map((sample) => sample.segment.id),
+          scanStrategyVersion: 'adaptive-book-scan-v2-source-index',
           matchingNameCandidates: scan.nameCandidates
             .map((candidate, index) => ({ ...candidate, rank: index + 1 }))
             .filter((candidate) => {
@@ -412,12 +414,30 @@ function scanProject(project, args, dataDir, matcher, terms) {
     }
 
     const graphRunRows = latestRows(db, 'context_graph_runs', 'started_at', 12);
+    const latestGraphProgress = graphRunRows.length ? safeJson(graphRunRows[0].progress_json, {}) : {};
+    const storedSamplePlan = Array.isArray(latestGraphProgress?.scan?.samplePlan) ? latestGraphProgress.scan.samplePlan : [];
+    const currentSampleIds = Array.isArray(result.bookScan?.selectedSampleIds) ? result.bookScan.selectedSampleIds : [];
+    const storedSampleIds = storedSamplePlan.map((item) => String(item?.segmentId || '')).filter(Boolean);
+    const currentSampleSet = new Set(currentSampleIds);
+    const storedSampleSet = new Set(storedSampleIds);
+    const overlapSampleIds = storedSampleIds.filter((id) => currentSampleSet.has(id));
     result.contextGraph = {
       runs: graphRunRows.map((row) => ({
         runId: row.run_id, sourceRevisionId: row.source_revision_id,
         status: row.status, phase: row.phase, startedAt: row.started_at,
         finishedAt: row.finished_at, error: row.error, progress: safeJson(row.progress_json, {}),
       })),
+      samplePlanComparison: storedSampleIds.length && currentSampleIds.length ? {
+        persistedRunId: graphRunRows[0].run_id,
+        persistedStrategyVersion: latestGraphProgress?.scan?.strategyVersion || 'unknown',
+        currentStrategyVersion: result.bookScan?.scanStrategyVersion || 'unknown',
+        persistedSampleCount: storedSampleIds.length,
+        currentSampleCount: currentSampleIds.length,
+        overlapCount: overlapSampleIds.length,
+        overlapRatio: Number((overlapSampleIds.length / Math.max(1, storedSampleIds.length)).toFixed(3)),
+        storedOnlySampleIds: storedSampleIds.filter((id) => !currentSampleSet.has(id)).slice(0, 24),
+        currentOnlySampleIds: currentSampleIds.filter((id) => !storedSampleSet.has(id)).slice(0, 24),
+      } : { available: false, reason: '没有可比较的历史 samplePlan 或当前扫描已被 --no-rescan 跳过。' },
       nodeCounts: {}, allNodes: [], matchingNodes: [], outputAudit: { available: false },
       sourceFeatureIndex: null, persistedSourceFeatures: null,
     };
