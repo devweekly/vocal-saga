@@ -311,6 +311,33 @@ function logWorkflowEvent(runId: string | null, type: string, rawPayload: unknow
       message = '全书扫描完成 · ' + (p.segmentCount ?? '?') + ' 段 / ' + (p.chapterCount ?? '?') + ' 章 · 名称候选 ' +
         (p.nameCandidateCount ?? 0) + ' · 抽样 ' + (p.sampleCount ?? 0) + ' 段';
       break;
+    case 'context-graph.output-audit': {
+      const raw = p.rawCounts && typeof p.rawCounts === 'object' ? p.rawCounts : {};
+      const saved = p.persistedCounts && typeof p.persistedCounts === 'object' ? p.persistedCounts : {};
+      const evidence = p.evidenceValidation && typeof p.evidenceValidation === 'object' ? p.evidenceValidation : {};
+      const coverage = Array.isArray(p.candidateCoverage) ? p.candidateCoverage : [];
+      const gaps = coverage.filter((item: any) =>
+        Number(item.mentions) >= 20 && Number(item.chapterCount) >= 3 && !item.returnedAsCharacter)
+        .slice(0, 4).map((item: any) => String(item.name || '') + '（' + item.mentions + ' 次）').filter(Boolean);
+      const dropped = Array.isArray(p.modelCharacters) ? p.modelCharacters
+        .filter((item: any) => item.disposition === 'dropped-no-valid-evidence')
+        .slice(0, 4).map((item: any) => {
+          const reasons = Object.entries(item.invalidEvidenceReasons || {})
+            .map(([reason, count]) => reason + ':' + String(count)).join(',');
+          return String(item.name || '<无名>') + (reasons ? ' [' + reasons + ']' : '');
+        }) : [];
+      const reasons = evidence.byReason && typeof evidence.byReason === 'object'
+        ? Object.entries(evidence.byReason).map(([reason, count]) => reason + ':' + String(count)).join('、')
+        : '';
+      message = '模型输出与证据校验 · 原始人物 ' + (raw.characters ?? '?') + ' / 保存人物 ' + (saved.characters ?? '?') +
+        ' · 原始实体 ' + (raw.entities ?? '?') + ' / 保存实体 ' + (saved.entities ?? '?') +
+        ' · 无效证据 ' + (evidence.invalidEvidenceCount ?? '?') +
+        (reasons ? '（' + reasons + '）' : '') +
+        (gaps.length ? ' · 高频名称未列为人物：' + gaps.join('、') : '') +
+        (dropped.length ? ' · 因证据被丢弃：' + dropped.join('；') : '');
+      if (Number(evidence.invalidEvidenceCount) > 0 || gaps.length || dropped.length) level = 'warn';
+      break;
+    }
     case 'context-graph.completed':
       message = '全书预处理完成 · 人物 ' + (p.characterCount ?? 0) + ' · 实体 ' + (p.entityCount ?? 0) + ' · 关系 ' +
         (p.relationshipCount ?? 0) + ' · 规范译名 ' + (p.canonicalNameMappingCount ?? 0) + ' · 无效证据 ' + (p.invalidEvidenceCount ?? 0);
