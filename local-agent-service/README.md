@@ -1,5 +1,8 @@
 # vocal-saga Local Agent Service
 
+> 架构与关键函数导航：[docs/LOCAL_AGENT_SERVICE_ARCHITECTURE.md](../docs/LOCAL_AGENT_SERVICE_ARCHITECTURE.md)（模块职责、翻译时序图、预处理流程、Run 状态与持久化边界）。
+
+
 这是 vocal-saga 中独立的本机 Express + TypeScript Provider，供 fanyi-extension 使用。 默认优先 Workbuddy/CodeBuddy SDK；OpenCode 保留为可选运行时。它把 OpenAI-compatible Chat Completions 请求转交给本机 Workbuddy（@tencent-ai/agent-sdk）或 OpenCode CLI，并使用 Node 内置 SQLite 记录本机请求历史。扩展启用本机 Provider 后，网页翻译、文档翻译、侧栏对话以及 EPUB/PDF 的文学分析和 Reviewer 都走这个本机进程。
 
 ## 环境要求

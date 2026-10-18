@@ -69,6 +69,11 @@ function logModelFailure(
   }
 }
 
+/**
+ * 统一的文本模型调用入口。
+ * 根据 AgentSpec 选择 Workbuddy SDK 或 OpenCode，并统一记录开始/成功/失败日志。
+ * document/context-graph 等工作流通过 sessionScope 由上层事件账本记录细节，避免重复输出噪声日志。
+ */
 export async function runAgent(
   agent: AgentSpec,
   prompt: string,

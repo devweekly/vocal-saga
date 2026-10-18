@@ -605,6 +605,11 @@ function graphAnalysisPrompt(projectTitle: string, format: string, sourceLang: s
   ].join('\n\n');
 }
 
+/**
+ * 执行一次全书文学预分析：确定性扫描/抽样 -> 结构化模型分析 -> 逐项验证原文证据 -> 事务落库。
+ * 模型只负责提出候选；只有引用指向本次样本且 quote 能在对应 source segment 中验证时，
+ * 节点、关系或章节摘要才可能持久化。phase/progress 与终态事件供 UI 恢复进度和定位失败。
+ */
 async function runAnalysis(projectId: string, runId: string): Promise<void> {
   const store = getDocumentProjectStore();
   const { db, revisionId, segments } = readSegments(projectId);
@@ -1010,6 +1015,11 @@ async function runAnalysis(projectId: string, runId: string): Promise<void> {
   }
 }
 
+/**
+ * 幂等地排队并异步启动当前 source revision 的 Context Graph 预处理。
+ * 同一项目/来源版本只允许一个活动分析，并禁止与活动翻译 Run 冲突；返回 accepted 不代表
+ * 分析已完成。调用方应通过 getContextGraphStatus/事件轨迹读取完成或失败状态。
+ */
 export function startContextGraphAnalysis(projectId: string): { accepted: boolean; alreadyRunning: boolean; runId: string } {
   const { db, revisionId } = graphContext(projectId);
   const segmentCount = Number((db.prepare('SELECT COUNT(*) AS count FROM source_segments WHERE source_revision_id = ?').get(revisionId) as any)?.count || 0);
@@ -1144,6 +1154,11 @@ export function getContextGraph(projectId: string): Record<string, unknown> {
   };
 }
 
+/**
+ * 保存用户对图谱节点/边的 candidate、confirmed 或 rejected 决策。
+ * 明确确认与模型候选必须保持不同状态；当前有翻译 Run 时拒绝修改，避免某批次正在使用的
+ * 上下文和随后读取到的图谱版本发生未记录的漂移。
+ */
 export function reviewContextGraphItem(
   projectId: string,
   type: 'node' | 'edge',
@@ -1167,7 +1182,11 @@ export function reviewContextGraphItem(
   return { type, id, previousStatus: row.status, status, sourceRevisionId: revisionId };
 }
 
-/** Dynamically build context for one batch; future chapters are deliberately excluded. */
+/**
+ * 为一个翻译批次生成按时间边界过滤的 Context Graph 子集。
+ * 这里按固定 source revision 的 ordinal 校验节点、别名、关系证据与目标语言；模型产生的全书候选
+ * 不能因为名称出现在当前片段就自动成为规范译名。该函数只检索上下文，不修改图谱事实。
+ */
 export function buildProjectContextGraphBundle(
   projectId: string,
   items: Array<{ id: string; text: string; contextPath?: string }>,
