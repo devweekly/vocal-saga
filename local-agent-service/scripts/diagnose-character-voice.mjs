@@ -157,7 +157,13 @@ function summarizeGraphOutput(value, matcher) {
   const parsed = parseNestedJson(value);
   const seen = new Set();
   const visit = (node, depth = 0) => {
-    if (!node || depth > 6 || typeof node !== 'object') return null;
+    if (depth > 6 || node == null) return null;
+    // OpenAI-compatible responses often contain a second JSON document inside message.content.
+    if (typeof node === 'string') {
+      const nested = safeJson(node, null);
+      return nested == null ? null : visit(nested, depth + 1);
+    }
+    if (typeof node !== 'object') return null;
     if (seen.has(node)) return null;
     seen.add(node);
     if (!Array.isArray(node) && (Array.isArray(node.characters) || Array.isArray(node.entities))) return node;
