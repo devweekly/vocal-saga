@@ -683,6 +683,8 @@ test('an unconfirmed whole-book target is not injected just because the canonica
       { id: 'king-current', text: 'The King entered the room again.', kind: 'paragraph', contextPath: 'Chapter 9' },
     ],
   });
+  // A previous accepted draft used the spoiler target, but a later accepted correction replaced it.
+  store.saveManualEdit(project.projectId, 'king-prior', '海盗女王从门口注视着麦克斯。');
   store.saveManualEdit(project.projectId, 'king-prior', '国王从门口注视着麦克斯。');
   ensureTestContextGraph(store, project);
   const { db, currentSourceRevisionId } = store.getProjectContext(project.projectId);
@@ -730,6 +732,7 @@ test('accepted examples are retrieved by relevance only from the same source rev
       { id: 'example-future', text: 'Mara Voss was secretly the Queen of Ash.', kind: 'paragraph', contextPath: 'Chapter 8' },
     ],
   });
+  store.saveManualEdit(project.projectId, 'example-prior', '玛拉·沃斯在银门上看到了西灯。');
   store.saveManualEdit(project.projectId, 'example-prior', '玛拉·沃斯看着银门旁的西侧灯火燃烧。');
   store.saveManualEdit(project.projectId, 'example-future', '玛拉·沃斯其实是灰烬女王。');
   store.saveLiteraryMemory(project.projectId, {
@@ -751,6 +754,9 @@ test('accepted examples are retrieved by relevance only from the same source rev
     item.segmentId === 'example-prior' && item.origin === 'manual' &&
     item.source.includes('western lamp') && item.target.includes('西侧灯火')),
   'a prior accepted human translation with strong lexical overlap should be injected');
+  assert.equal(brief.voiceContext.recentExamples.some((item) =>
+    item.segmentId === 'example-prior' && item.target === '玛拉·沃斯在银门上看到了西灯。'), false,
+  'a superseded accepted draft from the same source segment must not be retrieved as an example');
   assert.equal(brief.voiceContext.recentExamples.some((item) =>
     item.segmentId === 'example-future' || item.source.includes('Queen of Ash') || item.target.includes('灰烬女王')), false,
   'later accepted translations and unscoped book-level examples must not enter an earlier brief');
