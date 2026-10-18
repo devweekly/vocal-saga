@@ -335,7 +335,7 @@ export async function runLiteraryAnalysis(body: any, requestId: string, sessionS
   };
   // Single-pass replacement avoids interpreting placeholder-looking text inside source/book memory.
   const prompt = DEFAULT_LITERARY_ANALYSIS_USER_PROMPT_TEMPLATE.replace(
-    /\\{\\{(TARGET_LANGUAGE|CHAPTER_TITLE|BOOK_MEMORY_JSON|CHAPTER_SEGMENTS_JSON)\\}\\}/g,
+    /\{\{(TARGET_LANGUAGE|CHAPTER_TITLE|BOOK_MEMORY_JSON|CHAPTER_SEGMENTS_JSON)\}\}/g,
     (_match, key: string) => promptValues[key] ?? '',
   );
   const agent = parseAgentModel(body.model || 'auto', body.runtime || body.provider || '');
