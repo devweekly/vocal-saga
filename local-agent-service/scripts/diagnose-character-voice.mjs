@@ -143,6 +143,59 @@ function safeJson(value, fallback = null) {
   try { return JSON.parse(value); } catch { return fallback; }
 }
 
+function parseNestedJson(value) {
+  let current = value;
+  for (let depth = 0; depth < 3 && typeof current === 'string'; depth++) {
+    const parsed = safeJson(current, null);
+    if (parsed === null) break;
+    current = parsed;
+  }
+  return current;
+}
+
+function summarizeGraphOutput(value, matcher) {
+  const parsed = parseNestedJson(value);
+  const seen = new Set();
+  const visit = (node, depth = 0) => {
+    if (!node || depth > 6 || typeof node !== 'object') return null;
+    if (seen.has(node)) return null;
+    seen.add(node);
+    if (!Array.isArray(node) && (Array.isArray(node.characters) || Array.isArray(node.entities))) return node;
+    const keys = Array.isArray(node)
+      ? node.slice(0, 12)
+      : ['output', 'result', 'data', 'response', 'body', 'choices', 'message', 'content', 'text', 'completion']
+          .map((key) => node[key]).filter((item) => item !== undefined);
+    for (const child of keys) {
+      const match = visit(child, depth + 1);
+      if (match) return match;
+    }
+    return null;
+  };
+  const output = visit(parsed);
+  if (!output) return null;
+  const compact = (items) => (Array.isArray(items) ? items : []).slice(0, 80).map((item) => {
+    const name = typeof item?.name === 'string' ? item.name : '';
+    const aliases = Array.isArray(item?.aliases) ? item.aliases.filter((alias) => typeof alias === 'string').slice(0, 8) : [];
+    const evidence = Array.isArray(item?.evidence) ? item.evidence : [];
+    const related = [name, ...aliases].some((value) => {
+      if (isBookTitleOrIdiom(value)) return false;
+      return identityValueMatches(value, matcher) || /\b(?:the\s+)?king\b/iu.test(value);
+    });
+    return {
+      name, aliases, suggestedTranslation: typeof item?.suggestedTranslation === 'string' ? item.suggestedTranslation.slice(0, 80) : '',
+      evidenceCount: evidence.length,
+      evidenceSegmentIds: evidence.slice(0, 3).map((ref) => String(ref?.segmentId || '')).filter(Boolean),
+      relatedToSearch: related,
+    };
+  });
+  return {
+    charactersCount: Array.isArray(output.characters) ? output.characters.length : 0,
+    entitiesCount: Array.isArray(output.entities) ? output.entities.length : 0,
+    characters: compact(output.characters),
+    entities: compact(output.entities),
+  };
+}
+
 function tryOpenReadOnly(file) {
   if (!file || !existsSync(file)) return null;
   try { return new DatabaseSync(file, { readOnly: true }); }
@@ -690,24 +743,59 @@ function buildDiagnosisHints(report, terms) {
 
 function scanRequestHistory(databasePath, matcher) {
   const db = tryOpenReadOnly(databasePath);
-  const result = { path: databasePath, found: !!db, matchingRows: 0, matches: [], warnings: [] };
+  const result = {
+    path: databasePath, found: !!db, matchingRows: 0, rowsScanned: 0, matches: [], warnings: [],
+    endpointBreakdown: [], tableSchemas: [], analysisPayloadSummaries: [],
+  };
   if (!db) return result;
   if (db.openError) {
     result.warnings.push(db.openError);
     return result;
   }
+  const endpointStats = new Map();
   try {
     const tables = safeRows(db, "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'").map((row) => row.name);
     const historyTables = tables.filter((name) => /history|request|audit|event|log/iu.test(name)).slice(0, 45);
     for (const table of historyTables) {
       const columns = getColumns(db, table);
+      result.tableSchemas.push({
+        table,
+        columns: columns.filter((column) =>
+          /request.?id|trace.?id|created.?at|timestamp|provider|model|endpoint|path|method|status|error|operation|event.?type|request|response|result|output|duration/iu.test(column)),
+      });
       let rows = [];
       try {
         rows = db.prepare('SELECT * FROM "' + String(table).replace(/"/gu, '""') + '" ORDER BY rowid DESC LIMIT ' + MAX_DB_ROWS_PER_TABLE).all();
       } catch {
         rows = safeRows(db, 'SELECT * FROM "' + String(table).replace(/"/gu, '""') + '" LIMIT ' + MAX_DB_ROWS_PER_TABLE);
       }
+      const endpointColumn = columns.find((column) => /^(?:endpoint|path|url|route)$/iu.test(column)) ||
+        columns.find((column) => /endpoint|path/iu.test(column));
+      const statusColumn = columns.find((column) => /^(?:status|http_status|result_status)$/iu.test(column)) ||
+        columns.find((column) => /status/iu.test(column));
+      const providerColumn = columns.find((column) => /provider/iu.test(column));
+      const modelColumn = columns.find((column) => /model/iu.test(column));
+      const createdColumn = columns.find((column) => /created_at|timestamp|requested_at/iu.test(column));
       for (const row of rows) {
+        result.rowsScanned++;
+        const endpoint = endpointColumn ? String(row[endpointColumn] || '<unknown>') : '<no-endpoint-column>';
+        const key = table + ' :: ' + endpoint;
+        const stats = endpointStats.get(key) || {
+          table, endpoint, count: 0, statuses: {}, providers: {}, models: {},
+          firstSeen: '', lastSeen: '',
+        };
+        stats.count++;
+        const status = statusColumn ? String(row[statusColumn] || '<unknown>') : '<no-status-column>';
+        const provider = providerColumn ? String(row[providerColumn] || '<unknown>') : '<unknown>';
+        const model = modelColumn ? String(row[modelColumn] || '<unknown>') : '<unknown>';
+        stats.statuses[status] = (stats.statuses[status] || 0) + 1;
+        stats.providers[provider] = (stats.providers[provider] || 0) + 1;
+        stats.models[model] = (stats.models[model] || 0) + 1;
+        const createdAt = createdColumn ? String(row[createdColumn] || '') : '';
+        if (createdAt && (!stats.firstSeen || createdAt < stats.firstSeen)) stats.firstSeen = createdAt;
+        if (createdAt && (!stats.lastSeen || createdAt > stats.lastSeen)) stats.lastSeen = createdAt;
+        endpointStats.set(key, stats);
+
         const matchedFields = [];
         for (const column of columns) {
           const value = row[column];
@@ -716,20 +804,45 @@ function scanRequestHistory(databasePath, matcher) {
           matchedFields.push({ field: column, excerpt: excerpt(value, matcher, 300) });
           if (matchedFields.length >= 6) break;
         }
+        const payloadSummaries = [];
+        for (const column of columns.filter((name) => /response|result|output|completion/iu.test(name))) {
+          const value = row[column];
+          if (typeof value !== 'string' || !value.trim()) continue;
+          const summary = summarizeGraphOutput(value, matcher);
+          if (summary) payloadSummaries.push({ field: column, ...summary });
+        }
+        const looksLikeAnalysis = /context.?graph|literary|analy[sz]|profile/iu.test(endpoint) ||
+          payloadSummaries.length > 0 ||
+          columns.some((column) => /request.?json/iu.test(column) && typeof row[column] === 'string' &&
+            /characters|chapterSummaries|narrativeStyle|bookSummary/u.test(row[column]));
+        if (looksLikeAnalysis && (payloadSummaries.length || matchedFields.length)) {
+          result.analysisPayloadSummaries.push({
+            table, endpoint, createdAt, status, provider, model,
+            matchedFields: matchedFields.slice(0, 3),
+            structuredOutput: payloadSummaries.slice(0, 4),
+          });
+          if (result.analysisPayloadSummaries.length > 50) result.analysisPayloadSummaries.length = 50;
+        }
         if (!matchedFields.length) continue;
         result.matchingRows++;
         if (result.matches.length < MAX_REPORT_LOG_MATCHES) {
           const metadata = {};
           for (const column of columns) {
-            if (/(?:request.?id|trace.?id|created.?at|timestamp|provider|model|endpoint|path|method|status|error|operation|event.?type)/iu.test(column)) {
+            if (/(?:request.?id|trace.?id|created.?at|timestamp|provider|model|endpoint|path|method|status|error|operation|event.?type|duration)/iu.test(column)) {
               const value = row[column];
               if (typeof value === 'string' || typeof value === 'number') metadata[column] = value;
             }
           }
-          result.matches.push({ table, metadata, matchedFields });
+          result.matches.push({
+            table, metadata, matchedFields,
+            structuredResponses: payloadSummaries.slice(0, 4),
+          });
         }
       }
     }
+    result.endpointBreakdown = Array.from(endpointStats.values())
+      .sort((a, b) => b.count - a.count || String(b.lastSeen).localeCompare(String(a.lastSeen)))
+      .slice(0, 40);
   } finally { db.close(); }
   return result;
 }
