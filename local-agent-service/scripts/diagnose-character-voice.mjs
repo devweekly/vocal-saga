@@ -1006,12 +1006,14 @@ function run() {
   const catalogPath = path.join(dataDir, 'documents', 'catalog.sqlite');
   const catalog = readProjectCatalog(catalogPath);
   let projects = catalog.projects || [];
+  let projectMatchMode = 'automatic-discovery';
 
   if (args.project) {
     const needle = normalize(args.project);
     const exact = projects.filter((project) => normalize(project.project_id) === needle);
     const matching = exact.length ? exact : projects.filter((project) =>
       normalize(project.title).includes(needle) || normalize(project.source_file_name).includes(needle));
+    projectMatchMode = exact.length ? 'exact-project-id' : 'title-or-source-filename';
     projects = matching;
   } else {
     const byTitle = projects.filter((project) =>
@@ -1020,6 +1022,29 @@ function run() {
   }
 
   const projectReports = projects.slice(0, 20).map((project) => scanProject(project, args, dataDir, matcher, terms));
+  const orderedProjects = projects.slice().sort((a, b) =>
+    String(b.updated_at || '').localeCompare(String(a.updated_at || '')));
+  const projectSelection = {
+    selector: args.project || null,
+    matchMode: projectMatchMode,
+    ambiguous: projectReports.length > 1 && projectMatchMode !== 'exact-project-id',
+    selectedProjectCount: projectReports.length,
+    activeProjectCandidate: orderedProjects[0] ? {
+      projectId: orderedProjects[0].project_id,
+      title: orderedProjects[0].title,
+      sourceFileName: orderedProjects[0].source_file_name,
+      updatedAt: orderedProjects[0].updated_at,
+      note: '最新 updated_at 只能作为活动项目候选；应与 UI 当前 projectId 核对。',
+    } : null,
+    selectedProjects: orderedProjects.slice(0, 20).map((project) => ({
+      projectId: project.project_id, title: project.title,
+      sourceFileName: project.source_file_name, updatedAt: project.updated_at,
+    })),
+  };
+  for (const report of projectReports) {
+    report.projectSelectionAmbiguous = projectSelection.ambiguous;
+    report.projectSelectionActiveCandidateId = projectSelection.activeProjectCandidate?.projectId || null;
+  }
   const requestHistory = scanRequestHistory(requestDb, matcher);
   const logRoots = [
     workDir,
@@ -1031,7 +1056,7 @@ function run() {
   const workspace = scanWorkspaceText(Array.from(new Set(logRoots)), terms, matcher);
 
   const report = {
-    reportVersion: 'character-voice-diagnosis-v1',
+    reportVersion: 'character-voice-diagnosis-v2',
     generatedAt: new Date().toISOString(),
     readOnly: true,
     search: { primaryTerm: args.term, terms, projectSelector: args.project || null },
@@ -1040,6 +1065,7 @@ function run() {
       catalogPath, serviceDir: SERVICE_DIR,
     },
     catalog: { projectCount: catalog.projects?.length || 0, error: catalog.error || '' },
+    projectSelection,
     selectedProjectCount: projectReports.length,
     projects: projectReports,
     requestHistory,
@@ -1058,15 +1084,38 @@ function run() {
   console.log('人物/声音档案诊断已完成（只读）。');
   console.log('搜索词：' + terms.join(' / '));
   console.log('项目数据库：' + catalogPath);
-  console.log('匹配项目数：' + projectReports.length);
-  for (const item of projectReports) {
-    console.log('- ' + item.project.title + ' (' + item.project.projectId + '): 原文命中 ' +
-      (item.source?.matchingSegmentCount ?? 0) + ' 段；图谱匹配节点 ' +
-      (item.contextGraph?.matchingNodes?.length ?? 0) + '；声音档案匹配画像 ' +
-      (item.literaryMemory?.matchingVoiceProfiles?.length ?? 0));
+  console.log('匹配项目数：' + projectReports.length + '（匹配模式：' + projectMatchMode + '）');
+  if (projectSelection.ambiguous) {
+    console.log('警告：项目标题匹配到多个独立数据库；最新活动候选为 ' +
+      (projectSelection.activeProjectCandidate?.projectId || '<unknown>') +
+      '。请先在 UI 确认当前 projectId，再按 UUID 重跑诊断。');
   }
-  console.log('请求历史匹配记录：' + requestHistory.matchingRows);
-  console.log('工作区/日志命中文件：' + workspace.matchingFileCount + '（检查 ' + workspace.filesChecked + ' 个文本文件）');
+  for (const item of projectReports) {
+    const audit = item.contextGraph?.outputAudit || {};
+    console.log('- ' + item.project.title + ' (' + item.project.projectId + '): 原文命中 ' +
+      (item.source?.matchingSegmentCount ?? 0) + ' 段；图谱目标节点 ' +
+      (item.contextGraph?.matchingNodes?.length ?? 0) + '；声音档案目标画像 ' +
+      (item.literaryMemory?.matchingVoiceProfiles?.length ?? 0) +
+      '；输出审计 ' + (audit.available ? '有' : '缺失'));
+    if (item.source?.matchBreakdown) {
+      console.log('  原文：the King ' + item.source.matchBreakdown.theKingOccurrences + ' 次；King Rat 书名 ' +
+        item.source.matchBreakdown.bookTitleOccurrences + ' 次；人物候选段落 ' +
+        item.source.matchBreakdown.likelyCharacterReferenceSegments + ' 段');
+    }
+    if (audit.available) {
+      console.log('  模型输出：characters ' + (audit.rawCounts?.characters ?? '?') + ' / 保存 ' +
+        (audit.persistedCounts?.characters ?? '?') + '；无效证据 ' +
+        (audit.evidenceValidation?.invalidEvidenceCount ?? '?') + '；按原因 ' +
+        JSON.stringify(audit.evidenceValidation?.byReason || {}));
+    } else if (item.contextGraph?.runs?.length) {
+      console.log('  历史 run 缺少逐候选模型输出审计；需要更新服务后重新分析全书');
+    }
+  }
+  console.log('请求历史匹配记录：' + requestHistory.matchingRows + ' / 扫描 ' + requestHistory.rowsScanned + ' 行');
+  console.log('请求端点类型：' + requestHistory.endpointBreakdown.slice(0, 8).map((item) => item.endpoint + '=' + item.count).join('；'));
+  console.log('工作区/日志命中文件：' + workspace.matchingFileCount + '（已检查 ' + workspace.filesChecked +
+    ' / 发现文本文件 ' + workspace.discoveredTextFileCount + '）');
+  if (workspace.filesChecked === 0) console.log('  未发现可读文本日志文件；请确认启动终端是否有未重定向的日志，或通过 --logs 指定日志文件。');
   console.log('报告：' + outputPath);
   if (!projectReports.length) {
     console.log('未定位到项目。请明确传入 --project <项目 ID 或标题>，或传入 --data-dir 指向服务实际数据目录。');
