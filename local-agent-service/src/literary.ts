@@ -580,18 +580,4 @@ export function getDefaultLiteraryTaskPromptPreviews(): {
       styleReview: style.prompt,
     },
   };
-} {
-  const common = {
-    body: { target: 'zh' },
-    segments: [],
-    translationBrief: null,
-    precedingSegments: [],
-    voiceContext: {},
-    contextGraph: null,
-  };
-  return {
-    literaryAnalysis: DEFAULT_LITERARY_ANALYSIS_SYSTEM_PROMPT,
-    accuracyReview: buildLiteraryReviewPrompt({ ...common, reviewFocus: 'accuracy' as const }).systemPrompt,
-    styleReview: buildLiteraryReviewPrompt({ ...common, reviewFocus: 'style' as const }).systemPrompt,
-  };
 }
