@@ -190,7 +190,46 @@ function ensureSchema(db: DatabaseSync): void {
 }
 
 function normalize(value: unknown): string {
-  return String(value ?? '').normalize('NFKC').replace(/\s+/g, ' ').trim().toLocaleLowerCase();
+  return String(value ?? '').normalize('NFKC')
+    .replace(/[‘’‛]/g, "'")
+    .replace(/[“”„‟]/g, '"')
+    .replace(/[‐‑‒–—−]/g, '-')
+    .replace(/\s+/g, ' ').trim().toLocaleLowerCase();
+}
+
+const sourceSegmentsByRevision = new Map<string, Array<{ ordinal: number; text: string }>>();
+
+function allSourceSegments(db: any, revisionId: string): Array<{ ordinal: number; text: string }> {
+  const cached = sourceSegmentsByRevision.get(revisionId);
+  if (cached) {
+    sourceSegmentsByRevision.delete(revisionId);
+    sourceSegmentsByRevision.set(revisionId, cached);
+    return cached;
+  }
+  // Revisions are immutable. Cache at most two full source indexes so temporal name checks
+  // never rely on SQLite's punctuation-sensitive instr() prefilter for every candidate name.
+  const rows = db.prepare(
+    'SELECT ordinal, text FROM source_segments WHERE source_revision_id = ? ORDER BY ordinal'
+  ).all(revisionId) as Array<{ ordinal: number; text: string }>;
+  sourceSegmentsByRevision.set(revisionId, rows);
+  while (sourceSegmentsByRevision.size > 2) {
+    const oldest = sourceSegmentsByRevision.keys().next().value;
+    if (oldest) sourceSegmentsByRevision.delete(oldest);
+    else break;
+  }
+  return rows;
+}
+
+function sourceNameMatches(sourceInput: unknown, nameInput: unknown): boolean {
+  const source = normalize(sourceInput);
+  const name = normalize(nameInput);
+  if (!source || !name || name.length < 2) return false;
+  if (/^[a-z0-9 ._'’-]+$/i.test(name)) {
+    const haystack = ' ' + source.replace(/[^a-z0-9]+/gi, ' ').trim() + ' ';
+    const needle = name.replace(/[^a-z0-9]+/gi, ' ').trim();
+    return needle.length >= 2 && haystack.includes(' ' + needle + ' ');
+  }
+  return source.includes(name);
 }
 
 function hash(value: string): string {
@@ -1166,38 +1205,19 @@ export function buildProjectContextGraphBundle(
   ).all(revisionId, knowledgeBoundary) as Array<{ edge_id: string }>;
   const visibleEdgeIds = new Set(visibleEdgeRows.map((row) => row.edge_id));
   const nameBeforeCache = new Map<string, boolean>();
+  const sourceRows = allSourceSegments(db, revisionId);
   const appearedBefore = (nameInput: unknown): boolean => {
     const name = normalize(nameInput);
     if (!name || name.length < 2) return false;
     const cached = nameBeforeCache.get(name);
     if (cached !== undefined) return cached;
-    const rows = db.prepare(
-      'SELECT text FROM source_segments WHERE source_revision_id = ? AND ordinal < ? ' +
-      'AND instr(lower(text), lower(?)) > 0 ORDER BY ordinal LIMIT 100'
-    ).all(revisionId, firstOrdinal, String(nameInput)) as Array<{ text: string }>;
-    const matched = rows.some((item) => {
-      const source = normalize(item.text);
-      if (/^[a-z0-9 ._\u0027’-]+$/i.test(name)) {
-        const haystack = ' ' + source.replace(/[^a-z0-9]+/gi, ' ').trim() + ' ';
-        const needle = name.replace(/[^a-z0-9]+/gi, ' ').trim();
-        return needle.length >= 2 && haystack.includes(' ' + needle + ' ');
-      }
-      return source.includes(name);
-    });
+    const matched = sourceRows.some((row) =>
+      Number(row.ordinal) < firstOrdinal && sourceNameMatches(row.text, nameInput));
     nameBeforeCache.set(name, matched);
     return matched;
   };
-  const quoteMentions = (quoteInput: unknown, nameInput: unknown): boolean => {
-    const quote = normalize(quoteInput);
-    const name = normalize(nameInput);
-    if (!quote || !name || name.length < 2) return false;
-    if (/^[a-z0-9 ._\u0027’-]+$/i.test(name)) {
-      const haystack = ' ' + quote.replace(/[^a-z0-9]+/gi, ' ').trim() + ' ';
-      const needle = name.replace(/[^a-z0-9]+/gi, ' ').trim();
-      return needle.length >= 2 && haystack.includes(' ' + needle + ' ');
-    }
-    return quote.includes(name);
-  };
+  const quoteMentions = (quoteInput: unknown, nameInput: unknown): boolean =>
+    sourceNameMatches(quoteInput, nameInput);
   const nodes = (db.prepare(
     'SELECT * FROM context_graph_nodes WHERE source_revision_id = ? AND status IN (\'candidate\', \'confirmed\') ORDER BY kind, name'
   ).all(revisionId) as any[]).filter((row) =>
@@ -1396,7 +1416,7 @@ export function buildProjectContextGraphBundle(
   }).slice(0, 16);
 
   const result = {
-    policyVersion: 'context-graph-v5-language-pinned',
+    policyVersion: 'context-graph-v6-target-evidence-guard',
     knowledgeBoundaryOrdinal: knowledgeBoundary,
     nameMappings,
     styleGuide: {
