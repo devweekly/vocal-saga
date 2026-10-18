@@ -543,7 +543,12 @@ export class DocumentProjectStore {
       try {
         const db = this.openProjectDb(row.project_id);
         db.exec('BEGIN IMMEDIATE');
-        db.prepare("UPDATE translation_runs SET status = 'paused', error = '服务重启后等待恢复' WHERE status IN ('running','queued')").run();
+        // 重启孤儿直接标为 failed：paused 会命中「翻译任务运行中」保护（预处理 guard、
+        // 原文版本切换 guard），而孤儿运行永远不会自行结束，会把整本书锁死。
+        // failed 仍可从 Agent 面板恢复（resume 接受 failed），用户主动暂停才保留 paused。
+        db.prepare("UPDATE translation_runs SET status = 'failed', error = '服务重启中断了这次运行；可在 Agent 面板恢复或放弃' WHERE status IN ('running','queued')").run();
+        // 旧版本把重启孤儿标成了 paused，这里幂等迁移，避免存量数据继续阻塞预处理。
+        db.prepare("UPDATE translation_runs SET status = 'failed', error = '服务重启中断了这次运行；可在 Agent 面板恢复或放弃' WHERE status = 'paused' AND error = '服务重启后等待恢复'").run();
         db.prepare("UPDATE run_segments SET status = 'pending', updated_at = ? WHERE status = 'running'").run(isoNow());
         const graphSchemaExists = db.prepare(
           "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'context_graph_runs'"
