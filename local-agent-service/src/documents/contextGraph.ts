@@ -837,23 +837,9 @@ async function runAnalysis(projectId: string, runId: string): Promise<void> {
       const characterMatches = characterAudits.filter((audit) => normalizedNameMatches(candidate.name, audit));
       const entityMatches = entityAudits.filter((audit) => normalizedNameMatches(candidate.name, audit));
       const matchingSamples = samples.filter((sample) => {
-        const escaped = candidate.name.replace(/[.*+?^$()|[\]\\]/g, '\\    const now = new Date().toISOString();
-    db.prepare('UPDATE context_graph_runs SET status = \'completed\', phase = \'completed\', progress_json = ?, finished_at = ?, error = NULL WHERE run_id = ?')
-      .run(JSON.stringify({
-        analysisVersion: 'context-graph-v5-language-pinned',
-        sourceLang, targetLang,
-        sampleCount: samples.length, chapterCount: chapters.length,
-        characterCount: persistedNodes.filter((node) => node.kind === 'character').length,
-        entityCount: persistedNodes.filter((node) => node.kind === 'entity').length,
-        relationshipCount: savedEdges.size,
-        canonicalNameMappingCount: persistedNodes.filter((node) => {
-          const row = db.prepare('SELECT attributes_json FROM context_graph_nodes WHERE node_id = ?').get(node.id) as { attributes_json?: string } | undefined;
-          try { return !!safeText(JSON.parse(row?.attributes_json || '{}').suggestedTranslation, 120); } catch { return false; }
-        }).length,
-        openQuestions: uniqueStrings(data.openQuestions, 24, 200),
-        invalidEvidenceCount,
-        scan: scanSummary,
-      }), now, runId);');
+        const escaped = candidate.name.split('').map((character) =>
+          '\\^$.|?*+()[]{}-'.includes(character) ? '\\' + character : character
+        ).join('');
         try { return new RegExp('(?<![A-Za-z0-9])' + escaped + '(?![A-Za-z0-9])', 'iu').test(sample.text); }
         catch { return normalize(sample.text).includes(normalize(candidate.name)); }
       });
