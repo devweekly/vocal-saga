@@ -17,6 +17,7 @@ import { logError, logInfo, logWarn } from './log.ts';
 import { parseAgentModel, buildAgentPrompt, normalizeMessages, parseJsonValue } from './json.ts';
 import { runAgent, runAgentStructured } from './agents/runner.ts';
 import { getCodeBuddyTaskProfile } from './agents/taskProfiles.ts';
+import { readModelCatalog } from './agents/modelCatalog.ts';
 import { validateSegments, runLiteraryAnalysis, getDefaultLiteraryTaskPromptPreviews } from './literary.ts';
 import { DEFAULT_CONTEXT_GRAPH_SYSTEM_PROMPT, getDefaultContextGraphUserPromptTemplate } from './documents/contextGraph.ts';
 import path from 'node:path';
@@ -110,6 +111,14 @@ export async function handleRequest(req: Request, res: Response): Promise<void> 
       { id: 'workbuddy', object: 'model', owned_by: 'local' },
       { id: 'opencode', object: 'model', owned_by: 'local' },
     ] });
+    return;
+  }
+  if (req.method === 'GET' && url.pathname === '/api/codebuddy/models') {
+    const catalog = readModelCatalog();
+    sendJson(res, 200, {
+      object: 'list',
+      data: catalog.map((item) => ({ id: item.id, object: 'model', owned_by: 'codebuddy', credits: item.credits })),
+    });
     return;
   }
   if (req.method === 'GET' && url.pathname === '/api/history') {

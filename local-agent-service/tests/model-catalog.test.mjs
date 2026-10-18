@@ -44,13 +44,13 @@ test('parseCredits 覆盖三种真实形态', () => {
   assert.equal(parseCredits('1.5'), 1.5);
 });
 
-test('偏好表首位是 glm-5.3-flash', () => {
-  assert.equal(PREFERRED_WORKBUDDY_MODEL, 'glm-5.3-flash');
+test('偏好表首位是 space-bunny', () => {
+  assert.equal(PREFERRED_WORKBUDDY_MODEL, 'space-bunny');
   assert.deepEqual(PREFERRED_MODELS.map((rule) => rule.id), [
-    'glm-5.3-flash',
     'space-bunny',
+    'glm-5.3-flash',
     'deepseek-v4.1-flash',
-    'step-5-preview',
+    'hy3',
   ]);
 });
 
@@ -101,14 +101,15 @@ test('deepseek 涨价到 0.11 时不再被当作免费兜底', () => {
   assert.equal(pickPreferredWorkbuddyModel(catalog), 'step-5-preview');
 });
 
-test('hy3 被排除：即使免费也不会被选中', () => {
+test('hy3 可作为兜底被选中：偏好表全部落空时允许取 hy3', () => {
   const catalog = [
-    { id: 'hy3', credits: 0 },
     { id: 'some-other-free', credits: 0 },
+    { id: 'hy3', credits: 0 },
   ];
-  assert.equal(pickPreferredWorkbuddyModel(catalog), 'some-other-free');
-  // 只剩 hy3 一个免费模型时宁可返回 null（由调用方打日志提示），也不选它
-  assert.equal(pickPreferredWorkbuddyModel([{ id: 'hy3', credits: 0 }]), null);
+  // hy3 已列入偏好表兜底，因此优先于目录顺序中的其它免费模型
+  assert.equal(pickPreferredWorkbuddyModel(catalog), 'hy3');
+  // 只剩 hy3 一个免费模型时，允许选它作为兜底
+  assert.equal(pickPreferredWorkbuddyModel([{ id: 'hy3', credits: 0 }]), 'hy3');
 });
 
 test('偏好表都没命中时取目录里第一个免费模型', () => {

@@ -132,6 +132,7 @@ const MANDATORY_TRANSLATION_CONTRACT = [
   'segments.text 中出现的 __VSA_TERM_数字__ 是服务端保护的规范译名标记：必须逐字、原样保留，不得翻译、删改、拆分或添加空格；服务端会在保存前把标记替换为对应规范译名。',
   '每一项包含 id 和 translated_text；每个输入 ID 必须恰好出现一次，不得改写 ID、合并片段或增加不存在的 ID。',
   '只翻译 text，不翻译结构元数据。没有把握时仍应尽量忠实翻译，不要输出解释、Markdown 或 HTML。',
+  '不得原样保留源语言单词（专名映射中的术语除外）；句首大写单词、短词和插入语也必须翻译为目标语言。',
 ].join('\n');
 
 type TranslationItem = { id: string; text: string; kind?: string; contextPath?: string; page?: number | null; level?: number | null; marker?: string | null };
@@ -793,8 +794,22 @@ function parseTranslations(value: unknown, expectedIds: Set<string>): {
 async function translateBatch(context: any, items: TranslationItem[], requestId: string, batchIndex: number, precedingSegments: TranslationItem[] = [], translationBrief?: TranslationBrief): Promise<{ translations: Map<string, string>; contextDelta: ValidatedTranslationContextDelta }> {
   const agent = parseAgentModel(context.run.model || 'auto', context.run.provider || 'workbuddy');
   const contextGraph = translationBrief?.contextGraph ?? null;
+  const memory = context.memory && typeof context.memory === 'object' ? context.memory as Record<string, any> : {};
+  // 项目文学记忆中已确认的专名，即使 Context Graph 尚未注入对应映射，也作为 confirmed-memory
+  // 参与确定性保护，避免同一运行内译名漂移。候选映射仍不强制。
+  const memoryEntityMappings = (Array.isArray(memory.entities) ? memory.entities : [])
+    .filter((entity: any) => entity?.reviewStatus === 'confirmed' && entity?.source && entity?.target)
+    .map((entity: any) => ({
+      source: entity.source,
+      target: entity.target,
+      aliases: Array.isArray(entity.aliases) ? entity.aliases : [],
+      sourceStatus: 'confirmed-memory',
+    }));
+  const combinedContextGraph = memoryEntityMappings.length
+    ? { ...(contextGraph || {}), nameMappings: [...(Array.isArray((contextGraph as any)?.nameMappings) ? (contextGraph as any).nameMappings : []), ...memoryEntityMappings] }
+    : contextGraph;
   const termProtections = context.run.translationMode === 'literary'
-    ? buildCanonicalTermProtections(items, contextGraph)
+    ? buildCanonicalTermProtections(items, combinedContextGraph)
     : [];
   logInfo('document-agent', 'batch ready · batch=' + batchIndex +
     ' · mode=' + context.run.translationMode +
@@ -824,7 +839,6 @@ async function translateBatch(context: any, items: TranslationItem[], requestId:
   });
 
   const store = getDocumentProjectStore();
-  const memory = context.memory && typeof context.memory === 'object' ? context.memory as Record<string, any> : {};
   const voiceContext = translationBrief?.voiceContext;
   const count = (value: unknown) => Array.isArray(value) ? value.length : 0;
   const requestStartedAt = Date.now();

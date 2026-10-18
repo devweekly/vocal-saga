@@ -43,17 +43,17 @@ export interface PreferredModel {
  * hy3 曾经是免费兜底，但实测太慢（单轮 5s 起步、冷启动 40s+），已从表里移除。
  */
 export const PREFERRED_MODELS: readonly PreferredModel[] = [
-  { id: 'glm-5.3-flash' },
   { id: 'space-bunny', credits: 0.08 },
+  { id: 'glm-5.3-flash' },
   { id: 'deepseek-v4.1-flash', credits: 0 },
-  { id: 'step-5-preview', credits: 0 },
+  { id: 'hy3' },
 ];
 
 /** 偏好表第一位，便于日志和测试引用。 */
 export const PREFERRED_WORKBUDDY_MODEL = PREFERRED_MODELS[0]!.id;
 
-/** 明确排除的模型：hy3 免费但太慢，跑文档翻译会把整条流水线拖住。 */
-const EXCLUDED_MODELS = new Set(['hy3']);
+/** 兜底模型 hy3 允许作为 fallback；不再全局排除。 */
+const EXCLUDED_MODELS = new Set<string>();
 
 /**
  * 解析 credits 字段。

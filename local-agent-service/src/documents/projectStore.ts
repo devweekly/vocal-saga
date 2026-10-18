@@ -862,6 +862,19 @@ export class DocumentProjectStore {
         ? [{ ...rule, evidenceSegmentIds, status }] : [];
     });
     const confirmedVoicesBefore = memory.characterVoices.filter((p: any) => p.status === 'confirmed').length;
+    memory.entities = memory.entities.map((entity: any) => {
+      const evidenceRefs = (Array.isArray(entity.evidenceRefs) ? entity.evidenceRefs : [])
+        .filter((ref: any) => validEvidence(ref.segmentId, ref.sourceQuote));
+      const targetEvidenceRefs = (Array.isArray(entity.targetEvidenceRefs) ? entity.targetEvidenceRefs : [])
+        .filter((ref: any) => validEvidence(ref.segmentId, ref.sourceQuote) && typeof ref.targetSurface === 'string' && ref.targetSurface.trim());
+      const targetEvidenceCount = new Set(targetEvidenceRefs
+        .filter((ref: any) => normalize(String(ref.targetSurface || '')) === normalize(String(entity.target || '')))
+        .map((ref: any) => String(ref.segmentId || '')).filter(Boolean)).size;
+      const targetConfidence = entity.reviewStatus === 'confirmed'
+        ? (targetEvidenceCount >= 2 ? 'corroborated' : (targetEvidenceCount >= 1 ? 'corroborated' : 'candidate'))
+        : 'candidate';
+      return { ...entity, evidenceRefs, targetEvidenceRefs, targetConfidence };
+    });
     memory.voiceAnchors = memory.voiceAnchors.map((anchor: any) => {
       const sourceValid = validEvidence(anchor.segmentId, anchor.source);
       const attributionValid = validEvidence(anchor.segmentId, anchor.attributionEvidence) &&

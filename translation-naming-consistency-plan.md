@@ -91,8 +91,56 @@
 - chain-dump 输出中 `termProtectionActive=true`，`memoryConfirmedEntities` 包含 Yabu 且 `targetConfidence` 升级。
 - 现有 181+ 测试通过，新增测试覆盖上述场景。
 
-## 6. 不实施的内容（避免过度设计）
+## 7. 低级未翻译英文单词错误（如 `Again → again`）
+
+### 7.1 现象
+原文：
+> “Again, please excuse me,” she said. “Does Omi-san detail the cargo?”
+
+译文：
+> “again，请恕我再多问一句，”她说，“小美濃様有没有提到船上装的什么货？”
+
+句首单词 `Again` 未被翻译，直接以小写 `again` 残留在译文，属于低级遗漏。
+
+### 7.2 可能根因
+1. 模型在处理句首大写短词时，偶发将其当作“可保留的英文 token”而非待翻译内容。
+2. 输出校验只检查 ID/重复/格式，**没有检查译文是否仍含源语言单词**。
+3. Prompt 合同未明确“所有源语词汇必须翻译，专名除外”。
+4. Reviewer 未把“残留源语单词”作为明确失败条件。
+5. canonical term protection 只覆盖专名映射，普通词汇无保护与校验。
+
+### 7.3 解决方案（实现计划）
+
+#### 7.3.1 Prompt 合同强化
+- 在 `MANDATORY_TRANSLATION_CONTRACT` / `LITERARY_TRANSLATION_CONTRACT` 增加明确条款：
+  - 所有源语词汇必须翻译为目标语；不得原样保留英文单词（专名映射中的术语除外）。
+  - 若源文含大写句首单词，必须完整翻译其语义。
+
+#### 7.3.2 输出校验与重试
+- 在 `parseTranslations` 或 `translateBatch` 后增加 `untranslatedSourceTokenCheck`：
+  - 检测译文中的英文单词 token（尤其大写/句首）是否在源文出现且未被 canonical protection 覆盖。
+  - 若发现残留，标记该 segment 为失败并触发有界重试（现有 retry 机制），重试 prompt 附带“请翻译所有英文单词”。
+- 重试上限保持现有有界重试，避免无限循环。
+
+#### 7.3.3 Reviewer 检查
+- 在 Reviewer prompt/contract 中增加检查项：译文不得包含未映射的源语单词；发现时必须修正。
+
+#### 7.3.4 可观测性
+- 在 `batch.prompt.ready` 事件与日志中增加 `untranslatedTokenCount`。
+- 在 chain-dump 中可选增加“残留源语单词”检测摘要。
+
+#### 7.3.5 不做的事
+- 不引入针对特定单词（如 Again）的硬编码替换（避免 fallback/特例）。
+- 不在 Worker 端做全文后处理清洗（保持边界）。
+
+### 7.4 验收标准
+- 类似 `Again` 的句首单词不再残留为 `again`。
+- 新增测试：含句首大写单词的 segment，译文残留源语 token 时触发重试并最终无残留。
+- 现有 181+ 测试通过。
+
+## 8. 不实施的内容（避免过度设计）
 
 - 不对 candidate 映射强制（保持现有设计，避免错误传播）。
 - 不引入新的 fallback 翻译路径（原则：没有用的功能直接删掉，不做 fallback）。
 - 不在 Worker 端扩展长文档流程（边界：Cloud vs Local Agent）。
+- 不对特定单词做硬编码替换。

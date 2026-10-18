@@ -32,7 +32,7 @@ export type CodeBuddyTaskProfiles = Record<CodeBuddyTaskKey, CodeBuddyTaskProfil
 
 const common = {
   model: '',
-  fallbackModel: '',
+  fallbackModel: 'hy3',
   thinkingBudgetTokens: 8192,
   systemPromptAppendix: '',
   userPromptTemplate: '',
@@ -41,26 +41,36 @@ const common = {
 export const DEFAULT_CODEBUDDY_TASK_PROFILES: CodeBuddyTaskProfiles = {
   translation: {
     ...common,
+    model: 'space-bunny',
+    fallbackModel: 'hy3',
     thinkingMode: 'disabled',
     effort: 'low',
   },
   accuracyReview: {
     ...common,
+    model: 'deepseek-v4.1-flash',
+    fallbackModel: 'hy3',
     thinkingMode: 'adaptive',
     effort: 'medium',
   },
   styleReview: {
     ...common,
+    model: 'deepseek-v4.1-flash',
+    fallbackModel: 'hy3',
     thinkingMode: 'adaptive',
     effort: 'high',
   },
   literaryAnalysis: {
     ...common,
+    model: 'glm-5.3-flash',
+    fallbackModel: 'hy3',
     thinkingMode: 'adaptive',
     effort: 'high',
   },
   contextGraph: {
     ...common,
+    model: 'glm-5.3-flash',
+    fallbackModel: 'hy3',
     thinkingMode: 'adaptive',
     effort: 'high',
   },
