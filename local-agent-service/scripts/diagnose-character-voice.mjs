@@ -181,6 +181,17 @@ function readProjectCatalog(catalogPath) {
   } finally { db.close(); }
 }
 
+function isBookTitleOrIdiom(value) {
+  const normalized = normalize(value);
+  return /^king rat(?:\b|:)/iu.test(normalized) || /\bking['’]s english\b/iu.test(normalized);
+}
+
+function identityValueMatches(value, matcher) {
+  if (typeof value !== 'string' || !value.trim() || isBookTitleOrIdiom(value)) return false;
+  matcher.lastIndex = 0;
+  return matcher.test(value);
+}
+
 function identityMatches(item, matcher) {
   if (!item || typeof item !== 'object') return false;
   const fields = [
@@ -188,11 +199,7 @@ function identityMatches(item, matcher) {
     item.targetName, item.target, item.characterId, item.suggestedTranslation,
     ...(Array.isArray(item.aliases) ? item.aliases : []),
   ];
-  matcher.lastIndex = 0;
-  return fields.some((field) => {
-    matcher.lastIndex = 0;
-    return typeof field === 'string' && matcher.test(field);
-  });
+  return fields.some((field) => identityValueMatches(field, matcher));
 }
 
 function compactProfile(item, matcher, type) {
@@ -411,7 +418,8 @@ function scanProject(project, args, dataDir, matcher, terms) {
         status: row.status, phase: row.phase, startedAt: row.started_at,
         finishedAt: row.finished_at, error: row.error, progress: safeJson(row.progress_json, {}),
       })),
-      nodeCounts: {}, matchingNodes: [], sourceFeatureIndex: null, persistedSourceFeatures: null,
+      nodeCounts: {}, allNodes: [], matchingNodes: [], outputAudit: { available: false },
+      sourceFeatureIndex: null, persistedSourceFeatures: null,
     };
     if (tableExists(db, 'context_graph_nodes')) {
       const nodes = safeRows(db, 'SELECT * FROM context_graph_nodes WHERE source_revision_id=? ORDER BY kind,name LIMIT 1200', [revisionId]);
@@ -422,16 +430,24 @@ function scanProject(project, args, dataDir, matcher, terms) {
         const evidence = tableExists(db, 'context_graph_evidence')
           ? safeRows(db, 'SELECT segment_id, quote, role FROM context_graph_evidence WHERE source_revision_id=? AND node_id=? ORDER BY evidence_id LIMIT 5', [revisionId, node.node_id])
           : [];
-        const sourceHit = [node.name, ...aliases].some((value) => {
-          matcher.lastIndex = 0;
-          return matcher.test(String(value || ''));
+        const sourceHit = [node.name, ...aliases].some((value) => identityValueMatches(String(value || ''), matcher));
+        const evidenceHit = evidence.some((item) => identityValueMatches(String(item.quote || ''), matcher));
+        const kingCandidateName = !isBookTitleOrIdiom(String(node.name || '')) &&
+          /\b(?:the\s+)?king\b/iu.test(String(node.name || ''));
+        const kingCandidateAlias = aliases.some((alias) =>
+          !isBookTitleOrIdiom(String(alias)) && /\b(?:the\s+)?king\b/iu.test(String(alias)));
+        const evidenceCount = tableExists(db, 'context_graph_evidence')
+          ? Number(safeRows(db, 'SELECT COUNT(*) AS count FROM context_graph_evidence WHERE source_revision_id=? AND node_id=?', [revisionId, node.node_id])[0]?.count || 0)
+          : 0;
+        result.contextGraph.allNodes.push({
+          nodeId: node.node_id, kind: node.kind, name: node.name, status: node.status,
+          aliases, suggestedTranslation: attributes.suggestedTranslation || '',
+          role: attributes.role || '', traits: attributes.traits || [], voice: attributes.voice || [],
+          entityKind: attributes.entityKind || '', significance: attributes.significance || '',
+          evidenceCount,
+          matchesPersonSearch: sourceHit || kingCandidateName || kingCandidateAlias,
         });
-        const evidenceHit = evidence.some((item) => {
-          matcher.lastIndex = 0;
-          return matcher.test(String(item.quote || ''));
-        });
-        if (sourceHit || evidenceHit || /\bking\b/iu.test(String(node.name || '')) ||
-            aliases.some((alias) => /\bking\b/iu.test(String(alias)))) {
+        if (sourceHit || evidenceHit || kingCandidateName || kingCandidateAlias) {
           result.contextGraph.matchingNodes.push({
             nodeId: node.node_id, kind: node.kind, name: node.name, status: node.status,
             attributes: {
@@ -459,8 +475,9 @@ function scanProject(project, args, dataDir, matcher, terms) {
         const features = safeJson(row.features_json, {});
         const mentions = Array.isArray(features?.entityMentions) ? features.entityMentions : [];
         const found = mentions.filter((item) => {
-          matcher.lastIndex = 0;
-          return matcher.test(String(item.surface || '')) || /\bking\b/iu.test(String(item.surface || ''));
+          const surface = String(item.surface || '');
+          if (isBookTitleOrIdiom(surface)) return false;
+          return identityValueMatches(surface, matcher) || /\b(?:the\s+)?king\b/iu.test(surface);
         });
         if (found.length) matches.push({ segmentId: row.segment_id, ordinal: row.ordinal, mentions: found.slice(0, 12) });
       }
@@ -522,7 +539,48 @@ function scanProject(project, args, dataDir, matcher, terms) {
       }));
 
     if (tableExists(db, 'project_events')) {
-      const events = safeRows(db, 'SELECT event_id, run_id, event_type, payload_json, created_at FROM project_events ORDER BY event_id DESC LIMIT 900');
+      const events = safeRows(db, 'SELECT event_id, run_id, event_type, payload_json, created_at FROM project_events ORDER BY event_id DESC LIMIT 1200');
+      const auditEvent = events.find((event) => event.event_type === 'context-graph.output-audit');
+      if (auditEvent) {
+        const audit = safeJson(auditEvent.payload_json, {});
+        const relatedCandidate = (item) => {
+          const values = [item?.name, ...(Array.isArray(item?.aliases) ? item.aliases : [])];
+          return values.some((value) => {
+            if (isBookTitleOrIdiom(String(value || ''))) return false;
+            return identityValueMatches(String(value || ''), matcher) ||
+              /\b(?:the\s+)?king\b/iu.test(String(value || ''));
+          });
+        };
+        result.contextGraph.outputAudit = {
+          available: true,
+          eventId: auditEvent.event_id, runId: auditEvent.run_id, createdAt: auditEvent.created_at,
+          auditVersion: audit.auditVersion || '',
+          provider: audit.provider || '', model: audit.model || '',
+          sampleCount: audit.sampleCount ?? null,
+          rawCounts: audit.rawCounts || {},
+          persistedCounts: audit.persistedCounts || {},
+          evidenceValidation: audit.evidenceValidation || {},
+          candidateCoverage: (Array.isArray(audit.candidateCoverage) ? audit.candidateCoverage : [])
+            .filter((item) => relatedCandidate(item)).slice(0, 20),
+          matchingModelCharacters: (Array.isArray(audit.modelCharacters) ? audit.modelCharacters : [])
+            .filter(relatedCandidate).slice(0, 20),
+          matchingModelEntities: (Array.isArray(audit.modelEntities) ? audit.modelEntities : [])
+            .filter(relatedCandidate).slice(0, 20),
+          modelCharacters: Array.isArray(audit.modelCharacters) ? audit.modelCharacters.slice(0, 40) : [],
+          modelEntities: Array.isArray(audit.modelEntities) ? audit.modelEntities.slice(0, 60) : [],
+        };
+      } else {
+        result.contextGraph.outputAudit = {
+          available: false,
+          reason: '该项目的历史预处理早于 context-graph.output-audit；历史记录只保存总数，无法回溯模型实际返回了哪些人物或逐条证据为何被拒绝。',
+          nextAction: '在 UI 对当前 projectId 执行一次“重新分析全书”，然后重新运行诊断脚本。',
+        };
+      }
+      result.memorySyncEvents = events.filter((event) => event.event_type === 'literary-memory.saved')
+        .slice(0, 12).map((event) => ({
+          eventId: event.event_id, createdAt: event.created_at,
+          payload: safeJson(event.payload_json, {}),
+        }));
       result.events = events.filter((event) => {
         const type = String(event.event_type || '');
         matcher.lastIndex = 0;
@@ -530,9 +588,15 @@ function scanProject(project, args, dataDir, matcher, terms) {
           matcher.test(String(event.payload_json || ''));
       }).slice(0, MAX_REPORT_EVENTS).map((event) => ({
         eventId: event.event_id, runId: event.run_id, type: event.event_type, createdAt: event.created_at,
-        payload: excerpt(event.payload_json, matcher, 1000),
+        payload: event.event_type === 'context-graph.output-audit'
+          ? '{structured outputAudit is available at contextGraph.outputAudit}'
+          : excerpt(event.payload_json, matcher, 1000),
       }));
-    } else result.events = [];
+    } else {
+      result.events = [];
+      result.memorySyncEvents = [];
+      result.contextGraph.outputAudit = { available: false, reason: '项目不存在 project_events 表。' };
+    }
 
     result.diagnosisHints = buildDiagnosisHints(result, terms);
     return result;
