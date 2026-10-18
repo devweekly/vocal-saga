@@ -1138,7 +1138,7 @@ export function buildProjectContextGraphBundle(
 ): Record<string, unknown> | null {
   const { db, revisionId } = graphContext(projectId, sourceRevisionId);
   ensureSourceFeatureIndexInDatabase(projectId, db, revisionId);
-  const sourceText = [...precedingSegments.slice(-4), ...items].map((item) => item.text).join('\n');
+  const sourceText = [...precedingSegments, ...items].map((item) => item.text).join('\n');
   const normalizedSource = normalize(sourceText);
   if (!normalizedSource) return null;
   // Fail closed at the start of the batch. A graph fact is eligible only when every stored
@@ -1321,7 +1321,7 @@ export function buildProjectContextGraphBundle(
   // current/preceding source are exposed. No future aliases, role descriptions, relationships,
   // or plot facts are included here.
   const namesInContext = sourceText;
-  const priorNamesInContext = precedingSegments.slice(-4).map((item) => item.text).join('\n');
+  const priorNamesInContext = precedingSegments.map((item) => item.text).join('\n');
   const appearsInPriorContext = (value: unknown): boolean => {
     const name = normalize(value);
     if (!name || name.length < 2) return false;
@@ -1342,6 +1342,15 @@ export function buildProjectContextGraphBundle(
     }
     return normalize(namesInContext).includes(name);
   };
+  // Only earlier accepted translations can corroborate an automatically proposed target.
+  // Source-name evidence alone does not prove that the proposed target is correct or non-spoilery.
+  const priorAcceptedTranslations = db.prepare(
+    'SELECT s.segment_id AS segmentId, s.text AS source, s.ordinal, tr.translation_text AS target ' +
+    'FROM translation_results tr JOIN source_segments s ' +
+      'ON s.source_revision_id = tr.source_revision_id AND s.segment_id = tr.segment_id ' +
+    'WHERE tr.source_revision_id = ? AND tr.accepted = 1 AND tr.source_hash = s.source_hash AND s.ordinal < ? ' +
+    'ORDER BY s.ordinal DESC'
+  ).all(revisionId, firstOrdinal) as Array<{ segmentId: string; source: string; ordinal: number; target: string }>;
   const graphNameRows = db.prepare(
     `SELECT * FROM context_graph_nodes WHERE source_revision_id = ? AND status IN ('candidate', 'confirmed') ORDER BY kind, name`
   ).all(revisionId) as any[];
@@ -1354,10 +1363,20 @@ export function buildProjectContextGraphBundle(
     try { attributes = JSON.parse(row.attributes_json); } catch { attributes = {}; }
     const target = safeText(attributes.suggestedTranslation, 120);
     if (!target || (targetLang && attributes.targetLang !== targetLang)) return [];
-    const hasEvidence = db.prepare(
-      'SELECT 1 FROM context_graph_evidence WHERE source_revision_id = ? AND node_id = ? LIMIT 1'
-    ).get(revisionId, row.node_id);
-    if (!hasEvidence) return [];
+    const visibleEvidence = db.prepare(
+      'SELECT e.quote, e.segment_id AS segmentId, s.ordinal FROM context_graph_evidence e ' +
+      'JOIN source_segments s ON s.source_revision_id = e.source_revision_id AND s.segment_id = e.segment_id ' +
+      'WHERE e.source_revision_id = ? AND e.node_id = ? AND s.ordinal <= ? ORDER BY s.ordinal'
+    ).all(revisionId, row.node_id, knowledgeBoundary) as Array<{ quote: string; segmentId: string; ordinal: number }>;
+    if (!visibleEvidence.some((evidence) => quoteMentions(evidence.quote, row.name))) return [];
+    if (row.status !== 'confirmed') {
+      const targetWasPreviouslyUsed = priorAcceptedTranslations.some((entry) =>
+        quoteMentions(entry.source, row.name) && normalize(entry.target).includes(normalize(target)));
+      // Omit an unconfirmed full-book target until an earlier accepted translation independently
+      // demonstrates that this target was already used for the source name. Do not reveal a
+      // future identity through a mapping merely because the canonical name appeared earlier.
+      if (!targetWasPreviouslyUsed) return [];
+    }
     const allAliases = uniqueStrings(attributes.aliases, 12, 100)
       .filter((alias) => normalize(alias) !== normalize(row.name));
     // Do not leak aliases that appear only in later chapters. An alias visible in the current
@@ -1370,10 +1389,9 @@ export function buildProjectContextGraphBundle(
       kind: row.kind === 'character' ? 'person' : safeText(attributes.entityKind, 40) || 'other',
       aliases,
       evidenceBacked: true,
-      // Evidence-backed suggestions are operational defaults, not items requiring a click.
-      // The UI may still let the reader edit/remove a mapping, but translation must use a
-      // unique, temporally visible target as soon as preprocessing has produced it.
-      sourceStatus: row.status === 'confirmed' ? 'confirmed' : 'auto',
+      // Only explicit confirmation creates a hard mapping here. An automatically generated
+      // proposal remains advisory even when earlier accepted prose contains the same target.
+      sourceStatus: row.status === 'confirmed' ? 'confirmed' : 'candidate',
     }];
   }).slice(0, 16);
 
