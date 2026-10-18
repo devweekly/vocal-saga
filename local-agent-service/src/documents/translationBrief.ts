@@ -231,18 +231,19 @@ function buildTemporallyVisibleMemory(
     'said','see','too','two','all','any','day','get','got','new','old','way'
   ]);
   const sourceTokens = (value: unknown) => new Set(
-    (normalizedSourceText(value).match(/[\\p{L}\\p{N}]{2,}/gu) || [])
+    (normalizedSourceText(value).match(/[\p{L}\p{N}]{2,}/gu) || [])
       .filter((token) => !stopWords.has(token))
   );
   const currentTokens = sourceTokens(currentExampleSource);
   const currentKinds = new Set(items.map((item) => String(item.kind || '')).filter(Boolean));
+  const currentChapters = new Set(items.map((item) => String(item.contextPath || '')).filter(Boolean));
   const scoredExamples = acceptedExampleRows.map((row) => {
     const tokens = sourceTokens(row.source);
     const shared = Array.from(tokens).filter((token) => currentTokens.has(token)).length;
     const overlap = shared / Math.max(1, Math.min(currentTokens.size, 12));
     const exactPhrase = normalizedSourceText(row.source).length >= 12 &&
       normalizedSourceText(currentExampleSource).includes(normalizedSourceText(row.source)) ? 1 : 0;
-    const sameChapter = !!chapterPath && String(row.chapter || '') === chapterPath ? 0.8 : 0;
+    const sameChapter = currentChapters.has(String(row.chapter || '')) ? 0.8 : 0;
     const sameKind = currentKinds.has(String(row.kind || '')) ? 0.25 : 0;
     const manual = row.origin === 'manual' ? 1.2 : 0;
     const recency = 0.5 / (1 + Math.max(0, firstOrdinal - Number(row.ordinal)) / 40);
