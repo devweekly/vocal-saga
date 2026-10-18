@@ -284,3 +284,77 @@ test('legacy project gets a deterministic source index without re-running Contex
   assert.equal(ready.payload.upgrade, true);
   assert.equal(ready.payload.sourceRevisionId, currentSourceRevisionId);
 });
+
+test('literary memory save events retain compact entity and character-voice sync diagnostics', () => {
+  const store = getDocumentProjectStore();
+  const project = store.createProject({
+    title: 'Literary Memory Sync Diagnostics',
+    format: 'txt',
+    sourceFileName: 'literary-memory-sync.txt',
+    prompt: { translationMode: 'literary', sourceLang: 'en', targetLang: 'zh' },
+    segments: [
+      { id: 'king-evidence', text: 'The King spoke quietly and said, “Leave it to me.”', kind: 'paragraph', contextPath: 'Chapter 1' },
+    ],
+  });
+
+  const memory = {
+    version: 2,
+    entities: [{
+      source: 'the King', target: '国王', kind: 'person', aliases: ['King'],
+      evidence: 'The King spoke quietly and said, “Leave it to me.”',
+      evidenceRefs: [{
+        segmentId: 'king-evidence',
+        sourceQuote: 'The King spoke quietly and said, “Leave it to me.”',
+      }],
+      reviewStatus: 'suggested',
+    }],
+    relationships: [],
+    styleGuide: {}, styleGuideStatus: 'candidate',
+    chapterSummaries: [], recentExamples: [],
+    characterVoices: [{
+      characterId: 'context-graph-king',
+      canonicalSourceName: 'the King',
+      targetName: '国王',
+      aliases: ['King', 'Corporal King'],
+      status: 'candidate',
+      confidence: 0.55,
+      role: '战俘营中的美国下士',
+      traits: ['精明'],
+      voiceCore: { register: '简短、克制' },
+      contrastRules: [],
+      evidence: [{
+        segmentId: 'king-evidence',
+        sourceQuote: 'The King spoke quietly and said, “Leave it to me.”',
+        observation: '语气克制、直接',
+        dimension: 'register',
+        confidence: 0.8,
+      }],
+      openQuestions: [],
+    }],
+    relationshipVoiceRules: [], voiceAnchors: [],
+  };
+
+  const first = store.saveLiteraryMemory(project.projectId, memory);
+  const second = store.saveLiteraryMemory(project.projectId, memory);
+  assert.equal(first.memoryRevisionId, second.memoryRevisionId,
+    'an identical literary-memory revision should be reused without hiding the second sync attempt');
+
+  const events = store.getEvents(project.projectId);
+  const savedEvents = events.filter((event) => event.type === 'literary-memory.saved');
+  assert.equal(savedEvents.length, 2);
+  const firstPayload = savedEvents[0].payload;
+  const secondPayload = savedEvents[1].payload;
+  assert.equal(firstPayload.entityCount, 1);
+  assert.equal(firstPayload.characterCount, 1);
+  assert.equal(firstPayload.candidateCharacterCount, 1);
+  assert.equal(firstPayload.confirmedCharacterCount, 0);
+  assert.equal(firstPayload.reusedRevision, false);
+  assert.equal(secondPayload.reusedRevision, true);
+  assert.equal(firstPayload.literaryEntities[0].source, 'the King');
+  assert.equal(firstPayload.characterProfiles[0].canonicalSourceName, 'the King');
+  assert.deepEqual(firstPayload.characterProfiles[0].aliases, ['King', 'Corporal King']);
+  assert.equal(firstPayload.characterProfiles[0].status, 'candidate');
+  assert.equal(firstPayload.characterProfiles[0].evidenceCount, 1);
+  assert.ok(!JSON.stringify(firstPayload).includes('Leave it to me.'),
+    'diagnostic events record evidence counts, never full source quotations');
+});
