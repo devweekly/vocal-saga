@@ -59,14 +59,34 @@ export async function handleDocumentProjectRequest(req: Request, res: Response, 
     }
     if (pathParts.length === 3 && method === 'POST') {
       const body = bodyObject(req.body);
-      const project = getDocumentProjectStore().createProject({
+      const store = getDocumentProjectStore();
+      const input = {
         title: String(body.title || body.fileName || '未命名文档'),
         format: String(body.format || ''),
         sourceFileName: typeof body.sourceFileName === 'string' ? body.sourceFileName : body.fileName,
         segments: body.segments,
         prompt: body.prompt && typeof body.prompt === 'object' ? body.prompt : undefined,
-      });
-      sendJson(res, 201, { project });
+      };
+
+      // Make concurrent auto-initialization idempotent. The explicit "separate project" action
+      // opts out; every ordinary creation first reuses an exact source match or rejects a
+      // same-name/source-changed candidate so the client can ask for an explicit decision.
+      if (body.allowDuplicate !== true) {
+        const resolution = store.resolveProjectForSource(input);
+        if (resolution.exactProject) {
+          sendJson(res, 200, { project: resolution.exactProject, reusedExisting: true });
+          return true;
+        }
+        if (resolution.relatedProject) {
+          throw Object.assign(
+            new Error('已存在来源不同的同名文档项目。请明确更新现有来源版本或选择另建项目。'),
+            { status: 409 },
+          );
+        }
+      }
+
+      const project = store.createProject(input);
+      sendJson(res, 201, { project, reusedExisting: false });
       return true;
     }
 
