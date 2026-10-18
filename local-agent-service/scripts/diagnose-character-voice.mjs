@@ -472,8 +472,10 @@ function scanProject(project, args, dataDir, matcher, terms) {
       result.bookScan.note = '已通过 --no-rescan 跳过重算，无法确认称谓是否进入模型样本。';
     }
 
-    const graphRunRows = latestRows(db, 'context_graph_runs', 'started_at', 12);
-    const latestGraphProgress = graphRunRows.length ? safeJson(graphRunRows[0].progress_json, {}) : {};
+    const graphRunRows = latestRows(db, 'context_graph_runs', 'started_at', 40);
+    const revisionGraphRunRows = graphRunRows.filter((row) => String(row.source_revision_id || '') === revisionId);
+    const latestRevisionGraphRun = revisionGraphRunRows[0] || null;
+    const latestGraphProgress = latestRevisionGraphRun ? safeJson(latestRevisionGraphRun.progress_json, {}) : {};
     const storedSamplePlan = Array.isArray(latestGraphProgress?.scan?.samplePlan) ? latestGraphProgress.scan.samplePlan : [];
     const currentSampleIds = Array.isArray(result.bookScan?.selectedSampleIds) ? result.bookScan.selectedSampleIds : [];
     const storedSampleIds = storedSamplePlan.map((item) => String(item?.segmentId || '')).filter(Boolean);
@@ -487,7 +489,7 @@ function scanProject(project, args, dataDir, matcher, terms) {
         finishedAt: row.finished_at, error: row.error, progress: safeJson(row.progress_json, {}),
       })),
       samplePlanComparison: storedSampleIds.length && currentSampleIds.length ? {
-        persistedRunId: graphRunRows[0].run_id,
+        persistedRunId: latestRevisionGraphRun.run_id,
         persistedStrategyVersion: latestGraphProgress?.scan?.strategyVersion || 'unknown',
         currentStrategyVersion: result.bookScan?.scanStrategyVersion || 'unknown',
         persistedSampleCount: storedSampleIds.length,
@@ -541,6 +543,23 @@ function scanProject(project, args, dataDir, matcher, terms) {
         }
       }
     }
+    const actualCharacterNodeCount = Number(result.contextGraph.nodeCounts.character || 0);
+    const actualEntityNodeCount = Number(result.contextGraph.nodeCounts.entity || 0);
+    const runCharacterNodeCount = Number.isFinite(Number(latestGraphProgress?.characterCount))
+      ? Number(latestGraphProgress.characterCount) : null;
+    const runEntityNodeCount = Number.isFinite(Number(latestGraphProgress?.entityCount))
+      ? Number(latestGraphProgress.entityCount) : null;
+    result.contextGraph.persistedNodeCountComparison = {
+      sourceRevisionId: revisionId,
+      latestRunId: latestRevisionGraphRun?.run_id || null,
+      runReported: { characters: runCharacterNodeCount, entities: runEntityNodeCount },
+      persisted: { characters: actualCharacterNodeCount, entities: actualEntityNodeCount },
+      delta: {
+        characters: runCharacterNodeCount == null ? null : actualCharacterNodeCount - runCharacterNodeCount,
+        entities: runEntityNodeCount == null ? null : actualEntityNodeCount - runEntityNodeCount,
+      },
+      note: '持久化节点总数可能包含同一 source revision 以前 run 遗留的节点；runReported 仅代表最近一次分析本次新增/保存的候选数。',
+    };
     if (tableExists(db, 'context_graph_meta')) {
       const meta = safeRows(db, 'SELECT key,value FROM context_graph_meta WHERE source_revision_id=?', [revisionId]);
       const feature = meta.find((item) => item.key === 'sourceFeatureIndex');
@@ -746,6 +765,15 @@ function buildDiagnosisHints(report, terms) {
   }
   if (scan.recomputed && !(scan.targetMatchesInModelSamples > 0)) {
     hints.push('当前版本的确定性采样计划中没有目标称谓；这表示扫描/采样阶段仍需调查，暂不能归咎模型或持久化。');
+  }
+  const countComparison = graph.persistedNodeCountComparison;
+  if (countComparison && (countComparison.delta?.characters !== 0 || countComparison.delta?.entities !== 0) &&
+      (countComparison.runReported?.characters != null || countComparison.runReported?.entities != null)) {
+    hints.push('Context Graph 最近一次 run 报告保存人物/实体为 ' +
+      String(countComparison.runReported.characters) + '/' + String(countComparison.runReported.entities) +
+      '，但当前来源版本数据库中实际保留 ' +
+      String(countComparison.persisted.characters) + '/' + String(countComparison.persisted.entities) +
+      '。这提示存在早期 run 遗留节点或保存统计与节点状态不一致；要区分当前 run 输出与旧节点，需看新 outputAudit 的 runId 和每候选持久化记录。');
   }
   if (graph.samplePlanComparison?.persistedSampleCount && graph.samplePlanComparison?.currentSampleCount &&
       graph.samplePlanComparison.overlapRatio < 0.8) {
