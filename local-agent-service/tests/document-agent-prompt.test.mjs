@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildBatches, buildCanonicalTermProtections, buildStandaloneReviewContextGraph, buildStandaloneReviewMemory, buildStandaloneReviewVoiceContext, buildUserPrompt, canonicalMarkerCountsMatch, maskCanonicalTermText, protectCanonicalReviewSegments, restoreCanonicalMarkersDeep, restoreCanonicalTermMarkers } from '../src/documents/translationAgent.ts';
+import { buildBatches, buildCanonicalTermProtections, buildStandaloneReviewContextGraph, buildStandaloneReviewMemory, buildStandaloneReviewVoiceContext, buildUserPrompt, canonicalMarkerCountsMatch, chunkMissingTranslationItems, maskCanonicalTermText, protectCanonicalReviewSegments, resolveCanonicalNameContext, restoreCanonicalMarkersDeep, restoreCanonicalTermMarkers } from '../src/documents/translationAgent.ts';
 import { normalizeDocumentTranslationStrategy } from '../src/documents/projectStore.ts';
 import { buildProjectVoiceContext } from '../src/documents/voiceContext.ts';
 import { isLiteraryReviewFindingGrounded } from '../src/literary.ts';
@@ -378,6 +378,47 @@ test('candidate-only or conflicting name mappings are not forced into translatio
     ],
   });
   assert.deepEqual(conflict, [], 'conflicting targets must not be selected arbitrarily');
+});
+
+test('confirmed project-memory names are protected in Reviewer even when Context Graph has no mapping', () => {
+  const canonicalContext = resolveCanonicalNameContext(
+    { nameMappings: [] },
+    { entities: [{ source: 'Yabu', target: '薮', kind: 'person', aliases: [], reviewStatus: 'confirmed' }] },
+  );
+  const result = protectCanonicalReviewSegments([{
+    id: 'yabu-1',
+    source: 'Yabu lay in the hot bath.',
+    draft: '薮泡在热汤里。',
+  }], canonicalContext);
+  assert.ok(result.protections.some((item) => item.sourceForm === 'Yabu' && item.target === '薮'));
+  assert.match(result.segments[0].source, /__VSA_TERM_000__/);
+  assert.match(result.segments[0].draft, /__VSA_TERM_000__/);
+  assert.equal(
+    restoreCanonicalTermMarkers(result.segments[0].draft, result.protections),
+    '薮泡在热汤里。',
+  );
+});
+
+test('canonical name resolution excludes generic titles and unrelated aliases', () => {
+  const canonicalContext = resolveCanonicalNameContext(null, {
+    entities: [
+      {
+        source: 'Blackthorne', target: '布莱克索恩', kind: 'person',
+        aliases: ["Lord Toranaga's", 'General'], reviewStatus: 'confirmed',
+      },
+      { source: 'Yabu', target: '薮', kind: 'person', aliases: ['Lord'], reviewStatus: 'confirmed' },
+    ],
+  });
+  const protections = buildCanonicalTermProtections([{
+    id: 'p1', text: "Lord Toranaga's general saw Yabu before sunset.",
+  }], canonicalContext);
+  assert.deepEqual(protections.map((item) => item.sourceForm), ['Yabu']);
+});
+
+test('missing-only translation retries are split into small ordered groups', () => {
+  const groups = chunkMissingTranslationItems(Array.from({ length: 13 }, (_, index) => 'segment-' + index), 4);
+  assert.deepEqual(groups.map((group) => group.length), [4, 4, 4, 1]);
+  assert.deepEqual(groups.flat(), Array.from({ length: 13 }, (_, index) => 'segment-' + index));
 });
 
 test('buildUserPrompt masks automatically active entity names in source segments', () => {
