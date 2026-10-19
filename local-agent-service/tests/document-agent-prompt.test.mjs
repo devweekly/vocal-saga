@@ -401,6 +401,27 @@ test('confirmed project-memory names are protected by Reviewer even when graph m
   assert.equal(restoreCanonicalTermMarkers(result.segments[0].draft, result.protections), '薮泡在热汤里。');
 });
 
+test('confirmed character voice name is protected even when LiteraryMemory.entities is absent', () => {
+  const merged = mergeConfirmedMemoryNameMappings(
+    { nameMappings: [] },
+    { entities: [], characterVoices: [
+      { canonicalSourceName: 'Yabu', targetName: '薮', aliases: ['Yabu-san'], status: 'confirmed' },
+      { canonicalSourceName: 'Omi', targetName: '近江', aliases: [], status: 'candidate' },
+      { canonicalSourceName: 'Zukimoto', targetName: '柿本', aliases: [], status: 'confirmed', useForTranslation: false },
+    ] },
+  );
+  const result = protectCanonicalReviewSegments([{
+    id: 'yabu-profile-only',
+    source: 'Yabu and Omi arrived. Zukimoto waited outside.',
+    draft: '矢部和近江到了。柿本在外面等候。',
+  }], merged);
+  assert.ok(result.protections.some((item) => item.sourceForm === 'Yabu' && item.target === '薮'));
+  assert.equal(result.protections.some((item) => item.sourceForm === 'Omi'), false,
+    'candidate character profiles remain non-authoritative');
+  assert.equal(result.protections.some((item) => item.sourceForm === 'Zukimoto'), false,
+    'a confirmed character explicitly disabled for translation is not enforced');
+});
+
 test('generic titles and aliases that point to another character are not protected as names', () => {
   const graph = {
     nameMappings: [{
