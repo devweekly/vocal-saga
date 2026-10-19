@@ -1094,8 +1094,9 @@ export class DocumentProjectStore {
   }
 
   /**
-   * The same fail-closed precondition protects new and resumed literary runs.
-   * Source revision, language direction and analysis version must match the run configuration.
+   * Explicit validation helper for callers that require an already-prepared project.
+   * Do not call this during Run creation: queued literary Runs must reach the server-owned
+   * executeRun gate, which can start preprocessing and persist wait/failure events.
    */
   assertLiteraryPreprocessingReady(
     projectId: string,
@@ -1222,12 +1223,9 @@ export class DocumentProjectStore {
       const accepted = latestAccepted.get(segment.segment_id);
       return !accepted || accepted.source_hash !== segment.source_hash || (accepted.origin !== 'manual' && accepted.run_fingerprint !== runFingerprint);
     });
-    // One shared guard also protects resumed literary runs from bypassing preprocessing.
-    if (selected.length && config.translationMode === 'literary') {
-      this.assertLiteraryPreprocessingReady(
-        projectId, sourceRevisionId, config.sourceLang || 'auto', config.targetLang || 'zh',
-      );
-    }
+    // Do not gate literary Runs at creation time. Persist the queued Run first so executeRun
+    // can start/await Context Graph preprocessing and record its durable status/events.
+    // The worker is the single authority for source revision, analysis version and language checks.
     const runId = randomUUID();
     const createdAt = isoNow();
     db.exec('BEGIN IMMEDIATE');

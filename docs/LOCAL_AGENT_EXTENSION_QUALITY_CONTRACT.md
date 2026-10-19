@@ -9,6 +9,13 @@
 - 每个文档项目有自己独立的 **project.sqlite**。不能假设 **translation_runs** 带有 **project_id** 列，也不能把项目数据库描述为共享数据库。
 - 云端 Worker 的片段翻译 API 不是这套长文档审计/返工 API 的替代品。
 
+## Context Graph 与文学 Run 的准备阶段
+
+- Context Graph 节点、关系、章节摘要和原文证据只在 local-agent-service 的项目 SQLite 中保存与检索。扩展的常规状态轮询应调用 GET /context-graph/status，不得复制完整图谱到 LiteraryMemory。
+- 扩展可以提交文学翻译 Run，而不要求预先存在 completed Context Graph。服务端先持久化 Run 为 queued，由 executeRun 校验原文版本、分析版本和语言方向；需要时自动启动或等待预处理，在检查通过前不开始翻译。
+- 扩展 readiness 仅作状态说明，不是安全或工作流边界。服务端不可用时要明确报错；不能将远端 fallback 的结果误当成已经写入 Local Agent 项目的规范分析数据。
+- 显式重新分析仍可由扩展提供操作，但操作只是向服务端提交命令并展示持久化状态，不得在浏览器里持有长时间分析状态机。
+
 ## API
 
 所有路径都以 **/api/documents/projects/:projectId** 为前缀，并通过本机服务既有鉴权和 JSON body 限制。

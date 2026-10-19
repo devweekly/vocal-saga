@@ -27,6 +27,29 @@ test('literary Run readiness is tied to source revision, analysis version and la
   assert.equal(isContextGraphReadyForTranslationRun({ ...ready, progress: { ...ready.progress, analysisVersion: 'old' } }, run), false);
 });
 
+test('literary Run is persisted as queued before service-owned Context Graph preprocessing', () => {
+  const store = getDocumentProjectStore();
+  const project = store.createProject({
+    title: 'Service-owned preprocessing gate',
+    format: 'txt',
+    sourceFileName: 'service-owned-preprocessing.txt',
+    prompt: { translationMode: 'literary', sourceLang: 'en', targetLang: 'zh' },
+    segments: [
+      { id: 'literary-gate-1', text: 'The room was quiet.', kind: 'paragraph', contextPath: 'Chapter 1' },
+    ],
+  });
+
+  // No Context Graph run exists yet. The Run must still be durably created so executeRun
+  // can start analysis, wait for the matching source/version/language, and only then translate.
+  const run = store.createRun(project.projectId, { scope: { type: 'all' } });
+  assert.equal(run.status, 'queued');
+  assert.equal(run.translationMode, 'literary');
+  assert.equal(run.sourceLang, 'en');
+  assert.equal(run.targetLang, 'zh');
+  assert.equal(run.counts.total, 1);
+  assert.equal(store.getRun(project.projectId, run.runId).status, 'queued');
+});
+
 test('service automatically accepts finished candidates through the guarded Store transaction', () => {
   const store = getDocumentProjectStore();
   const project = store.createProject({
