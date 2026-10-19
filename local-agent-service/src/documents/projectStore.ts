@@ -17,7 +17,9 @@ import { normalizeCodeBuddyTaskProfiles } from '../agents/taskProfiles.ts';
 import { formatLogLine, logError, logInfo, logWarn } from '../log.ts';
 
 export type DocumentFormat = 'epub' | 'pdf' | 'txt' | 'md' | 'html' | 'docx' | 'srt' | 'vtt' | 'json';
-export const MAX_DOCUMENT_SOURCE_BYTES = 20 * 1024 * 1024;
+const configuredSourceLimitMb = Number.parseInt(process.env.LOCAL_AGENT_MAX_DOCUMENT_SOURCE_MB || '512', 10);
+export const MAX_DOCUMENT_SOURCE_BYTES =
+  (Number.isFinite(configuredSourceLimitMb) && configuredSourceLimitMb >= 20 ? configuredSourceLimitMb : 512) * 1024 * 1024;
 
 export type RunStatus = 'queued' | 'running' | 'paused' | 'awaiting_acceptance' | 'partial' | 'completed' | 'failed' | 'cancelled';
 
@@ -729,7 +731,7 @@ export class DocumentProjectStore {
       throw Object.assign(new Error('原始文件内容为空'), { status: 400 });
     }
     if (bytes.byteLength > MAX_DOCUMENT_SOURCE_BYTES) {
-      throw Object.assign(new Error('原始文件超过 20 MiB 上限'), { status: 413 });
+      throw Object.assign(new Error('原始文件超过 ' + Math.round(MAX_DOCUMENT_SOURCE_BYTES / 1024 / 1024) + ' MiB 上限；可通过 LOCAL_AGENT_MAX_DOCUMENT_SOURCE_MB 调整本机导入上限'), { status: 413 });
     }
     const { db, currentSourceRevisionId } = this.getProjectContext(projectId);
     const revision = db.prepare('SELECT format FROM source_revisions WHERE revision_id = ?').get(currentSourceRevisionId) as { format?: string } | undefined;
