@@ -949,21 +949,25 @@ export function buildTranslationBrief(
       ) as Record<string, any>
     : {};
   let characterProfileMappingConflictCount = 0;
-  if (graph && Array.isArray((voiceContext as any).characterVoices)) {
-    const visibleSourceText = [...visiblePrecedingSegments, ...items].map((item) => item.text).join('\n');
+  if (graph) {
+    const visibleSourceSegments = [...visiblePrecedingSegments, ...items];
     const isVisibleHere = (name: unknown) => typeof name === 'string' && name.trim() &&
-      [...visiblePrecedingSegments, ...items].some((item) => sourceNameMatches(item.text, name));
-    // Character profiles can be the sole source of a canonical target. Keep candidate mappings
-    // advisory and only surface aliases already visible at this batch's temporal boundary.
-    const profiles = (voiceContext as any).characterVoices as Array<Record<string, any>>;
-    for (const profile of profiles) {
+      visibleSourceSegments.some((item) => sourceNameMatches(item.text, name));
+    // Use the run-pinned, Store-validated profile snapshot for canonical names. Voice-context
+    // retrieval deliberately requires earlier evidence, so using only its selected profiles would
+    // make a confirmed name disappear when its supporting quote belongs to the current batch.
+    const pinnedProfiles = Array.isArray((context as any)?.memory?.characterVoices)
+      ? (context as any).memory.characterVoices as Array<Record<string, any>>
+      : [];
+    for (const profile of pinnedProfiles) {
       const source = typeof profile?.canonicalSourceName === 'string' ? profile.canonicalSourceName.trim() : '';
       const target = typeof profile?.targetName === 'string' ? profile.targetName.trim() : '';
       const status = String(profile?.status || '');
-      if (!source || !target || profile.useForTranslation === false || !['confirmed', 'candidate'].includes(status) ||
-          isGenericCanonicalSourceName(source)) continue;
+      if (!source || !target || profile.useForTranslation === false ||
+          !['confirmed', 'candidate'].includes(status) || isGenericCanonicalSourceName(source)) continue;
       const aliases = safeCanonicalSourceAliases(source, profile.aliases).filter(isVisibleHere);
-      profile.aliases = aliases;
+      // The canonical source or at least one safe, source-visible alias must be relevant to
+      // this batch. Names merely stored elsewhere in the book are not injected into the prompt.
       if (!isVisibleHere(source) && !aliases.length) continue;
       const incoming = {
         source, target, aliases, kind: 'character',
