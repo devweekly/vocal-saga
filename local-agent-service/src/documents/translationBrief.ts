@@ -825,8 +825,13 @@ export function buildTranslationBrief(
       // New dynamic memory has segment-specific provenance. Do not fall back to searching the
       // same quotation elsewhere in the book, because duplicate prose can predate the observation.
       // Legacy/user-authored mappings without evidenceRefs retain the source-quote fallback.
+      // A confirmed person mapping is the canonical target shown in 人物管理. Its source name
+      // and aliases must still be visible at this temporal boundary, but a character's voice-evidence
+      // quote need not be from an earlier segment; otherwise the same confirmed name could disappear
+      // from some batches and translator/Reviewer behavior would drift.
       const explicitCanonicalMapping = entity.reviewStatus === 'confirmed' &&
-        (!Array.isArray(entity.evidenceRefs) || entity.evidenceRefs.length === 0) && !evidence;
+        (entity.kind === 'person' ||
+          ((!Array.isArray(entity.evidenceRefs) || entity.evidenceRefs.length === 0) && !evidence));
       const evidenceVisible = explicitCanonicalMapping ||
         (Array.isArray(entity.evidenceRefs) && entity.evidenceRefs.length
           ? visibleEvidenceRefs.length > 0
