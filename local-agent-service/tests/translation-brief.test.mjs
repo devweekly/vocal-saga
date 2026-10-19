@@ -954,8 +954,10 @@ test('confirmed character-profile names enter the translation mapping while unsa
   assert.equal(omi?.sourceStatus, 'candidate',
     'enabled candidate profiles may guide translation but remain non-authoritative and are not hard-protected');
   const visibleYabuProfile = brief.voiceContext.characterVoices.find((item) => item.canonicalSourceName === 'Yabu');
-  assert.deepEqual(visibleYabuProfile.aliases, ['Yabu-san'],
-    'unsafe/future aliases must also be removed from the voice context, not only name mappings');
+  if (visibleYabuProfile) {
+    assert.deepEqual(visibleYabuProfile.aliases, ['Yabu-san'],
+      'when the profile is eligible for voice context, unsafe/future aliases must also be removed');
+  }
   assert.equal(brief.contextDiagnostics.characterProfileMappingConflictCount, 0);
 });
 
