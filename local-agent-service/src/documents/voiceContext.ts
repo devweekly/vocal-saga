@@ -163,11 +163,9 @@ export function sanitizeProjectLiteraryMemory(input: unknown): Record<string, an
   if (!input || typeof input !== 'object' || Array.isArray(input)) {
     return { version: 2, entities: [], relationships: [], styleGuide: {}, styleGuideStatus: 'candidate', chapterSummaries: [], recentExamples: [], characterVoices: [], relationshipVoiceRules: [], voiceAnchors: [] };
   }
-  let serialized: string;
-  try { serialized = JSON.stringify(input); } catch { throw Object.assign(new Error('文学记忆无法序列化'), { status: 400 }); }
-  if (Buffer.byteLength(serialized, 'utf8') > MAX_MEMORY_BYTES) {
-    throw Object.assign(new Error('文学记忆超过 120 KiB 上限；请只保存结构化角色记忆，不要附带整本原文'), { status: 413 });
-  }
+  // Deliberately project known fields before measuring size. A caller may have extra
+  // properties such as a full source document or Context Graph payload; none belongs in
+  // LiteraryMemory and unknown fields must not make a valid structured memory fail to save.
   const raw = input as Record<string, any>;
   const entities = dedupeProjectEntities(Array.isArray(raw.entities) ? raw.entities.slice(0, 120).flatMap((item: any) => {
     if (!item || typeof item !== 'object' || Array.isArray(item)) return [];
@@ -341,12 +339,64 @@ export function sanitizeProjectLiteraryMemory(input: unknown): Record<string, an
       origin,
     }] : [];
   }) : [];
-  return {
+  const memory: Record<string, any> = {
     version: 2, entities, relationships, styleGuide, styleGuideStatus,
     ...(styleGuideConfirmationSource ? { styleGuideConfirmationSource } : {}),
     chapterSummaries, recentExamples, characterVoices, relationshipVoiceRules, voiceAnchors,
     openQuestions: list(raw.openQuestions, 40, 200),
   };
+
+  // The cap applies to the canonical DTO that will actually be persisted, not untrusted
+  // input fields that are discarded above. Prune lower-value evidence deterministically;
+  // never slice serialized JSON (which could corrupt the memory schema).
+  const serializedBytes = () => Buffer.byteLength(JSON.stringify(memory), 'utf8');
+  while (serializedBytes() > MAX_MEMORY_BYTES) {
+    if (memory.recentExamples.length) {
+      memory.recentExamples.shift();
+      continue;
+    }
+    if (memory.chapterSummaries.length) {
+      memory.chapterSummaries.shift();
+      continue;
+    }
+    if (memory.voiceAnchors.length) {
+      memory.voiceAnchors.shift();
+      continue;
+    }
+
+    // Keep profiles/names, but progressively reduce source excerpts. Mark a profile incomplete
+    // whenever source evidence is pruned so downstream voice retrieval can fail closed.
+    const profileWithEvidence = [...memory.characterVoices].find((profile: any) => profile.evidence.length > 1);
+    if (profileWithEvidence) {
+      profileWithEvidence.evidence.shift();
+      profileWithEvidence.evidenceTruncated = true;
+      continue;
+    }
+    if (memory.relationshipVoiceRules.length) {
+      memory.relationshipVoiceRules.pop();
+      continue;
+    }
+    if (memory.characterVoices.length) {
+      memory.characterVoices.pop();
+      continue;
+    }
+    if (memory.entities.length) {
+      memory.entities.pop();
+      continue;
+    }
+    if (memory.relationships.length) {
+      memory.relationships.pop();
+      continue;
+    }
+    if (memory.openQuestions.length) {
+      memory.openQuestions.pop();
+      continue;
+    }
+    // All collection fields are exhausted; bounded scalar/style fields should keep this
+    // unreachable, but fail with a precise error instead of storing over-cap data.
+    throw Object.assign(new Error('结构化文学记忆本身超过 120 KiB 上限，已达到可裁剪边界'), { status: 413 });
+  }
+  return memory;
 }
 
 /**
