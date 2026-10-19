@@ -159,3 +159,57 @@ test('valid numeric scores are retained with explicit model-self-report provenan
   assert.equal(result.characterVoices[0].evidence[0].confidence, 0.74);
   assert.equal(result.characterVoices[0].evidence[0].confidenceSource, 'model_self_report');
 });
+
+test('legacy active literary memory states preserve their status but record unknown confirmation provenance', () => {
+  const memory = sanitizeProjectLiteraryMemory({
+    entities: [{ source: 'Alice', target: '艾丽丝', kind: 'person', reviewStatus: 'confirmed' }],
+    relationships: [{ subject: 'Alice', predicate: 'knows', object: 'Bob', reviewStatus: 'confirmed' }],
+    styleGuide: { register: 'restrained' },
+    styleGuideStatus: 'confirmed',
+    characterVoices: [{
+      characterId: 'char-alice', canonicalSourceName: 'Alice', targetName: '艾丽丝',
+      status: 'confirmed', useForTranslation: true, voiceCore: { register: 'restrained' },
+      evidence: [{
+        segmentId: 's1', sourceQuote: 'Alice answered quietly.', dimension: 'register',
+        observation: 'restrained register', confidence: null,
+      }],
+    }, {
+      characterId: 'char-bob', canonicalSourceName: 'Bob', targetName: '鲍勃',
+      status: 'confirmed', useForTranslation: true, voiceCore: { register: 'direct' },
+      evidence: [{
+        segmentId: 's2', sourceQuote: 'Bob replied quickly.', dimension: 'register',
+        observation: 'direct register', confidence: null,
+      }],
+    }],
+    relationshipVoiceRules: [{
+      speakerId: 'char-alice', addresseeId: 'char-bob', status: 'confirmed',
+      addressTerms: ['Mr.'], evidenceSegmentIds: ['s1'],
+    }],
+    voiceAnchors: [{
+      anchorId: 'anchor-1', speakerId: 'char-alice', addresseeId: 'char-bob',
+      source: 'Alice answered quietly.', target: '艾丽丝轻声回答。',
+      segmentId: 's1', status: 'approved', attributionEvidence: 'Alice answered quietly.',
+      attributionConfidence: 0.9, approvedBy: 'user', tags: [],
+    }],
+  });
+
+  assert.equal(memory.entities[0].reviewStatus, 'confirmed');
+  assert.equal(memory.entities[0].confirmationSource, 'legacy-unknown');
+  assert.equal(memory.relationships[0].confirmationSource, 'legacy-unknown');
+  assert.equal(memory.styleGuideConfirmationSource, 'legacy-unknown');
+  assert.equal(memory.characterVoices[0].confirmationSource, 'legacy-unknown');
+  assert.equal(memory.relationshipVoiceRules[0].confirmationSource, 'legacy-unknown');
+  assert.equal(memory.voiceAnchors[0].confirmationSource, 'legacy-unknown');
+});
+
+test('confirmation provenance is sanitized and never allows an unconfirmed item to claim user confirmation', () => {
+  const memory = sanitizeProjectLiteraryMemory({
+    entities: [
+      { source: 'Alice', target: '艾丽丝', kind: 'person', reviewStatus: 'confirmed', confirmationSource: 'user-confirmed' },
+      { source: 'Bob', target: '鲍勃', kind: 'person', reviewStatus: 'suggested', confirmationSource: 'user-confirmed' },
+    ],
+  });
+  assert.equal(memory.entities[0].confirmationSource, 'user-confirmed');
+  assert.equal(memory.entities[1].confirmationSource, undefined);
+});
+
