@@ -139,11 +139,26 @@ export async function handleDocumentProjectRequest(req: Request, res: Response, 
         : store.resolveProjectForSource({ ...sourceInput, prompt: { translationMode: 'literary' } });
 
       if (resolution.exactProject) {
-        const sourceFile = await store.storeSourceFile(resolution.exactProject.projectId, fileName, bytes);
+        const sourceFile = resolution.exactProject.sourceFileSaved
+          ? undefined
+          : await store.storeSourceFile(resolution.exactProject.projectId, fileName, bytes);
         sendJson(res, 200, {
           project: store.getProject(resolution.exactProject.projectId),
-          sourceFile,
+          ...(sourceFile ? { sourceFile } : {}),
           reusedExisting: true,
+        });
+        return true;
+      }
+
+      // A legacy project may have been segmented by an older extension parser. If its immutable
+      // original file matches exactly, reuse its SQLite segments rather than misclassifying the
+      // new server parser's different segmentation as a user-edited source.
+      if (resolution.relatedProject?.sourceFileSaved &&
+          store.matchesStoredSourceFile(resolution.relatedProject.projectId, bytes)) {
+        sendJson(res, 200, {
+          project: store.getProject(resolution.relatedProject.projectId),
+          reusedExisting: true,
+          parserVersionMigrationSuggested: false,
         });
         return true;
       }
@@ -207,7 +222,20 @@ export async function handleDocumentProjectRequest(req: Request, res: Response, 
       let fileName = encodedName;
       try { if (encodedName) fileName = decodeURIComponent(encodedName); }
       catch { throw Object.assign(new Error('X-Source-File-Name 编码无效'), { status: 400 }); }
+      if (!fileName || fileName.includes('/') || fileName.includes('\\')) throw Object.assign(new Error('X-Source-File-Name 必须是文件名，不得包含路径'), { status: 400 });
       const bytes = await readRawSourceBody(req, MAX_DOCUMENT_SOURCE_BYTES);
+      if (req.headers['x-source-action'] === 'update-revision') {
+        const parsed = await parseDocumentFile(fileName, bytes);
+        const project = store.createSourceRevision(projectId, {
+          title: parsed.title || store.getProject(projectId)!.title,
+          format: parsed.format,
+          sourceFileName: fileName,
+          segments: parsed.segments,
+        });
+        const sourceFile = await store.storeSourceFile(projectId, fileName, bytes);
+        sendJson(res, 201, { project: store.getProject(projectId), sourceFile });
+        return true;
+      }
       const saved = await store.storeSourceFile(projectId, fileName, bytes);
       sendJson(res, 200, saved);
       return true;
