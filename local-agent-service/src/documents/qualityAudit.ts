@@ -484,26 +484,156 @@ function currentReviewFindings(
   return { reviewRunId, findings };
 }
 
+const GENERIC_CANONICAL_NAME_FORMS = new Set([
+  'lord', 'general', 'sire', 'council', 'regent', 'regents', 'ship',
+  'sir', 'madam', 'madame', 'captain', 'lady', 'samurai',
+]);
+const CANONICAL_NAME_STOPWORDS = new Set([
+  'the', 'a', 'an', 'of', 'and', 'or', 'lord', 'general', 'sire', 'sir', 'lady',
+  'madam', 'madame', 'captain', 'master', 'mr', 'mrs', 'ms', 'san', 'sama',
+]);
+
+function normalizedCanonicalName(value: unknown): string {
+  return normalized(value).replace(/^(?:the|a|an)\s+/, '')
+    .replace(/(?:['’]s)\b/g, '').replace(/[.!?]+$/g, '').trim();
+}
+
+function isGenericCanonicalName(value: unknown): boolean {
+  return GENERIC_CANONICAL_NAME_FORMS.has(normalizedCanonicalName(value));
+}
+
+function canonicalIdentityTokens(value: string): string[] {
+  return normalizedCanonicalName(value).replace(/['’]s\b/g, '')
+    .match(/[a-z0-9]+/g)?.filter((token) => !CANONICAL_NAME_STOPWORDS.has(token)) || [];
+}
+
+function isCompatibleCanonicalAlias(source: string, alias: string): boolean {
+  if (!/^[a-z0-9 ._'’-]+$/iu.test(source) || !/^[a-z0-9 ._'’-]+$/iu.test(alias)) return true;
+  const sourceTokens = canonicalIdentityTokens(source);
+  const aliasTokens = canonicalIdentityTokens(alias);
+  if (!aliasTokens.length) return false;
+  if (!sourceTokens.length) return true;
+  return sourceTokens.some((sourceToken) => aliasTokens.some((aliasToken) =>
+    sourceToken === aliasToken || sourceToken.startsWith(aliasToken) || aliasToken.startsWith(sourceToken)));
+}
+
+function canonicalNameForms(source: string, aliases: unknown): string[] {
+  const candidates = [source, ...(Array.isArray(aliases) ? aliases : [])]
+    .filter((value): value is string => typeof value === 'string' && value.trim())
+    .map((value) => value.trim())
+    .filter((value) => !isGenericCanonicalName(value))
+    .filter((value, index) => index === 0 || isCompatibleCanonicalAlias(source, value));
+  return Array.from(new Map(candidates.map((value) => [normalized(value), value])).values());
+}
+
+type CanonicalNameAuditMapping = {
+  source: string;
+  target: string;
+  aliases: string[];
+  kind: string;
+  status: 'confirmed';
+  mappingSources: string[];
+};
+
+function canonicalNameAuditMappings(memory: Record<string, any>): CanonicalNameAuditMapping[] {
+  const mappings: CanonicalNameAuditMapping[] = [];
+  const add = (sourceValue: unknown, targetValue: unknown, aliasesValue: unknown, kindValue: unknown, mappingSource: string) => {
+    const source = typeof sourceValue === 'string' ? sourceValue.trim() : '';
+    const target = typeof targetValue === 'string' ? targetValue.trim() : '';
+    if (!source || !target || isGenericCanonicalName(source)) return;
+    const aliases = canonicalNameForms(source, aliasesValue).filter((value) => normalized(value) !== normalized(source));
+    const key = normalized(source) + '\u0000' + normalized(target);
+    const existing = mappings.find((item) => normalized(item.source) + '\u0000' + normalized(item.target) === key);
+    if (existing) {
+      existing.aliases = Array.from(new Map([...existing.aliases, ...aliases].map((value) => [normalized(value), value])).values());
+      if (!existing.mappingSources.includes(mappingSource)) existing.mappingSources.push(mappingSource);
+      return;
+    }
+    mappings.push({
+      source, target, aliases, kind: typeof kindValue === 'string' ? kindValue : 'other',
+      status: 'confirmed', mappingSources: [mappingSource],
+    });
+  };
+
+  for (const entity of Array.isArray(memory.entities) ? memory.entities : []) {
+    if (entity?.reviewStatus !== 'confirmed') continue;
+    add(entity.source, entity.target, entity.aliases, entity.kind, 'literary-memory');
+  }
+  // Character/Voice profiles maintain their own canonical target names. They may be the only
+  // source of an approved name mapping, so book-level audits must inspect them as well as entities.
+  for (const profile of Array.isArray(memory.characterVoices) ? memory.characterVoices : []) {
+    if (profile?.status !== 'confirmed' || profile?.useForTranslation === false) continue;
+    add(profile.canonicalSourceName, profile.targetName, profile.aliases, 'character', 'character-voice');
+  }
+  return mappings;
+}
+
+function canonicalNameMappingConflictFindings(
+  segments: Array<{ id: string; text: string; contextPath: string }>,
+  memory: Record<string, any>,
+): { findings: any[]; conflictedSources: Set<string> } {
+  const mappings = canonicalNameAuditMappings(memory);
+  const groups = new Map<string, CanonicalNameAuditMapping[]>();
+  for (const mapping of mappings) {
+    const key = normalized(mapping.source);
+    const list = groups.get(key) || [];
+    list.push(mapping);
+    groups.set(key, list);
+  }
+  const findings: any[] = [];
+  const conflictedSources = new Set<string>();
+  for (const [sourceKey, group] of groups) {
+    const targets = Array.from(new Map(group.map((mapping) => [normalized(mapping.target), mapping.target])).values());
+    if (targets.length < 2) continue;
+    conflictedSources.add(sourceKey);
+    const forms = group.flatMap((mapping) => [mapping.source, ...mapping.aliases]);
+    const affected = segments.filter((segment) => forms.some((form) => containsName(segment.text, form)));
+    // A conflicting stored rule matters even if it has not been used in the current translation.
+    // Attach the specific affected source IDs whenever the name occurs in this book.
+    if (!affected.length) continue;
+    const ids = affected.map((segment) => segment.id);
+    const confirmed = group.every((mapping) => mapping.status === 'confirmed');
+    findings.push({
+      findingId: stableFindingId('canonical-name-mapping-conflict', ids, sourceKey + ':' + targets.map(normalized).sort().join('|')),
+      type: 'canonical-name-mapping-conflict',
+      category: 'terminology',
+      severity: confirmed ? 'must-fix' : 'review',
+      confidence: 'confirmed-conflict',
+      repairable: false,
+      segmentIds: ids,
+      chapter: affected[0]?.contextPath || null,
+      sourceExcerpt: affected[0]?.text.slice(0, 240) || '',
+      entity: {
+        source: group[0]?.source || '',
+        targets,
+        mappings: group.map((mapping) => ({ source: mapping.source, target: mapping.target, mappingSources: mapping.mappingSources })),
+      },
+      explanation: '人物规范名在已确认的 LiteraryMemory 与人物角色/声音资料中存在不同译名。审计不会擅自选择其中一个；请先在项目记忆中统一规范译名，再对受影响片段做定点复核。',
+    });
+  }
+  return { findings, conflictedSources };
+}
+
 function terminologyFindings(
   segments: Array<{ id: string; text: string; contextPath: string }>,
   translations: Map<string, string>,
   memory: Record<string, any>,
+  conflictedSources: Set<string> = new Set(),
 ) {
-  const entities = Array.isArray(memory.entities)
-    ? memory.entities.filter((entity: any) => entity?.reviewStatus === 'confirmed' &&
-        typeof entity.source === 'string' && typeof entity.target === 'string' && entity.source.trim() && entity.target.trim())
-    : [];
+  const mappings = canonicalNameAuditMappings(memory);
   const findings: any[] = [];
   for (const segment of segments) {
     const translation = translations.get(segment.id) || '';
     if (!translation) continue;
-    for (const entity of entities) {
-      const aliases = [entity.source, ...(Array.isArray(entity.aliases) ? entity.aliases : [])]
-        .filter((value: unknown) => typeof value === 'string' && String(value).trim());
-      const matchedSource = aliases.find((alias: string) => containsName(segment.text, alias));
-      if (!matchedSource || targetPresent(translation, entity.target)) continue;
+    for (const mapping of mappings) {
+      // When two confirmed sources disagree, report the mapping conflict once rather than making
+      // each valid target appear to be a separate translation defect.
+      if (conflictedSources.has(normalized(mapping.source))) continue;
+      const forms = [mapping.source, ...mapping.aliases];
+      const matchedSource = forms.find((alias) => containsName(segment.text, alias));
+      if (!matchedSource || targetPresent(translation, mapping.target)) continue;
       findings.push({
-        findingId: stableFindingId('terminology-drift', [segment.id], normalized(entity.source) + '>' + normalized(entity.target)),
+        findingId: stableFindingId('terminology-drift', [segment.id], normalized(mapping.source) + '>' + normalized(mapping.target)),
         type: 'terminology-drift',
         category: 'terminology',
         severity: 'warning',
@@ -513,10 +643,69 @@ function terminologyFindings(
         chapter: segment.contextPath || null,
         sourceExcerpt: segment.text.slice(0, 240),
         translationExcerpt: translation.slice(0, 320),
-        entity: { source: entity.source, matchedAlias: matchedSource, target: entity.target },
-        explanation: '原文包含已确认实体，但当前译文中未检测到规范译名；请结合语境人工判断是否属于省略、代词替代或真实译名漂移。',
+        entity: { source: mapping.source, matchedAlias: matchedSource, target: mapping.target, mappingSources: mapping.mappingSources },
+        explanation: '原文包含已确认规范名，但当前译文中未检测到对应译名；请结合语境人工判断是否属于省略、代词替代或真实译名漂移。',
       });
     }
+  }
+  return findings;
+}
+
+// Catch likely source-language residue in Chinese translations. This is deliberately a review hint:
+// Latin names, short isolated tokens not in the watchlist, and all stylistic decisions remain untouched.
+const ENGLISH_RESIDUE_WORDS = new Set([
+  'again', 'although', 'already', 'anyway', 'because', 'before', 'behind', 'between', 'beyond',
+  'could', 'during', 'ever', 'however', 'indeed', 'instead', 'later', 'maybe', 'might', 'must',
+  'never', 'nothing', 'perhaps', 'rather', 'really', 'should', 'since', 'still', 'though',
+  'through', 'until', 'unless', 'whether', 'while', 'would',
+]);
+const ENGLISH_FUNCTION_WORDS = new Set([
+  'a', 'an', 'and', 'are', 'as', 'at', 'be', 'been', 'but', 'by', 'can', 'did', 'do', 'does',
+  'for', 'from', 'had', 'has', 'have', 'he', 'her', 'him', 'his', 'how', 'i', 'if', 'in', 'is',
+  'it', 'its', 'me', 'my', 'no', 'not', 'of', 'on', 'or', 'our', 'she', 'so', 'than', 'that',
+  'the', 'their', 'them', 'then', 'there', 'they', 'this', 'to', 'was', 'we', 'were', 'what',
+  'when', 'where', 'which', 'who', 'will', 'with', 'you', 'your',
+]);
+
+function englishResidueFindings(
+  segments: Array<{ id: string; text: string; contextPath: string }>,
+  translations: Map<string, string>,
+  targetLang: string,
+): any[] {
+  if (!/^(?:zh(?:[-_].*)?|chinese|中文|简体中文|繁体中文)$/iu.test(String(targetLang || '').trim())) return [];
+  const findings: any[] = [];
+  const phrasePattern = /\b(?:[A-Za-z][A-Za-z'-]*\s+){2,}[A-Za-z][A-Za-z'-]*\b/g;
+  const wordPattern = /\b[A-Za-z][A-Za-z'-]*\b/g;
+  for (const segment of segments) {
+    const translation = translations.get(segment.id) || '';
+    if (!translation.trim()) continue;
+    const residues = new Set<string>();
+    for (const match of translation.matchAll(phrasePattern)) {
+      const phrase = match[0].trim();
+      const words = phrase.match(wordPattern) || [];
+      const hasFunctionWord = words.some((word) => ENGLISH_FUNCTION_WORDS.has(word.toLocaleLowerCase()));
+      if (words.length >= 4 || hasFunctionWord) residues.add(phrase);
+    }
+    for (const match of translation.matchAll(wordPattern)) {
+      const word = match[0];
+      if (ENGLISH_RESIDUE_WORDS.has(word.toLocaleLowerCase())) residues.add(word);
+    }
+    if (!residues.size) continue;
+    const examples = Array.from(residues).slice(0, 5);
+    findings.push({
+      findingId: stableFindingId('english-residue', [segment.id], examples.join('|')),
+      type: 'english-residue',
+      category: 'coverage',
+      severity: 'review',
+      confidence: 'heuristic',
+      repairable: true,
+      segmentIds: [segment.id],
+      chapter: segment.contextPath || null,
+      sourceExcerpt: segment.text.slice(0, 240),
+      translationExcerpt: translation.slice(0, 360),
+      residueExamples: examples,
+      explanation: '中文译文里仍存在疑似未翻译的英文词或短语。专名、刻意保留的外语表达也可能命中；请检查原文与上下文后再决定是否定点返工。',
+    });
   }
   return findings;
 }
