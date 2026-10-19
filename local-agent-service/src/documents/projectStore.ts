@@ -1520,6 +1520,21 @@ export class DocumentProjectStore {
     return { exactProject, relatedProject };
   }
 
+  /**
+   * Check whether an imported file is byte-for-byte the original already attached to the
+   * current source revision. This distinguishes a parser-version change from a genuinely
+   * changed document without trusting a filename or a browser-generated segment fingerprint.
+   */
+  matchesStoredSourceFile(projectId: string, bytes: Uint8Array): boolean {
+    const { db, currentSourceRevisionId } = this.getProjectContext(projectId);
+    const row = db.prepare(
+      'SELECT source_file_hash, source_file_size FROM source_revisions WHERE revision_id = ?'
+    ).get(currentSourceRevisionId) as { source_file_hash?: string | null; source_file_size?: number | null } | undefined;
+    if (!row?.source_file_hash || row.source_file_size !== bytes.byteLength) return false;
+    const digest = createHash('sha256').update(Buffer.from(bytes)).digest('hex');
+    return digest === row.source_file_hash;
+  }
+
   getProject(projectId: string): ProjectSummary | null {
     const row = this.catalogDb().prepare('SELECT * FROM document_projects WHERE project_id = ? AND archived = 0').get(projectId) as any;
     if (!row) return null;
