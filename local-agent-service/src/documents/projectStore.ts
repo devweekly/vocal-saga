@@ -22,7 +22,7 @@ export const MAX_DOCUMENT_SOURCE_BYTES = 20 * 1024 * 1024;
 export type RunStatus = 'queued' | 'running' | 'paused' | 'awaiting_acceptance' | 'partial' | 'completed' | 'failed' | 'cancelled';
 
 function formatFailedSegmentSummary(count: number): string {
-  return `本次运行有 ${count} 个片段未能完成，已完成的片段已保留。请展开“失败详情”查看具体原因；需要时可只重试这些片段。`;
+  return `本次运行有 ${count} 个片段未能完成，已生成的译文已保留。这不代表译文质量不合格；请查看“未完成片段详情”了解原因，需要时可只重试这些片段。`;
 }
 
 export interface ProjectSegment {
@@ -266,18 +266,18 @@ function logWorkflowEvent(runId: string | null, type: string, rawPayload: unknow
       break;
     case 'batch.translation.completed':
       message = '初译候选已保存 ' + batch + ' · ' + (p.candidateCount ?? 0) + ' 段' +
-        (Array.isArray(p.failedIds) && p.failedIds.length ? ' · 失败 ' + p.failedIds.length + ' 段' : '') +
+        (Array.isArray(p.failedIds) && p.failedIds.length ? ' · 未完成 ' + p.failedIds.length + ' 段' : '') +
         ' · 审校' + (p.reviewScheduled ? '已排队' : '未启用');
       if (Array.isArray(p.failedIds) && p.failedIds.length) level = 'warn';
       break;
     case 'batch.completed':
-      message = '批次流程结束 ' + batch + ' · 候选 ' + (p.candidateCount ?? 0) + ' 段 · 失败 ' + (Array.isArray(p.failedIds) ? p.failedIds.length : 0) + ' 段';
+      message = '批次流程结束 ' + batch + ' · 候选 ' + (p.candidateCount ?? 0) + ' 段 · 未完成 ' + (Array.isArray(p.failedIds) ? p.failedIds.length : 0) + ' 段';
       if (Array.isArray(p.failedIds) && p.failedIds.length) level = 'warn';
       break;
     case 'run.finished': {
       const counts = p.counts && typeof p.counts === 'object' ? p.counts : {};
       message = '运行结束 · 状态 ' + (p.status || '未知') + ' · 候选 ' + (counts.candidate ?? 0) +
-        ' · 已接受 ' + (counts.accepted ?? 0) + ' · 失败 ' + (counts.failed ?? 0) + (p.error ? ' · ' + String(p.error).slice(0, 200) : '');
+        ' · 已接受 ' + (counts.accepted ?? 0) + ' · 未完成 ' + (counts.failed ?? 0) + (p.error ? ' · ' + String(p.error).slice(0, 200) : '');
       if (p.status === 'failed' || p.status === 'partial') level = 'warn';
       break;
     }

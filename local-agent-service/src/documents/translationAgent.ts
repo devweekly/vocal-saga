@@ -301,6 +301,14 @@ export function buildBatches(
   return batches;
 }
 
+/** Split only missing translation items into bounded retry groups, preserving order and IDs. */
+export function chunkMissingTranslationItems<T>(items: readonly T[], chunkSize = 4): T[][] {
+  const size = Math.max(1, Math.floor(chunkSize) || 1);
+  const groups: T[][] = [];
+  for (let offset = 0; offset < items.length; offset += size) groups.push(items.slice(offset, offset + size));
+  return groups;
+}
+
 export interface CanonicalTermProtection {
   marker: string;
   sourceForm: string;
@@ -309,6 +317,33 @@ export interface CanonicalTermProtection {
 
 function normalizeCanonicalTerm(value: string): string {
   return value.normalize('NFKC').toLocaleLowerCase().replace(/[’]/g, "'").replace(/\s+/g, ' ').trim();
+}
+
+// Standalone titles and generic references are contextual language, not canonical entity names.
+const NON_CANONICAL_NAME_FORMS = new Set([
+  'lord', 'general', 'sire', 'council', 'regent', 'regents', 'ship',
+  'sir', 'madam', 'madame', 'captain', 'lady', 'samurai',
+]);
+
+function isGenericCanonicalNameForm(value: string): boolean {
+  const normalized = normalizeCanonicalTerm(value)
+    .replace(/^(?:the|a|an)\s+/, '')
+    .replace(/(?:['’]s|[.!?]+)$/g, '').trim();
+  return NON_CANONICAL_NAME_FORMS.has(normalized);
+}
+
+function canonicalIdentityTokens(value: string): string[] {
+  const ignored = new Set(['the', 'a', 'an', 'lord', 'general', 'sire', 'sir', 'lady', 'madam', 'madame', 'captain', 'master', 'mr', 'mrs', 'ms', 'san', 'sama', 'of']);
+  return normalizeCanonicalTerm(value).replace(/['’]s\b/g, '')
+    .match(/[a-z0-9]+/g)?.filter((token) => !ignored.has(token)) || [];
+}
+
+function isCompatibleCanonicalAlias(canonicalSource: string, alias: string): boolean {
+  const sourceTokens = canonicalIdentityTokens(canonicalSource);
+  const aliasTokens = canonicalIdentityTokens(alias);
+  if (!sourceTokens.length || !aliasTokens.length) return true;
+  return sourceTokens.some((sourceToken) => aliasTokens.some((aliasToken) =>
+    sourceToken === aliasToken || sourceToken.startsWith(aliasToken) || aliasToken.startsWith(sourceToken)));
 }
 
 function escapeCanonicalTermRegex(value: string): string {
@@ -351,8 +386,11 @@ export function buildCanonicalTermProtections(
   for (const mapping of active) {
     const target = String(mapping.target).trim();
     const priority = priorityFor(mapping.sourceStatus);
-    const forms = [String(mapping.source), ...(Array.isArray(mapping.aliases) ? mapping.aliases : [])]
-      .filter((value): value is string => typeof value === 'string' && !!value.trim());
+    const canonicalSource = String(mapping.source).trim();
+    const forms = [canonicalSource, ...(Array.isArray(mapping.aliases) ? mapping.aliases : [])]
+      .filter((value): value is string => typeof value === 'string' && !!value.trim())
+      .filter((value) => !isGenericCanonicalNameForm(value))
+      .filter((value) => value === canonicalSource || isCompatibleCanonicalAlias(canonicalSource, value));
     for (const rawForm of forms) {
       const sourceForm = rawForm.trim();
       const key = normalizeCanonicalTerm(sourceForm);
@@ -808,6 +846,9 @@ function parseTranslations(value: unknown, expectedIds: Set<string>): {
 async function translateBatch(context: any, items: TranslationItem[], requestId: string, batchIndex: number, precedingSegments: TranslationItem[] = [], translationBrief?: TranslationBrief): Promise<{ translations: Map<string, string>; contextDelta: ValidatedTranslationContextDelta }> {
   const agent = parseAgentModel(context.run.model || 'auto', context.run.provider || 'workbuddy');
   const contextGraph = translationBrief?.contextGraph ?? null;
+  // Read the run-pinned memory for audit counts only. Canonical masking remains bound to the
+  // TranslationBrief snapshot used by buildUserPrompt and marker validation.
+  const memory = context.memory && typeof context.memory === 'object' ? context.memory as Record<string, any> : {};
   // TranslationBrief is the single mapping snapshot for the model prompt, marker validation,
   // and both Reviewers. Do not append unfiltered memory mappings here: that made the validator
   // require markers that buildUserPrompt had never sent, turning otherwise valid segments into failures.
@@ -1019,18 +1060,50 @@ async function translateBatch(context: any, items: TranslationItem[], requestId:
 }
 
 /**
+ * Reviewer-only safety merge. TranslationBrief remains the source/time-scoped mapping snapshot for
+ * initial translation. Reviewers also get the run-pinned project-memory snapshot; retain explicit
+ * confirmed names even if a graph snapshot has pruned that mapping. Protections still require a
+ * name or alias to occur in the source of one of the segments currently under review.
+ */
+export function mergeConfirmedMemoryNameMappings(
+  contextGraph: Record<string, unknown> | null | undefined,
+  memoryInput: unknown,
+): Record<string, unknown> | null {
+  const graph = contextGraph && typeof contextGraph === 'object' && !Array.isArray(contextGraph)
+    ? contextGraph : null;
+  const graphMappings = Array.isArray((graph as any)?.nameMappings)
+    ? (graph as any).nameMappings as Array<Record<string, any>> : [];
+  const memory = memoryInput && typeof memoryInput === 'object' && !Array.isArray(memoryInput)
+    ? memoryInput as Record<string, any> : {};
+  const confirmedMappings = (Array.isArray(memory.entities) ? memory.entities : [])
+    .filter((entity: any) => entity?.reviewStatus === 'confirmed' &&
+      typeof entity?.source === 'string' && entity.source.trim() &&
+      typeof entity?.target === 'string' && entity.target.trim())
+    .map((entity: any) => ({
+      source: entity.source.trim(),
+      target: entity.target.trim(),
+      aliases: Array.isArray(entity.aliases)
+        ? entity.aliases.filter((alias: unknown) => typeof alias === 'string' && alias.trim())
+        : [],
+      kind: typeof entity.kind === 'string' ? entity.kind : 'other',
+      sourceStatus: 'confirmed-memory',
+    }));
+  if (!graph && !confirmedMappings.length) return null;
+  return { ...(graph || {}), nameMappings: [...graphMappings, ...confirmedMappings] };
+}
+
+/**
  * 运行文学 Reviewer，并对其漏掉的 ID 做一次有界补审。
  * 调用前后都会保护/恢复强规范译名标记；重试只包含 missingIds，不重复提交整批。
  * 此函数只产出修订建议，外层必须再次检查 Run 状态并通过 Store 原子提交候选与 findings。
  */
 export async function runLiteraryReviewWithMissingRetry(input: Record<string, any>, requestId: string, sessionScope?: string): Promise<any> {
   const originalSegments = Array.isArray(input.segments) ? input.segments : [];
-  const protectedReview = protectCanonicalReviewSegments(
-    originalSegments,
-    input.translationBrief && typeof input.translationBrief === 'object'
-      ? (input.translationBrief as any).contextGraph ?? null
-      : null,
-  );
+  const reviewContextGraph = input.translationBrief && typeof input.translationBrief === 'object'
+    ? (input.translationBrief as any).contextGraph ?? null
+    : null;
+  const reviewerCanonicalContext = mergeConfirmedMemoryNameMappings(reviewContextGraph, input.memory);
+  const protectedReview = protectCanonicalReviewSegments(originalSegments, reviewerCanonicalContext);
   const reviewInput = protectedReview.protections.length
     ? { ...input, segments: protectedReview.segments }
     : input;
@@ -1516,8 +1589,8 @@ async function executeRun(projectId: string, runId: string): Promise<void> {
       const contextDeltaParts: ValidatedTranslationContextDelta[] = [];
       let lastError = '模型未返回完整的片段集合';
 
-      // One bounded repair pass: only missing IDs are retried, never the full document.
-      // Retries reuse this batch's scope but still carry the entire explicit input batchContext.
+      // 首次按计划批量请求；响应不完整时只重试缺失 ID，并把重试范围拆成最多 4 段的小组。
+      // 已返回的片段不会重新请求或覆盖；每个小组失败也不会阻断其他小组。
       for (let attempt = 0; attempt < strategy.maxModelAttempts && pending.size > 0; attempt++) {
         if (store.getRunStatus(projectId, runId) === 'cancelled') {
           store.appendEvent(projectId, runId, 'batch.discarded', {
@@ -1525,38 +1598,52 @@ async function executeRun(projectId: string, runId: string): Promise<void> {
           });
           return;
         }
-        try {
-          const current = Array.from(pending.values());
-          const output = await translateBatch(
-            batchContext,
-            current,
-            runId + '-b' + batchIndex + '-a' + attempt,
-            batchIndex,
-            precedingSegments,
-            translationBrief || undefined,
-          );
+        const current = Array.from(pending.values());
+        const retryChunkSize = attempt === 0 ? Math.max(1, current.length) : 4;
+        const currentGroups = chunkMissingTranslationItems(current, retryChunkSize);
+        for (let groupIndex = 0; groupIndex < currentGroups.length; groupIndex++) {
           if (store.getRunStatus(projectId, runId) === 'cancelled') {
             store.appendEvent(projectId, runId, 'batch.discarded', {
-              batchIndex, reason: 'cancelled while model call was in flight',
+              batchIndex, reason: 'cancelled before retry chunk', retryChunkIndex: groupIndex + 1,
             });
             return;
           }
-          for (const [id, translated] of output.translations) {
-            translations.set(id, translated);
-            pending.delete(id);
-          }
-          if (batchContext.run.translationMode === 'literary') contextDeltaParts.push(output.contextDelta);
-          if (pending.size > 0) {
-            lastError = '模型响应缺少 ' + pending.size + ' 个片段；只重试缺失 ID';
-            store.appendEvent(projectId, runId, 'batch.partial', {
-              batchIndex, attempt: attempt + 1, missingIds: Array.from(pending.keys()),
+          const group = currentGroups[groupIndex]!;
+          const callId = runId + '-b' + batchIndex + '-a' + attempt +
+            (currentGroups.length > 1 ? '-r' + (groupIndex + 1) : '');
+          try {
+            const output = await translateBatch(
+              batchContext, group, callId, batchIndex, precedingSegments, translationBrief || undefined,
+            );
+            if (store.getRunStatus(projectId, runId) === 'cancelled') {
+              store.appendEvent(projectId, runId, 'batch.discarded', {
+                batchIndex, reason: 'cancelled while model call was in flight',
+              });
+              return;
+            }
+            for (const [id, translated] of output.translations) {
+              translations.set(id, translated);
+              pending.delete(id);
+            }
+            if (batchContext.run.translationMode === 'literary') contextDeltaParts.push(output.contextDelta);
+            const groupMissing = group.filter((item) => pending.has(item.id)).map((item) => item.id);
+            if (groupMissing.length) {
+              lastError = '模型响应未返回全部片段；尚有 ' + pending.size + ' 段未完成';
+              store.appendEvent(projectId, runId, 'batch.partial', {
+                batchIndex, attempt: attempt + 1,
+                retryChunkIndex: groupIndex + 1, retryChunkCount: currentGroups.length,
+                requestedIds: group.map((item) => item.id),
+                missingIds: groupMissing, remainingMissingCount: pending.size,
+              });
+            }
+          } catch (error) {
+            lastError = error instanceof Error ? error.message : String(error);
+            store.appendEvent(projectId, runId, 'model.call.failed', {
+              batchIndex, attempt: attempt + 1, retryChunkIndex: groupIndex + 1,
+              retryChunkCount: currentGroups.length, requestedIds: group.map((item) => item.id),
+              error: lastError,
             });
           }
-        } catch (error) {
-          lastError = error instanceof Error ? error.message : String(error);
-          store.appendEvent(projectId, runId, 'model.call.failed', {
-            batchIndex, attempt: attempt + 1, error: lastError,
-          });
         }
       }
 
