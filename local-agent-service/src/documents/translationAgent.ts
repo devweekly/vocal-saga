@@ -365,6 +365,40 @@ function canonicalTermPattern(value: string): string {
 }
 
 /**
+ * Reviewer-only safety merge. TranslationBrief remains the authoritative, source/time-scoped
+ * mapping snapshot for initial translation. Reviewers also receive the pinned project-memory
+ * snapshot; merge its explicit user-confirmed names here so a pruned graph cannot make the
+ * Reviewer forget a canonical name that was already selected in the project.
+ * buildCanonicalTermProtections still requires each name/alias to occur in the current source.
+ */
+export function mergeConfirmedMemoryNameMappings(
+  contextGraph: Record<string, unknown> | null | undefined,
+  memoryInput: unknown,
+): Record<string, unknown> | null {
+  const graph = contextGraph && typeof contextGraph === 'object' && !Array.isArray(contextGraph)
+    ? contextGraph : null;
+  const graphMappings = Array.isArray((graph as any)?.nameMappings)
+    ? (graph as any).nameMappings as Array<Record<string, any>> : [];
+  const memory = memoryInput && typeof memoryInput === 'object' && !Array.isArray(memoryInput)
+    ? memoryInput as Record<string, any> : {};
+  const confirmedMappings = (Array.isArray(memory.entities) ? memory.entities : [])
+    .filter((entity: any) => entity?.reviewStatus === 'confirmed' &&
+      typeof entity?.source === 'string' && entity.source.trim() &&
+      typeof entity?.target === 'string' && entity.target.trim())
+    .map((entity: any) => ({
+      source: entity.source.trim(),
+      target: entity.target.trim(),
+      aliases: Array.isArray(entity.aliases)
+        ? entity.aliases.filter((alias: unknown) => typeof alias === 'string' && alias.trim())
+        : [],
+      kind: typeof entity.kind === 'string' ? entity.kind : 'other',
+      sourceStatus: 'confirmed-memory',
+    }));
+  if (!graph && !confirmedMappings.length) return null;
+  return { ...(graph || {}), nameMappings: [...graphMappings, ...confirmedMappings] };
+}
+
+/**
  * Only map terms backed by a source-visible, operational mapping. Conflicting targets for the
  * same source spelling are excluded rather than choosing one nondeterministically.
  */
@@ -1068,12 +1102,11 @@ async function translateBatch(context: any, items: TranslationItem[], requestId:
  */
 export async function runLiteraryReviewWithMissingRetry(input: Record<string, any>, requestId: string, sessionScope?: string): Promise<any> {
   const originalSegments = Array.isArray(input.segments) ? input.segments : [];
-  const protectedReview = protectCanonicalReviewSegments(
-    originalSegments,
-    input.translationBrief && typeof input.translationBrief === 'object'
-      ? (input.translationBrief as any).contextGraph ?? null
-      : null,
-  );
+  const reviewContextGraph = input.translationBrief && typeof input.translationBrief === 'object'
+    ? (input.translationBrief as any).contextGraph ?? null
+    : null;
+  const reviewerCanonicalContext = mergeConfirmedMemoryNameMappings(reviewContextGraph, input.memory);
+  const protectedReview = protectCanonicalReviewSegments(originalSegments, reviewerCanonicalContext);
   const reviewInput = protectedReview.protections.length
     ? { ...input, segments: protectedReview.segments }
     : input;
