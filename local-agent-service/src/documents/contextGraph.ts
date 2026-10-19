@@ -754,18 +754,22 @@ async function runAnalysis(projectId: string, runId: string): Promise<void> {
       sourceLang, targetLang,
       provider: agent.provider, model: agent.model, scan: scanSummary,
     }), runId);
+  const latestPrompt = store.listPrompts(projectId)[0];
+  const taskProfile = getCodeBuddyTaskProfile({ taskProfiles: latestPrompt?.config?.taskProfiles || {} }, 'contextGraph');
   store.appendEvent(projectId, runId, 'context-graph.phase', {
     phase: 'model-analysis', sampleCount: samples.length, chapterCount: chapters.length,
     sourceLang, targetLang,
     provider: agent.provider, model: agent.model || '<runtime-default>',
+    thinkingMode: taskProfile.thinkingMode,
+    thinkingBudgetTokens: taskProfile.thinkingBudgetTokens,
+    effort: taskProfile.effort,
+    fallbackModel: taskProfile.fallbackModel,
     scan: {
       strategyVersion: scanSummary.strategyVersion, nameCandidateCount: scan.nameCandidates.length,
       repeatedPhraseCandidateCount: scan.repeatedPhrases.length,
       dialogueSegmentCount: scan.dialogueSegmentCount, targetedNameCount: samplePlan.diagnostics.targetedNameCount,
     },
   });
-  const latestPrompt = store.listPrompts(projectId)[0];
-  const taskProfile = getCodeBuddyTaskProfile({ taskProfiles: latestPrompt?.config?.taskProfiles || {} }, 'contextGraph');
   const analysisRun = await runAgentStructured(
     { provider: agent.provider, model: agent.model },
     prompt,

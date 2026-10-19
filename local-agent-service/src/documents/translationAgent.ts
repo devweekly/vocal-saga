@@ -849,6 +849,10 @@ async function translateBatch(context: any, items: TranslationItem[], requestId:
     requestId,
     provider: agent.provider,
     model: agent.model || '<runtime-default>',
+    thinkingMode: getCodeBuddyTaskProfile(context.prompt.config || {}, 'translation').thinkingMode,
+    thinkingBudgetTokens: getCodeBuddyTaskProfile(context.prompt.config || {}, 'translation').thinkingBudgetTokens,
+    effort: getCodeBuddyTaskProfile(context.prompt.config || {}, 'translation').effort,
+    fallbackModel: getCodeBuddyTaskProfile(context.prompt.config || {}, 'translation').fallbackModel,
     translationMode: context.run.translationMode,
     sourceLang: context.run.sourceLang,
     targetLang: context.run.targetLang,
@@ -909,6 +913,10 @@ async function translateBatch(context: any, items: TranslationItem[], requestId:
       store.appendEvent(context.project.projectId, context.run.runId, 'model.usage', {
         stage: 'translate', batchIndex, requestId,
         provider: agent.provider, model: agent.model || '<runtime-default>',
+        thinkingMode: getCodeBuddyTaskProfile(context.prompt.config || {}, 'translation').thinkingMode,
+        thinkingBudgetTokens: getCodeBuddyTaskProfile(context.prompt.config || {}, 'translation').thinkingBudgetTokens,
+        effort: getCodeBuddyTaskProfile(context.prompt.config || {}, 'translation').effort,
+        fallbackModel: getCodeBuddyTaskProfile(context.prompt.config || {}, 'translation').fallbackModel,
         ...summarizeTurnUsage(turnUsage),
       });
     }
@@ -916,6 +924,10 @@ async function translateBatch(context: any, items: TranslationItem[], requestId:
     store.appendEvent(context.project.projectId, context.run.runId, 'model.call.failed', {
       stage: 'translate', batchIndex, requestId,
       provider: agent.provider, model: agent.model || '<runtime-default>',
+      thinkingMode: getCodeBuddyTaskProfile(context.prompt.config || {}, 'translation').thinkingMode,
+      thinkingBudgetTokens: getCodeBuddyTaskProfile(context.prompt.config || {}, 'translation').thinkingBudgetTokens,
+      effort: getCodeBuddyTaskProfile(context.prompt.config || {}, 'translation').effort,
+      fallbackModel: getCodeBuddyTaskProfile(context.prompt.config || {}, 'translation').fallbackModel,
       durationMs: Date.now() - requestStartedAt,
       error: (error instanceof Error ? error.message : String(error)).slice(0, 500),
     });

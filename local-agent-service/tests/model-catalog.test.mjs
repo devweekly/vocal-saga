@@ -9,7 +9,7 @@
  * 因此改为只依据 credits 本身判断价格。
  *
  * 选型标准后来从「必须免费」放宽为「够快 + 够便宜」：
- * glm-5.3-flash（0.06）升为首选，space-bunny 加价格闸门（只在 0.08 时用），
+ * glm-5.3-flash（0.06）升为首选，deepseek-v4.1-flash 加价格闸门（只在 0.08 时用），
  * hy3 因为太慢从表里移除并列入排除名单。
  */
 import test from 'node:test';
@@ -44,12 +44,11 @@ test('parseCredits 覆盖三种真实形态', () => {
   assert.equal(parseCredits('1.5'), 1.5);
 });
 
-test('偏好表首位是 space-bunny', () => {
-  assert.equal(PREFERRED_WORKBUDDY_MODEL, 'space-bunny');
+test('偏好表首位是 deepseek-v4.1-flash', () => {
+  assert.equal(PREFERRED_WORKBUDDY_MODEL, 'deepseek-v4.1-flash');
   assert.deepEqual(PREFERRED_MODELS.map((rule) => rule.id), [
-    'space-bunny',
-    'glm-5.3-flash',
     'deepseek-v4.1-flash',
+    'glm-5.3-flash',
     'hy3',
   ]);
 });
@@ -57,37 +56,36 @@ test('偏好表首位是 space-bunny', () => {
 test('首选不看价格：glm-5.3-flash 收费 0.06 也照选', () => {
   const catalog = [
     { id: 'gpt-6-astra', credits: 6.67 },
-    { id: 'deepseek-v4.1-flash', credits: 0 },
     { id: 'glm-5.3-flash', credits: 0.06 },
   ];
   assert.equal(pickPreferredWorkbuddyModel(catalog), 'glm-5.3-flash');
 });
 
-test('首选缺席时退到 space-bunny，但只在 0.08 时', () => {
+test('首选缺席时退到 deepseek-v4.1-flash，但只在 0.08 时', () => {
   const base = [
     { id: 'deepseek-v4.1-flash', credits: 0 },
     { id: 'step-5-preview', credits: 0 },
   ];
   // 目录确认 0.08：采用
   assert.equal(
-    pickPreferredWorkbuddyModel([...base, { id: 'space-bunny', credits: 0.08 }]),
-    'space-bunny',
+    pickPreferredWorkbuddyModel([...base, { id: 'deepseek-v4.1-flash', credits: 0.08 }]),
+    'deepseek-v4.1-flash',
   );
   // 涨价到 0.11：跳过，退到免费的 deepseek
   assert.equal(
-    pickPreferredWorkbuddyModel([...base, { id: 'space-bunny', credits: 0.11 }]),
+    pickPreferredWorkbuddyModel([...base, { id: 'deepseek-v4.1-flash', credits: 0.11 }]),
     'deepseek-v4.1-flash',
   );
   // 降价到 0.05：同样跳过（闸门是精确匹配，不做「小于等于」猜测）
   assert.equal(
-    pickPreferredWorkbuddyModel([...base, { id: 'space-bunny', credits: 0.05 }]),
+    pickPreferredWorkbuddyModel([...base, { id: 'deepseek-v4.1-flash', credits: 0.05 }]),
     'deepseek-v4.1-flash',
   );
 });
 
 test('价格未标注（null）不能满足闸门', () => {
   const catalog = [
-    { id: 'space-bunny', credits: null },
+    { id: 'deepseek-v4.1-flash', credits: null },
     { id: 'step-5-preview', credits: 0 },
   ];
   assert.equal(pickPreferredWorkbuddyModel(catalog), 'step-5-preview');

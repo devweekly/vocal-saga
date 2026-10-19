@@ -25,7 +25,7 @@ export interface CatalogModel {
  * 自动选模型的一条偏好规则。
  *
  * `credits` 是价格闸门：写了就必须**精确等于**该值才采用，省略则不限制价格。
- * 闸门的作用是防止厂商调价后悄悄换成更贵的档位 —— 例如 space-bunny 只在 0.08 时用，
+ * 闸门的作用是防止厂商调价后悄悄换成更贵的档位 —— 例如 deepseek-v4.1-flash 只在 0.08 时用，
  * 一旦涨到 0.11 就跳过，继续往后退。
  */
 export interface PreferredModel {
@@ -38,14 +38,13 @@ export interface PreferredModel {
  *
  * 选型依据是「够快 + 够便宜」，不再强求免费：
  *   - glm-5.3-flash 0.06 credits，目前最快的廉价档，做文档翻译的主模型；
- *   - space-bunny 0.08 credits，速度接近，价格被闸门锁死；
+ *   - deepseek-v4.1-flash 0.08 credits，速度接近，价格被闸门锁死；
  *   - deepseek-v4.1-flash / step-5-preview 作为免费的兜底（deepseek 有时会变成 0.11，那就跳过）。
  * hy3 曾经是免费兜底，但实测太慢（单轮 5s 起步、冷启动 40s+），已从表里移除。
  */
 export const PREFERRED_MODELS: readonly PreferredModel[] = [
-  { id: 'space-bunny', credits: 0.08 },
-  { id: 'glm-5.3-flash' },
   { id: 'deepseek-v4.1-flash', credits: 0 },
+  { id: 'glm-5.3-flash' },
   { id: 'hy3' },
 ];
 

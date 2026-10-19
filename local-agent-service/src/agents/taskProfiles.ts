@@ -41,7 +41,7 @@ const common = {
 export const DEFAULT_CODEBUDDY_TASK_PROFILES: CodeBuddyTaskProfiles = {
   translation: {
     ...common,
-    model: 'space-bunny',
+    model: 'deepseek-v4.1-flash',
     fallbackModel: 'hy3',
     thinkingMode: 'disabled',
     effort: 'low',
