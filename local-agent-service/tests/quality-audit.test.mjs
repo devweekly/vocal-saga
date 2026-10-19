@@ -495,3 +495,138 @@ test('book audit detects surface-rendering drift from validated entity_mentions'
   assert.equal(report.metrics.entityMentionDriftCount, 1);
   assert.equal(finding.repairable, true);
 });
+
+
+test('book audit includes confirmed character-profile names and flags likely English residue without applying changes', () => {
+  const store = getDocumentProjectStore();
+  const segments = [
+    { id: 'yabu-wrong', text: 'Yabu appeared at dawn.', kind: 'paragraph', contextPath: 'Chapter 1' },
+    { id: 'yabu-correct', text: 'Yabu returned after the storm.', kind: 'paragraph', contextPath: 'Chapter 2' },
+    { id: 'title-only', text: 'The lord watched the gate.', kind: 'paragraph', contextPath: 'Chapter 2' },
+    { id: 'english-again', text: 'He tried once more.', kind: 'paragraph', contextPath: 'Chapter 3' },
+    { id: 'english-sentence', text: 'The old man opened the gate slowly.', kind: 'paragraph', contextPath: 'Chapter 3' },
+  ];
+  const project = store.createProject({
+    title: 'Character Voice Name Audit',
+    format: 'txt',
+    sourceFileName: 'character-voice-name-audit.txt',
+    prompt: { translationMode: 'literary', sourceLang: 'en', targetLang: 'zh' },
+    segments,
+  });
+  for (const segment of segments) {
+    const translated = {
+      'yabu-wrong': '矢部清晨出现。',
+      'yabu-correct': '暴风雨后，薮回来了。',
+      'title-only': '那位大人看着大门。',
+      'english-again': '他又试了一次 again。',
+      'english-sentence': 'The old man opened the gate slowly.',
+    }[segment.id];
+    store.saveManualEdit(project.projectId, segment.id, translated);
+  }
+  store.saveLiteraryMemory(project.projectId, {
+    entities: [],
+    relationships: [],
+    styleGuide: {},
+    styleGuideStatus: 'candidate',
+    chapterSummaries: [],
+    recentExamples: [],
+    characterVoices: [{
+      characterId: 'char-yabu',
+      canonicalSourceName: 'Yabu',
+      targetName: '薮',
+      aliases: ['Yabu-san', 'Lord'],
+      status: 'confirmed',
+      useForTranslation: true,
+      voiceCore: {},
+      evidence: [{
+        segmentId: 'yabu-wrong',
+        sourceQuote: 'Yabu appeared at dawn.',
+        dimension: 'register',
+        observation: '本段直接以人物姓名指代。',
+      }],
+      openQuestions: [],
+    }],
+    relationshipVoiceRules: [],
+    voiceAnchors: [],
+  });
+  ensureTestContextGraph(store, project);
+
+  const report = runProjectQualityAudit(project.projectId);
+  assert.ok(report.findings.some((item) =>
+    item.type === 'terminology-drift' && item.segmentIds.includes('yabu-wrong') && item.entity?.target === '薮'),
+  'confirmed names saved only in character/voice profiles must be audited');
+  assert.equal(report.findings.some((item) =>
+    item.type === 'terminology-drift' && item.segmentIds.includes('yabu-correct')), false,
+  'the confirmed target already present in the translation should not be flagged');
+  assert.equal(report.findings.some((item) =>
+    item.type === 'terminology-drift' && item.segmentIds.includes('title-only')), false,
+  'generic title aliases such as Lord must not trigger unrelated name drift');
+  assert.ok(report.findings.some((item) =>
+    item.type === 'english-residue' && item.segmentIds.includes('english-again')),
+  'a common English word left in a Chinese translation should be surfaced');
+  assert.ok(report.findings.some((item) =>
+    item.type === 'english-residue' && item.segmentIds.includes('english-sentence')),
+  'a largely untranslated English sentence should be surfaced');
+  assert.equal(report.metrics.englishResidueCount, 2);
+  assert.equal(store.getSegments(project.projectId, { limit: 10 })
+    .find((item) => item.id === 'yabu-wrong').acceptedTranslation, '矢部清晨出现。',
+    'audit findings must not rewrite an accepted translation');
+});
+
+test('book audit reports conflicting confirmed entity and character-profile translations instead of choosing one', () => {
+  const store = getDocumentProjectStore();
+  const project = store.createProject({
+    title: 'Canonical Name Conflict Audit',
+    format: 'txt',
+    sourceFileName: 'canonical-name-conflict-audit.txt',
+    prompt: { translationMode: 'literary', sourceLang: 'en', targetLang: 'zh' },
+    segments: [
+      { id: 'conflict-yabu', text: 'Yabu returned before sunset.', kind: 'paragraph', contextPath: 'Chapter 1' },
+    ],
+  });
+  store.saveManualEdit(project.projectId, 'conflict-yabu', '矢部在日落前回来了。');
+  store.saveLiteraryMemory(project.projectId, {
+    entities: [{
+      source: 'Yabu',
+      target: '矢部',
+      aliases: [],
+      kind: 'person',
+      reviewStatus: 'confirmed',
+      evidence: 'Yabu returned before sunset.',
+    }],
+    relationships: [],
+    styleGuide: {},
+    styleGuideStatus: 'candidate',
+    chapterSummaries: [],
+    recentExamples: [],
+    characterVoices: [{
+      characterId: 'char-yabu-conflict',
+      canonicalSourceName: 'Yabu',
+      targetName: '薮',
+      aliases: [],
+      status: 'confirmed',
+      useForTranslation: true,
+      voiceCore: {},
+      evidence: [{
+        segmentId: 'conflict-yabu',
+        sourceQuote: 'Yabu returned before sunset.',
+        dimension: 'register',
+        observation: '人物被原文姓名指代。',
+      }],
+      openQuestions: [],
+    }],
+    relationshipVoiceRules: [],
+    voiceAnchors: [],
+  });
+  ensureTestContextGraph(store, project);
+
+  const report = runProjectQualityAudit(project.projectId);
+  const conflict = report.findings.find((item) =>
+    item.type === 'canonical-name-mapping-conflict' && item.segmentIds.includes('conflict-yabu'));
+  assert.ok(conflict, 'contradictory confirmed targets must be reported explicitly');
+  assert.deepEqual(new Set(conflict.entity.targets), new Set(['矢部', '薮']));
+  assert.equal(conflict.repairable, false, 'the audit must not guess which stored mapping is authoritative');
+  assert.equal(report.findings.some((item) =>
+    item.type === 'terminology-drift' && item.segmentIds.includes('conflict-yabu')), false,
+  'a stored mapping conflict should not be mislabeled as a translation defect');
+});
