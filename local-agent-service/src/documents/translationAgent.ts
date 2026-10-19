@@ -16,6 +16,7 @@ import { runLiteraryReview } from '../literary.ts';
 import { getDocumentProjectStore, normalizeDocumentTranslationStrategy, type DocumentTranslationStrategy } from './projectStore.ts';
 import { buildProjectVoiceContext, sanitizeProjectLiteraryMemory } from './voiceContext.ts';
 import { buildTranslationBrief, summarizeTranslationBrief, type TranslationBrief } from './translationBrief.ts';
+import { runProjectQualityAudit, createQualityRepairRun } from './qualityAudit.ts';
 import { logError, logInfo, logWarn } from '../log.ts';
 import {
   combineTranslationContextDeltas,
@@ -1916,12 +1917,33 @@ async function executeRun(projectId: string, runId: string): Promise<void> {
       stage: 'validate',
       label: '结果结构与片段映射检查完成',
     });
-    const finishedRun = store.finishRun(projectId, runId);
+    let finishedRun = store.finishRun(projectId, runId);
 
-    // 只在本次文学翻译完整结束后，将有证据的模型候选并入项目记忆；只增加 suggested 记录，
+    // 候选采纳属于服务端 Run 的最终化，不依赖浏览器工作区保持打开。
+    // Store 的事务仍会检查来源版本与更新过的人工修订，不允许自动采纳覆盖人工版本。
+    if (finishedRun.status === 'awaiting_acceptance' && Number(finishedRun.counts?.candidate || 0) > 0) {
+      try {
+        finishedRun = store.acceptCandidates(projectId, runId);
+        store.appendEvent(projectId, runId, 'translations.auto-accepted', {
+          acceptedCount: Number(finishedRun.counts?.accepted || 0),
+          remainingCandidateCount: Number(finishedRun.counts?.candidate || 0),
+          preservedManualCount: Number(finishedRun.counts?.manualPreserved || 0),
+          policy: 'validated-finalization; manual-edits-and-source-hashes-protected',
+        });
+      } catch (acceptError) {
+        // Translation candidates stay durable and the extension recovery path can retry the same idempotent operation.
+        store.appendEvent(projectId, runId, 'stage.warning', {
+          stage: 'acceptance',
+          warning: '服务端自动采纳未完成，候选已保留供恢复：' +
+            (acceptError instanceof Error ? acceptError.message : String(acceptError)),
+        });
+      }
+    }
+
+    // 只把当前来源版本的证据候选并入项目记忆；只增加 suggested 记录，
     // 不会覆盖人工确认的人物、译名或关系。若来源版本已变化，则保留在本 Run 的增量账本中，
     // 不把旧来源证据写入当前项目记忆。
-    if (context.run.translationMode === 'literary' && ['completed', 'awaiting_acceptance'].includes(finishedRun.status)) {
+    if (context.run.translationMode === 'literary' && ['completed', 'partial'].includes(finishedRun.status)) {
       try {
         const projectContext = store.getProjectContext(projectId);
         if (projectContext.currentSourceRevisionId !== context.run.sourceRevisionId) {
@@ -1971,6 +1993,58 @@ async function executeRun(projectId: string, runId: string): Promise<void> {
       // 本运行累计 token 消耗（仅初译模型调用；审校/预处理各自有 model.usage 事件）。
       usage: summarizeTurnUsage(takeRunUsage(runId)),
     });
+
+    // 完整/部分运行结束后自动检查全书；只自动返工确定性缺译，最多一轮。
+    // 启发式英文残留、数字差异、重复表达和规范名冲突留给有界 Reviewer/非阻塞报告处理。
+    if (['completed', 'partial'].includes(finishedRun.status)) {
+      try {
+        const audit = runProjectQualityAudit(projectId);
+        const automationScope = (context.run.scope && typeof context.run.scope === 'object')
+          ? (context.run.scope as Record<string, any>).automation : undefined;
+        const isAutomaticRepairPass = automationScope?.kind === 'quality-audit-repair' &&
+          Number(automationScope.pass) >= 1;
+        const missingFindings = !isAutomaticRepairPass
+          ? (Array.isArray(audit.findings) ? audit.findings : [])
+              .filter((finding: any) => finding.type === 'missing-translation' && finding.repairable === true)
+              .slice(0, 100)
+          : [];
+        if (missingFindings.length) {
+          const repair = createQualityRepairRun(
+            projectId,
+            String(audit.auditId),
+            missingFindings.map((finding: any) => String(finding.findingId)),
+            [],
+            { automatic: true, parentRunId: runId },
+          );
+          store.appendEvent(projectId, runId, 'quality-audit.auto-repair-scheduled', {
+            auditId: audit.auditId,
+            repairRunId: repair.run.runId,
+            segmentCount: repair.segmentIds.length,
+            maximumAutomaticPasses: 1,
+            findingType: 'missing-translation',
+          });
+          startProjectTranslationRun(projectId, repair.run.runId);
+        } else {
+          store.appendEvent(projectId, runId, 'quality-audit.auto-disposition', {
+            auditId: audit.auditId,
+            findingCount: Array.isArray(audit.findings) ? audit.findings.length : 0,
+            automaticRepairSkipped: isAutomaticRepairPass ? 'automatic-repair-pass-limit' : 'no-deterministic-missing-translation',
+            remainingFindingsAreNonBlocking: true,
+          });
+        }
+      } catch (auditError) {
+        // Quality audit is an additional safety net: it must never turn persisted translations into a failed Run.
+        try {
+          store.appendEvent(projectId, runId, 'stage.warning', {
+            stage: 'quality-audit',
+            warning: '译文已保存，但自动全书审计未完成：' +
+              (auditError instanceof Error ? auditError.message : String(auditError)),
+          });
+        } catch {
+          logWarn('document-agent', 'automatic quality audit failed and warning could not be persisted');
+        }
+      }
+    }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     try {
