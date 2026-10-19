@@ -1068,44 +1068,116 @@ async function translateBatch(context: any, items: TranslationItem[], requestId:
 export function mergeConfirmedMemoryNameMappings(
   contextGraph: Record<string, unknown> | null | undefined,
   memoryInput: unknown,
+  sourceSegments?: Array<{ source?: string; text?: string }>,
 ): Record<string, unknown> | null {
   const graph = contextGraph && typeof contextGraph === 'object' && !Array.isArray(contextGraph)
     ? contextGraph : null;
-  const graphMappings = Array.isArray((graph as any)?.nameMappings)
+  const rawGraphMappings = Array.isArray((graph as any)?.nameMappings)
     ? (graph as any).nameMappings as Array<Record<string, any>> : [];
   const memory = memoryInput && typeof memoryInput === 'object' && !Array.isArray(memoryInput)
     ? memoryInput as Record<string, any> : {};
+  const hasSourceScope = Array.isArray(sourceSegments);
+  const sourceTexts = hasSourceScope
+    ? sourceSegments!.map((segment) => String(segment?.source ?? segment?.text ?? '')).filter(Boolean)
+    : [];
+  const visibleName = (value: unknown) => {
+    if (typeof value !== 'string' || !value.trim()) return false;
+    if (!hasSourceScope) return true;
+    let pattern: RegExp;
+    try { pattern = new RegExp(canonicalTermPattern(value), 'iu'); } catch { return false; }
+    return sourceTexts.some((source) => pattern.test(source));
+  };
+  const safeAliases = (source: string, aliasesInput: unknown) => {
+    const aliases = (Array.isArray(aliasesInput) ? aliasesInput : [])
+      .filter((alias): alias is string => typeof alias === 'string' && alias.trim())
+      .map((alias) => alias.trim())
+      .filter((alias, index) =>
+        !isGenericCanonicalNameForm(alias) &&
+        isCompatibleCanonicalAlias(source, alias) &&
+        (!hasSourceScope || visibleName(alias)));
+    return Array.from(new Map(aliases.map((alias) => [normalizeCanonicalTerm(alias), alias])).values());
+  };
+  const includeMapping = (source: string, aliases: string[]) =>
+    !hasSourceScope || visibleName(source) || aliases.some(visibleName);
+  const graphMappings = rawGraphMappings.flatMap((mapping) => {
+    const source = typeof mapping?.source === 'string' ? mapping.source.trim() : '';
+    const target = typeof mapping?.target === 'string' ? mapping.target.trim() : '';
+    if (!source || !target || isGenericCanonicalNameForm(source)) return [];
+    const aliases = safeAliases(source, mapping.aliases);
+    if (!includeMapping(source, aliases)) return [];
+    return [{ ...mapping, aliases }];
+  });
   const confirmedEntityMappings = (Array.isArray(memory.entities) ? memory.entities : [])
     .filter((entity: any) => entity?.reviewStatus === 'confirmed' &&
       typeof entity?.source === 'string' && entity.source.trim() &&
-      typeof entity?.target === 'string' && entity.target.trim())
-    .map((entity: any) => ({
-      source: entity.source.trim(),
-      target: entity.target.trim(),
-      aliases: Array.isArray(entity.aliases)
-        ? entity.aliases.filter((alias: unknown) => typeof alias === 'string' && alias.trim())
-        : [],
-      kind: typeof entity.kind === 'string' ? entity.kind : 'other',
-      sourceStatus: 'confirmed-memory',
-    }));
-  // 人物管理里的“规范原文名/译名”是独立的权威入口。旧数据或整理过程可能只保存
-  // characterVoices，而没有对应 entities；审校仍应保护已确认人物名，但绝不能强制候选项。
+      typeof entity?.target === 'string' && entity.target.trim() &&
+      !isGenericCanonicalNameForm(entity.source))
+    .flatMap((entity: any) => {
+      const source = entity.source.trim();
+      const aliases = safeAliases(source, entity.aliases);
+      if (!includeMapping(source, aliases)) return [];
+      return [{
+        source,
+        target: entity.target.trim(),
+        aliases,
+        kind: typeof entity.kind === 'string' ? entity.kind : 'other',
+        sourceStatus: 'confirmed-memory',
+      }];
+    });
+  // 人物管理里的规范原文名/译名是独立的权威入口。旧数据可能只保存 characterVoices，
+  // 没有对应 entities；已确认档案可保护译名，但候选档案只能进入软提示而非强制保护。
   const confirmedCharacterMappings = (Array.isArray(memory.characterVoices) ? memory.characterVoices : [])
     .filter((profile: any) => profile?.status === 'confirmed' && profile?.useForTranslation !== false &&
       typeof profile?.canonicalSourceName === 'string' && profile.canonicalSourceName.trim() &&
-      typeof profile?.targetName === 'string' && profile.targetName.trim())
-    .map((profile: any) => ({
-      source: profile.canonicalSourceName.trim(),
-      target: profile.targetName.trim(),
-      aliases: Array.isArray(profile.aliases)
-        ? profile.aliases.filter((alias: unknown) => typeof alias === 'string' && alias.trim())
-        : [],
-      kind: 'character',
-      sourceStatus: 'confirmed-memory',
-    }));
-  const confirmedMappings = [...confirmedEntityMappings, ...confirmedCharacterMappings];
-  if (!graph && !confirmedMappings.length) return null;
-  return { ...(graph || {}), nameMappings: [...graphMappings, ...confirmedMappings] };
+      typeof profile?.targetName === 'string' && profile.targetName.trim() &&
+      !isGenericCanonicalNameForm(profile.canonicalSourceName))
+    .flatMap((profile: any) => {
+      const source = profile.canonicalSourceName.trim();
+      const aliases = safeAliases(source, profile.aliases);
+      if (!includeMapping(source, aliases)) return [];
+      return [{
+        source,
+        target: profile.targetName.trim(),
+        aliases,
+        kind: 'character',
+        sourceStatus: 'confirmed-memory',
+      }];
+    });
+  const combinedMappings = [...graphMappings, ...confirmedEntityMappings, ...confirmedCharacterMappings];
+  if (!graph && !combinedMappings.length) return null;
+
+  // A pinned graph mapping and pinned memory may contradict one another. Remove exact-source
+  // conflicts from the Reviewer prompt; do not let the model choose based on list order.
+  const targetsBySource = new Map<string, Set<string>>();
+  for (const mapping of combinedMappings) {
+    const key = normalizeCanonicalTerm(String(mapping.source || ''));
+    const values = targetsBySource.get(key) || new Set<string>();
+    values.add(normalizeCanonicalTerm(String(mapping.target || '')));
+    targetsBySource.set(key, values);
+  }
+  const conflicted = new Set(Array.from(targetsBySource.entries())
+    .filter(([, targets]) => targets.size > 1).map(([key]) => key));
+  const nameMappings = combinedMappings.filter((mapping) =>
+    !conflicted.has(normalizeCanonicalTerm(String(mapping.source || ''))));
+  const result: Record<string, unknown> = { ...(graph || {}), nameMappings };
+  if (conflicted.size) {
+    const conflicts = Array.from(targetsBySource.entries())
+      .filter(([key]) => conflicted.has(key))
+      .map(([source, targets]) => ({
+        source,
+        targets: Array.from(targets),
+      }));
+    result.canonicalNameMappingConflicts = [
+      ...(Array.isArray((graph as any)?.canonicalNameMappingConflicts) ? (graph as any).canonicalNameMappingConflicts : []),
+      ...conflicts,
+    ];
+    const constraints = Array.isArray((graph as any)?.constraints) ? (graph as any).constraints : [];
+    result.constraints = Array.from(new Set([
+      ...constraints,
+      'Conflicting confirmed canonical-name mappings are listed in canonicalNameMappingConflicts. Do not choose a target arbitrarily; request project-memory correction.',
+    ]));
+  }
+  return result;
 }
 
 /**
@@ -1118,7 +1190,7 @@ export async function runLiteraryReviewWithMissingRetry(input: Record<string, an
   const reviewContextGraph = input.translationBrief && typeof input.translationBrief === 'object'
     ? (input.translationBrief as any).contextGraph ?? null
     : null;
-  const reviewerCanonicalContext = mergeConfirmedMemoryNameMappings(reviewContextGraph, input.memory);
+  const reviewerCanonicalContext = mergeConfirmedMemoryNameMappings(reviewContextGraph, input.memory, originalSegments);
   const protectedReview = protectCanonicalReviewSegments(originalSegments, reviewerCanonicalContext);
   const reviewInput = protectedReview.protections.length
     ? { ...input, segments: protectedReview.segments }
