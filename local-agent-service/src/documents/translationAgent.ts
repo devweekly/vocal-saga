@@ -301,6 +301,16 @@ export function buildBatches(
   return batches;
 }
 
+/** Split only missing translation items into bounded retry groups, preserving order and IDs. */
+export function chunkMissingTranslationItems<T>(items: readonly T[], chunkSize = 4): T[][] {
+  const size = Math.max(1, Math.floor(chunkSize) || 1);
+  const groups: T[][] = [];
+  for (let offset = 0; offset < items.length; offset += size) {
+    groups.push(items.slice(offset, offset + size));
+  }
+  return groups;
+}
+
 export interface CanonicalTermProtection {
   marker: string;
   sourceForm: string;
@@ -309,6 +319,68 @@ export interface CanonicalTermProtection {
 
 function normalizeCanonicalTerm(value: string): string {
   return value.normalize('NFKC').toLocaleLowerCase().replace(/[’]/g, "'").replace(/\s+/g, ' ').trim();
+}
+
+// 单独出现的职衔、泛称和指代不是人物规范名。它们的译法依赖语境，不能拿某一角色的译名
+// 在全文做确定性替换（例如 Lord→某个人名、General→另一人物名、the ship→船名）。
+const NON_CANONICAL_NAME_FORMS = new Set([
+  'lord', 'general', 'sire', 'council', 'regent', 'regents', 'ship',
+  'sir', 'madam', 'madame', 'captain', 'lady', 'samurai',
+]);
+
+function isGenericCanonicalNameForm(value: string): boolean {
+  const normalized = normalizeCanonicalTerm(value)
+    .replace(/^(?:the|a|an)\s+/, '')
+    .replace(/(?:['’]s|[.!?]+)$/g, '')
+    .trim();
+  return NON_CANONICAL_NAME_FORMS.has(normalized);
+}
+
+function canonicalIdentityTokens(value: string): string[] {
+  const ignored = new Set(['the', 'a', 'an', 'lord', 'general', 'sire', 'sir', 'lady', 'madam', 'madame', 'captain', 'master', 'mr', 'mrs', 'ms', 'san', 'sama', 'of']);
+  return normalizeCanonicalTerm(value)
+    .replace(/['’]s\b/g, '')
+    .match(/[a-z0-9]+/g)?.filter((token) => !ignored.has(token)) || [];
+}
+
+/** Drop aliases that point at a different named entity instead of this entity's own source name. */
+function isCompatibleCanonicalAlias(canonicalSource: string, alias: string): boolean {
+  const sourceTokens = canonicalIdentityTokens(canonicalSource);
+  const aliasTokens = canonicalIdentityTokens(alias);
+  if (!sourceTokens.length || !aliasTokens.length) return true;
+  return sourceTokens.some((sourceToken) => aliasTokens.some((aliasToken) =>
+    sourceToken === aliasToken || sourceToken.startsWith(aliasToken) || aliasToken.startsWith(sourceToken)));
+}
+
+/**
+ * Use exactly the same canonical-name resolver for translation and both Reviewer stages.
+ * Confirmed project-memory mappings supplement the temporally scoped Context Graph; candidate
+ * memory entries stay advisory and are never elevated by this adapter.
+ */
+export function resolveCanonicalNameContext(
+  contextGraph: Record<string, unknown> | null | undefined,
+  memoryInput: unknown,
+): Record<string, unknown> | null {
+  const graph = contextGraph && typeof contextGraph === 'object' && !Array.isArray(contextGraph)
+    ? contextGraph : null;
+  const graphMappings = Array.isArray((graph as any)?.nameMappings)
+    ? (graph as any).nameMappings as Array<Record<string, any>> : [];
+  const memory = memoryInput && typeof memoryInput === 'object' && !Array.isArray(memoryInput)
+    ? memoryInput as Record<string, any> : {};
+  const memoryMappings = (Array.isArray(memory.entities) ? memory.entities : [])
+    .filter((entity: any) => entity?.reviewStatus === 'confirmed' &&
+      typeof entity?.source === 'string' && entity.source.trim() &&
+      typeof entity?.target === 'string' && entity.target.trim())
+    .map((entity: any) => ({
+      source: entity.source.trim(),
+      target: entity.target.trim(),
+      aliases: Array.isArray(entity.aliases) ? entity.aliases.filter((alias: unknown) =>
+        typeof alias === 'string' && isCompatibleCanonicalAlias(entity.source, alias)) : [],
+      kind: typeof entity.kind === 'string' ? entity.kind : 'other',
+      sourceStatus: 'confirmed-memory',
+    }));
+  if (!graph && !memoryMappings.length) return null;
+  return { ...(graph || {}), nameMappings: [...graphMappings, ...memoryMappings] };
 }
 
 function escapeCanonicalTermRegex(value: string): string {
@@ -344,8 +416,11 @@ export function buildCanonicalTermProtections(
   const conflictingNames = new Set<string>();
   for (const mapping of active) {
     const target = String(mapping.target).trim();
-    const forms = [String(mapping.source), ...(Array.isArray(mapping.aliases) ? mapping.aliases : [])]
-      .filter((value): value is string => typeof value === 'string' && !!value.trim());
+    const canonicalSource = String(mapping.source).trim();
+    const forms = [canonicalSource, ...(Array.isArray(mapping.aliases) ? mapping.aliases : [])]
+      .filter((value): value is string => typeof value === 'string' && !!value.trim())
+      .filter((value) => !isGenericCanonicalNameForm(value))
+      .filter((value) => value === canonicalSource || isCompatibleCanonicalAlias(canonicalSource, value));
     for (const rawForm of forms) {
       const sourceForm = rawForm.trim();
       const key = normalizeCanonicalTerm(sourceForm);
@@ -795,19 +870,7 @@ async function translateBatch(context: any, items: TranslationItem[], requestId:
   const agent = parseAgentModel(context.run.model || 'auto', context.run.provider || 'workbuddy');
   const contextGraph = translationBrief?.contextGraph ?? null;
   const memory = context.memory && typeof context.memory === 'object' ? context.memory as Record<string, any> : {};
-  // 项目文学记忆中已确认的专名，即使 Context Graph 尚未注入对应映射，也作为 confirmed-memory
-  // 参与确定性保护，避免同一运行内译名漂移。候选映射仍不强制。
-  const memoryEntityMappings = (Array.isArray(memory.entities) ? memory.entities : [])
-    .filter((entity: any) => entity?.reviewStatus === 'confirmed' && entity?.source && entity?.target)
-    .map((entity: any) => ({
-      source: entity.source,
-      target: entity.target,
-      aliases: Array.isArray(entity.aliases) ? entity.aliases : [],
-      sourceStatus: 'confirmed-memory',
-    }));
-  const combinedContextGraph = memoryEntityMappings.length
-    ? { ...(contextGraph || {}), nameMappings: [...(Array.isArray((contextGraph as any)?.nameMappings) ? (contextGraph as any).nameMappings : []), ...memoryEntityMappings] }
-    : contextGraph;
+  const combinedContextGraph = resolveCanonicalNameContext(contextGraph, memory);
   const termProtections = context.run.translationMode === 'literary'
     ? buildCanonicalTermProtections(items, combinedContextGraph)
     : [];
@@ -1022,12 +1085,11 @@ async function translateBatch(context: any, items: TranslationItem[], requestId:
  */
 export async function runLiteraryReviewWithMissingRetry(input: Record<string, any>, requestId: string, sessionScope?: string): Promise<any> {
   const originalSegments = Array.isArray(input.segments) ? input.segments : [];
-  const protectedReview = protectCanonicalReviewSegments(
-    originalSegments,
-    input.translationBrief && typeof input.translationBrief === 'object'
-      ? (input.translationBrief as any).contextGraph ?? null
-      : null,
-  );
+  const reviewContextGraph = input.translationBrief && typeof input.translationBrief === 'object'
+    ? (input.translationBrief as any).contextGraph ?? null
+    : null;
+  const canonicalContext = resolveCanonicalNameContext(reviewContextGraph, input.memory);
+  const protectedReview = protectCanonicalReviewSegments(originalSegments, canonicalContext);
   const reviewInput = protectedReview.protections.length
     ? { ...input, segments: protectedReview.segments }
     : input;
@@ -1513,8 +1575,8 @@ async function executeRun(projectId: string, runId: string): Promise<void> {
       const contextDeltaParts: ValidatedTranslationContextDelta[] = [];
       let lastError = '模型未返回完整的片段集合';
 
-      // One bounded repair pass: only missing IDs are retried, never the full document.
-      // Retries reuse this batch's scope but still carry the entire explicit input batchContext.
+      // 首次按计划批量请求；响应不完整时只重试缺失 ID，并将重试范围拆成最多 4 段的小组。
+      // 不重新提交已经拿到译文的片段，也不改变原有的并发/持久化边界。
       for (let attempt = 0; attempt < strategy.maxModelAttempts && pending.size > 0; attempt++) {
         if (store.getRunStatus(projectId, runId) === 'cancelled') {
           store.appendEvent(projectId, runId, 'batch.discarded', {
@@ -1522,38 +1584,51 @@ async function executeRun(projectId: string, runId: string): Promise<void> {
           });
           return;
         }
-        try {
-          const current = Array.from(pending.values());
-          const output = await translateBatch(
-            batchContext,
-            current,
-            runId + '-b' + batchIndex + '-a' + attempt,
-            batchIndex,
-            precedingSegments,
-            translationBrief || undefined,
-          );
+        const current = Array.from(pending.values());
+        const retryChunkSize = attempt === 0 ? Math.max(1, current.length) : 4;
+        const currentGroups = chunkMissingTranslationItems(current, retryChunkSize);
+        for (let groupIndex = 0; groupIndex < currentGroups.length; groupIndex++) {
           if (store.getRunStatus(projectId, runId) === 'cancelled') {
             store.appendEvent(projectId, runId, 'batch.discarded', {
-              batchIndex, reason: 'cancelled while model call was in flight',
+              batchIndex, reason: 'cancelled before retry chunk', retryChunkIndex: groupIndex,
             });
             return;
           }
-          for (const [id, translated] of output.translations) {
-            translations.set(id, translated);
-            pending.delete(id);
-          }
-          if (batchContext.run.translationMode === 'literary') contextDeltaParts.push(output.contextDelta);
-          if (pending.size > 0) {
-            lastError = '模型响应缺少 ' + pending.size + ' 个片段；只重试缺失 ID';
-            store.appendEvent(projectId, runId, 'batch.partial', {
-              batchIndex, attempt: attempt + 1, missingIds: Array.from(pending.keys()),
+          const group = currentGroups[groupIndex]!;
+          const callId = runId + '-b' + batchIndex + '-a' + attempt +
+            (currentGroups.length > 1 ? '-r' + (groupIndex + 1) : '');
+          try {
+            const output = await translateBatch(
+              batchContext, group, callId, batchIndex, precedingSegments, translationBrief || undefined,
+            );
+            if (store.getRunStatus(projectId, runId) === 'cancelled') {
+              store.appendEvent(projectId, runId, 'batch.discarded', {
+                batchIndex, reason: 'cancelled while model call was in flight',
+              });
+              return;
+            }
+            for (const [id, translated] of output.translations) {
+              translations.set(id, translated);
+              pending.delete(id);
+            }
+            if (batchContext.run.translationMode === 'literary') contextDeltaParts.push(output.contextDelta);
+            const groupMissing = group.filter((item) => pending.has(item.id)).map((item) => item.id);
+            if (groupMissing.length) {
+              lastError = '模型响应未返回全部片段；尚有 ' + pending.size + ' 段未完成';
+              store.appendEvent(projectId, runId, 'batch.partial', {
+                batchIndex, attempt: attempt + 1, retryChunkIndex: groupIndex + 1,
+                retryChunkCount: currentGroups.length, requestedIds: group.map((item) => item.id),
+                missingIds: groupMissing, remainingMissingCount: pending.size,
+              });
+            }
+          } catch (error) {
+            lastError = error instanceof Error ? error.message : String(error);
+            store.appendEvent(projectId, runId, 'model.call.failed', {
+              batchIndex, attempt: attempt + 1, retryChunkIndex: groupIndex + 1,
+              retryChunkCount: currentGroups.length, requestedIds: group.map((item) => item.id),
+              error: lastError,
             });
           }
-        } catch (error) {
-          lastError = error instanceof Error ? error.message : String(error);
-          store.appendEvent(projectId, runId, 'model.call.failed', {
-            batchIndex, attempt: attempt + 1, error: lastError,
-          });
         }
       }
 
@@ -1772,9 +1847,14 @@ async function executeRun(projectId: string, runId: string): Promise<void> {
       }
     }
 
+    const finalCounts = finishedRun.counts || {};
+    logInfo('document-agent', '运行结束 · 状态 ' + finishedRun.status +
+      ' · 候选 ' + Number(finalCounts.candidate || 0) +
+      ' · 已接受 ' + Number(finalCounts.accepted || 0) +
+      ' · 未完成 ' + Number(finalCounts.failed || 0));
     store.appendEvent(projectId, runId, 'run.finished', {
       status: finishedRun.status,
-      counts: finishedRun.counts || {},
+      counts: finalCounts,
       error: finishedRun.error || null,
       // 本运行累计 token 消耗（仅初译模型调用；审校/预处理各自有 model.usage 事件）。
       usage: summarizeTurnUsage(takeRunUsage(runId)),
