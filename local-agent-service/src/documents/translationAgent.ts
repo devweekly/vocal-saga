@@ -846,6 +846,9 @@ function parseTranslations(value: unknown, expectedIds: Set<string>): {
 async function translateBatch(context: any, items: TranslationItem[], requestId: string, batchIndex: number, precedingSegments: TranslationItem[] = [], translationBrief?: TranslationBrief): Promise<{ translations: Map<string, string>; contextDelta: ValidatedTranslationContextDelta }> {
   const agent = parseAgentModel(context.run.model || 'auto', context.run.provider || 'workbuddy');
   const contextGraph = translationBrief?.contextGraph ?? null;
+  // Read the run-pinned memory for audit counts only. Canonical masking remains bound to the
+  // TranslationBrief snapshot used by buildUserPrompt and marker validation.
+  const memory = context.memory && typeof context.memory === 'object' ? context.memory as Record<string, any> : {};
   // TranslationBrief is the single mapping snapshot for the model prompt, marker validation,
   // and both Reviewers. Do not append unfiltered memory mappings here: that made the validator
   // require markers that buildUserPrompt had never sent, turning otherwise valid segments into failures.
