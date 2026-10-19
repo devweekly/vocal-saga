@@ -1586,8 +1586,8 @@ async function executeRun(projectId: string, runId: string): Promise<void> {
       const contextDeltaParts: ValidatedTranslationContextDelta[] = [];
       let lastError = '模型未返回完整的片段集合';
 
-      // One bounded repair pass: only missing IDs are retried, never the full document.
-      // Retries reuse this batch's scope but still carry the entire explicit input batchContext.
+      // 首次按计划批量请求；响应不完整时只重试缺失 ID，并把重试范围拆成最多 4 段的小组。
+      // 已返回的片段不会重新请求或覆盖；每个小组失败也不会阻断其他小组。
       for (let attempt = 0; attempt < strategy.maxModelAttempts && pending.size > 0; attempt++) {
         if (store.getRunStatus(projectId, runId) === 'cancelled') {
           store.appendEvent(projectId, runId, 'batch.discarded', {
@@ -1595,38 +1595,52 @@ async function executeRun(projectId: string, runId: string): Promise<void> {
           });
           return;
         }
-        try {
-          const current = Array.from(pending.values());
-          const output = await translateBatch(
-            batchContext,
-            current,
-            runId + '-b' + batchIndex + '-a' + attempt,
-            batchIndex,
-            precedingSegments,
-            translationBrief || undefined,
-          );
+        const current = Array.from(pending.values());
+        const retryChunkSize = attempt === 0 ? Math.max(1, current.length) : 4;
+        const currentGroups = chunkMissingTranslationItems(current, retryChunkSize);
+        for (let groupIndex = 0; groupIndex < currentGroups.length; groupIndex++) {
           if (store.getRunStatus(projectId, runId) === 'cancelled') {
             store.appendEvent(projectId, runId, 'batch.discarded', {
-              batchIndex, reason: 'cancelled while model call was in flight',
+              batchIndex, reason: 'cancelled before retry chunk', retryChunkIndex: groupIndex + 1,
             });
             return;
           }
-          for (const [id, translated] of output.translations) {
-            translations.set(id, translated);
-            pending.delete(id);
-          }
-          if (batchContext.run.translationMode === 'literary') contextDeltaParts.push(output.contextDelta);
-          if (pending.size > 0) {
-            lastError = '模型响应缺少 ' + pending.size + ' 个片段；只重试缺失 ID';
-            store.appendEvent(projectId, runId, 'batch.partial', {
-              batchIndex, attempt: attempt + 1, missingIds: Array.from(pending.keys()),
+          const group = currentGroups[groupIndex]!;
+          const callId = runId + '-b' + batchIndex + '-a' + attempt +
+            (currentGroups.length > 1 ? '-r' + (groupIndex + 1) : '');
+          try {
+            const output = await translateBatch(
+              batchContext, group, callId, batchIndex, precedingSegments, translationBrief || undefined,
+            );
+            if (store.getRunStatus(projectId, runId) === 'cancelled') {
+              store.appendEvent(projectId, runId, 'batch.discarded', {
+                batchIndex, reason: 'cancelled while model call was in flight',
+              });
+              return;
+            }
+            for (const [id, translated] of output.translations) {
+              translations.set(id, translated);
+              pending.delete(id);
+            }
+            if (batchContext.run.translationMode === 'literary') contextDeltaParts.push(output.contextDelta);
+            const groupMissing = group.filter((item) => pending.has(item.id)).map((item) => item.id);
+            if (groupMissing.length) {
+              lastError = '模型响应未返回全部片段；尚有 ' + pending.size + ' 段未完成';
+              store.appendEvent(projectId, runId, 'batch.partial', {
+                batchIndex, attempt: attempt + 1,
+                retryChunkIndex: groupIndex + 1, retryChunkCount: currentGroups.length,
+                requestedIds: group.map((item) => item.id),
+                missingIds: groupMissing, remainingMissingCount: pending.size,
+              });
+            }
+          } catch (error) {
+            lastError = error instanceof Error ? error.message : String(error);
+            store.appendEvent(projectId, runId, 'model.call.failed', {
+              batchIndex, attempt: attempt + 1, retryChunkIndex: groupIndex + 1,
+              retryChunkCount: currentGroups.length, requestedIds: group.map((item) => item.id),
+              error: lastError,
             });
           }
-        } catch (error) {
-          lastError = error instanceof Error ? error.message : String(error);
-          store.appendEvent(projectId, runId, 'model.call.failed', {
-            batchIndex, attempt: attempt + 1, error: lastError,
-          });
         }
       }
 
