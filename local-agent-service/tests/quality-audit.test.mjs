@@ -667,3 +667,51 @@ test('quality audit is isolated per project and partial runs do not block auditi
   assert.doesNotThrow(() => runProjectQualityAudit(activeProject.projectId),
     'partial is a terminal run state; accepted translations and missing segments should still be auditable');
 });
+
+
+test('quality repair rejects an audit finding after its accepted translation has been manually corrected', () => {
+  const store = getDocumentProjectStore();
+  const project = store.createProject({
+    title: 'Stale Quality Audit Snapshot Test',
+    format: 'txt',
+    sourceFileName: 'stale-quality-audit-snapshot.txt',
+    prompt: { translationMode: 'literary', sourceLang: 'en', targetLang: 'zh' },
+    segments: [
+      { id: 'stale-yabu', text: 'Yabu spoke again before sunset.', kind: 'paragraph', contextPath: 'Chapter 1' },
+    ],
+  });
+  store.saveLiteraryMemory(project.projectId, {
+    entities: [{
+      source: 'Yabu',
+      target: '薮',
+      aliases: [],
+      kind: 'person',
+      reviewStatus: 'confirmed',
+      evidence: 'Yabu spoke again before sunset.',
+    }],
+    relationships: [],
+    styleGuide: {},
+    chapterSummaries: [],
+    recentExamples: [],
+    characterVoices: [],
+    relationshipVoiceRules: [],
+    voiceAnchors: [],
+  });
+  store.saveManualEdit(project.projectId, 'stale-yabu', '矢部在日落前 again 说了话。');
+  ensureTestContextGraph(store, project);
+
+  const report = runProjectQualityAudit(project.projectId);
+  const staleFinding = report.findings.find((item) =>
+    item.type === 'terminology-drift' && item.segmentIds.includes('stale-yabu'));
+  assert.ok(staleFinding, 'the deliberately inconsistent accepted translation should be audited');
+  assert.ok(report.translationSnapshotHash);
+  assert.ok(report.acceptedTranslationHashes['stale-yabu']);
+  assert.ok(report.effectiveTranslationHashes['stale-yabu']);
+
+  store.saveManualEdit(project.projectId, 'stale-yabu', '薮在日落前又说了话。');
+  assert.throws(
+    () => createQualityRepairRun(project.projectId, report.auditId, [staleFinding.findingId]),
+    (error) => error?.status === 409 && /审计后已有译文被修改/u.test(error.message),
+    'an old finding must not create a repair Run after a user has already corrected the translation',
+  );
+});
