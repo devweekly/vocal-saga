@@ -705,8 +705,9 @@ test('quality repair rejects an audit finding after its accepted translation has
     item.type === 'terminology-drift' && item.segmentIds.includes('stale-yabu'));
   assert.ok(staleFinding, 'the deliberately inconsistent accepted translation should be audited');
   assert.ok(report.translationSnapshotHash);
-  assert.ok(report.acceptedTranslationHashes['stale-yabu']);
-  assert.ok(report.effectiveTranslationHashes['stale-yabu']);
+  assert.ok(report.acceptedTranslationSnapshotHash);
+  assert.equal(Object.hasOwn(report, 'acceptedTranslationHashes'), false,
+    'the report should not store a per-segment hash map that grows with the book size');
 
   store.saveManualEdit(project.projectId, 'stale-yabu', '薮在日落前又说了话。');
   assert.throws(
