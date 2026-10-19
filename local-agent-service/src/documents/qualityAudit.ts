@@ -1443,7 +1443,8 @@ export function runProjectQualityAudit(projectId: string, runId?: string): Recor
 /**
  * 根据指定审计 finding 创建一个新的窄范围返工 Run。
  * 先验证报告仍属于当前 source revision，再解析 finding/segment 范围；大范围 finding 要求调用方
- * 显式提交 segmentIds，避免“修一个问题”隐式扩展成整组/整章返工。结果仍需用户采纳。
+ * 显式提交 segmentIds，避免“修一个问题”隐式扩展成整组/整章返工。手动返工仍需用户采纳；
+ * 自动返工只能由 Run 策略启用，并在服务端经同一采纳事务完成。
  */
 export function createQualityRepairRun(
   projectId: string,
