@@ -197,8 +197,6 @@ export function sanitizeProjectLiteraryMemory(input: unknown): Record<string, an
       reviewStatus: item.reviewStatus === 'confirmed' ? 'confirmed' : 'suggested',
       ...(confirmationSource(item.confirmationSource, item.reviewStatus === 'confirmed')
         ? { confirmationSource: confirmationSource(item.confirmationSource, item.reviewStatus === 'confirmed') } : {}),
-      ...(confirmationSource(item.confirmationSource, item.reviewStatus === 'confirmed')
-        ? { confirmationSource: confirmationSource(item.confirmationSource, item.reviewStatus === 'confirmed') } : {}),
     }];
   }) : []);
   const relationships = Array.isArray(raw.relationships) ? raw.relationships.slice(0, 160).flatMap((item: any) => {
@@ -215,6 +213,8 @@ export function sanitizeProjectLiteraryMemory(input: unknown): Record<string, an
       subject, predicate, object, evidence: text(item.evidence, 180),
       ...(evidenceRefs.length ? { evidenceRefs } : {}),
       reviewStatus: item.reviewStatus === 'confirmed' ? 'confirmed' : 'suggested',
+      ...(confirmationSource(item.confirmationSource, item.reviewStatus === 'confirmed')
+        ? { confirmationSource: confirmationSource(item.confirmationSource, item.reviewStatus === 'confirmed') } : {}),
     }];
   }) : [];
   const style = raw.styleGuide && typeof raw.styleGuide === 'object' && !Array.isArray(raw.styleGuide) ? raw.styleGuide : {};
