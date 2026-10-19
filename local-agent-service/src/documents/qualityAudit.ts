@@ -1282,11 +1282,13 @@ function auditTargetLanguage(db: any, runId?: string): string {
 export function runProjectQualityAudit(projectId: string, runId?: string): Record<string, any> {
   const { store, context, segments } = currentSource(projectId);
   if (!segments.length) fail('当前来源版本没有可审计的片段。', 409);
+  // The service database may contain several projects. Only an actually active run belonging
+  // to this project should block its audit; "partial" is a terminal status, not an active worker.
   const active = context.db.prepare(
-    "SELECT run_id FROM translation_runs WHERE status IN ('queued','running','paused','partial') LIMIT 1"
-  ).get() as { run_id?: string } | undefined;
+    "SELECT run_id FROM translation_runs WHERE project_id = ? AND status IN ('queued','running','paused') LIMIT 1"
+  ).get(projectId) as { run_id?: string } | undefined;
   if (active?.run_id && (!runId || runId === active.run_id)) {
-    fail('当前翻译运行仍在执行或暂停中，请等待完成后审计；若需检查候选结果，请提供已结束的 runId。', 409);
+    fail('当前项目仍有运行中的或已暂停的任务，请等待完成或继续运行后再审计；若需检查候选结果，请提供已结束的 runId。', 409);
   }
   if (runId) {
     const requestedRun = context.db.prepare('SELECT status FROM translation_runs WHERE run_id = ?').get(runId) as { status?: string } | undefined;
