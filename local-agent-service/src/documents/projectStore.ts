@@ -846,7 +846,11 @@ export class DocumentProjectStore {
       if (profile.status === 'confirmed' && status !== 'confirmed') {
         questions.push('已确认画像的原文证据在当前来源版本中无法核验，已降级为候选。');
       }
-      return { ...profile, evidence, status, openQuestions: Array.from(new Set(questions)).slice(0, 8) };
+      return {
+        ...profile, evidence, status,
+        ...(status === 'confirmed' ? {} : { confirmationSource: undefined }),
+        openQuestions: Array.from(new Set(questions)).slice(0, 8),
+      };
     });
     const characterIds = new Set(memory.characterVoices.map((profile: any) => profile.characterId));
     const confirmedCharacterIds = new Set(memory.characterVoices.filter((profile: any) => profile.status === 'confirmed').map((profile: any) => profile.characterId));
@@ -863,7 +867,7 @@ export class DocumentProjectStore {
       const status = rule.status === 'rejected' ? 'rejected'
         : rule.status === 'confirmed' && evidenceSegmentIds.length && confirmedCharacterIds.has(rule.speakerId) && confirmedCharacterIds.has(rule.addresseeId) ? 'confirmed' : 'candidate';
       return characterIds.has(rule.speakerId) && characterIds.has(rule.addresseeId) && evidenceSegmentIds.length
-        ? [{ ...rule, evidenceSegmentIds, status }] : [];
+        ? [{ ...rule, evidenceSegmentIds, status, ...(status === 'confirmed' ? {} : { confirmationSource: undefined }) }] : [];
     });
     const confirmedVoicesBefore = memory.characterVoices.filter((p: any) => p.status === 'confirmed').length;
     memory.entities = memory.entities.map((entity: any) => {
