@@ -1075,7 +1075,7 @@ export function mergeConfirmedMemoryNameMappings(
     ? (graph as any).nameMappings as Array<Record<string, any>> : [];
   const memory = memoryInput && typeof memoryInput === 'object' && !Array.isArray(memoryInput)
     ? memoryInput as Record<string, any> : {};
-  const confirmedMappings = (Array.isArray(memory.entities) ? memory.entities : [])
+  const confirmedEntityMappings = (Array.isArray(memory.entities) ? memory.entities : [])
     .filter((entity: any) => entity?.reviewStatus === 'confirmed' &&
       typeof entity?.source === 'string' && entity.source.trim() &&
       typeof entity?.target === 'string' && entity.target.trim())
@@ -1088,6 +1088,22 @@ export function mergeConfirmedMemoryNameMappings(
       kind: typeof entity.kind === 'string' ? entity.kind : 'other',
       sourceStatus: 'confirmed-memory',
     }));
+  // 人物管理里的“规范原文名/译名”是独立的权威入口。旧数据或整理过程可能只保存
+  // characterVoices，而没有对应 entities；审校仍应保护已确认人物名，但绝不能强制候选项。
+  const confirmedCharacterMappings = (Array.isArray(memory.characterVoices) ? memory.characterVoices : [])
+    .filter((profile: any) => profile?.status === 'confirmed' && profile?.useForTranslation !== false &&
+      typeof profile?.canonicalSourceName === 'string' && profile.canonicalSourceName.trim() &&
+      typeof profile?.targetName === 'string' && profile.targetName.trim())
+    .map((profile: any) => ({
+      source: profile.canonicalSourceName.trim(),
+      target: profile.targetName.trim(),
+      aliases: Array.isArray(profile.aliases)
+        ? profile.aliases.filter((alias: unknown) => typeof alias === 'string' && alias.trim())
+        : [],
+      kind: 'character',
+      sourceStatus: 'confirmed-memory',
+    }));
+  const confirmedMappings = [...confirmedEntityMappings, ...confirmedCharacterMappings];
   if (!graph && !confirmedMappings.length) return null;
   return { ...(graph || {}), nameMappings: [...graphMappings, ...confirmedMappings] };
 }
