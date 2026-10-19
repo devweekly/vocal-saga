@@ -1445,7 +1445,13 @@ export function runProjectQualityAudit(projectId: string, runId?: string): Recor
  * 先验证报告仍属于当前 source revision，再解析 finding/segment 范围；大范围 finding 要求调用方
  * 显式提交 segmentIds，避免“修一个问题”隐式扩展成整组/整章返工。结果仍需用户采纳。
  */
-export function createQualityRepairRun(projectId: string, auditId: string, selectedFindingIds: string[], requestedSegmentIds: string[] = []): any {
+export function createQualityRepairRun(
+  projectId: string,
+  auditId: string,
+  selectedFindingIds: string[],
+  requestedSegmentIds: string[] = [],
+  options: { automatic?: boolean; parentRunId?: string } = {},
+): any {
   const store = getDocumentProjectStore();
   const report = store.getQualityAudit(projectId, auditId) as any;
   if (!report) fail('找不到质量审计报告：' + auditId, 404);
@@ -1489,15 +1495,21 @@ export function createQualityRepairRun(projectId: string, auditId: string, selec
   const currentIds = new Set(currentSourceSegments.map((row) => String(row.id)));
   const selected = Array.from(segments).filter((id) => currentIds.has(id));
   if (!selected.length) fail('选定的返工片段不属于当前来源版本。', 409);
+  const parentRunId = options.parentRunId || report.runId || undefined;
   const run = store.createRun(projectId, {
-    scope: { type: 'ids', ids: selected },
-    ...(report.runId ? { parentRunId: report.runId } : {}),
+    scope: {
+      type: 'ids',
+      ids: selected,
+      ...(options.automatic ? { automation: { kind: 'quality-audit-repair', pass: 1 } } : {}),
+    },
+    ...(parentRunId ? { parentRunId } : {}),
   });
   store.appendEvent(projectId, run.runId, 'quality-repair.planned', {
-    auditId, parentRunId: report.runId || null, segmentIds: selected,
-    humanAcceptanceRequired: true,
+    auditId, parentRunId: parentRunId || null, segmentIds: selected,
+    automatic: options.automatic === true,
+    humanAcceptanceRequired: options.automatic !== true,
   });
-  return { auditId, run, segmentIds: selected, humanAcceptanceRequired: true };
+  return { auditId, run, segmentIds: selected, humanAcceptanceRequired: options.automatic !== true, automatic: options.automatic === true };
 }
 
 function runComparisonData(projectId: string, runId: string) {
