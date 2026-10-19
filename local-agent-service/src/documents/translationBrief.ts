@@ -321,23 +321,22 @@ function buildTemporallyVisibleMemory(
   rawMemory.entities = (Array.isArray(rawMemory.entities) ? rawMemory.entities : []).flatMap((entity: any) => {
     const aliases = Array.isArray(entity?.aliases) ? entity.aliases : [];
     const evidenceRefs = Array.isArray(entity.evidenceRefs) ? entity.evidenceRefs : [];
-    // A later-only alias can contaminate the canonical target itself. Do not just remove that
-    // alias while keeping a target inferred from the future identity reveal.
-    if (aliases.some((alias: unknown) =>
+    const confirmedPersonMapping = entity?.kind === 'person' && entity?.reviewStatus === 'confirmed';
+    // Inferred identities still fail closed when a later-only alias appears. A confirmed person
+    // translation, however, is the canonical entry in 人物管理: keep it when its source name is
+    // already visible, and omit only aliases first revealed in later chapters.
+    if (!confirmedPersonMapping && aliases.some((alias: unknown) =>
       !appearedBefore(alias) && !items.some((item) => sourceNameMatches(item.text, alias)))) {
       exclusionDiagnostics.memoryEntityExcludedFutureAlias++;
       return [];
     }
-    // A complete, explicitly confirmed source→target mapping is user-authored authority.
-    // It may activate on the first visible mention without model-generated evidence, but must
-    // never leak into a batch where neither the source nor an alias is visible.
     const explicitCanonicalMapping = entity?.reviewStatus === 'confirmed' &&
-      evidenceRefs.length === 0 && !String(entity?.evidence || '').trim();
-    const visibleInCurrentBatch = items.some((item) =>
-      sourceNameMatches(item.text, entity?.source) ||
+      (confirmedPersonMapping || (evidenceRefs.length === 0 && !String(entity?.evidence || '').trim()));
+    const canonicalSourceVisibleNow = items.some((item) => sourceNameMatches(item.text, entity?.source));
+    const visibleInCurrentBatch = canonicalSourceVisibleNow || items.some((item) =>
       aliases.some((alias: unknown) => sourceNameMatches(item.text, alias)));
     if (!entity || (!appearedBefore(entity.source) &&
-        !(explicitCanonicalMapping && visibleInCurrentBatch))) {
+        !(explicitCanonicalMapping && (confirmedPersonMapping ? canonicalSourceVisibleNow : visibleInCurrentBatch)))) {
       exclusionDiagnostics.memoryEntityExcludedNameNotVisible++;
       return [];
     }
