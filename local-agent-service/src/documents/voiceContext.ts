@@ -41,6 +41,12 @@ function safeHash(value: string): string {
   return createHash('sha256').update(value, 'utf8').digest('hex');
 }
 
+function mergeConfirmationSource(prior: unknown, incoming: unknown): unknown {
+  const rank = (value: unknown) => value === 'user-confirmed' ? 3 :
+    value === 'evidence-verified' ? 2 : value === 'legacy-unknown' ? 1 : 0;
+  return rank(incoming) > rank(prior) ? incoming : prior;
+}
+
 function normalizeEntityName(value: string): string {
   return value.normalize('NFKC').toLocaleLowerCase().replace(/[\s._'’\-]+/g, ' ').trim();
 }
@@ -107,6 +113,9 @@ function mergeProjectEntityRecord(prior: Record<string, any>, candidate: Record<
     ...(prior.reviewStatus !== 'confirmed' && candidate.reviewStatus === 'confirmed' &&
         normalizeEntityName(prior.target) === normalizeEntityName(candidate.target)
       ? { reviewStatus: 'confirmed' }
+      : {}),
+    ...(sameTarget && (prior.reviewStatus === 'confirmed' || candidate.reviewStatus === 'confirmed')
+      ? { confirmationSource: mergeConfirmationSource(prior.confirmationSource, candidate.confirmationSource) }
       : {}),
     description: prior.description || candidate.description,
     evidence: prior.evidence || candidate.evidence,
