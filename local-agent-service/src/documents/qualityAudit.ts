@@ -519,7 +519,7 @@ function isCompatibleCanonicalAlias(source: string, alias: string): boolean {
 
 function canonicalNameForms(source: string, aliases: unknown): string[] {
   const candidates = [source, ...(Array.isArray(aliases) ? aliases : [])]
-    .filter((value): value is string => typeof value === 'string' && value.trim())
+    .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
     .map((value) => value.trim())
     .filter((value) => !isGenericCanonicalName(value))
     .filter((value, index) => index === 0 || isCompatibleCanonicalAlias(source, value));
@@ -682,12 +682,12 @@ function englishResidueFindings(
     const residues = new Set<string>();
     for (const match of translation.matchAll(phrasePattern)) {
       const phrase = match[0].trim();
-      const words = phrase.match(wordPattern) || [];
+      const words: string[] = phrase.split(/\s+/u).filter((word) => word.length > 0);
       const hasFunctionWord = words.some((word) => ENGLISH_FUNCTION_WORDS.has(word.toLocaleLowerCase()));
       if (words.length >= 4 || hasFunctionWord) residues.add(phrase);
     }
     for (const match of translation.matchAll(wordPattern)) {
-      const word = match[0];
+      const word: string = String(match[0] || '');
       if (ENGLISH_RESIDUE_WORDS.has(word.toLocaleLowerCase())) residues.add(word);
     }
     if (!residues.size) continue;
