@@ -5,10 +5,13 @@
 import { spawn } from 'node:child_process';
 import { inflateRawSync } from 'node:zlib';
 import path from 'node:path';
-import type { DocumentFormat, ProjectSegment } from './projectStore.ts';
+import { MAX_DOCUMENT_SOURCE_BYTES, type DocumentFormat, type ProjectSegment } from './projectStore.ts';
 
-const MAX_EXPANDED_BYTES = 80 * 1024 * 1024;
-const MAX_SEGMENTS = 20_000;
+const configuredExpandedLimitMb = Number.parseInt(process.env.LOCAL_AGENT_MAX_DOCUMENT_EXPANDED_MB || '1024', 10);
+const MAX_EXPANDED_BYTES =
+  (Number.isFinite(configuredExpandedLimitMb) && configuredExpandedLimitMb >= 80 ? configuredExpandedLimitMb : 1024) * 1024 * 1024;
+const MAX_SEGMENTS = 100_000;
+const PDF_EXTRACTION_TIMEOUT_MS = Math.max(20_000, Number.parseInt(process.env.LOCAL_AGENT_PDF_TIMEOUT_MS || '180000', 10) || 180_000);
 
 type ZipEntry = {
   name: string;
@@ -255,7 +258,7 @@ function segmentsFromBlocks(
       });
     });
     if (result.length + startOrdinal > MAX_SEGMENTS) {
-      fail('文档片段超过 20000 项上限；请拆分文档后分项目导入。', 413);
+      fail('文档片段超过 ' + MAX_SEGMENTS + ' 项上限；可调整服务端解析策略后重新导入。', 413);
     }
   }
   return result;
@@ -416,8 +419,8 @@ async function extractPdfText(bytes: Buffer): Promise<string> {
       if (settled) return;
       settled = true;
       child.kill('SIGKILL');
-      reject(Object.assign(new Error('PDF 文本提取超时（20 秒）。'), { status: 408 }));
-    }, 20_000);
+      reject(Object.assign(new Error('PDF 文本提取超时（' + Math.round(PDF_EXTRACTION_TIMEOUT_MS / 1000) + ' 秒）。可通过 LOCAL_AGENT_PDF_TIMEOUT_MS 调整。'), { status: 408 }));
+    }, PDF_EXTRACTION_TIMEOUT_MS);
     child.stdout.on('data', (chunk: Buffer) => {
       total += chunk.length;
       if (total > MAX_EXPANDED_BYTES) {
@@ -425,7 +428,7 @@ async function extractPdfText(bytes: Buffer): Promise<string> {
         if (!settled) {
           settled = true;
           clearTimeout(timeout);
-          reject(Object.assign(new Error('PDF 提取文本超过 80 MiB 上限。'), { status: 413 }));
+          reject(Object.assign(new Error('PDF 提取文本超过 ' + Math.round(MAX_EXPANDED_BYTES / 1024 / 1024) + ' MiB 上限。', { status: 413 }));
         }
       } else stdout.push(Buffer.from(chunk));
     });
@@ -471,7 +474,7 @@ export function inferDocumentFormat(fileName: string): DocumentFormat {
 export async function parseDocumentFile(fileName: string, source: Uint8Array): Promise<{ format: DocumentFormat; title: string; segments: ProjectSegment[] }> {
   const bytes = Buffer.from(source);
   if (!bytes.length) fail('原始文件内容为空。');
-  if (bytes.length > 20 * 1024 * 1024) fail('原始文档超过 20 MiB 上限。', 413);
+  if (bytes.length > MAX_DOCUMENT_SOURCE_BYTES) fail('原始文档超过 ' + Math.round(MAX_DOCUMENT_SOURCE_BYTES / 1024 / 1024) + ' MiB 上限。', 413);
   const format = inferDocumentFormat(fileName);
   if (format === 'epub' || format === 'docx') {
     if (bytes.length < 4) fail('文件内容过短，不是有效的压缩文档。');
