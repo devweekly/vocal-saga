@@ -1091,7 +1091,7 @@ export function mergeConfirmedMemoryNameMappings(
     const aliases = (Array.isArray(aliasesInput) ? aliasesInput : [])
       .filter((alias): alias is string => typeof alias === 'string' && alias.trim())
       .map((alias) => alias.trim())
-      .filter((alias, index) =>
+      .filter((alias) =>
         !isGenericCanonicalNameForm(alias) &&
         isCompatibleCanonicalAlias(source, alias) &&
         (!hasSourceScope || visibleName(alias)));
@@ -1146,22 +1146,36 @@ export function mergeConfirmedMemoryNameMappings(
   const combinedMappings = [...graphMappings, ...confirmedEntityMappings, ...confirmedCharacterMappings];
   if (!graph && !combinedMappings.length) return null;
 
-  // A pinned graph mapping and pinned memory may contradict one another. Remove exact-source
-  // conflicts from the Reviewer prompt; do not let the model choose based on list order.
+  // Strong mappings may contradict one another. A candidate is only a suggestion and must
+  // not knock out a confirmed target; unresolved conflicts among strong sources fail closed.
+  const strongTargetsBySource = new Map<string, Set<string>>();
   const targetsBySource = new Map<string, Set<string>>();
   for (const mapping of combinedMappings) {
     const key = normalizeCanonicalTerm(String(mapping.source || ''));
+    const target = normalizeCanonicalTerm(String(mapping.target || ''));
     const values = targetsBySource.get(key) || new Set<string>();
-    values.add(normalizeCanonicalTerm(String(mapping.target || '')));
+    values.add(target);
     targetsBySource.set(key, values);
+    if (['confirmed', 'confirmed-memory'].includes(String(mapping.sourceStatus || ''))) {
+      const strong = strongTargetsBySource.get(key) || new Set<string>();
+      strong.add(target);
+      strongTargetsBySource.set(key, strong);
+    }
   }
-  const conflicted = new Set(Array.from(targetsBySource.entries())
+  const conflicted = new Set(Array.from(strongTargetsBySource.entries())
     .filter(([, targets]) => targets.size > 1).map(([key]) => key));
-  const nameMappings = combinedMappings.filter((mapping) =>
-    !conflicted.has(normalizeCanonicalTerm(String(mapping.source || ''))));
+  const nameMappings = combinedMappings.filter((mapping) => {
+    const key = normalizeCanonicalTerm(String(mapping.source || ''));
+    if (conflicted.has(key)) return false;
+    const strongTargets = strongTargetsBySource.get(key);
+    if (!['confirmed', 'confirmed-memory'].includes(String(mapping.sourceStatus || '')) &&
+        strongTargets?.size === 1 &&
+        !strongTargets.has(normalizeCanonicalTerm(String(mapping.target || '')))) return false;
+    return true;
+  });
   const result: Record<string, unknown> = { ...(graph || {}), nameMappings };
   if (conflicted.size) {
-    const conflicts = Array.from(targetsBySource.entries())
+    const conflicts = Array.from(strongTargetsBySource.entries())
       .filter(([key]) => conflicted.has(key))
       .map(([source, targets]) => ({
         source,
