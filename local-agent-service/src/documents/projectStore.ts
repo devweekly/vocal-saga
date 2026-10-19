@@ -21,6 +21,10 @@ export const MAX_DOCUMENT_SOURCE_BYTES = 20 * 1024 * 1024;
 
 export type RunStatus = 'queued' | 'running' | 'paused' | 'awaiting_acceptance' | 'partial' | 'completed' | 'failed' | 'cancelled';
 
+function formatFailedSegmentSummary(count: number): string {
+  return `本次运行有 ${count} 个片段未能完成，已完成的片段已保留。请展开“失败详情”查看具体原因；需要时可只重试这些片段。`;
+}
+
 export interface ProjectSegment {
   id: string;
   text: string;
@@ -1978,7 +1982,7 @@ export class DocumentProjectStore {
               ? acceptedCount > 0 ? 'partial' : 'failed'
               : 'completed';
             if (terminalStatus !== currentRun.status) {
-              const terminalError = failures ? String(failures) + ' 个片段失败，可重试失败范围' : null;
+              const terminalError = failures ? formatFailedSegmentSummary(failures) : null;
               db.prepare('UPDATE translation_runs SET status = ?, error = ?, finished_at = ? WHERE run_id = ?')
                 .run(terminalStatus, terminalError, now, runId);
               statusEvent = { status: terminalStatus, error: terminalError };
@@ -2037,7 +2041,7 @@ export class DocumentProjectStore {
       const pending = Number(values.pending || 0) + Number(values.running || 0);
       finalStatus = pending > 0 ? 'paused' : candidates > 0 ? 'awaiting_acceptance'
         : failures > 0 ? (accepted > 0 ? 'partial' : 'failed') : 'completed';
-      errorMessage = failures ? String(failures) + ' 个片段失败，可重试失败范围' : null;
+      errorMessage = failures ? formatFailedSegmentSummary(failures) : null;
       db.prepare('UPDATE translation_runs SET status = ?, error = ?, finished_at = ? WHERE run_id = ?')
         .run(finalStatus, errorMessage, now, runId);
       db.exec('COMMIT');
@@ -2124,10 +2128,10 @@ export class DocumentProjectStore {
         terminalError = run.error ?? null;
       } else if (candidates > 0) {
         finalStatus = acceptedCount > 0 && failures > 0 ? 'partial' : 'awaiting_acceptance';
-        terminalError = failures ? String(failures) + ' 个片段失败，可重试失败范围' : null;
+        terminalError = failures ? formatFailedSegmentSummary(failures) : null;
       } else if (failures > 0) {
         finalStatus = acceptedCount > 0 ? 'partial' : 'failed';
-        terminalError = String(failures) + ' 个片段失败，可重试失败范围';
+        terminalError = formatFailedSegmentSummary(failures);
       } else {
         finalStatus = 'completed';
         terminalError = null;
