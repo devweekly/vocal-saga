@@ -4,7 +4,7 @@
  * This deliberately follows the agentic-data-architect boundary:
  * - the model proposes translations/reviews;
  * - the host owns workflow state, persistence, retries, identity checks and gates;
- * - candidate output never overwrites an accepted translation without an explicit accept action;
+ * - candidates are accepted only through the Store's validated transaction, which protects newer manual edits and source hashes;
  * - all long-running progress is persisted as project events, not only sent over HTTP.
  */
 import { parseAgentModel } from '../json.ts';
