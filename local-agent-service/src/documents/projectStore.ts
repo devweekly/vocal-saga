@@ -878,10 +878,24 @@ export class DocumentProjectStore {
       const targetEvidenceCount = new Set(targetEvidenceRefs
         .filter((ref: any) => normalize(String(ref.targetSurface || '')) === normalize(String(entity.target || '')))
         .map((ref: any) => String(ref.segmentId || '')).filter(Boolean)).size;
-      const targetConfidence = entity.reviewStatus === 'confirmed'
+      const invalidMachineConfirmation = entity.confirmationSource === 'evidence-verified' && evidenceRefs.length === 0;
+      const reviewStatus = invalidMachineConfirmation ? 'suggested' : entity.reviewStatus;
+      const targetConfidence = reviewStatus === 'confirmed'
         ? (targetEvidenceCount >= 2 ? 'corroborated' : (targetEvidenceCount >= 1 ? 'corroborated' : 'candidate'))
         : 'candidate';
-      return { ...entity, evidenceRefs, targetEvidenceRefs, targetConfidence };
+      return {
+        ...entity, evidenceRefs, targetEvidenceRefs, targetConfidence, reviewStatus,
+        ...(invalidMachineConfirmation ? { confirmationSource: undefined } : {}),
+      };
+    });
+    memory.relationships = memory.relationships.map((relation: any) => {
+      const evidenceRefs = (Array.isArray(relation.evidenceRefs) ? relation.evidenceRefs : [])
+        .filter((ref: any) => validEvidence(ref.segmentId, ref.sourceQuote));
+      const invalidMachineConfirmation = relation.confirmationSource === 'evidence-verified' && evidenceRefs.length === 0;
+      return {
+        ...relation, evidenceRefs,
+        ...(invalidMachineConfirmation ? { reviewStatus: 'suggested', confirmationSource: undefined } : {}),
+      };
     });
     memory.voiceAnchors = memory.voiceAnchors.map((anchor: any) => {
       const sourceValid = validEvidence(anchor.segmentId, anchor.source);
@@ -898,9 +912,11 @@ export class DocumentProjectStore {
         !!accepted.translation.trim() &&
         normalize(accepted.translation).includes(normalize(anchor.target));
       const approved = anchor.status === 'approved' && sourceValid && attributionValid && speakerConfirmed && targetValid;
+      const status = anchor.status === 'rejected' ? 'rejected' : approved ? 'approved' : 'candidate';
       return {
         ...anchor,
-        status: anchor.status === 'rejected' ? 'rejected' : approved ? 'approved' : 'candidate',
+        status,
+        ...(status === 'approved' ? {} : { confirmationSource: undefined }),
       };
     });
     const confirmedVoicesAfter = memory.characterVoices.filter((p: any) => p.status === 'confirmed').length;
