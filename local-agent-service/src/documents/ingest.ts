@@ -428,7 +428,7 @@ async function extractPdfText(bytes: Buffer): Promise<string> {
         if (!settled) {
           settled = true;
           clearTimeout(timeout);
-          reject(Object.assign(new Error('PDF 提取文本超过 ' + Math.round(MAX_EXPANDED_BYTES / 1024 / 1024) + ' MiB 上限。', { status: 413 }));
+          reject(Object.assign(new Error('PDF 提取文本超过 ' + Math.round(MAX_EXPANDED_BYTES / 1024 / 1024) + ' MiB 上限。'), { status: 413 }));
         }
       } else stdout.push(Buffer.from(chunk));
     });
