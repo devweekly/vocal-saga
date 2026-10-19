@@ -52,6 +52,21 @@ npm run diagnose:character-voice -- \
 
 脚本本身仍是只读的：不调用模型、不发送网络请求、不修改 SQLite 或工作区；报告中的原文/请求摘录有长度限制，并对常见 Token/Secret 字段脱敏，但分享前仍建议人工检查报告文件。
 
+### 当前译名一致性与英文残留诊断
+
+如果人物档案已经建立，但实际译文仍出现多个译名，或中文译文中遗留了 `again` 等英文词，可以对现有项目运行做定点诊断：
+
+```bash
+npm run diagnose:translation -- \\
+  --project-id "<project-uuid>" \\
+  --run-id "<run-uuid>" \\
+  --name "Yabu" \\
+  --word "again" \\
+  --out ./translation-diagnosis.json
+```
+
+该脚本只读当前来源版本的已采纳译文、Run 固定的 LiteraryMemory、保存的 TranslationBrief、实际发送给模型的片段和规范名遮罩事件。它会同时检查 `entities` 与“人物角色/声音”中**已确认且启用翻译**的规范名，显示批次实际注入的名称映射、规范名冲突、原文/译文中的目标人物命中，以及译文是否残留指定英文词。它不自动修改译文，也不调用模型。没有给出 `--run-id` 时最多检查最近 6 次运行；输出报告含有限长度的原文/译文摘录，分享前请检查敏感信息。
+
 本机模式是强制 Provider 路由，不是“本机优先、失败切远程”：翻译、侧栏对话、文学分析或审校的本机模型调用失败时会返回明确错误；扩展不会因此向 DeepSeek 或远程 Vocal Saga 重试。文档批次规划遇到服务不可用时使用的只是扩展端确定性 CPU 算法，不会发送模型/API 请求；阅读状态持久化失败也只影响恢复副本，不会改变翻译 Provider。
 
 ## 配置 fanyi-extension
