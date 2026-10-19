@@ -1089,7 +1089,7 @@ export function mergeConfirmedMemoryNameMappings(
   };
   const safeAliases = (source: string, aliasesInput: unknown) => {
     const aliases = (Array.isArray(aliasesInput) ? aliasesInput : [])
-      .filter((alias): alias is string => typeof alias === 'string' && alias.trim())
+      .filter((alias): alias is string => typeof alias === 'string' && alias.trim().length > 0)
       .map((alias) => alias.trim())
       .filter((alias) =>
         !isGenericCanonicalNameForm(alias) &&
@@ -1143,7 +1143,7 @@ export function mergeConfirmedMemoryNameMappings(
         sourceStatus: 'confirmed-memory',
       }];
     });
-  const combinedMappings = [...graphMappings, ...confirmedEntityMappings, ...confirmedCharacterMappings];
+  const combinedMappings: Array<Record<string, any>> = [...graphMappings, ...confirmedEntityMappings, ...confirmedCharacterMappings];
   if (!graph && !combinedMappings.length) return null;
 
   // Strong mappings may contradict one another. A candidate is only a suggestion and must
