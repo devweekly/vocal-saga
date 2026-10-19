@@ -9,7 +9,23 @@ process.env.LOCAL_AGENT_DATA_DIR = testDataDir;
 process.env.LOCAL_AGENT_DATABASE = path.join(testDataDir, 'service.sqlite');
 
 const { getDocumentProjectStore } = await import('../src/documents/projectStore.ts');
-const { autoAcceptFinishedRunCandidates } = await import('../src/documents/translationAgent.ts');
+const {
+  autoAcceptFinishedRunCandidates,
+  isContextGraphReadyForTranslationRun,
+} = await import('../src/documents/translationAgent.ts');
+
+test('literary Run readiness is tied to source revision, analysis version and language direction', () => {
+  const run = { sourceRevisionId: 'revision-1', sourceLang: 'en', targetLang: 'zh', translationMode: 'literary' };
+  const ready = {
+    sourceRevisionId: 'revision-1', status: 'completed',
+    progress: { analysisVersion: 'context-graph-v5-language-pinned', sourceLang: 'en', targetLang: 'zh' },
+  };
+  assert.equal(isContextGraphReadyForTranslationRun(ready, run), true);
+  assert.equal(isContextGraphReadyForTranslationRun({ ...ready, sourceRevisionId: 'revision-2' }, run), false);
+  assert.equal(isContextGraphReadyForTranslationRun({ ...ready, status: 'running' }, run), false);
+  assert.equal(isContextGraphReadyForTranslationRun({ ...ready, progress: { ...ready.progress, targetLang: 'ja' } }, run), false);
+  assert.equal(isContextGraphReadyForTranslationRun({ ...ready, progress: { ...ready.progress, analysisVersion: 'old' } }, run), false);
+});
 
 test('service automatically accepts finished candidates through the guarded Store transaction', () => {
   const store = getDocumentProjectStore();

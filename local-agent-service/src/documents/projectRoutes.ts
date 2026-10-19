@@ -8,7 +8,7 @@ import { getDocumentProjectStore, MAX_DOCUMENT_SOURCE_BYTES } from './projectSto
 import { startProjectTranslationRun, isProjectRunActive } from './translationAgent.ts';
 import { sendJson } from '../middleware.ts';
 import { parseDocumentFile } from './ingest.ts';
-import { startContextGraphAnalysis, getContextGraph, reviewContextGraphItem } from './contextGraph.ts';
+import { startContextGraphAnalysis, getContextGraph, getContextGraphStatus, reviewContextGraphItem } from './contextGraph.ts';
 import {
   runProjectQualityAudit,
   createQualityRepairRun,
@@ -238,6 +238,10 @@ export async function handleDocumentProjectRequest(req: Request, res: Response, 
       sendJson(res, 201, { prompt, literaryMemory: store.getCurrentLiteraryMemory(projectId) });
       return true;
     }
+    if (pathParts.length === 6 && pathParts[4] === 'context-graph' && pathParts[5] === 'status' && method === 'GET') {
+      sendJson(res, 200, { contextGraph: getContextGraphStatus(projectId) });
+      return true;
+    }
     if (pathParts.length === 5 && pathParts[4] === 'context-graph' && method === 'GET') {
       sendJson(res, 200, { contextGraph: getContextGraph(projectId) });
       return true;
@@ -307,11 +311,6 @@ export async function handleDocumentProjectRequest(req: Request, res: Response, 
       if (isProjectRunActive(runId)) {
         sendJson(res, 200, { run, alreadyRunning: true });
         return true;
-      }
-      if (run.translationMode === 'literary') {
-        store.assertLiteraryPreprocessingReady(
-          projectId, run.sourceRevisionId, run.sourceLang || 'auto', run.targetLang || 'zh',
-        );
       }
       if (!store.setRunStatus(projectId, runId, 'queued', null)) {
         sendJson(res, 409, { error: '运行已结束，不能继续恢复：' + store.getRunStatus(projectId, runId), run: store.getRun(projectId, runId) });

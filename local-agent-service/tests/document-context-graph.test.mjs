@@ -12,6 +12,7 @@ process.env.LOCAL_AGENT_DATABASE = path.join(testDataDir, 'service.sqlite');
 const { getDocumentProjectStore } = await import('../src/documents/projectStore.ts');
 const {
   getContextGraph,
+  getContextGraphStatus,
   buildProjectContextGraphBundle,
   reviewContextGraphItem,
   startContextGraphAnalysis,
@@ -103,6 +104,17 @@ test('retrieval injects matched graph records and excludes future chapter summar
   assert.ok(!JSON.stringify(earlyNameBundle).includes('Queen Ash'));
 
   const graph = getContextGraph(project.projectId);
+  const status = getContextGraphStatus(project.projectId);
+  assert.equal(status.sourceRevisionId, currentSourceRevisionId);
+  assert.equal(status.counts.characters, 3);
+  assert.equal(status.counts.entities, 2);
+  assert.equal(status.counts.chapters, 3);
+  assert.equal(status.counts.evidencedNodes, 5);
+  assert.equal(status.status, 'not-started');
+  assert.ok(!('nodes' in status) && !('edges' in status) && !('chapters' in status),
+    'status polling must not copy the full graph and its evidence into extension state');
+  assert.ok(!('bookSummary' in status.overview));
+  assert.ok(JSON.stringify(status).length < 5000, 'status response should be a small projection');
   const alice = graph.nodes.find((item) => item.id === 'node-alice');
   assert.ok(alice);
   assert.equal(alice.evidence[0].segmentId, 'chapter-1-seg-1');

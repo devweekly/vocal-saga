@@ -79,6 +79,17 @@
 - 记录无人工介入完成率、每千段人工介入次数、自动修复回退率、漏修率、错误状态率和最终未解决问题。
 - 每项自动处置规则均应有合成回归案例；重要文学质量判断应补充人工盲评样本。
 
+## P0.5 — Context Graph 与 LiteraryMemory 的边界修正
+
+用户反馈的 120 KiB LiteraryMemory 报错不是整本分析需要压缩的信号，而是客户端重复持有全书分析数据导致的架构边界问题。Local Agent 已有 contextGraph.ts、独立 SQLite 表和按批次检索的 TranslationBrief；这应当是唯一的 Context Graph 实现与事实来源。
+
+- local-agent-service 在文学 Run 进入 running 前，负责检查来源版本、分析版本、源/目标语言；状态不匹配时自动启动/等待 Context Graph，失败或超时则以可诊断的 Run 错误结束，不发送缺上下文的翻译批次。
+- 服务端新增小型 GET /context-graph/status 投影，供扩展显示阶段、进度、计数和文风提示；全量图谱/证据仍通过服务端数据库和翻译时按需检索。
+- fanyi-extension 不再将 Context Graph 节点、证据、关系和人物声音批量合并并写回 LiteraryMemory。显式 LiteraryMemory 编辑仍可保存紧凑的结构化记忆；120 KiB 守卫继续只保护这类小型记忆 DTO，不限制服务端整本分析数据。
+- extension 在启动/恢复翻译时只提交 Run 并展示服务端状态。服务不可用时清楚报错；不能伪装为服务端预处理成功，也不擅自切换 Provider。
+
+验收重点是翻译质量、专名/人物声音一致性、Reviewer 问题和漏译情况，而不是强行将全书分析数据压到客户端的固定字节数。
+
 ## P0 / P1 已提交的实现
 
 ### P0 状态语义

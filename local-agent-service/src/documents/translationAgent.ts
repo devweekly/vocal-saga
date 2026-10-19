@@ -17,6 +17,7 @@ import { getDocumentProjectStore, normalizeDocumentTranslationStrategy, type Doc
 import { buildProjectVoiceContext, sanitizeProjectLiteraryMemory } from './voiceContext.ts';
 import { buildTranslationBrief, summarizeTranslationBrief, type TranslationBrief } from './translationBrief.ts';
 import { runProjectQualityAudit, createQualityRepairRun } from './qualityAudit.ts';
+import { CONTEXT_GRAPH_ANALYSIS_VERSION, getContextGraphStatus, startContextGraphAnalysis } from './contextGraph.ts';
 import { logError, logInfo, logWarn } from '../log.ts';
 import {
   combineTranslationContextDeltas,
@@ -1310,6 +1311,75 @@ export async function runLiteraryReviewWithMissingRetry(input: Record<string, an
 }
 
 /**
+ * Readiness is pinned to this Run's immutable source revision, analysis version and language pair.
+ */
+export function isContextGraphReadyForTranslationRun(
+  graph: Record<string, any> | null | undefined,
+  run: Record<string, any> | null | undefined,
+): boolean {
+  if (!graph || !run || graph.status !== 'completed') return false;
+  const progress = graph.progress && typeof graph.progress === 'object' ? graph.progress : {};
+  return String(graph.sourceRevisionId || '') === String(run.sourceRevisionId || '') &&
+    progress.analysisVersion === CONTEXT_GRAPH_ANALYSIS_VERSION &&
+    String(progress.sourceLang || 'auto') === String(run.sourceLang || 'auto') &&
+    String(progress.targetLang || 'zh') === String(run.targetLang || 'zh');
+}
+
+async function ensureLiteraryPreprocessingBeforeRun(
+  projectId: string,
+  runId: string,
+  run: Record<string, any>,
+): Promise<boolean> {
+  if (run.translationMode !== 'literary') return true;
+  const store = getDocumentProjectStore();
+  const deadline = Date.now() + 45 * 60 * 1000;
+  let analysisAttempts = 0;
+  store.appendEvent(projectId, runId, 'context-graph.gate.waiting', {
+    sourceRevisionId: run.sourceRevisionId,
+    sourceLang: run.sourceLang || 'auto',
+    targetLang: run.targetLang || 'zh',
+    analysisVersion: CONTEXT_GRAPH_ANALYSIS_VERSION,
+    owner: 'local-agent-service',
+  });
+
+  while (Date.now() < deadline) {
+    const runStatus = store.getRunStatus(projectId, runId);
+    if (['cancelled', 'paused', 'completed', 'failed', 'awaiting_acceptance'].includes(String(runStatus))) {
+      store.appendEvent(projectId, runId, 'context-graph.gate.stopped', { runStatus });
+      return false;
+    }
+    const graph = getContextGraphStatus(projectId);
+    if (String(graph.sourceRevisionId || '') !== String(run.sourceRevisionId || '')) {
+      throw new Error('翻译 Run 绑定的原文版本已不是项目当前版本；为避免上下文与原文错配，本轮不会启动。请基于当前原文新建 Run。');
+    }
+    if (isContextGraphReadyForTranslationRun(graph, run)) {
+      store.appendEvent(projectId, runId, 'context-graph.gate.ready', {
+        contextGraphRunId: graph.runId || null,
+        sourceRevisionId: graph.sourceRevisionId,
+        analysisVersion: CONTEXT_GRAPH_ANALYSIS_VERSION,
+      });
+      return true;
+    }
+    const status = String(graph.status || 'not-started');
+    if (!['queued', 'running'].includes(status)) {
+      if (analysisAttempts >= 2) {
+        throw new Error('服务端自动准备全书上下文连续失败。最后状态：' + status + (graph.error ? '；' + graph.error : ''));
+      }
+      const started = startContextGraphAnalysis(projectId, { ignoreQueuedRunId: runId });
+      analysisAttempts += 1;
+      store.appendEvent(projectId, runId, 'context-graph.auto-started', {
+        contextGraphRunId: started.runId, analysisAttempt: analysisAttempts,
+        alreadyRunning: started.alreadyRunning, sourceRevisionId: graph.sourceRevisionId,
+        sourceLang: run.sourceLang || 'auto', targetLang: run.targetLang || 'zh',
+        analysisVersion: CONTEXT_GRAPH_ANALYSIS_VERSION,
+      });
+    }
+    await new Promise<void>((resolve) => setTimeout(resolve, 1200));
+  }
+  throw new Error('等待服务端全书预处理超过 45 分钟；Run 已停止在预处理阶段，未开始翻译。可在文档工作区查看 Context Graph 状态后恢复 Run。');
+}
+
+/**
  * Run 级工作流协调器，是翻译生命周期的主要编排入口。
  * 负责读取固定版本、规划批次与并发预算、在每批次的模型调用/审校/持久化之间推进，
  * 并将暂停、取消、部分失败和终态反映到 SQLite。所有模型返回后的写入都必须重新检查 Run 状态。
@@ -1321,6 +1391,10 @@ async function executeRun(projectId: string, runId: string): Promise<void> {
     if (!context.prompt) throw new Error('找不到本次运行使用的 Prompt 版本');
     const initialStatus = context.run.status;
     if (initialStatus === 'completed' || initialStatus === 'cancelled' || initialStatus === 'awaiting_acceptance') return;
+
+    // Full-book analysis and evidence are service-owned; the extension submits the Run and renders status.
+    if (!(await ensureLiteraryPreprocessingBeforeRun(projectId, runId, context.run as Record<string, any>))) return;
+
     if (!store.setRunStatus(projectId, runId, 'running', null) ||
         store.getRunStatus(projectId, runId) !== 'running') {
       store.appendEvent(projectId, runId, 'run.start-discarded', {
