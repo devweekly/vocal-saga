@@ -335,15 +335,22 @@ export function buildCanonicalTermProtections(
   const mappings = Array.isArray((contextGraph as any)?.nameMappings)
     ? (contextGraph as any).nameMappings as Array<Record<string, any>>
     : [];
+  const priorityFor = (status: unknown): number => {
+    if (status === 'confirmed-memory') return 3;
+    if (status === 'confirmed') return 2;
+    if (status === 'auto') return 1;
+    return 0;
+  };
   const active = mappings.filter((mapping) =>
-    ['confirmed', 'confirmed-memory', 'auto'].includes(String(mapping?.sourceStatus || '')) &&
+    priorityFor(String(mapping?.sourceStatus || '')) > 0 &&
     typeof mapping?.source === 'string' && mapping.source.trim() &&
     typeof mapping?.target === 'string' && mapping.target.trim(),
   );
-  const candidateByName = new Map<string, { sourceForm: string; target: string }>();
-  const conflictingNames = new Set<string>();
+  type NameCandidate = { sourceForm: string; target: string; priority: number; conflicting: boolean };
+  const candidateByName = new Map<string, NameCandidate>();
   for (const mapping of active) {
     const target = String(mapping.target).trim();
+    const priority = priorityFor(mapping.sourceStatus);
     const forms = [String(mapping.source), ...(Array.isArray(mapping.aliases) ? mapping.aliases : [])]
       .filter((value): value is string => typeof value === 'string' && !!value.trim());
     for (const rawForm of forms) {
@@ -351,16 +358,23 @@ export function buildCanonicalTermProtections(
       const key = normalizeCanonicalTerm(sourceForm);
       if (!key || !items.some((item) => new RegExp(canonicalTermPattern(sourceForm), 'iu').test(item.text))) continue;
       const existing = candidateByName.get(key);
-      if (existing && normalizeCanonicalTerm(existing.target) !== normalizeCanonicalTerm(target)) {
-        conflictingNames.add(key);
-      } else if (!existing) {
-        candidateByName.set(key, { sourceForm, target });
+      if (!existing || priority > existing.priority) {
+        // An explicitly maintained LiteraryMemory mapping takes precedence over a stale
+        // Context Graph proposal; the winning target must be the same in prompt and restore.
+        candidateByName.set(key, { sourceForm, target, priority, conflicting: false });
+      } else if (priority === existing.priority &&
+          normalizeCanonicalTerm(existing.target) !== normalizeCanonicalTerm(target)) {
+        // Two equally authoritative, contradictory mappings are genuinely ambiguous. Fail
+        // closed instead of choosing based on incidental array order.
+        existing.conflicting = true;
       }
     }
   }
+  const conflictingNames = new Set(Array.from(candidateByName.entries())
+    .filter(([, value]) => value.conflicting).map(([key]) => key));
   const protections = Array.from(candidateByName.entries())
-    .filter(([key]) => !conflictingNames.has(key))
-    .map(([, item]) => item)
+    .filter(([key, value]) => !conflictingNames.has(key) && !value.conflicting)
+    .map(([, item]) => ({ sourceForm: item.sourceForm, target: item.target }))
     .sort((a, b) => b.sourceForm.length - a.sourceForm.length)
     .map((item, index) => ({
       marker: '__VSA_TERM_' + String(index).padStart(3, '0') + '__',
@@ -794,22 +808,11 @@ function parseTranslations(value: unknown, expectedIds: Set<string>): {
 async function translateBatch(context: any, items: TranslationItem[], requestId: string, batchIndex: number, precedingSegments: TranslationItem[] = [], translationBrief?: TranslationBrief): Promise<{ translations: Map<string, string>; contextDelta: ValidatedTranslationContextDelta }> {
   const agent = parseAgentModel(context.run.model || 'auto', context.run.provider || 'workbuddy');
   const contextGraph = translationBrief?.contextGraph ?? null;
-  const memory = context.memory && typeof context.memory === 'object' ? context.memory as Record<string, any> : {};
-  // 项目文学记忆中已确认的专名，即使 Context Graph 尚未注入对应映射，也作为 confirmed-memory
-  // 参与确定性保护，避免同一运行内译名漂移。候选映射仍不强制。
-  const memoryEntityMappings = (Array.isArray(memory.entities) ? memory.entities : [])
-    .filter((entity: any) => entity?.reviewStatus === 'confirmed' && entity?.source && entity?.target)
-    .map((entity: any) => ({
-      source: entity.source,
-      target: entity.target,
-      aliases: Array.isArray(entity.aliases) ? entity.aliases : [],
-      sourceStatus: 'confirmed-memory',
-    }));
-  const combinedContextGraph = memoryEntityMappings.length
-    ? { ...(contextGraph || {}), nameMappings: [...(Array.isArray((contextGraph as any)?.nameMappings) ? (contextGraph as any).nameMappings : []), ...memoryEntityMappings] }
-    : contextGraph;
+  // TranslationBrief is the single mapping snapshot for the model prompt, marker validation,
+  // and both Reviewers. Do not append unfiltered memory mappings here: that made the validator
+  // require markers that buildUserPrompt had never sent, turning otherwise valid segments into failures.
   const termProtections = context.run.translationMode === 'literary'
-    ? buildCanonicalTermProtections(items, combinedContextGraph)
+    ? buildCanonicalTermProtections(items, contextGraph)
     : [];
   logInfo('document-agent', 'batch ready · batch=' + batchIndex +
     ' · mode=' + context.run.translationMode +
