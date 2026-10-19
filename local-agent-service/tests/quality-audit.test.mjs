@@ -630,3 +630,40 @@ test('book audit reports conflicting confirmed entity and character-profile tran
     item.type === 'terminology-drift' && item.segmentIds.includes('conflict-yabu')), false,
   'a stored mapping conflict should not be mislabeled as a translation defect');
 });
+
+
+test('quality audit is isolated per project and partial runs do not block auditing accepted translations', () => {
+  const store = getDocumentProjectStore();
+  const activeProject = store.createProject({
+    title: 'Another Project With Active Run',
+    format: 'txt',
+    sourceFileName: 'other-active-run.txt',
+    prompt: { translationMode: 'literary', sourceLang: 'en', targetLang: 'zh' },
+    segments: [
+      { id: 'other-active-segment', text: 'The old gate remained closed.', kind: 'paragraph', contextPath: 'Chapter 1' },
+    ],
+  });
+  const queued = store.createRun(activeProject.projectId, { scope: { type: 'all' } });
+
+  const projectToAudit = store.createProject({
+    title: 'Audit While Another Project Runs',
+    format: 'txt',
+    sourceFileName: 'audit-while-other-runs.txt',
+    prompt: { translationMode: 'literary', sourceLang: 'en', targetLang: 'zh' },
+    segments: [
+      { id: 'audit-while-other-segment', text: 'Mara returned after sunset.', kind: 'paragraph', contextPath: 'Chapter 1' },
+    ],
+  });
+  store.saveManualEdit(projectToAudit.projectId, 'audit-while-other-segment', '玛拉在日落后回来了。');
+  ensureTestContextGraph(store, projectToAudit);
+
+  assert.doesNotThrow(() => runProjectQualityAudit(projectToAudit.projectId),
+    'an active run in a different project must not block this project audit');
+
+  const activeContext = store.getProjectContext(activeProject.projectId);
+  activeContext.db.prepare(
+    "UPDATE translation_runs SET status = 'partial', finished_at = ? WHERE run_id = ?",
+  ).run(new Date().toISOString(), queued.runId);
+  assert.doesNotThrow(() => runProjectQualityAudit(activeProject.projectId),
+    'partial is a terminal run state; accepted translations and missing segments should still be auditable');
+});
