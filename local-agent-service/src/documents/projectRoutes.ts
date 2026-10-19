@@ -35,7 +35,7 @@ async function readRawSourceBody(req: Request, maxBytes: number): Promise<Buffer
   for await (const chunk of req) {
     const value = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
     total += value.byteLength;
-    if (total > maxBytes) throw Object.assign(new Error('原始文档超过 20 MiB 上限'), { status: 413 });
+    if (total > maxBytes) throw Object.assign(new Error('原始文档超过 ' + Math.round(maxBytes / 1024 / 1024) + ' MiB 上限'), { status: 413 });
     chunks.push(value);
   }
   return Buffer.concat(chunks, total);
@@ -126,6 +126,21 @@ export async function handleDocumentProjectRequest(req: Request, res: Response, 
       catch { throw Object.assign(new Error('X-Source-File-Name 编码无效'), { status: 400 }); }
       if (!fileName || fileName.includes('/') || fileName.includes('\\')) throw Object.assign(new Error('X-Source-File-Name 必须是文件名，不得包含路径'), { status: 400 });
       const bytes = await readRawSourceBody(req, MAX_DOCUMENT_SOURCE_BYTES);
+      if (req.headers['x-import-mode'] !== 'separate') {
+        const sameSourceProject = store.listProjects()
+          .filter((candidate) => candidate.sourceFileSaved &&
+            candidate.sourceFileName.toLocaleLowerCase() === fileName.toLocaleLowerCase() &&
+            candidate.sourceFileSize === bytes.byteLength)
+          .find((candidate) => store.matchesStoredSourceFile(candidate.projectId, bytes));
+        if (sameSourceProject) {
+          sendJson(res, 200, {
+            project: store.getProject(sameSourceProject.projectId),
+            reusedExisting: true,
+            sourceFileHashMatched: true,
+          });
+          return true;
+        }
+      }
       const parsed = await parseDocumentFile(fileName, bytes);
       const encodedTitle = String(req.headers['x-project-title'] || '');
       let title = parsed.title;
