@@ -325,8 +325,8 @@ function canonicalTermPattern(value: string): string {
 }
 
 /**
- * Only map terms backed by a source-visible, operational mapping. Conflicting targets for the
- * same source spelling are excluded rather than choosing one nondeterministically.
+ * Only map terms backed by a source-visible, operational mapping. Prefer confirmed LiteraryMemory
+ * targets over Context Graph targets; contradictory mappings at the same authority level fail closed.
  */
 export function buildCanonicalTermProtections(
   items: Array<{ id: string; text: string }>,
