@@ -25,6 +25,13 @@ function list(value: unknown, maxItems: number, maxLength = 180): string[] {
 function status(value: unknown, allowed: string[], fallback = 'candidate'): string {
   return typeof value === 'string' && allowed.includes(value) ? value : fallback;
 }
+
+type ConfirmationSource = 'evidence-verified' | 'user-confirmed' | 'legacy-unknown';
+function confirmationSource(value: unknown, active: boolean): ConfirmationSource | undefined {
+  if (!active) return undefined;
+  return value === 'evidence-verified' || value === 'user-confirmed' || value === 'legacy-unknown'
+    ? value : 'legacy-unknown';
+}
 function numericConfidence(value: unknown): number | null {
   if (value === null || value === undefined || value === '') return null;
   const score = typeof value === 'number' ? value : typeof value === 'string' ? Number(value) : NaN;
@@ -179,6 +186,10 @@ export function sanitizeProjectLiteraryMemory(input: unknown): Record<string, an
         new Set(item.targetEvidenceRefs.map((ref: any) => text(ref?.segmentId, 160)).filter(Boolean)).size >= 2
         ? 'corroborated' : 'candidate',
       reviewStatus: item.reviewStatus === 'confirmed' ? 'confirmed' : 'suggested',
+      ...(confirmationSource(item.confirmationSource, item.reviewStatus === 'confirmed')
+        ? { confirmationSource: confirmationSource(item.confirmationSource, item.reviewStatus === 'confirmed') } : {}),
+      ...(confirmationSource(item.confirmationSource, item.reviewStatus === 'confirmed')
+        ? { confirmationSource: confirmationSource(item.confirmationSource, item.reviewStatus === 'confirmed') } : {}),
     }];
   }) : []);
   const relationships = Array.isArray(raw.relationships) ? raw.relationships.slice(0, 160).flatMap((item: any) => {
@@ -205,6 +216,7 @@ export function sanitizeProjectLiteraryMemory(input: unknown): Record<string, an
     avoid: list(style.avoid, 12, 100),
   };
   const styleGuideStatus = raw.styleGuideStatus === 'confirmed' ? 'confirmed' : 'candidate';
+  const styleGuideConfirmationSource = confirmationSource(raw.styleGuideConfirmationSource, styleGuideStatus === 'confirmed');
   const characterVoices = Array.isArray(raw.characterVoices) ? raw.characterVoices.slice(0, MAX_CHARACTERS).flatMap((item: any) => {
     if (!item || typeof item !== 'object' || Array.isArray(item)) return [];
     const canonicalSourceName = text(item.canonicalSourceName || item.source || item.name, 120);
@@ -243,6 +255,8 @@ export function sanitizeProjectLiteraryMemory(input: unknown): Record<string, an
       ...(text(item.role, 360) ? { role: text(item.role, 360) } : {}),
       ...(list(item.traits, 10, 160).length ? { traits: list(item.traits, 10, 160) } : {}),
       status: profileStatus,
+      ...(confirmationSource(item.confirmationSource, profileStatus === 'confirmed')
+        ? { confirmationSource: confirmationSource(item.confirmationSource, profileStatus === 'confirmed') } : {}),
       useForTranslation: item.useForTranslation !== false && profileStatus !== 'rejected',
       confidence: profileConfidenceSource ? profileConfidence : null,
       ...(profileConfidenceSource ? { confidenceSource: profileConfidenceSource } : {}),
@@ -268,8 +282,11 @@ export function sanitizeProjectLiteraryMemory(input: unknown): Record<string, an
     const speakerId = text(item.speakerId, 100); const addresseeId = text(item.addresseeId, 100);
     const evidenceSegmentIds = list(item.evidenceSegmentIds, 8, 160);
     if (!validCharacterIds.has(speakerId) || !validCharacterIds.has(addresseeId) || !evidenceSegmentIds.length) return [];
+    const ruleStatus = status(item.status, ['candidate','confirmed','rejected']);
     return [{
-      speakerId, addresseeId, status: status(item.status, ['candidate','confirmed','rejected']),
+      speakerId, addresseeId, status: ruleStatus,
+      ...(confirmationSource(item.confirmationSource, ruleStatus === 'confirmed')
+        ? { confirmationSource: confirmationSource(item.confirmationSource, ruleStatus === 'confirmed') } : {}),
       baselineRegister: text(item.baselineRegister, 180), addressTerms: list(item.addressTerms, 8, 100),
       directness: text(item.directness, 180), emotionalDistance: text(item.emotionalDistance, 180),
       sceneDependentShift: text(item.sceneDependentShift, 180), evidenceSegmentIds,
@@ -290,6 +307,8 @@ export function sanitizeProjectLiteraryMemory(input: unknown): Record<string, an
       anchorId: text(item.anchorId, 120) || 'anchor_' + safeHash(segmentId + source).slice(0, 12),
       speakerId, addresseeId: text(item.addresseeId, 100), source, target, chapter: text(item.chapter, 120), segmentId,
       status: claimedStatus === 'approved' && !groundedAttribution ? 'candidate' : claimedStatus,
+      ...(confirmationSource(item.confirmationSource, claimedStatus === 'approved' && !!groundedAttribution)
+        ? { confirmationSource: confirmationSource(item.confirmationSource, claimedStatus === 'approved' && !!groundedAttribution) } : {}),
       approvedBy: status(item.approvedBy, ['user','reviewer','manual-edit'], 'reviewer'),
       ...(attributionEvidence ? { attributionEvidence } : {}),
       ...(Number.isFinite(attributionConfidence) ? { attributionConfidence: Math.max(0, Math.min(1, attributionConfidence)) } : {}),
@@ -314,8 +333,9 @@ export function sanitizeProjectLiteraryMemory(input: unknown): Record<string, an
     }] : [];
   }) : [];
   return {
-    version: 2, entities, relationships, styleGuide, styleGuideStatus, chapterSummaries, recentExamples,
-    characterVoices, relationshipVoiceRules, voiceAnchors,
+    version: 2, entities, relationships, styleGuide, styleGuideStatus,
+    ...(styleGuideConfirmationSource ? { styleGuideConfirmationSource } : {}),
+    chapterSummaries, recentExamples, characterVoices, relationshipVoiceRules, voiceAnchors,
     openQuestions: list(raw.openQuestions, 40, 200),
   };
 }
