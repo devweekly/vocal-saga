@@ -387,16 +387,6 @@ function hashTranslationText(value: unknown): string {
   return createHash('sha256').update(String(value ?? ''), 'utf8').digest('hex');
 }
 
-function translationHashesBySegment(
-  segments: Array<{ id: string }>,
-  translations: Map<string, string>,
-): Record<string, string> {
-  return Object.fromEntries(segments.map((segment) => [
-    segment.id,
-    hashTranslationText(translations.get(segment.id) || ''),
-  ]));
-}
-
 function translationSnapshotHash(segments: Array<{ id: string }>, translations: Map<string, string>): string {
   const hashes = segments.map((segment) => [
     segment.id,
@@ -1320,10 +1310,9 @@ export function runProjectQualityAudit(projectId: string, runId?: string): Recor
     }
   }
   const acceptedTranslationMap = acceptedTranslations(context.db, context.currentSourceRevisionId);
-  const acceptedTranslationHashes = translationHashesBySegment(segments, acceptedTranslationMap);
+  const acceptedTranslationSnapshotHash = translationSnapshotHash(segments, acceptedTranslationMap);
   const translations = new Map(acceptedTranslationMap);
   if (runId) overlayRunCandidates(context.db, context.currentSourceRevisionId, runId, translations);
-  const effectiveTranslationHashes = translationHashesBySegment(segments, translations);
   const effectiveTranslationSnapshotHash = translationSnapshotHash(segments, translations);
   const memory = loadMemory(projectId, runId);
   const mappingConflictAudit = canonicalNameMappingConflictFindings(segments, memory);
@@ -1387,10 +1376,9 @@ export function runProjectQualityAudit(projectId: string, runId?: string): Recor
     projectId,
     sourceRevisionId: context.currentSourceRevisionId,
     runId: runId || null,
-    // Hashes make stale-repair detection possible without duplicating accepted translations in the audit report.
+    // Aggregate hashes keep stale-repair protection bounded even for very long books.
     translationSnapshotHash: effectiveTranslationSnapshotHash,
-    acceptedTranslationHashes,
-    effectiveTranslationHashes,
+    acceptedTranslationSnapshotHash,
     reviewRunId: review.reviewRunId,
     createdAt: new Date().toISOString(),
     analysisLimits: {
@@ -1469,25 +1457,20 @@ export function createQualityRepairRun(projectId: string, auditId: string, selec
     'SELECT segment_id AS id FROM source_segments WHERE source_revision_id = ? ORDER BY ordinal'
   ).all(currentSourceRevisionId) as Array<{ id: string }>;
   const storedAcceptedTranslations = acceptedTranslations(db, currentSourceRevisionId);
-  const currentAcceptedHashes = translationHashesBySegment(currentSourceSegments, storedAcceptedTranslations);
-  const acceptedHashesAtAudit = report.acceptedTranslationHashes as Record<string, string> | undefined;
-  const effectiveHashesAtAudit = report.effectiveTranslationHashes as Record<string, string> | undefined;
-  if (!acceptedHashesAtAudit || !effectiveHashesAtAudit || !report.translationSnapshotHash) {
+  const currentAcceptedSnapshotHash = translationSnapshotHash(currentSourceSegments, storedAcceptedTranslations);
+  const acceptedSnapshotAtAudit = typeof report.acceptedTranslationSnapshotHash === 'string'
+    ? report.acceptedTranslationSnapshotHash : '';
+  const effectiveSnapshotAtAudit = typeof report.translationSnapshotHash === 'string'
+    ? report.translationSnapshotHash : '';
+  if (!acceptedSnapshotAtAudit || !effectiveSnapshotAtAudit) {
     fail('该质量报告未记录译文快照，无法安全判断问题是否已被修正。请重新执行全书审计后再返工。', 409);
   }
-  // A run's candidates may be accepted after the audit. That is safe only if the accepted text
-  // now equals the text that the audit examined; any third value means the report is stale.
-  for (const segment of currentSourceSegments) {
-    const id = String(segment.id);
-    const currentHash = currentAcceptedHashes[id];
-    const acceptedHashAtAudit = acceptedHashesAtAudit[id];
-    const effectiveHashAtAudit = effectiveHashesAtAudit[id];
-    if (acceptedHashAtAudit === undefined || effectiveHashAtAudit === undefined) {
-      fail('质量报告片段快照不完整。请重新执行全书审计。', 409);
-    }
-    if (currentHash !== acceptedHashAtAudit && currentHash !== effectiveHashAtAudit) {
-      fail('审计后已有译文被修改；旧质量报告不能用于返工，请重新执行全书审计。', 409);
-    }
+  // A run's candidates may be accepted after the audit. That is safe only if the whole accepted
+  // text now equals either the accepted snapshot or the effective text actually audited. Aggregate
+  // hashes keep the report compact; a different third snapshot means the audit is stale.
+  if (currentAcceptedSnapshotHash !== acceptedSnapshotAtAudit &&
+      currentAcceptedSnapshotHash !== effectiveSnapshotAtAudit) {
+    fail('审计后已有译文被修改；旧质量报告不能用于返工，请重新执行全书审计。', 409);
   }
   const wantedFindings = new Set(selectedFindingIds);
   // Explicit segment IDs mean a genuinely narrow repair. They must not expand to every segment
