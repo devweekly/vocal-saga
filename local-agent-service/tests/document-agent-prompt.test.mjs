@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildBatches, buildCanonicalTermProtections, buildStandaloneReviewContextGraph, buildStandaloneReviewMemory, buildStandaloneReviewVoiceContext, buildUserPrompt, canonicalMarkerCountsMatch, maskCanonicalTermText, protectCanonicalReviewSegments, restoreCanonicalMarkersDeep, restoreCanonicalTermMarkers } from '../src/documents/translationAgent.ts';
+import { buildBatches, buildCanonicalTermProtections, buildStandaloneReviewContextGraph, buildStandaloneReviewMemory, buildStandaloneReviewVoiceContext, buildUserPrompt, canonicalMarkerCountsMatch, chunkMissingTranslationItems, maskCanonicalTermText, protectCanonicalReviewSegments, restoreCanonicalMarkersDeep, restoreCanonicalTermMarkers } from '../src/documents/translationAgent.ts';
 import { normalizeDocumentTranslationStrategy } from '../src/documents/projectStore.ts';
 import { buildProjectVoiceContext } from '../src/documents/voiceContext.ts';
 import { isLiteraryReviewFindingGrounded } from '../src/literary.ts';
@@ -378,6 +378,44 @@ test('candidate-only or conflicting name mappings are not forced into translatio
     ],
   });
   assert.deepEqual(conflict, [], 'conflicting targets must not be selected arbitrarily');
+});
+
+test('confirmed-memory character names remain protected in Reviewer drafts', () => {
+  const graph = {
+    nameMappings: [{
+      source: 'Yabu', target: '薮', aliases: [], sourceStatus: 'confirmed-memory',
+    }],
+  };
+  const result = protectCanonicalReviewSegments([{
+    id: 'yabu-1',
+    source: 'Yabu lay in the hot bath.',
+    draft: '薮泡在热汤里。',
+  }], graph);
+  assert.ok(result.protections.some((item) => item.sourceForm === 'Yabu' && item.target === '薮'));
+  assert.match(result.segments[0].source, /__VSA_TERM_000__/);
+  assert.match(result.segments[0].draft, /__VSA_TERM_000__/);
+  assert.equal(restoreCanonicalTermMarkers(result.segments[0].draft, result.protections), '薮泡在热汤里。');
+});
+
+test('generic titles and aliases belonging to another character are not protected as names', () => {
+  const graph = {
+    nameMappings: [{
+      source: 'Blackthorne', target: '布莱克索恩',
+      aliases: ["Lord Toranaga's", 'General'], sourceStatus: 'confirmed-memory',
+    }, {
+      source: 'Yabu', target: '薮', aliases: ['Lord'], sourceStatus: 'confirmed-memory',
+    }],
+  };
+  const protections = buildCanonicalTermProtections([{
+    id: 'p1', text: "Lord Toranaga's general saw Yabu before sunset.",
+  }], graph);
+  assert.deepEqual(protections.map((item) => item.sourceForm), ['Yabu']);
+});
+
+test('missing-only retries split a large failed range into small ordered groups', () => {
+  const groups = chunkMissingTranslationItems(Array.from({ length: 13 }, (_, index) => 'segment-' + index), 4);
+  assert.deepEqual(groups.map((group) => group.length), [4, 4, 4, 1]);
+  assert.deepEqual(groups.flat(), Array.from({ length: 13 }, (_, index) => 'segment-' + index));
 });
 
 test('buildUserPrompt masks automatically active entity names in source segments', () => {
