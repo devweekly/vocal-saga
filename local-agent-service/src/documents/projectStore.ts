@@ -2074,9 +2074,9 @@ export class DocumentProjectStore {
   }
 
   /**
-   * 用户明确采纳候选译文的事务边界。
+   * 候选译文的唯一采纳事务边界。
    * Run 状态检查、候选选择、source hash 对齐、人工编辑保护和 accepted 标记在同一写事务中完成；
-   * 该入口不得被初译/审校 worker 调用来跳过人工采纳门槛。
+   * 允许经过验证的 Run 终结流程自动调用，但不得绕过版本及人工修订保护。
    */
   acceptCandidates(projectId: string, runId: string, segmentIds?: string[]): any {
     const db = this.openProjectDb(projectId);
