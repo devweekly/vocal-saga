@@ -710,3 +710,39 @@ test('quality repair rejects an audit finding after its accepted translation has
     'an old finding must not create a repair Run after a user has already corrected the translation',
   );
 });
+
+test('automatic quality repair is marked as bounded service automation and linked to its parent run', () => {
+  const store = getDocumentProjectStore();
+  const project = store.createProject({
+    title: 'Automatic Quality Repair Test',
+    format: 'txt',
+    sourceFileName: 'automatic-quality-repair.txt',
+    prompt: { translationMode: 'technical', sourceLang: 'en', targetLang: 'zh' },
+    segments: [
+      { id: 'auto-present', text: 'The door was open.', kind: 'paragraph', contextPath: 'Chapter 1' },
+      { id: 'auto-missing', text: 'The letter remained on the desk.', kind: 'paragraph', contextPath: 'Chapter 1' },
+    ],
+  });
+  store.saveManualEdit(project.projectId, 'auto-present', '门开着。');
+  ensureTestContextGraph(store, project);
+  const parent = store.createRun(project.projectId, { scope: { type: 'ids', ids: [] } });
+  const report = runProjectQualityAudit(project.projectId);
+  const missing = report.findings.find((item) => item.type === 'missing-translation' &&
+    item.segmentIds.includes('auto-missing'));
+  assert.ok(missing);
+
+  const repair = createQualityRepairRun(
+    project.projectId,
+    report.auditId,
+    [missing.findingId],
+    [],
+    { automatic: true, parentRunId: parent.runId },
+  );
+  assert.equal(repair.humanAcceptanceRequired, false);
+  assert.equal(repair.automatic, true);
+  assert.equal(repair.run.parentRunId, parent.runId);
+  assert.equal(repair.run.scope.automation.kind, 'quality-audit-repair');
+  assert.equal(repair.run.scope.automation.pass, 1);
+  assert.deepEqual(repair.segmentIds, ['auto-missing']);
+});
+
