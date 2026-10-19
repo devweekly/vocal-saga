@@ -1923,7 +1923,7 @@ async function executeRun(projectId: string, runId: string): Promise<void> {
     // Store 的事务仍会检查来源版本与更新过的人工修订，不允许自动采纳覆盖人工版本。
     if (finishedRun.status === 'awaiting_acceptance' && Number(finishedRun.counts?.candidate || 0) > 0) {
       try {
-        finishedRun = store.acceptCandidates(projectId, runId);
+        finishedRun = autoAcceptFinishedRunCandidates(projectId, runId);
         store.appendEvent(projectId, runId, 'translations.auto-accepted', {
           acceptedCount: Number(finishedRun.counts?.accepted || 0),
           remainingCandidateCount: Number(finishedRun.counts?.candidate || 0),
@@ -2070,6 +2070,17 @@ async function executeRun(projectId: string, runId: string): Promise<void> {
       logError('document-agent', 'failed to persist run failure · ' + (persistError instanceof Error ? persistError.message : String(persistError)));
     }
   }
+}
+
+/**
+ * 服务端 Run 最终化：将等待采纳的候选走 Store 的同一受保护事务。
+ * 不重写人工结果；仅当 Run 已终结且确实存在候选时执行。可幂等重入。
+ */
+export function autoAcceptFinishedRunCandidates(projectId: string, runId: string): any {
+  const store = getDocumentProjectStore();
+  const run = store.getRun(projectId, runId);
+  if (run.status !== 'awaiting_acceptance' || Number(run.counts?.candidate || 0) <= 0) return run;
+  return store.acceptCandidates(projectId, runId);
 }
 
 /**
