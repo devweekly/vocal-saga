@@ -213,3 +213,54 @@ test('confirmation provenance is sanitized and never allows an unconfirmed item 
   assert.equal(memory.entities[1].confirmationSource, undefined);
 });
 
+
+
+test('LiteraryMemory drops unrelated full-book payloads before enforcing the canonical DTO budget', () => {
+  const memory = sanitizeProjectLiteraryMemory({
+    sourceDocument: 'full book text '.repeat(50_000),
+    contextGraph: { evidence: 'whole-book graph '.repeat(20_000) },
+    entities: [{ source: 'Yabu', target: '薮', kind: 'person', aliases: ['Yabu'], reviewStatus: 'confirmed' }],
+  });
+  assert.equal(memory.entities.length, 1);
+  assert.equal(memory.entities[0].target, '薮');
+  assert.equal(Object.hasOwn(memory, 'sourceDocument'), false);
+  assert.equal(Object.hasOwn(memory, 'contextGraph'), false);
+});
+
+test('oversized structured LiteraryMemory is pruned safely to a bounded canonical DTO', () => {
+  const characterVoices = Array.from({ length: 80 }, (_, index) => ({
+    characterId: 'char-' + index,
+    canonicalSourceName: 'Character ' + index,
+    status: 'candidate',
+    evidencePolicyVersion: 'character-evidence-v2-complete',
+    voiceCore: {
+      register: 'measured '.repeat(20),
+      syntaxRhythm: Array.from({ length: 6 }, (_, n) => 'sentence rhythm observation ' + n + ' '.repeat(20)),
+      lexicalPreferences: Array.from({ length: 6 }, (_, n) => 'lexical observation ' + n + ' '.repeat(20)),
+      discourseHabits: Array.from({ length: 6 }, (_, n) => 'dialogue strategy ' + n + ' '.repeat(20)),
+    },
+    evidence: Array.from({ length: 12 }, (_, evidenceIndex) => ({
+      segmentId: 's' + index + '-' + evidenceIndex,
+      sourceQuote: 'SOURCE '.repeat(30),
+      dimension: 'register',
+      observation: 'Observation '.repeat(20),
+    })),
+  }));
+  const memory = sanitizeProjectLiteraryMemory({
+    characterVoices,
+    chapterSummaries: Array.from({ length: 40 }, (_, index) => ({
+      chapter: 'Chapter ' + index, summary: 'Summary '.repeat(50),
+    })),
+    recentExamples: Array.from({ length: 8 }, () => ({
+      source: 'Source '.repeat(30), target: 'Target '.repeat(30),
+    })),
+    voiceAnchors: Array.from({ length: 240 }, (_, index) => ({
+      anchorId: 'anchor-' + index, speakerId: 'char-0', segmentId: 's' + index,
+      source: 'Source '.repeat(20), target: 'Target '.repeat(20), status: 'candidate',
+    })),
+  });
+
+  assert.ok(Buffer.byteLength(JSON.stringify(memory), 'utf8') <= 120_000);
+  assert.ok(memory.characterVoices.length > 0);
+  assert.ok(memory.characterVoices.some((profile) => profile.evidenceTruncated === true));
+});
