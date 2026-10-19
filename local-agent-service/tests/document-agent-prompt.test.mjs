@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildBatches, buildCanonicalTermProtections, buildStandaloneReviewContextGraph, buildStandaloneReviewMemory, buildStandaloneReviewVoiceContext, buildUserPrompt, canonicalMarkerCountsMatch, chunkMissingTranslationItems, maskCanonicalTermText, protectCanonicalReviewSegments, restoreCanonicalMarkersDeep, restoreCanonicalTermMarkers } from '../src/documents/translationAgent.ts';
+import { buildBatches, buildCanonicalTermProtections, buildStandaloneReviewContextGraph, buildStandaloneReviewMemory, buildStandaloneReviewVoiceContext, buildUserPrompt, canonicalMarkerCountsMatch, chunkMissingTranslationItems, maskCanonicalTermText, mergeConfirmedMemoryNameMappings, protectCanonicalReviewSegments, restoreCanonicalMarkersDeep, restoreCanonicalTermMarkers } from '../src/documents/translationAgent.ts';
 import { normalizeDocumentTranslationStrategy } from '../src/documents/projectStore.ts';
 import { buildProjectVoiceContext } from '../src/documents/voiceContext.ts';
 import { isLiteraryReviewFindingGrounded } from '../src/literary.ts';
@@ -380,18 +380,22 @@ test('candidate-only or conflicting name mappings are not forced into translatio
   assert.deepEqual(conflict, [], 'conflicting targets must not be selected arbitrarily');
 });
 
-test('confirmed-memory character names remain protected in Reviewer drafts', () => {
-  const graph = {
-    nameMappings: [{
-      source: 'Yabu', target: '薮', aliases: [], sourceStatus: 'confirmed-memory',
-    }],
-  };
+test('confirmed project-memory names are restored to Reviewer protections when graph mapping is absent', () => {
+  const merged = mergeConfirmedMemoryNameMappings(
+    { nameMappings: [] },
+    { entities: [
+      { source: 'Yabu', target: '薮', kind: 'person', aliases: [], reviewStatus: 'confirmed' },
+      { source: 'Omi', target: '近江', kind: 'person', aliases: [], reviewStatus: 'candidate' },
+    ] },
+  );
   const result = protectCanonicalReviewSegments([{
     id: 'yabu-1',
     source: 'Yabu lay in the hot bath.',
     draft: '薮泡在热汤里。',
-  }], graph);
+  }], merged);
   assert.ok(result.protections.some((item) => item.sourceForm === 'Yabu' && item.target === '薮'));
+  assert.equal(result.protections.some((item) => item.sourceForm === 'Omi'), false,
+    'candidate memory entries must not become forced canonical mappings');
   assert.match(result.segments[0].source, /__VSA_TERM_000__/);
   assert.match(result.segments[0].draft, /__VSA_TERM_000__/);
   assert.equal(restoreCanonicalTermMarkers(result.segments[0].draft, result.protections), '薮泡在热汤里。');
