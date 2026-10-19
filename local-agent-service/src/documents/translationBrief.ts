@@ -90,7 +90,7 @@ function isCompatibleCanonicalSourceAlias(source: string, alias: string): boolea
 
 function safeCanonicalSourceAliases(source: string, aliasesInput: unknown): string[] {
   const aliases = (Array.isArray(aliasesInput) ? aliasesInput : [])
-    .filter((alias): alias is string => typeof alias === 'string' && alias.trim())
+    .filter((alias): alias is string => typeof alias === 'string' && alias.trim().length > 0)
     .map((alias) => alias.trim())
     .filter((alias) => !isGenericCanonicalSourceName(alias) &&
       normalizedSourceText(alias) !== normalizedSourceText(source) &&
