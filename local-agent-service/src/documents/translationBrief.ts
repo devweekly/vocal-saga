@@ -336,7 +336,7 @@ function buildTemporallyVisibleMemory(
     const visibleInCurrentBatch = canonicalSourceVisibleNow || items.some((item) =>
       aliases.some((alias: unknown) => sourceNameMatches(item.text, alias)));
     if (!entity || (!appearedBefore(entity.source) &&
-        !(explicitCanonicalMapping && (confirmedPersonMapping ? canonicalSourceVisibleNow : visibleInCurrentBatch)))) {
+        !(explicitCanonicalMapping && (visibleInCurrentBatch)))) {
       exclusionDiagnostics.memoryEntityExcludedNameNotVisible++;
       return [];
     }
@@ -809,13 +809,11 @@ export function buildTranslationBrief(
       const evidence = String(entity?.evidence || '').trim();
       const rawAliases = Array.isArray(entity.aliases) ? entity.aliases : [];
       const confirmedPersonMapping = entity.kind === 'person' && entity.reviewStatus === 'confirmed';
-      // A confirmed person name is a canonical mapping in 人物管理. Require the canonical source
-      // itself to be visible before activating it, then omit any later-only aliases rather than
-      // suppressing the whole translation name because a profile contains an unseen alias.
+      // A confirmed person name is a canonical mapping in 人物管理. Activate it only when the
+      // canonical source or one of its aliases is visible; omit later-only aliases without suppressing
+      // the whole translation name.
       if (!source || !target ||
-          (confirmedPersonMapping
-            ? !sourceVisible(source)
-            : (!sourceVisible(source) && !rawAliases.some((alias: unknown) => sourceVisible(alias))))) continue;
+          (!sourceVisible(source) && !rawAliases.some((alias: unknown) => sourceVisible(alias)))) continue;
       const aliasIsVisible = (alias: unknown) =>
         firstMatchingSourceOrdinal(projectContext.db, sourceRevisionId, alias, 'name') < firstOrdinal ||
         sourceNameMatches(sourceText, alias);
