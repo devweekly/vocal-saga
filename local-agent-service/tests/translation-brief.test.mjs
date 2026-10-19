@@ -876,3 +876,147 @@ test('source occurrence lookup normalizes apostrophes and dash variants before t
   'normalized source lookup should validate prior evidence despite punctuation variants');
   assert.equal(brief.contextDiagnostics.memoryEntityExcludedByBoundary, 0);
 });
+
+
+test('confirmed character-profile names enter the translation mapping while unsafe and future-only aliases are excluded', () => {
+  const store = getDocumentProjectStore();
+  const project = store.createProject({
+    title: 'Character Profile Canonical Mapping Test',
+    format: 'txt',
+    sourceFileName: 'character-profile-mapping.txt',
+    prompt: { translationMode: 'literary', sourceLang: 'en', targetLang: 'zh' },
+    segments: [
+      { id: 'profile-early', text: 'Yabu-san met Omi near the gate.', kind: 'paragraph', contextPath: 'Chapter 1' },
+      { id: 'profile-late', text: 'Yabu II was revealed in a later chapter.', kind: 'paragraph', contextPath: 'Chapter 8' },
+    ],
+  });
+  store.saveLiteraryMemory(project.projectId, {
+    entities: [],
+    relationships: [],
+    styleGuide: {},
+    styleGuideStatus: 'candidate',
+    chapterSummaries: [],
+    recentExamples: [],
+    characterVoices: [
+      {
+        characterId: 'char-yabu',
+        canonicalSourceName: 'Yabu',
+        targetName: '薮',
+        aliases: ['Yabu-san', 'Lord', "Lord Toranaga's", 'General', 'Yabu II'],
+        status: 'confirmed',
+        useForTranslation: true,
+        voiceCore: { register: 'measured', syntaxRhythm: [], lexicalPreferences: [], discourseHabits: [], stanceModality: [], humorIrony: '', disfluency: '', avoid: [] },
+        evidence: [{
+          segmentId: 'profile-early',
+          sourceQuote: 'Yabu-san met Omi near the gate.',
+          dimension: 'register',
+          observation: '本段以人物称呼开头。',
+        }],
+        contrastRules: [],
+        openQuestions: [],
+      },
+      {
+        characterId: 'char-omi',
+        canonicalSourceName: 'Omi',
+        targetName: '近江',
+        aliases: [],
+        status: 'candidate',
+        useForTranslation: true,
+        voiceCore: { register: '', syntaxRhythm: [], lexicalPreferences: [], discourseHabits: [], stanceModality: [], humorIrony: '', disfluency: '', avoid: [] },
+        evidence: [{
+          segmentId: 'profile-early',
+          sourceQuote: 'Omi near the gate.',
+          dimension: 'register',
+          observation: '本段出现人物姓名。',
+        }],
+        contrastRules: [],
+        openQuestions: [],
+      },
+    ],
+    relationshipVoiceRules: [],
+    voiceAnchors: [],
+  });
+  ensureTestContextGraph(store, project);
+
+  const run = store.createRun(project.projectId, { scope: { type: 'ids', ids: ['profile-early'] } });
+  const context = store.getRunContext(project.projectId, run.runId);
+  const source = store.getSegments(project.projectId, { limit: 10 })
+    .find((item) => item.id === 'profile-early');
+  const brief = buildTranslationBrief(context, [source], []);
+  const mappings = brief.contextGraph.nameMappings;
+  const yabu = mappings.find((item) => item.source === 'Yabu');
+  assert.ok(yabu, 'a confirmed Character/Voice profile must provide a canonical target even without a memory entity');
+  assert.equal(yabu.target, '薮');
+  assert.deepEqual(yabu.aliases, ['Yabu-san'],
+    'generic titles, aliases referring to another person, and later-only aliases must not be injected');
+  const omi = mappings.find((item) => item.source === 'Omi');
+  assert.equal(omi?.target, '近江');
+  assert.equal(omi?.sourceStatus, 'candidate',
+    'enabled candidate profiles may guide translation but remain non-authoritative and are not hard-protected');
+  const visibleYabuProfile = brief.voiceContext.characterVoices.find((item) => item.canonicalSourceName === 'Yabu');
+  if (visibleYabuProfile) {
+    assert.deepEqual(visibleYabuProfile.aliases, ['Yabu-san'],
+      'when the profile is eligible for voice context, unsafe/future aliases must also be removed');
+  }
+  assert.equal(brief.contextDiagnostics.characterProfileMappingConflictCount, 0);
+});
+
+test('conflicting confirmed character profile and entity targets are not arbitrarily forced into TranslationBrief', () => {
+  const store = getDocumentProjectStore();
+  const project = store.createProject({
+    title: 'Character Profile Mapping Conflict Test',
+    format: 'txt',
+    sourceFileName: 'character-profile-conflict.txt',
+    prompt: { translationMode: 'literary', sourceLang: 'en', targetLang: 'zh' },
+    segments: [
+      { id: 'conflict-early', text: 'Yabu returned to the camp.', kind: 'paragraph', contextPath: 'Chapter 1' },
+    ],
+  });
+  store.saveLiteraryMemory(project.projectId, {
+    entities: [{
+      source: 'Yabu',
+      target: '矢部',
+      aliases: [],
+      kind: 'person',
+      reviewStatus: 'confirmed',
+      evidence: 'Yabu returned to the camp.',
+    }],
+    relationships: [],
+    styleGuide: {},
+    styleGuideStatus: 'candidate',
+    chapterSummaries: [],
+    recentExamples: [],
+    characterVoices: [{
+      characterId: 'char-yabu-conflict',
+      canonicalSourceName: 'Yabu',
+      targetName: '薮',
+      aliases: [],
+      status: 'confirmed',
+      useForTranslation: true,
+      voiceCore: { register: '', syntaxRhythm: [], lexicalPreferences: [], discourseHabits: [], stanceModality: [], humorIrony: '', disfluency: '', avoid: [] },
+      evidence: [{
+        segmentId: 'conflict-early',
+        sourceQuote: 'Yabu returned to the camp.',
+        dimension: 'register',
+        observation: '原文以姓名指代人物。',
+      }],
+      contrastRules: [],
+      openQuestions: [],
+    }],
+    relationshipVoiceRules: [],
+    voiceAnchors: [],
+  });
+  ensureTestContextGraph(store, project);
+
+  const run = store.createRun(project.projectId, { scope: { type: 'ids', ids: ['conflict-early'] } });
+  const context = store.getRunContext(project.projectId, run.runId);
+  const source = store.getSegments(project.projectId, { limit: 10 })
+    .find((item) => item.id === 'conflict-early');
+  const brief = buildTranslationBrief(context, [source], []);
+  assert.equal(brief.contextGraph.nameMappings.some((item) => item.source === 'Yabu'), false,
+    'when two confirmed canonical targets disagree, do not force either translation');
+  assert.equal(brief.contextDiagnostics.characterProfileMappingConflictCount, 1);
+  assert.ok(brief.contextGraph.constraints.some((item) => String(item).includes('canonicalNameMappingConflicts')));
+  assert.deepEqual(brief.contextGraph.canonicalNameMappingConflicts.map((item) =>
+    new Set([item.existingTarget, item.profileTarget])), [new Set(['矢部', '薮'])]);
+});

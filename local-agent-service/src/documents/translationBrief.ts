@@ -55,6 +55,49 @@ function sourceQuoteMatches(source: unknown, quote: unknown): boolean {
   return quoteText.length >= 8 && sourceText.includes(quoteText);
 }
 
+const GENERIC_CANONICAL_SOURCE_FORMS = new Set([
+  'lord', 'general', 'sire', 'council', 'regent', 'regents', 'ship',
+  'sir', 'madam', 'madame', 'captain', 'lady', 'samurai',
+]);
+const CANONICAL_ALIAS_STOPWORDS = new Set([
+  'the', 'a', 'an', 'of', 'and', 'or', 'lord', 'general', 'sire', 'sir', 'lady',
+  'madam', 'madame', 'captain', 'master', 'mr', 'mrs', 'ms', 'san', 'sama',
+]);
+
+function normalizedCanonicalSourceName(value: unknown): string {
+  return normalizedSourceText(value).replace(/^(?:the|a|an)\s+/, '')
+    .replace(/(?:['’]s)\b/g, '').replace(/[.!?]+$/g, '').trim();
+}
+
+function isGenericCanonicalSourceName(value: unknown): boolean {
+  return GENERIC_CANONICAL_SOURCE_FORMS.has(normalizedCanonicalSourceName(value));
+}
+
+function canonicalSourceIdentityTokens(value: string): string[] {
+  return normalizedCanonicalSourceName(value).replace(/['’]s\b/g, '')
+    .match(/[a-z0-9]+/g)?.filter((token) => !CANONICAL_ALIAS_STOPWORDS.has(token)) || [];
+}
+
+function isCompatibleCanonicalSourceAlias(source: string, alias: string): boolean {
+  if (!/^[a-z0-9 ._'’-]+$/iu.test(source) || !/^[a-z0-9 ._'’-]+$/iu.test(alias)) return true;
+  const sourceTokens = canonicalSourceIdentityTokens(source);
+  const aliasTokens = canonicalSourceIdentityTokens(alias);
+  if (!aliasTokens.length) return false;
+  if (!sourceTokens.length) return true;
+  return sourceTokens.some((sourceToken) => aliasTokens.some((aliasToken) =>
+    sourceToken === aliasToken || sourceToken.startsWith(aliasToken) || aliasToken.startsWith(sourceToken)));
+}
+
+function safeCanonicalSourceAliases(source: string, aliasesInput: unknown): string[] {
+  const aliases = (Array.isArray(aliasesInput) ? aliasesInput : [])
+    .filter((alias): alias is string => typeof alias === 'string' && alias.trim().length > 0)
+    .map((alias) => alias.trim())
+    .filter((alias) => !isGenericCanonicalSourceName(alias) &&
+      normalizedSourceText(alias) !== normalizedSourceText(source) &&
+      isCompatibleCanonicalSourceAlias(source, alias));
+  return Array.from(new Map(aliases.map((alias) => [normalizedSourceText(alias), alias])).values());
+}
+
 const firstSourceOccurrenceCache = new Map<string, number>();
 const sourceRowsByRevision = new Map<string, Array<{ ordinal: number; text: string }>>();
 
@@ -777,6 +820,13 @@ export function buildTranslationBrief(
     delete (graph as any).retrievalDiagnostics;
   }
   if (graph && Array.isArray(graph.nameMappings)) {
+    // Do not feed generic titles or aliases belonging to another person back to the translator.
+    graph.nameMappings = graph.nameMappings.flatMap((mapping: any) => {
+      const source = typeof mapping?.source === 'string' ? mapping.source.trim() : '';
+      const target = typeof mapping?.target === 'string' ? mapping.target.trim() : '';
+      if (!source || !target || isGenericCanonicalSourceName(source)) return [];
+      return [{ ...mapping, aliases: safeCanonicalSourceAliases(source, mapping.aliases) }];
+    });
     const sourceText = [...visiblePrecedingSegments, ...items].map((item) => item.text).join('\n');
     const priorSourceText = visiblePrecedingSegments.map((item) => item.text).join('\n');
     const projectContext = getDocumentProjectStore().getProjectContext(projectId);
@@ -898,6 +948,84 @@ export function buildTranslationBrief(
         visiblePrecedingSegments.map((item) => ({ id: item.id, text: item.text, contextPath: item.contextPath, kind: item.kind })),
       ) as Record<string, any>
     : {};
+  let characterProfileMappingConflictCount = 0;
+  if (graph) {
+    const visibleSourceSegments = [...visiblePrecedingSegments, ...items];
+    const isVisibleHere = (name: unknown) => typeof name === 'string' && name.trim() &&
+      visibleSourceSegments.some((item) => sourceNameMatches(item.text, name));
+    // Use the run-pinned, Store-validated profile snapshot for canonical names. Voice-context
+    // retrieval deliberately requires earlier evidence, so using only its selected profiles would
+    // make a confirmed name disappear when its supporting quote belongs to the current batch.
+    const pinnedProfiles = Array.isArray((context as any)?.memory?.characterVoices)
+      ? (context as any).memory.characterVoices as Array<Record<string, any>>
+      : [];
+    for (const profile of pinnedProfiles) {
+      const source = typeof profile?.canonicalSourceName === 'string' ? profile.canonicalSourceName.trim() : '';
+      const target = typeof profile?.targetName === 'string' ? profile.targetName.trim() : '';
+      const status = String(profile?.status || '');
+      if (!source || !target || profile.useForTranslation === false ||
+          !['confirmed', 'candidate'].includes(status) || isGenericCanonicalSourceName(source)) continue;
+      const aliases = safeCanonicalSourceAliases(source, profile.aliases).filter(isVisibleHere);
+      // The canonical source or at least one safe, source-visible alias must be relevant to
+      // this batch. Names merely stored elsewhere in the book are not injected into the prompt.
+      if (!isVisibleHere(source) && !aliases.length) continue;
+      const incoming = {
+        source, target, aliases, kind: 'character',
+        evidenceBacked: status === 'confirmed',
+        targetConfidence: status === 'confirmed' ? 'confirmed' : 'candidate',
+        sourceStatus: status === 'confirmed' ? 'confirmed-memory' : 'candidate',
+      };
+      const names = new Set([source, ...aliases].map(normalizedSourceText));
+      const matches = (mapping: any) =>
+        [mapping?.source, ...(Array.isArray(mapping?.aliases) ? mapping.aliases : [])]
+          .some((name: unknown) => typeof name === 'string' && names.has(normalizedSourceText(name)));
+      const conflicting = graph.nameMappings.filter((mapping: any) =>
+        matches(mapping) && ['confirmed', 'confirmed-memory'].includes(String(mapping?.sourceStatus || '')) &&
+        normalizedSourceText(mapping?.target) !== normalizedSourceText(target));
+      if (status === 'confirmed' && conflicting.length) {
+        // Two confirmed sources disagree. Remove hard mappings for the overlapping names and
+        // expose the conflict as a constraint; never silently let array order select the winner.
+        graph.nameMappings = graph.nameMappings.filter((mapping: any) => !matches(mapping));
+        const oldConflicts = Array.isArray(graph.canonicalNameMappingConflicts) ? graph.canonicalNameMappingConflicts : [];
+        graph.canonicalNameMappingConflicts = [
+          ...oldConflicts,
+          ...conflicting.map((mapping: any) => ({ source, existingTarget: String(mapping.target || ''), profileTarget: target })),
+        ];
+        const constraints = Array.isArray(graph.constraints) ? graph.constraints : [];
+        graph.constraints = Array.from(new Set([
+          ...constraints,
+          'Conflicting confirmed canonical-name mappings are listed in canonicalNameMappingConflicts. Do not choose a target arbitrarily; preserve the source name and request project-memory correction.',
+        ]));
+        characterProfileMappingConflictCount++;
+        continue;
+      }
+      const matched = graph.nameMappings.filter(matches);
+      if (status === 'candidate' && matched.some((mapping: any) =>
+          ['confirmed', 'confirmed-memory'].includes(String(mapping?.sourceStatus || '')))) continue;
+      const mergedAliases = safeCanonicalSourceAliases(source, [
+        ...aliases,
+        ...matched.flatMap((mapping: any) => Array.isArray(mapping?.aliases) ? mapping.aliases : []),
+      ]).filter(isVisibleHere);
+      graph.nameMappings = graph.nameMappings.filter((mapping: any) => !matches(mapping));
+      graph.nameMappings.unshift({ ...incoming, aliases: mergedAliases });
+    }
+    graph.nameMappings.sort((a: any, b: any) => {
+      const rank = (mapping: any) => {
+        const statusRank = ['confirmed', 'confirmed-memory'].includes(String(mapping?.sourceStatus || '')) ? 4 :
+          mapping?.sourceStatus === 'auto' ? 3 : 1;
+        const names = [mapping?.source, ...(Array.isArray(mapping?.aliases) ? mapping.aliases : [])];
+        const inCurrent = names.some((name: unknown) => items.some((item) => sourceNameMatches(item.text, name))) ? 2 : 0;
+        const inPreceding = names.some((name: unknown) => visiblePrecedingSegments.some((item) =>
+          sourceNameMatches(item.text, name))) ? 1 : 0;
+        return statusRank + inCurrent + inPreceding;
+      };
+      return rank(b) - rank(a);
+    });
+    graph.nameMappings = graph.nameMappings.slice(0, 16);
+    if (characterProfileMappingConflictCount) {
+      logInfo('translation-brief', 'confirmed character profile mapping conflicts=' + characterProfileMappingConflictCount);
+    }
+  }
   // Context Graph style notes are book-wide and have no ordinal-bearing evidence links.
   // Keep only per-batch, evidence-bounded characters/entities/relationships and chapter prefix summaries.
   if (graph) {
@@ -928,6 +1056,7 @@ export function buildTranslationBrief(
       ...(typeof (temporalMemory as any)?.__translationBriefDiagnostics === 'object'
         ? (temporalMemory as any).__translationBriefDiagnostics : {}),
       ...graphRetrievalDiagnostics,
+      characterProfileMappingConflictCount,
       precedingContextAvailable: precedingSegments.length,
       precedingContextConfigured: strategy.precedingContextSegments,
       precedingContextInjected: visiblePrecedingSegments.length,

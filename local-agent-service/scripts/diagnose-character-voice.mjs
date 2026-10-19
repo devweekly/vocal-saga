@@ -612,6 +612,17 @@ function scanProject(project, args, dataDir, matcher, terms) {
         matcher.lastIndex = 0;
         return matcher.test(JSON.stringify(item));
       })());
+      const nameMappings = Array.isArray(brief?.contextGraph?.nameMappings) ? brief.contextGraph.nameMappings : [];
+      const matchingNameMappings = nameMappings.filter((item) => identityMatches(item, matcher) || (() => {
+        matcher.lastIndex = 0;
+        return matcher.test(JSON.stringify(item));
+      })());
+      const mappingSourceHit = (item) => [item?.source, ...(Array.isArray(item?.aliases) ? item.aliases : [])]
+        .some((value) => typeof value === 'string' && identityValueMatches(value, matcher));
+      const matchingCanonicalNameMappings = matchingNameMappings.filter(mappingSourceHit);
+      const nameMappingConflicts = Array.isArray(brief?.contextGraph?.canonicalNameMappingConflicts)
+        ? brief.contextGraph.canonicalNameMappingConflicts.filter((item) => identityMatches(item, matcher))
+        : [];
       matcher.lastIndex = 0;
       const includesTargetText = matcher.test(briefText);
       return {
@@ -619,9 +630,16 @@ function scanProject(project, args, dataDir, matcher, terms) {
         sourceSegmentIds: safeJson(row.source_segment_ids_json, []),
         includesTargetText, voiceProfileCountInBrief: voiceLists.length,
         matchingVoiceProfiles: relatedVoices.slice(0, 8).map((item) => compactProfile(item, matcher, 'characterVoice')),
+        matchingCanonicalNameMappings: matchingCanonicalNameMappings.slice(0, 12).map((item) => ({
+          source: item.source || '', target: item.target || '', aliases: Array.isArray(item.aliases) ? item.aliases.slice(0, 12) : [],
+          sourceStatus: item.sourceStatus || '', kind: item.kind || '',
+        })),
+        characterProfileMappingConflictCount: Number(brief?.contextDiagnostics?.characterProfileMappingConflictCount || 0),
+        canonicalNameMappingConflicts: nameMappingConflicts.slice(0, 8),
         createdAt: row.created_at,
       };
-    }).filter((row) => row.includesTargetText || row.matchingVoiceProfiles.length || row.voiceProfileCountInBrief > 0);
+    }).filter((row) => row.includesTargetText || row.matchingVoiceProfiles.length ||
+      row.matchingCanonicalNameMappings.length || row.canonicalNameMappingConflicts.length || row.voiceProfileCountInBrief > 0);
 
     result.translationContextDeltas = latestRows(db, 'translation_context_deltas', 'created_at', 200)
       .filter((row) => {
@@ -842,8 +860,20 @@ function buildDiagnosisHints(report, terms) {
   if (graphCharacters.length && !matchingVoices.length) {
     hints.push('Context Graph 有目标人物节点但 LiteraryMemory 没有声音画像；检查 /context-graph 到 syncContextGraphEntitiesToMemory 的合并事件，尤其是人物节点是否有 role/traits/voice 和 evidence。');
   }
-  if (matchingVoices.length && !(report.translationBriefs || []).some((brief) => (brief.matchingVoiceProfiles || []).length)) {
+  const matchingBriefs = (report.translationBriefs || []).filter((brief) =>
+    (brief.matchingVoiceProfiles || []).length > 0);
+  if (matchingVoices.length && !matchingBriefs.length) {
     hints.push('声音档案存在但已保存 TranslationBrief 没有注入该画像；检查 buildProjectVoiceContext 的别名匹配、画像状态、记忆 revision 和批次 source revision。');
+  }
+  if (matchingVoices.length && matchingBriefs.length &&
+      !matchingBriefs.some((brief) => (brief.matchingCanonicalNameMappings || []).length > 0)) {
+    hints.push('TranslationBrief 已注入角色声音画像，但没有相应的 canonical nameMappings。检查人物角色/声音的规范原文名与译名是否被纳入批次名称映射；仅有声线画像并不保证初译会稳定采用其规范译名。');
+  }
+  const mappingConflictBriefs = (report.translationBriefs || []).filter((brief) =>
+    Number(brief.characterProfileMappingConflictCount || 0) > 0 ||
+    (brief.canonicalNameMappingConflicts || []).length > 0);
+  if (mappingConflictBriefs.length) {
+    hints.push('TranslationBrief 记录到人物实体与角色/声音档案的已确认译名冲突；冲突映射应先在项目文学记忆中人工统一，脚本不会判断哪个译名正确。');
   }
   if (!((graph.runs || []).length)) {
     hints.push('当前来源版本没有 Context Graph 预处理记录；确认是否选中了旧项目 ID，以及全书预处理是否针对当前 source revision 完成。');

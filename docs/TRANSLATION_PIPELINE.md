@@ -173,6 +173,9 @@ M1 的确定性质量检查包括三项：
 
 - 重复表达发现区分完整源句与长段落中的嵌入引语。只有完整源句可可靠比较完整译文；对于有单一可定位目标语引语的重复台词，比较引语本身，而不是周围叙述。无法建立目标语对齐时生成不可自动返工的 `repeated-expression-alignment-review` 提示。
 - 对初译 `context_delta.entity_mentions` 的原文引文和译文落点再次校验，并按规范名称/显式别名分组。若多个片段的目标表面形式不同，则产生 `entity-mention-drift` finding。它是复核提示，不自动统一称谓，不使用模糊子串合并实体。
+- 初译与 Reviewer 都读取人物角色/声音中**已确认、启用翻译**的规范原文名/译名；该资料即使没有对应 `entities` 记录，也会进入批次内可见的名称映射。已启用的候选画像可以作为弱提示，但不进入强制保护。称谓型通用词和与规范名不一致的拉丁别名会被过滤，后续章节才出现的别名不得提前注入。
+- 如果 LiteraryMemory 与人物角色/声音对同一原文名给出不同的已确认译名，TranslationBrief 会移除这组冲突的强制映射并记录冲突提示，而不是根据数组顺序选一个；全书审计也会生成不可自动返工的 `canonical-name-mapping-conflict` finding，必须先人工统一项目记忆。
+- 中文目标语言的全书审计会额外标记疑似英文残留（例如译文里漏掉的普通英文词或整句）。它是启发式复核项，不会自动改写译文；专名、原文引用或刻意保留的外语可能需要人工排除。
 - Project Store 只允许在项目初始化时从旧阅读器迁移记忆；普通 Prompt revision 和 Run 请求不能携带另一份文学记忆以隐式覆盖服务端版本。后续记忆修改必须走显式 `/literary-memory` 入口。
 
 全书质量审计优先复用本 source revision 的特征索引，以同一套 sentence/quotation 边界构建重复表达候选；缺失索引时采用相同扫描算法现场回退。审计报告会显示 `sourceFeatureIndexVersion`、`sourceFeatureIndexUsed` 和索引覆盖的片段数，便于区分使用已持久化索引和兼容回退。
@@ -183,7 +186,7 @@ M1 的确定性质量检查包括三项：
 
 - `tests/translation-context-delta.test.mjs`：当前批次证据约束、伪造/越界引文拒绝、译文表面形式核验、已确认译名保护、冲突候选的确定性合并。
 - `tests/document-agent-prompt.test.mjs` 与 `tests/translation-brief.test.mjs`：检查 TranslationBrief 的时间边界、共享快照、Prompt payload，以及 dynamic entity evidence 不得向早期 segment 泄漏。
-- `tests/quality-audit.test.mjs`：既有全书缺译、确认术语漂移和重复表达审计，并覆盖 context-delta 冲突 finding。
+- `tests/quality-audit.test.mjs`：全书缺译、确认术语漂移、人物角色/声音单独维护的规范译名、规范名冲突、英文残留和重复表达审计；所有修订仍通过窄范围候选 Run 供人工采纳。
 - `npm test`：运行本地服务完整回归集；`npm run quality:fiction-baseline`：运行小说质量控制样本。
 
 测试夹具证明确定性验证和边界行为，不代表真实模型翻译质量已经提高。质量收益仍需在同一 source revision、语言方向和相同 segment 集合上进行 before/after 对照，并结合人工检查人物身份、称谓和声音是否稳定。
