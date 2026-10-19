@@ -1184,11 +1184,12 @@ function runMetrics(projectId: string, runId: string): any {
     kind: String(row.kind || 'paragraph'), contextPath: String(row.contextPath || ''),
   }));
   const normalizedSegments = segments.map((item) => ({ id: item.id, text: item.text, contextPath: item.contextPath }));
+  const auditMemory = memoryWithGlossary(context.memory, context.prompt?.config?.glossary);
+  const mappingConflictAudit = canonicalNameMappingConflictFindings(normalizedSegments, auditMemory);
   const entities = terminologyFindings(
-    normalizedSegments,
-    translationById,
-    memoryWithGlossary(context.memory, context.prompt?.config?.glossary),
+    normalizedSegments, translationById, auditMemory, mappingConflictAudit.conflictedSources,
   ).filter((item) => item.category === 'terminology');
+  const residues = englishResidueFindings(normalizedSegments, translationById, String(context.run.targetLang || ''));
   const numbers = numericFindings(normalizedSegments, translationById);
   const scopedIds = new Set(segments.map((item) => item.id));
   ensureSourceFeatureIndex(projectId, currentSourceRevisionId);
@@ -1236,6 +1237,9 @@ function runMetrics(projectId: string, runId: string): any {
       coveragePercent: coverage,
       terminologyDriftCount: entities.length,
       terminologyDriftRatePer100Segments: ratePer100(entities.length),
+      canonicalNameMappingConflictCount: mappingConflictAudit.findings.length,
+      englishResidueCount: residues.length,
+      englishResidueRatePer100Segments: ratePer100(residues.length),
       numericTokenMismatchCount: numbers.length,
       numericTokenMismatchRatePer100Segments: ratePer100(numbers.length),
       repeatedExpressionDriftGroups: repeated.filter((item) => item.type === 'repeated-expression-drift').length,
@@ -1253,8 +1257,21 @@ function runMetrics(projectId: string, runId: string): any {
       modelDurationMsKnown: durationMs,
       tokenAndBillingCostsAvailable: false,
     },
-    findings: [...entities, ...numbers, ...repeated],
+    findings: [...mappingConflictAudit.findings, ...entities, ...residues, ...numbers, ...repeated],
   };
+}
+
+function auditTargetLanguage(db: any, runId?: string): string {
+  if (runId) {
+    const row = db.prepare('SELECT target_lang AS targetLang FROM translation_runs WHERE run_id = ?').get(runId) as any;
+    if (typeof row?.targetLang === 'string' && row.targetLang.trim()) return row.targetLang.trim();
+  }
+  const row = db.prepare('SELECT config_json FROM prompt_revisions ORDER BY created_at DESC, rowid DESC LIMIT 1').get() as any;
+  try {
+    const config = row?.config_json ? JSON.parse(row.config_json) : {};
+    if (typeof config?.targetLang === 'string' && config.targetLang.trim()) return config.targetLang.trim();
+  } catch { /* malformed historical config: use the product default */ }
+  return 'zh';
 }
 
 /**
@@ -1281,6 +1298,9 @@ export function runProjectQualityAudit(projectId: string, runId?: string): Recor
   const translations = acceptedTranslations(context.db, context.currentSourceRevisionId);
   if (runId) overlayRunCandidates(context.db, context.currentSourceRevisionId, runId, translations);
   const memory = loadMemory(projectId, runId);
+  const mappingConflictAudit = canonicalNameMappingConflictFindings(segments, memory);
+  const termFindings = terminologyFindings(segments, translations, memory, mappingConflictAudit.conflictedSources);
+  const residueFindings = englishResidueFindings(segments, translations, auditTargetLanguage(context.db, runId));
   const missing = segments.filter((segment) => !translations.get(segment.id)?.trim()).map((segment) => ({
     findingId: stableFindingId('missing-translation', [segment.id], context.currentSourceRevisionId),
     type: 'missing-translation',
@@ -1292,7 +1312,6 @@ export function runProjectQualityAudit(projectId: string, runId?: string): Recor
     sourceExcerpt: segment.text.slice(0, 240),
     explanation: '该来源片段没有当前可用的已采纳译文或本次运行候选译文。',
   }));
-  const termFindings = terminologyFindings(segments, translations, memory);
   const numberFindings = numericFindings(segments, translations);
   ensureSourceFeatureIndex(projectId, context.currentSourceRevisionId);
   const storedSourceIndex = readSourceFeatureIndex(context.db, context.currentSourceRevisionId);
@@ -1328,7 +1347,10 @@ export function runProjectQualityAudit(projectId: string, runId?: string): Recor
     suggestion: finding.suggestion,
     proposedTranslation: finding.proposedTranslation,
   }));
-  const findings = [...missing, ...termFindings, ...numberFindings, ...repeatedFindings, ...outputFindings, ...contextFindings, ...mentionFindings, ...reviewFindings];
+  const findings = [
+    ...missing, ...mappingConflictAudit.findings, ...termFindings, ...residueFindings,
+    ...numberFindings, ...repeatedFindings, ...outputFindings, ...contextFindings, ...mentionFindings, ...reviewFindings,
+  ];
   const auditId = randomUUID();
   const translatedCount = segments.length - missing.length;
   const ratePer100 = (count: number) => segments.length ? Math.round(count / segments.length * 1000) / 10 : 0;
@@ -1356,6 +1378,9 @@ export function runProjectQualityAudit(projectId: string, runId?: string): Recor
       coveragePercent: segments.length ? Math.round(translatedCount / segments.length * 1000) / 10 : 100,
       terminologyDriftCount: termFindings.length,
       terminologyDriftRatePer100Segments: ratePer100(termFindings.length),
+      canonicalNameMappingConflictCount: mappingConflictAudit.findings.length,
+      englishResidueCount: residueFindings.length,
+      englishResidueRatePer100Segments: ratePer100(residueFindings.length),
       numericTokenMismatchCount: numberFindings.length,
       numericTokenMismatchRatePer100Segments: ratePer100(numberFindings.length),
       duplicateOutputIdFindingCount: outputFindings.filter((item) => item.type === 'duplicate-output-id').length,
@@ -1377,6 +1402,8 @@ export function runProjectQualityAudit(projectId: string, runId?: string): Recor
     interpretation: [
       '遗漏检查为确定性检查。',
       '术语漂移是基于已确认规范译名的启发式提示；未出现规范译名不一定代表错误。',
+      '人物规范译名冲突会单独报告，不会在多个已确认译名之间自动选一个。',
+      '英文残留检测只提供启发式复核提示；专名或刻意保留的外语也可能命中。',
       '数字序列差异是启发式提示，需考虑中文数字、日期格式和上下文后人工确认。',
       '重复表达只对重复源文片段的译文差异提示复核，不自动统一。',
       '重复输出 ID、未知输出 ID 和结构不合法的模型响应只从运行事件报告，不接受这些异常行。',
