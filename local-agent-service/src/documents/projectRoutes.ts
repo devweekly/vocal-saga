@@ -131,13 +131,47 @@ export async function handleDocumentProjectRequest(req: Request, res: Response, 
       let title = parsed.title;
       try { if (encodedTitle) title = decodeURIComponent(encodedTitle).trim().slice(0, 500) || title; }
       catch { throw Object.assign(new Error('X-Project-Title 编码无效'), { status: 400 }); }
+      const sourceInput = {
+        title, format: parsed.format, sourceFileName: fileName, segments: parsed.segments,
+      };
+      const resolution = req.headers['x-import-mode'] === 'separate'
+        ? { exactProject: null, relatedProject: null }
+        : store.resolveProjectForSource({ ...sourceInput, prompt: { translationMode: 'literary' } });
+
+      if (resolution.exactProject) {
+        const sourceFile = await store.storeSourceFile(resolution.exactProject.projectId, fileName, bytes);
+        sendJson(res, 200, {
+          project: store.getProject(resolution.exactProject.projectId),
+          sourceFile,
+          reusedExisting: true,
+        });
+        return true;
+      }
+
+      // Never silently create a second project for a same-name book with different content.
+      // The server parsed this file already, so return the parsed preview for the existing
+      // source-change confirmation workflow instead of asking the extension to parse the binary.
+      if (resolution.relatedProject) {
+        sendJson(res, 200, {
+          sourceChanged: true,
+          relatedProject: resolution.relatedProject,
+          document: {
+            title: parsed.title || title,
+            format: parsed.format,
+            segments: parsed.segments,
+          },
+        });
+        return true;
+      }
+
       const project = store.createProject({
-        title, format: parsed.format, sourceFileName: fileName, segments: parsed.segments, prompt: { translationMode: 'literary' },
+        ...sourceInput, prompt: { translationMode: 'literary' },
       });
       try {
         const sourceFile = await store.storeSourceFile(project.projectId, fileName, bytes);
-        const preprocessing = startContextGraphAnalysis(project.projectId);
-        sendJson(res, 201, { project, sourceFile, preprocessing });
+        // Opening/importing a book must not automatically start a long analysis. The explicit
+        // UI action or a persisted literary Run owns Context Graph preprocessing.
+        sendJson(res, 201, { project, sourceFile, reusedExisting: false });
       } catch (error) {
         try { store.archiveProject(project.projectId); } catch { /* preserve the original error */ }
         throw error;
