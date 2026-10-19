@@ -661,3 +661,24 @@ test('standalone Reviewer rebuilds memory from visible source evidence and ignor
   assert.ok(!JSON.stringify(buildStandaloneReviewVoiceContext(safeInput)).includes('Queen Ash'));
   assert.ok(!JSON.stringify(buildStandaloneReviewVoiceContext(safeInput)).includes('Chapter 9'));
 });
+
+
+test('reviewer canonical mappings are scoped to reviewed source and confirmed targets outrank stale auto mappings', () => {
+  const merged = mergeConfirmedMemoryNameMappings({
+    nameMappings: [
+      { source: 'Yabu', target: '矢部', aliases: ['Lord'], sourceStatus: 'auto' },
+      { source: 'Blackthorne', target: '布莱克索恩', aliases: [], sourceStatus: 'confirmed-memory' },
+    ],
+  }, {
+    entities: [],
+    characterVoices: [
+      { canonicalSourceName: 'Yabu', targetName: '薮', aliases: ['Yabu-san', 'Lord', "Lord Toranaga's"], status: 'confirmed' },
+      { canonicalSourceName: 'Omi', targetName: '近江', aliases: [], status: 'confirmed' },
+    ],
+  }, [{ id: 'review-yabu', source: 'Yabu returned before sunset.' }]);
+  assert.deepEqual(merged.nameMappings.map((item) => [item.source, item.target]), [['Yabu', '薮']]);
+  assert.deepEqual(merged.nameMappings[0].aliases, [],
+    'aliases must both be identity-compatible and visible in the source being reviewed');
+  assert.equal(merged.canonicalNameMappingConflicts, undefined,
+    'a stale auto mapping is superseded by the confirmed target instead of creating a false conflict');
+});
