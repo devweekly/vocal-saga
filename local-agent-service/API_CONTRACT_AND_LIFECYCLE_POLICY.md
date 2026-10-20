@@ -83,7 +83,15 @@ HTTP regression coverage now checks malformed cache TTL, malformed session ID, i
 
 Remaining gaps: body-parser and Host/Origin middleware errors are not yet routed through the shared helper; not every provider error envelope is identical; and there is no complete route/schema drift check.
 
-## 7. OpenAPI and executable contract coverage
+## 7. Implementation status update (2026-10-20, continued)
+
+The shared error envelope now also covers the server's Origin/Host rejection, JSON body parse failures (400/413), and unhandled request errors. The legacy string-valued `error` remains present on these paths, with additive `message` and `code`.
+
+A 54-entry `api-route-manifest.json` and `check:api-contract` script have been added, and the local-agent-service GitHub Actions workflow invokes the check. The current checker verifies that each declared implementation signature still exists and that the manifest has no duplicate method/path pairs. It is intentionally only a one-way source-signature check: it does not yet prove that every implementation route is registered in the manifest, and it does not validate full request/response schemas. Do not describe it as complete OpenAPI or full route drift prevention.
+
+HTTP tests now include malformed JSON and rejected Origin error-envelope assertions. The new checker and tests have not yet been executed in a real Node/CI environment during this editing session.
+
+## 8. OpenAPI and executable contract coverage
 
 Do not label a hand-written partial schema as complete OpenAPI. Before publishing an OpenAPI document:
 
