@@ -154,7 +154,12 @@ export async function runAgentStructured(
   requestId = 'unknown',
   sessionScope?: string,
   taskProfile?: CodeBuddyTaskProfile,
-  options: { timeoutMs?: number } = {},
+  options: {
+    timeoutMs?: number;
+    sessionId?: string;
+    persistSession?: boolean;
+    onSessionId?: (sessionId: string) => void;
+  } = {},
 ): Promise<AgentRunResult<Record<string, any> | any[]>> {
   const startedAt = Date.now();
   const effective = taskProfile ? applyCodeBuddyTaskPrompt(prompt, systemPrompt, taskProfile) : { prompt, systemPrompt };
@@ -165,10 +170,13 @@ export async function runAgentStructured(
   try {
     let result: Record<string, any> | any[];
     let usage: TurnUsage | null = null;
+    let sessionId: string | undefined;
     if (effectiveAgent.provider === 'workbuddy') {
       const r = await runWorkbuddyStructured(effectiveAgent, effective.prompt, effective.systemPrompt, schema, requestId, sessionScope, taskProfile, options);
       result = r.parsed;
       usage = r.usage;
+      sessionId = r.sessionId;
+      const sessionId = r.sessionId;
     } else if (effectiveAgent.provider === 'opencode') {
       const output = await runOpenCode(effectiveAgent, effective.prompt, effective.systemPrompt);
       const value = parseJsonValue(output);
@@ -178,7 +186,7 @@ export async function runAgentStructured(
       throw new Error('不支持的本机 Agent：' + effectiveAgent.provider);
     }
     logModelSuccess(effectiveAgent, result, requestId, sessionScope, startedAt, '结构化 JSON', usage);
-    return { result, usage };
+    return { result, usage, ...(sessionId ? { sessionId } : {}) };
   } catch (error) {
     logModelFailure(effectiveAgent, error, requestId, sessionScope, startedAt, '结构化 JSON');
     throw error;
