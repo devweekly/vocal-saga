@@ -29,7 +29,7 @@
 | GET | `/api/history` | 查询请求历史 | 可能调用；历史/诊断 UI 待确认 | 分页、敏感内容保留、默认上限 |
 | DELETE | `/api/history` | 清空请求历史 | 未确认具体调用点 | 危险写操作是否有确认机制、返回删除数量 |
 | POST | `/api/cache/translation/get` | 查询译文缓存 | 已确认：扩展有 translation cache 管理逻辑；需进一步核对精确调用链 | key 类型、未命中与错误是否区分 |
-| POST | `/api/cache/translation/set` | 写入译文缓存 | 未确认当前扩展是否直接调用 | ttlMs 边界、缓存 key 规范、返回值 |
+| POST | `/api/cache/translation/set` | 写入译文缓存 | 已确认：`src/entrypoints/background.ts` | 已校验 TTL 为 0–365 天整数；非法值返回 400 和兼容错误字段 |
 | POST | `/api/cache/translation/delete` | 删除单条缓存 | 未确认 | 是否仍需要独立接口；key 校验 |
 | DELETE | `/api/cache/translation` | 清空译文缓存 | 未确认 | 清空范围、确认机制、返回数量 |
 | POST | `/api/documents/session/summary` | 获取会话摘要/轻量状态 | 未确认具体调用点 | 与权威项目状态边界、响应是否过度包含数据 |
@@ -90,7 +90,7 @@
 |---|---|---|
 | 路由登记 | 手写分支分别位于通用路由和项目路由；没有发现全量机器可读登记表 | 将本矩阵作为基线；后续评估 OpenAPI 3.1 或类型化 route manifest |
 | 方法错误 | 未匹配方法/路径可能落到统一 404 分支 | 区分未知路径与已知路径不支持的方法；考虑 405/Allow，同时防止资源枚举 |
-| 错误 DTO | 通用路由、项目路由可返回不同的 `error` 形状 | 设计兼容型统一错误 DTO，先更新客户端与测试 |
+| 错误 DTO | 已通过共享 `sendApiError` 为通用路由的常见 4xx 校验、未知端点/鉴权错误和项目路由失败增加顶层 `message`/`code`，保留旧 `error` 的字符串/对象形状 | 仍需覆盖 body-parser、Origin/Host middleware 与所有模型调用失败路径；OpenAI `/v1/chat/completions` 维持其专用错误 envelope |
 | 输入校验 | 多处使用动态 JSON、`String(...)`、`Number(...)` 或宽泛对象 | 高风险写操作先补运行时 schema 与范围校验 |
 | 分页 | segments/events/runs/history 等使用分页或列表参数 | 统一 limit/offset/cursor 的范围、默认值、排序与响应元数据 |
 | 长任务 | Context Graph、Run、质量审计/返工有长任务或状态迁移 | 明确同步/异步、幂等、终态、并发冲突、恢复与取消边界 |
@@ -98,7 +98,7 @@
 | 数据所有权 | 项目、Run、Context Graph、质量结果持久化在服务端 | 防止扩展通过轻量 session API 覆盖服务端权威状态 |
 | 文件导入 | 有专用 import-file/source-file 路径和 body 限制 | 测试超限、错误 MIME、文件名编码、解析失败原子性、重复导入 |
 | 版本兼容 | Context Graph 等数据模型会演进；旧 API 仍可能被旧版扩展使用 | 为持久化结构与公开 DTO 分别定义版本/兼容策略 |
-| 可观测性 | 请求历史与日志已有基础设施 | 统一 requestId、错误码、耗时、取消/超时和敏感数据脱敏规则 |
+| 可观测性 | 请求历史与日志已有基础设施；部分错误路径已增加稳定 `code`，模型调用错误保留 requestId/耗时元数据 | 继续统一 requestId、错误码、耗时、取消/超时和敏感数据脱敏规则 |
 
 ## 5. 第一轮待确认清单执行结果
 
@@ -260,7 +260,7 @@
 | P0 | 人工译文字段校验 | 已修改，待 CI | text 必须显式为字符串；允许显式空字符串表示清空译文，不再将缺失/null 隐式转换为空字符串 |
 | P0 | 质量评估 Run ID 校验 | 已修改，待 CI | beforeRunId、afterRunId 必须是非空字符串 |
 | P1 | Runs/events 分页参数 | 已修改，待 CI | Runs limit 为 1–200；events after 为非负整数、limit 为 1–1000；非法值返回 400 |
-| P1 | 错误 DTO 统一 | 部分完成 | 当前已引入共享 sendApiError，并在多类错误响应中增加 message/code，同时保留 legacy error 类型；仍需对照全部路由完成覆盖审计与契约测试 |
+| P1 | 错误 DTO 统一 | 未完成 | 当前通用路由与项目路由错误体仍存在差异。统一前需先核对扩展错误解析并引入兼容字段/契约测试，避免破坏当前客户端 |
 | P1 | OpenAPI/route manifest 与全端点契约测试 | 未完成 | 本次没有引入自动生成规范，避免在未核实所有 schema 的情况下发布不完整的契约 |
 | P1 | 长任务幂等、取消边界与并发状态 | 未完成 | 需要针对执行器与持久化状态机增加并发/集成测试，不能仅靠 HTTP 参数修补宣称完成 |
 | P2 | batches、session get/delete、TranslationBrief 的弃用策略 | 未完成最终决策 | 暂不删除；矩阵中的消费者证据与兼容性结论仍作为决策依据 |
@@ -277,10 +277,10 @@
 新增 `local-agent-service/API_CONTRACT_AND_LIFECYCLE_POLICY.md`，记录错误 DTO 的分阶段兼容迁移原则、长任务 Run 生命周期的验收条件、遗留接口保留/弃用门槛，以及正式 OpenAPI 发布前的完整性要求。该文件明确区分当前已观察行为和目标契约，不把尚未实现的测试条件写成已完成能力。
 
 
-## 9. 当前 main 的错误响应迁移状态（2026-10-20）
+## 6. 2026-10-20 后续整改状态
 
-后续提交已将共享 `sendApiError` 合入 main：它保留每个端点既有的 `error` 值（字符串或对象），并附加顶层 `message` 与稳定的 `code`。缓存 TTL、常见 session 参数、项目路由异常、Host/Origin 拒绝、body-parser 错误和未知端点已有相关改造/测试。
-
-该工作属于兼容迁移而非“全路由契约已完成”。仍需扫描直接返回的业务错误、验证所有 status/code 映射，并建立 route manifest/OpenAPI 漂移检查。Run 生命周期的并发与取消验收也仍未完成。
-
-CI 曾暴露一个与本次错误响应无关的陈旧测试：`run-automation.test.mjs` 把 Context Graph 版本硬编码为 v5，而当前实现已升级。修复测试应引用 `CONTEXT_GRAPH_ANALYSIS_VERSION` 常量，避免下次版本升级再次失效。
+- PR #13 已合并到 `main`，合并提交：`945a99e2852f6c4430455aa27a9d6a2cd1fc564e`。
+- `middleware.ts` 新增兼容型 `sendApiError`；通用路由的直接参数错误、鉴权失败、未知端点，以及项目路由的捕获错误和直接 404/409 错误，开始统一添加顶层 `message` 与稳定 `code`。
+- 兼容规则：保留旧 `error` 字段原有类型；项目路由的领域错误还会保留 `run` 等附加数据。OpenAI 风格 `/v1/chat/completions` 继续使用其专用错误结构。
+- `server.test.mjs` 新增对 TTL 错误 envelope、未知端点 404 envelope 的断言，并保留分页非法值测试。
+- 尚未验证：本环境无法执行本地 `npm run typecheck` / `npm test`；GitHub workflow/status 查询没有返回测试任务，不能视为通过。完整 OpenAPI/manifest 漂移检测仍未实现。
