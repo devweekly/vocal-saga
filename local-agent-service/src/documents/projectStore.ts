@@ -593,16 +593,15 @@ export class DocumentProjectStore {
         ).all() as Array<{ run_id: string }>;
         for (const run of translationRuns) {
           const terminal = db.prepare(
-            "SELECT event_type, payload_json, created_at FROM project_events WHERE run_id = ? AND event_type IN ('run.finished','run.failed','run.completed') ORDER BY event_id DESC LIMIT 1"
+            "SELECT event_type, payload_json, created_at FROM project_events WHERE run_id = ? AND event_type IN ('run.finished','run.failed','run.completed','run.partial','run.cancelled','run.paused','run.awaiting_acceptance') ORDER BY event_id DESC LIMIT 1"
           ).get(run.run_id) as { event_type: string; payload_json?: string; created_at?: string } | undefined;
 
           if (terminal) {
             const payload = parseJson<Record<string, any>>(terminal.payload_json, {});
             const reported = String(payload.status || '');
-            const status = terminal.event_type === 'run.failed' ? 'failed'
-              : terminal.event_type === 'run.completed' ? 'completed'
-                : ['completed', 'failed', 'partial', 'cancelled', 'paused', 'awaiting_acceptance'].includes(reported)
-                  ? reported : 'failed';
+            const eventStatus = terminal.event_type === 'run.finished' ? reported : terminal.event_type.slice('run.'.length);
+            const status = ['completed', 'failed', 'partial', 'cancelled', 'paused', 'awaiting_acceptance'].includes(eventStatus)
+              ? eventStatus : 'failed';
             const error = status === 'completed' ? null
               : String(payload.error || '服务重启时根据已有终态事件恢复运行状态').slice(0, 2000);
             db.prepare(
@@ -630,7 +629,7 @@ export class DocumentProjectStore {
         ).all() as Array<{ run_id: string }>;
         for (const run of legacyPausedRuns) {
           const terminal = db.prepare(
-            "SELECT 1 FROM project_events WHERE run_id = ? AND event_type IN ('run.finished','run.failed','run.completed') LIMIT 1"
+            "SELECT 1 FROM project_events WHERE run_id = ? AND event_type IN ('run.finished','run.failed','run.completed','run.partial','run.cancelled','run.paused','run.awaiting_acceptance') LIMIT 1"
           ).get(run.run_id);
           const error = '服务重启中断了这次运行；可在 Agent 面板恢复或放弃';
           db.prepare(
@@ -644,6 +643,24 @@ export class DocumentProjectStore {
             recoveredTranslations++;
           }
         }
+        // Backfill legacy terminal rows too: older recovery code changed the DB status but
+        // skipped the terminal event, which is exactly how a phase-only trajectory became immortal.
+        const terminalTranslationRows = db.prepare(
+          "SELECT r.run_id, r.status, r.error FROM translation_runs r " +
+          "WHERE r.status IN ('failed','completed','partial','cancelled','awaiting_acceptance') " +
+          "AND NOT EXISTS (SELECT 1 FROM project_events e WHERE e.run_id = r.run_id " +
+          "AND e.event_type IN ('run.finished','run.failed','run.completed','run.partial','run.cancelled','run.paused','run.awaiting_acceptance'))"
+        ).all() as Array<{ run_id: string; status: string; error?: string | null }>;
+        for (const run of terminalTranslationRows) {
+          this.appendEvent(row.project_id, run.run_id, 'run.finished', {
+            status: run.status,
+            error: run.error || undefined,
+            recovery: 'terminal-event-backfill',
+            counts: { candidate: 0, accepted: 0, failed: 0, total: 0 },
+          });
+          recoveredTranslations++;
+        }
+
         // Segments left in 'running' by an interrupted worker are retryable after the Run is failed.
         db.prepare("UPDATE run_segments SET status = 'pending', updated_at = ? WHERE status = 'running'").run(now);
 
@@ -683,6 +700,37 @@ export class DocumentProjectStore {
               });
               recoveredContextGraphs++;
             }
+          }
+
+          const terminalGraphRows = db.prepare(
+            "SELECT run_id, status, progress_json, error FROM context_graph_runs r " +
+            "WHERE status IN ('completed','failed') " +
+            "AND NOT EXISTS (SELECT 1 FROM project_events e WHERE e.run_id = r.run_id " +
+            "AND e.event_type IN ('context-graph.completed','context-graph.failed'))"
+          ).all() as Array<{ run_id: string; status: string; progress_json?: string; error?: string | null }>;
+          for (const run of terminalGraphRows) {
+            const progress = parseJson<Record<string, any>>(run.progress_json, {});
+            if (run.status === 'completed') {
+              this.appendEvent(row.project_id, run.run_id, 'context-graph.completed', {
+                sampleCount: progress.sampleCount ?? 0,
+                chapterCount: progress.chapterCount ?? 0,
+                characterCount: progress.characterCount ?? 0,
+                entityCount: progress.entityCount ?? 0,
+                relationshipCount: progress.relationshipCount ?? 0,
+                canonicalNameMappingCount: progress.canonicalNameMappingCount ?? 0,
+                invalidEvidenceCount: progress.invalidEvidenceCount ?? 0,
+                sourceLang: progress.sourceLang,
+                targetLang: progress.targetLang,
+                analysisVersion: progress.analysisVersion,
+                recovery: 'terminal-event-backfill',
+              });
+            } else {
+              this.appendEvent(row.project_id, run.run_id, 'context-graph.failed', {
+                error: run.error || '全书预处理已失败（旧记录缺少终态事件）',
+                recovery: 'terminal-event-backfill',
+              });
+            }
+            recoveredContextGraphs++;
           }
         }
         db.exec('COMMIT');
