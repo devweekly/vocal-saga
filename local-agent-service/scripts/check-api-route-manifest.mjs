@@ -41,10 +41,10 @@ for (const route of manifest.routes) {
 // to update the manifest. This is intentionally a lightweight source check, not an AST.
 const commonSource = sourceCache.get('src/routes.ts');
 const commonRoutes = manifestBySource.get('src/routes.ts') || [];
-const commonConditions = commonSource.matchAll(/if\\s*\\(([^)]*req\\.method\\s*===\\s*'[A-Z]+'[^)]*url\\.pathname[^)]*)\\)/g);
+const commonConditions = commonSource.matchAll(/if\s*\(([^)]*req\.method\s*===\s*'[A-Z]+'[^)]*url\.pathname[^)]*)\)/g);
 for (const match of commonConditions) {
   const condition = match[1];
-  const method = condition.match(/req\\.method\\s*===\\s*'([A-Z]+)'/)?.[1];
+  const method = condition.match(/req\.method\s*===\s*'([A-Z]+)'/)?.[1];
   assert.ok(method, `could not determine HTTP method from route condition: ${condition}`);
   assert.ok(
     commonRoutes.some((route) => route.method === method && condition.includes(route.signature)),
@@ -54,9 +54,9 @@ for (const match of commonConditions) {
 
 // The three one-shot literary/OpenAI endpoints are dispatched through the
 // supported-method set rather than an outer req.method/pathname condition.
-const supportedBlock = commonSource.match(/const supported = new Set\\(\\[([\\s\\S]*?)\\]\\);/);
+const supportedBlock = commonSource.match(/const supported = new Set\(\[([\s\S]*?)\]\);/);
 assert.ok(supportedBlock, 'could not locate supported endpoint set in src/routes.ts');
-for (const match of supportedBlock[1].matchAll(/'([A-Z]+) (\\/[^']+)'/g)) {
+for (const match of supportedBlock[1].matchAll(/'([A-Z]+) (\/[^']+)'/g)) {
   const [, method, path] = match;
   assert.ok(
     commonRoutes.some((route) => route.method === method && route.path === path),
@@ -66,10 +66,10 @@ for (const match of supportedBlock[1].matchAll(/'([A-Z]+) (\\/[^']+)'/g)) {
 
 const projectSource = sourceCache.get('src/documents/projectRoutes.ts');
 const projectRoutes = manifestBySource.get('src/documents/projectRoutes.ts') || [];
-const projectConditions = projectSource.matchAll(/if\\s*\\(([^)]*pathParts[^)]*)\\)/g);
+const projectConditions = projectSource.matchAll(/if\s*\(([^)]*pathParts[^)]*)\)/g);
 for (const match of projectConditions) {
   const condition = match[1];
-  const method = condition.match(/method\\s*===\\s*'([A-Z]+)'/)?.[1];
+  const method = condition.match(/method\s*===\s*'([A-Z]+)'/)?.[1];
   if (!method) continue; // Path guards are not endpoint handlers.
   assert.ok(
     projectRoutes.some((route) => route.method === method && condition.includes(route.signature)),
