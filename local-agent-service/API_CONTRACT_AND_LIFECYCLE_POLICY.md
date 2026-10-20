@@ -38,7 +38,7 @@ The current service has legacy error bodies with incompatible shapes, including 
 - Stage C: standardize new/versioned endpoints on `{error:{code,message,type,requestId?}}`; migrate old endpoints only after compatibility tests cover supported extension versions.
 - Never expose stack traces, filesystem paths, prompts, source text, or provider secrets in public error bodies. Keep diagnostic details in local logs.
 
-Suggested error codes: `BAD_REQUEST`, `UNAUTHENTICATED`, `FORBIDDEN_ORIGIN`, `NOT_FOUND`, `CONFLICT`, `PAYLOAD_TOO_LARGE`, `INTERNAL_ERROR`, and domain-specific codes where callers need to branch.
+Suggested error codes: `BAD_REQUEST`, `UNAUTHENTICATED`, `FORBIDDEN_ORIGIN`, `NOT_FOUND`, `REQUEST_TIMEOUT`, `CONFLICT`, `PAYLOAD_TOO_LARGE`, `VALIDATION_ERROR`, `RATE_LIMITED`, `INTERNAL_ERROR`, and domain-specific codes where callers need to branch. The shared helper maps HTTP 408, 422, and 429 explicitly; other unrecognized 4xx statuses fall back to `REQUEST_FAILED`.
 
 ## 4. Long-running operation contract
 
@@ -110,3 +110,8 @@ The manifest should not become a second, untested source of truth. The implement
 Non-OpenAI API provider failures now use the shared `sendApiError` mapping so status-to-code behavior is consistent with validation and middleware errors. The payload continues to include `requestId`, `provider`, `model`, `status`, and `durationMs`, while the legacy string-valued `error` remains available. `/v1/chat/completions` retains its dedicated OpenAI-compatible `error` object and snake_case metadata.
 
 A focused `tests/middleware.test.mjs` suite covers the helper's legacy error preservation, no-store header, details merging, and status-code mapping. These are source changes only until the repository's GitHub Actions run reports success; do not infer passing tests from the presence of assertions.
+
+
+## 10. Error-code mapping follow-up (2026-10-20)
+
+The shared error helper now assigns explicit machine codes for HTTP 408 (`REQUEST_TIMEOUT`), 422 (`VALIDATION_ERROR`), and 429 (`RATE_LIMITED`) instead of grouping 429 under the generic `REQUEST_FAILED` fallback. Helper-level regression cases cover these statuses as well as 500/502/503/504. The assertions have been committed; their execution status must be taken from the matching GitHub Actions run, not inferred from source presence.
