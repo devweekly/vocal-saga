@@ -114,6 +114,13 @@ test('retrieval injects matched graph records and excludes future chapter summar
   assert.ok(!('nodes' in status) && !('edges' in status) && !('chapters' in status),
     'status polling must not copy the full graph and its evidence into extension state');
   assert.ok(!('bookSummary' in status.overview));
+  assert.equal(typeof status.overview.narrativeStyle, 'string');
+  assert.equal(typeof status.overview.styleRegister, 'string');
+  assert.equal(typeof status.overview.styleRhythm, 'string');
+  assert.equal(typeof status.overview.styleDialogue, 'string');
+  assert.equal(typeof status.overview.styleDiction, 'string');
+  assert.ok(Array.isArray(status.overview.styleRules));
+  assert.ok(Array.isArray(status.overview.styleAvoid));
   assert.ok(JSON.stringify(status).length < 5000, 'status response should be a small projection');
   const alice = graph.nodes.find((item) => item.id === 'node-alice');
   assert.ok(alice);
