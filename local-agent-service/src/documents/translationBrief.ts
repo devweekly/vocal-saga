@@ -354,7 +354,7 @@ function buildTemporallyVisibleMemory(
   }).filter((row) => row.shared >= 2 || row.exactPhrase > 0 || row.sharedNamedEntity > 0)
     .sort((a, b) => b.score - a.score || Number(b.origin === 'manual') - Number(a.origin === 'manual') ||
       Number(b.ordinal) - Number(a.ordinal));
-  const retrievedExamples = scoredExamples.slice(0, 4).map((row) => ({
+  const retrievedExamples = scoredExamples.map((row) => ({
     segmentId: String(row.segmentId),
     source: String(row.source || '').slice(0, 260),
     target: String(row.target || '').slice(0, 320),
@@ -1053,7 +1053,7 @@ export function buildTranslationBrief(
     glossary,
     precedingSegments: visiblePrecedingSegments.map((item) => ({
       id: item.id,
-      text: String(item.text || '').slice(-900),
+      text: String(item.text || ''),
       contextPath: String(item.contextPath || '').slice(0, 160),
     })),
     contextGraph: graph,
