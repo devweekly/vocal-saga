@@ -1,0 +1,353 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Vocal Saga Local Agent Service API",
+    "version": "1.0.0",
+    "description": "Incremental contract for high-risk durable document Run lifecycle endpoints. Route inventory remains in api-route-manifest.json; this document does not claim complete coverage of every route."
+  },
+  "servers": [
+    {
+      "url": "/"
+    }
+  ],
+  "x-contract-coverage": {
+    "status": "partial",
+    "covered": [
+      "document-project-run-lifecycle"
+    ],
+    "inventory": "api-route-manifest.json",
+    "followUp": "Add schemas for remaining 54 route entries before treating this as a complete API contract."
+  },
+  "paths": {
+    "/api/documents/projects/{projectId}/runs": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/ProjectId"
+        }
+      ],
+      "get": {
+        "summary": "List translation Runs",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 200,
+              "default": 50
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Runs returned",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "runs"
+                  ],
+                  "properties": {
+                    "runs": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/Run"
+                      }
+                    }
+                  },
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        }
+      },
+      "post": {
+        "summary": "Create and optionally start a translation Run",
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateRunRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Run accepted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "run",
+                    "started"
+                  ],
+                  "properties": {
+                    "run": {
+                      "$ref": "#/components/schemas/Run"
+                    },
+                    "started": {
+                      "type": "boolean"
+                    }
+                  },
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "409": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        }
+      }
+    },
+    "/api/documents/projects/{projectId}/runs/{runId}/resume": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/ProjectId"
+        },
+        {
+          "$ref": "#/components/parameters/RunId"
+        }
+      ],
+      "post": {
+        "summary": "Resume a non-terminal Run",
+        "responses": {
+          "200": {
+            "description": "Run was already active",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "run",
+                    "alreadyRunning"
+                  ],
+                  "properties": {
+                    "run": {
+                      "$ref": "#/components/schemas/Run"
+                    },
+                    "alreadyRunning": {
+                      "const": true
+                    }
+                  },
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "202": {
+            "description": "Run queued for resume",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "run"
+                  ],
+                  "properties": {
+                    "run": {
+                      "$ref": "#/components/schemas/Run"
+                    },
+                    "accepted": {
+                      "type": "boolean"
+                    },
+                    "alreadyRunning": {
+                      "type": "boolean"
+                    }
+                  },
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "409": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        }
+      }
+    },
+    "/api/documents/projects/{projectId}/runs/{runId}/cancel": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/ProjectId"
+        },
+        {
+          "$ref": "#/components/parameters/RunId"
+        }
+      ],
+      "post": {
+        "summary": "Cancel a Run",
+        "responses": {
+          "200": {
+            "description": "Run cancellation committed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "run"
+                  ],
+                  "properties": {
+                    "run": {
+                      "$ref": "#/components/schemas/Run"
+                    }
+                  },
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "409": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "parameters": {
+      "ProjectId": {
+        "name": "projectId",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "RunId": {
+        "name": "runId",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "schemas": {
+      "CreateRunRequest": {
+        "type": "object",
+        "properties": {
+          "promptRevisionId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "prompt": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "scope": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        },
+        "additionalProperties": true
+      },
+      "Run": {
+        "type": "object",
+        "required": [
+          "runId",
+          "status"
+        ],
+        "properties": {
+          "runId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "queued",
+              "running",
+              "paused",
+              "partial",
+              "awaiting_acceptance",
+              "completed",
+              "cancelled",
+              "failed"
+            ]
+          },
+          "sourceRevisionId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "counts": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "segments": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          }
+        },
+        "additionalProperties": true
+      },
+      "ApiError": {
+        "type": "object",
+        "required": [
+          "message",
+          "code",
+          "error"
+        ],
+        "properties": {
+          "message": {
+            "type": "string"
+          },
+          "code": {
+            "type": "string"
+          },
+          "requestId": {
+            "type": "string"
+          },
+          "error": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "object",
+                "additionalProperties": true
+              }
+            ]
+          },
+          "details": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        },
+        "additionalProperties": true
+      }
+    },
+    "responses": {
+      "ApiError": {
+        "description": "Stable API error DTO; legacy error value is retained for compatibility.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ApiError"
+            }
+          }
+        }
+      }
+    }
+  }
+}
