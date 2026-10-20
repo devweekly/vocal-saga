@@ -8,7 +8,7 @@
 import { createHash } from 'node:crypto';
 import { logInfo } from '../log.ts';
 
-const MAX_MEMORY_BYTES = 120_000;
+const MAX_MEMORY_BYTES = 120 * 1024;
 const MAX_CHARACTERS = 80;
 const MAX_RELATION_RULES = 160;
 const MAX_ANCHORS = 240;
