@@ -45,6 +45,11 @@ test('startup recovery marks orphaned runs failed and appends terminal events at
     .run(new Date().toISOString(), '服务重启中断了这次运行；可在 Agent 面板恢复或放弃', legacyTranslationRun.runId);
   store.appendEvent(project.projectId, legacyTranslationRun.runId, 'batch.started', { batchIndex: 1 });
 
+  const legacyPausedRun = store.createRun(project.projectId, { scope: { type: 'all' } });
+  db.prepare("UPDATE translation_runs SET status = 'paused', error = ? WHERE run_id = ?")
+    .run('服务重启后等待恢复', legacyPausedRun.runId);
+  store.appendEvent(project.projectId, legacyPausedRun.runId, 'run.paused', { error: '服务重启后等待恢复' });
+
   const translationRun = store.createRun(project.projectId, { scope: { type: 'all' } });
   db.prepare("UPDATE translation_runs SET status = 'running' WHERE run_id = ?").run(translationRun.runId);
   store.appendEvent(project.projectId, translationRun.runId, 'batch.started', { batchIndex: 1 });
@@ -80,6 +85,14 @@ test('startup recovery marks orphaned runs failed and appends terminal events at
   const legacyTranslationEvents = restartedStore.getEvents(project.projectId, legacyTranslationRun.runId, 0, 100);
   assert.ok(legacyTranslationEvents.some((event) =>
     event.type === 'run.finished' && event.payload.status === 'failed' && event.payload.recovery === 'terminal-event-backfill',
+  ));
+
+  const legacyPausedRow = db.prepare('SELECT status, error, finished_at FROM translation_runs WHERE run_id = ?').get(legacyPausedRun.runId);
+  assert.equal(legacyPausedRow.status, 'failed');
+  assert.ok(legacyPausedRow.finished_at);
+  const legacyPausedEvents = restartedStore.getEvents(project.projectId, legacyPausedRun.runId, 0, 100);
+  assert.ok(legacyPausedEvents.some((event) =>
+    event.type === 'run.finished' && event.payload.status === 'failed' && event.payload.recovery === 'legacy-restart-orphan',
   ));
 
   const translationRow = db.prepare('SELECT status, finished_at, error FROM translation_runs WHERE run_id = ?').get(translationRun.runId);
