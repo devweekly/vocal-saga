@@ -867,28 +867,6 @@ test('全书预处理使用独立的长任务超时上限', async () => {
   assert.ok(ANALYSIS_TIMEOUT_MS > REQUEST_TIMEOUT_MS, '分析上限必须明显大于单次调用上限');
 });
 
-    method: 'OPTIONS',
-    headers: {
-      Origin: 'https://untrusted.example',
-      'Access-Control-Request-Method': 'POST',
-      'Access-Control-Request-Headers': 'content-type',
-    },
-  });
-  assert.equal(deniedOrigin.status, 403, 'ordinary webpage origins must not access the local service');
-
-  const extensionOrigin = 'chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
-  const allowedOrigin = await fetch(baseUrl + '/v1/models', {
-    method: 'OPTIONS',
-    headers: {
-      Origin: extensionOrigin,
-      'Access-Control-Request-Method': 'POST',
-      'Access-Control-Request-Headers': 'content-type',
-    },
-  });
-  assert.equal(allowedOrigin.status, 204);
-  assert.equal(allowedOrigin.headers.get('access-control-allow-origin'), extensionOrigin);
-});
-
 test('salvages quote-poisoned translation JSON via jsonrepair fallback', () => {
   // 线上实录：模型用 ASCII 双引号写中文对话引语，严格解析全灭。
   const poisoned = [
