@@ -17,6 +17,7 @@
     "quality:fiction-baseline": "node scripts/evaluate-fiction-quality-baseline.mjs --all",
     "benchmark:book-scan": "node --import tsx scripts/benchmark-book-scan.mjs",
     "check:codebuddy": "node --import tsx scripts/check-codebuddy-connectivity.mjs",
+    "check:api-contract": "node scripts/check-api-route-manifest.mjs",
     "check:structured": "node scripts/check-structured-output.mjs",
     "diagnose:character-voice": "node --import tsx scripts/diagnose-character-voice.mjs",
     "diagnose:translation": "node scripts/diagnose-vocal-translation.mjs"
