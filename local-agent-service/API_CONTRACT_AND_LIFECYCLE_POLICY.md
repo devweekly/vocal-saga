@@ -75,7 +75,15 @@ No endpoint in the following list is removed by this change:
 
 Deprecation requires: (a) current and released-client search, (b) usage telemetry where available without collecting document content, (c) a documented replacement, (d) a minimum support window, and (e) a test proving the replacement covers the old workflow. Since the service is local-first and may have no telemetry, absence of observed traffic is not evidence of absence of use.
 
-## 6. OpenAPI and executable contract coverage
+## 6. Implementation status update (2026-10-20)
+
+The shared `sendApiError` helper is now used by the common route adapter and project-route error handling for the covered paths. It adds top-level `message` and stable `code` fields while preserving legacy `error` values and domain fields such as `run`. The OpenAI-compatible chat endpoint retains its provider-specific error envelope.
+
+HTTP regression coverage now checks malformed cache TTL, malformed session ID, invalid segment pagination, and unknown-endpoint 404 responses. Existing project-store tests also cover candidate-write rejection after cancellation and the rule that cancelled/completed Runs cannot be revived. These tests have been inspected in source but have not been executed in this editing environment.
+
+Remaining gaps: body-parser and Host/Origin middleware errors are not yet routed through the shared helper; not every provider error envelope is identical; and there is no complete route/schema drift check.
+
+## 7. OpenAPI and executable contract coverage
 
 Do not label a hand-written partial schema as complete OpenAPI. Before publishing an OpenAPI document:
 
