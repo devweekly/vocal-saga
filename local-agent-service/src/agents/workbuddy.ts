@@ -204,7 +204,8 @@ export async function runWorkbuddyStructured(
   let result: { text: string; structuredOutput: unknown; usage: TurnUsage | null; sessionId?: string };
   // 长任务（全书预处理）显式放宽上限；普通翻译批次沿用 REQUEST_TIMEOUT_MS。
   const timeoutMs = options.timeoutMs ?? REQUEST_TIMEOUT_MS;
-  if (taskProfile) {
+  if (taskProfile || options.persistSession || options.sessionId) {
+    // Persistent workflow turns must bypass the shared pool so they can resume their exact SDK Session.
     // Query Options formally supports reasoning settings; SessionOptions does not expose them.
     result = await queryWorkbuddyRaw(
       agent, prompt, systemPrompt,
