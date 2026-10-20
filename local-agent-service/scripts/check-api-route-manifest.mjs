@@ -41,11 +41,11 @@ for (const route of manifest.routes) {
 // to update the manifest. This is intentionally a lightweight source check, not an AST.
 const commonSource = sourceCache.get('src/routes.ts');
 const commonRoutes = manifestBySource.get('src/routes.ts') || [];
-const commonConditions = commonSource.matchAll(/if\s*\(([\\s\\S]*?)\\)\\s*\\{/g);
+const commonConditions = commonSource.matchAll(/if\s*\(([\s\S]*?)\)\s*\{/g);
 for (const match of commonConditions) {
   const condition = match[1];
   if (!condition.includes('req.method') || !condition.includes('url.pathname')) continue;
-  const method = condition.match(/req\\.method\\s*===\\s*'([A-Z]+)'/)?.[1];
+  const method = condition.match(/req\.method\s*===\s*'([A-Z]+)'/)?.[1];
   assert.ok(method, `could not determine HTTP method from route condition: ${condition}`);
   assert.ok(
     commonRoutes.some((route) => route.method === method && condition.includes(route.signature)),
