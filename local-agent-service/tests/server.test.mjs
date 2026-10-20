@@ -688,6 +688,13 @@ test('starts without LOCAL_AGENT_TOKEN, allows extension requests, and blocks we
   });
   assert.equal(allowedOrigin.status, 204);
   assert.equal(allowedOrigin.headers.get('access-control-allow-origin'), extensionOrigin);
+
+  const unknownEndpoint = await fetch(baseUrl + '/api/does-not-exist');
+  assert.equal(unknownEndpoint.status, 404);
+  const unknownEndpointBody = await unknownEndpoint.json();
+  assert.equal(typeof unknownEndpointBody.error, 'object', 'preserve the legacy object-valued error field');
+  assert.equal(unknownEndpointBody.message, unknownEndpointBody.error.message);
+  assert.equal(unknownEndpointBody.code, 'NOT_FOUND');
 });
 
 test('salvages quote-poisoned translation JSON via jsonrepair fallback', () => {
