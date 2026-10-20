@@ -966,9 +966,9 @@ async function runAnalysis(projectId: string, runId: string): Promise<void> {
     const chapterRows = db.prepare(
       'SELECT chapter_key, chapter_order, chapter_title FROM context_graph_chapters WHERE source_revision_id = ? ORDER BY chapter_order'
     ).all(revisionId) as any[];
-    for (const raw of (Array.isArray(data.chapterSummaries) ? data.chapterSummaries : []).slice(0, 40)) {
+    for (const raw of (Array.isArray(data.chapterSummaries) ? data.chapterSummaries : [])) {
       const title = safeText(raw?.chapter, 160);
-      const summary = safeText(raw?.summary, 1000);
+      const summary = safeText(raw?.summary, 5000);
       if (!title || !summary) continue;
       const matchingChapter = chapterRows.find((chapter) =>
         normalize(chapter.chapter_title) === normalize(title) || normalize(chapter.chapter_key) === normalize(title));
