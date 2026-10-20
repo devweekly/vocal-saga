@@ -83,3 +83,43 @@ assert.equal(new Set(identities).size, identities.length, 'duplicate method/path
 
 console.log(`API route manifest check passed: ${manifest.routes.length} route entries; source signatures are present.`);
 console.log('Note: this checks inventory/source drift only, not full OpenAPI request/response schemas.');
+
+
+// Validate the checked-in incremental OpenAPI contract and all local JSON Pointer refs.
+// The contract intentionally declares partial coverage until every route has schemas.
+const openapi = JSON.parse(await readFile(resolve(serviceRoot, 'openapi.json'), 'utf8'));
+assert.equal(openapi.openapi, '3.1.0', 'OpenAPI contract must use a supported version');
+assert.equal(openapi.info?.version, '1.0.0', 'OpenAPI info.version is required');
+assert.equal(openapi['x-contract-coverage']?.status, 'partial',
+  'do not claim full contract coverage while routes remain undocumented');
+assert.ok(openapi.paths && Object.keys(openapi.paths).length > 0, 'OpenAPI must describe at least one endpoint');
+
+function resolveJsonPointer(document, pointer) {
+  assert.ok(pointer.startsWith('#/'), `only local JSON Pointer refs are supported: ${pointer}`);
+  return pointer.slice(2).split('/').map((part) => part.replace(/~1/g, '/').replace(/~0/g, '~'))
+    .reduce((value, key) => {
+      assert.ok(value && Object.hasOwn(value, key), `unresolved OpenAPI ref: ${pointer}`);
+      return value[key];
+    }, document);
+}
+function visitRefs(value, location = 'openapi') {
+  if (!value || typeof value !== 'object') return;
+  if (typeof value.$ref === 'string') {
+    resolveJsonPointer(openapi, value.$ref);
+  }
+  for (const [key, child] of Object.entries(value)) visitRefs(child, `${location}.${key}`);
+}
+visitRefs(openapi);
+for (const [path, pathItem] of Object.entries(openapi.paths)) {
+  assert.ok(path.startsWith('/'), `OpenAPI path must be absolute: ${path}`);
+  for (const method of ['get', 'post', 'put', 'patch', 'delete']) {
+    const operation = pathItem[method];
+    if (!operation) continue;
+    assert.ok(operation.responses && Object.keys(operation.responses).length > 0,
+      `OpenAPI operation must define responses: ${method.toUpperCase()} ${path}`);
+  }
+}
+assert.ok(openapi.paths['/api/documents/projects/{projectId}/runs'], 'Run collection contract is required');
+assert.ok(openapi.paths['/api/documents/projects/{projectId}/runs/{runId}/resume'], 'Run resume contract is required');
+assert.ok(openapi.paths['/api/documents/projects/{projectId}/runs/{runId}/cancel'], 'Run cancel contract is required');
+console.log(`OpenAPI contract check passed: ${Object.keys(openapi.paths).length} paths; local refs resolve; coverage remains explicitly partial.`);
