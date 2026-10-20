@@ -81,7 +81,7 @@ The shared `sendApiError` helper is now used by the common route adapter and pro
 
 HTTP regression coverage now checks malformed cache TTL, malformed session ID, invalid segment pagination, and unknown-endpoint 404 responses. Existing project-store tests also cover candidate-write rejection after cancellation and the rule that cancelled/completed Runs cannot be revived. These tests have been inspected in source but have not been executed in this editing environment.
 
-Remaining gaps: body-parser and Host/Origin middleware errors are not yet routed through the shared helper; not every provider error envelope is identical; and there is no complete route/schema drift check.
+Remaining gaps at the time of the first update were subsequently narrowed: body-parser and Host/Origin middleware errors now use the shared helper, and a lightweight route inventory/drift check exists. Not every provider error envelope is identical, and request/response schemas are not yet comprehensively validated.
 
 ## 7. Implementation status update (2026-10-20, continued)
 
