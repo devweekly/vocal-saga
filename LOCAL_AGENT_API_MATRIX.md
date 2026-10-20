@@ -284,3 +284,14 @@
 - 兼容规则：保留旧 `error` 字段原有类型；项目路由的领域错误还会保留 `run` 等附加数据。OpenAI 风格 `/v1/chat/completions` 继续使用其专用错误结构。
 - `server.test.mjs` 新增对 TTL 错误 envelope、未知端点 404 envelope 的断言，并保留分页非法值测试。
 - 尚未验证：本环境无法执行本地 `npm run typecheck` / `npm test`；GitHub workflow/status 查询没有返回测试任务，不能视为通过。完整 OpenAPI/manifest 漂移检测仍未实现。
+
+
+## 9. 合并后 CI 失败分析与回归修复（2026-10-20）
+
+PR #13 合并后的两条工作流均因同一个 local-agent-service 测试失败而失败，不是 TypeScript 类型检查失败：
+
+- 失败测试：`tests/run-automation.test.mjs` 中的 `literary Run readiness is tied to source revision, analysis version and language direction`。
+- 根因：测试 fixture 硬编码 `context-graph-v5-language-pinned`，而生产代码已经使用 `CONTEXT_GRAPH_ANALYSIS_VERSION = context-graph-v6-evidence-grounded-style-guide`。测试没有随版本升级更新，导致首个 readiness 断言返回 false。
+- 修复：测试改为导入 Context Graph 模块导出的版本常量，避免再次因版本字符串升级造成测试漂移。
+- 新增回归：Run 取消后，Store 必须拒绝迟到的候选译文写入；取消终态不能再转换为 running；并检查数据库中没有对应候选译文。
+- 当前修复位于 PR #16，CI 正在运行。此处不把尚未完成的工作流标记为通过。
