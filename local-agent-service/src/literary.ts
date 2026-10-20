@@ -446,7 +446,7 @@ export async function runLiteraryReview(body: any, requestId: string, sessionSco
         if (!item || typeof item !== 'object' || typeof item.id !== 'string' || typeof item.text !== 'string' || !item.text.trim()) return [];
         return [{
           id: item.id.slice(0, 160),
-          text: item.text.slice(0, 900),
+          text: item.text,
           contextPath: typeof item.contextPath === 'string' ? item.contextPath.slice(0, 160) : '',
         }];
       })
