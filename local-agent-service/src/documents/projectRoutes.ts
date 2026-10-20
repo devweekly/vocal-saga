@@ -118,7 +118,7 @@ export async function handleDocumentProjectRequest(req: Request, res: Response, 
     if (pathParts.length === 4 && pathParts[3] === 'import-file' && method === 'POST') {
       const contentType = String(req.headers['content-type'] || '').split(';')[0]!.trim().toLowerCase();
       if (!['application/octet-stream', 'application/epub+zip', 'application/pdf', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'text/plain', 'text/markdown', 'text/html'].includes(contentType)) {
-        sendJson(res, 415, { error: '文件导入需要使用 application/octet-stream 或与文件格式匹配的 Content-Type' });
+        sendApiError(res, 415, '文件导入需要使用 application/octet-stream 或与文件格式匹配的 Content-Type', '文件导入需要使用 application/octet-stream 或与文件格式匹配的 Content-Type');
         return true;
       }
       const encodedName = String(req.headers['x-source-file-name'] || '');
@@ -231,7 +231,7 @@ export async function handleDocumentProjectRequest(req: Request, res: Response, 
     if (pathParts.length === 5 && pathParts[4] === 'source-file' && method === 'POST') {
       const contentType = String(req.headers['content-type'] || '').split(';')[0]!.trim().toLowerCase();
       if (!['application/octet-stream', 'application/pdf', 'application/epub+zip', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'].includes(contentType)) {
-        sendJson(res, 415, { error: '原始文档上传需要使用二进制 Content-Type' });
+        sendApiError(res, 415, '原始文档上传需要使用二进制 Content-Type', '原始文档上传需要使用二进制 Content-Type');
         return true;
       }
       const encodedName = String(req.headers['x-source-file-name'] || '');
@@ -392,10 +392,12 @@ export async function handleDocumentProjectRequest(req: Request, res: Response, 
       const run = store.getRun(projectId, runId);
       const currentSourceRevisionId = store.getProjectContext(projectId).currentSourceRevisionId;
       if (run.sourceRevisionId !== currentSourceRevisionId) {
-        sendJson(res, 409, {
-          error: '这次运行使用的是旧原文版本，不能恢复到当前文档。请基于当前原文创建新的运行。',
-          run,
-        });
+        sendApiError(
+          res, 409,
+          '这次运行使用的是旧原文版本，不能恢复到当前文档。请基于当前原文创建新的运行。',
+          '这次运行使用的是旧原文版本，不能恢复到当前文档。请基于当前原文创建新的运行。',
+          { run },
+        );
         return true;
       }
       if (!['paused', 'queued', 'failed', 'partial'].includes(run.status)) {
