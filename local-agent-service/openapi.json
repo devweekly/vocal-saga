@@ -12,17 +12,29 @@
   ],
   "x-contract-coverage": {
     "status": "partial",
-    "covered": [
-      "document-project-run-lifecycle"
+    "routeCount": 54,
+    "detailedPaths": [
+      "/api/documents/projects/{projectId}/runs",
+      "/api/documents/projects/{projectId}/runs/{runId}/resume",
+      "/api/documents/projects/{projectId}/runs/{runId}/cancel"
     ],
     "inventory": "api-route-manifest.json",
-    "followUp": "Add schemas for remaining 54 route entries before treating this as a complete API contract."
+    "followUp": "All manifest routes are listed, but only the durable Run lifecycle endpoints currently have endpoint-specific request/response schemas. Operations marked x-route-contract-level=inventory-only must be replaced with endpoint-specific schemas before claiming full contract coverage."
   },
   "paths": {
     "/api/documents/projects/{projectId}/runs": {
       "parameters": [
         {
           "$ref": "#/components/parameters/ProjectId"
+        },
+        {
+          "name": "projectId",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "minLength": 1
+          }
         }
       ],
       "get": {
@@ -120,6 +132,24 @@
         },
         {
           "$ref": "#/components/parameters/RunId"
+        },
+        {
+          "name": "projectId",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        {
+          "name": "runId",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "minLength": 1
+          }
         }
       ],
       "post": {
@@ -186,6 +216,24 @@
         },
         {
           "$ref": "#/components/parameters/RunId"
+        },
+        {
+          "name": "projectId",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        {
+          "name": "runId",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "minLength": 1
+          }
         }
       ],
       "post": {
@@ -211,6 +259,1990 @@
             }
           },
           "409": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        }
+      }
+    },
+    "/health": {
+      "parameters": [],
+      "get": {
+        "operationId": "get_health",
+        "summary": "GET /health",
+        "x-route-contract-level": "inventory-only",
+        "x-implementation-source": "src/routes.ts",
+        "x-implementation-signature": "url.pathname === '/health'",
+        "responses": {
+          "200": {
+            "description": "Successful response; endpoint-specific response schema not yet documented.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericSuccess"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "500": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        }
+      }
+    },
+    "/api/settings/diagnostics": {
+      "parameters": [],
+      "get": {
+        "operationId": "get_api_settings_diagnostics",
+        "summary": "GET /api/settings/diagnostics",
+        "x-route-contract-level": "inventory-only",
+        "x-implementation-source": "src/routes.ts",
+        "x-implementation-signature": "url.pathname === '/api/settings/diagnostics'",
+        "responses": {
+          "200": {
+            "description": "Successful response; endpoint-specific response schema not yet documented.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericSuccess"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "500": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        }
+      }
+    },
+    "/v1/models": {
+      "parameters": [],
+      "get": {
+        "operationId": "get_v1_models",
+        "summary": "GET /v1/models",
+        "x-route-contract-level": "inventory-only",
+        "x-implementation-source": "src/routes.ts",
+        "x-implementation-signature": "url.pathname === '/v1/models'",
+        "responses": {
+          "200": {
+            "description": "Successful response; endpoint-specific response schema not yet documented.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericSuccess"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "500": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        }
+      }
+    },
+    "/api/codebuddy/models": {
+      "parameters": [],
+      "get": {
+        "operationId": "get_api_codebuddy_models",
+        "summary": "GET /api/codebuddy/models",
+        "x-route-contract-level": "inventory-only",
+        "x-implementation-source": "src/routes.ts",
+        "x-implementation-signature": "url.pathname === '/api/codebuddy/models'",
+        "responses": {
+          "200": {
+            "description": "Successful response; endpoint-specific response schema not yet documented.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericSuccess"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "500": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        }
+      }
+    },
+    "/api/history": {
+      "parameters": [],
+      "get": {
+        "operationId": "get_api_history",
+        "summary": "GET /api/history",
+        "x-route-contract-level": "inventory-only",
+        "x-implementation-source": "src/routes.ts",
+        "x-implementation-signature": "url.pathname === '/api/history'",
+        "responses": {
+          "200": {
+            "description": "Successful response; endpoint-specific response schema not yet documented.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericSuccess"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "500": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        }
+      },
+      "delete": {
+        "operationId": "delete_api_history",
+        "summary": "DELETE /api/history",
+        "x-route-contract-level": "inventory-only",
+        "x-implementation-source": "src/routes.ts",
+        "x-implementation-signature": "url.pathname === '/api/history'",
+        "responses": {
+          "200": {
+            "description": "Successful response; endpoint-specific response schema not yet documented.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericSuccess"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "500": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        }
+      }
+    },
+    "/api/cache/translation/get": {
+      "parameters": [],
+      "post": {
+        "operationId": "post_api_cache_translation_get",
+        "summary": "POST /api/cache/translation/get",
+        "x-route-contract-level": "inventory-only",
+        "x-implementation-source": "src/routes.ts",
+        "x-implementation-signature": "url.pathname === '/api/cache/translation/get'",
+        "responses": {
+          "200": {
+            "description": "Successful response; endpoint-specific response schema not yet documented.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericSuccess"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "500": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        },
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GenericRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/cache/translation/set": {
+      "parameters": [],
+      "post": {
+        "operationId": "post_api_cache_translation_set",
+        "summary": "POST /api/cache/translation/set",
+        "x-route-contract-level": "inventory-only",
+        "x-implementation-source": "src/routes.ts",
+        "x-implementation-signature": "url.pathname === '/api/cache/translation/set'",
+        "responses": {
+          "200": {
+            "description": "Successful response; endpoint-specific response schema not yet documented.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericSuccess"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "500": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        },
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GenericRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/cache/translation/delete": {
+      "parameters": [],
+      "post": {
+        "operationId": "post_api_cache_translation_delete",
+        "summary": "POST /api/cache/translation/delete",
+        "x-route-contract-level": "inventory-only",
+        "x-implementation-source": "src/routes.ts",
+        "x-implementation-signature": "url.pathname === '/api/cache/translation/delete'",
+        "responses": {
+          "200": {
+            "description": "Successful response; endpoint-specific response schema not yet documented.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericSuccess"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "500": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        },
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GenericRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/cache/translation": {
+      "parameters": [],
+      "delete": {
+        "operationId": "delete_api_cache_translation",
+        "summary": "DELETE /api/cache/translation",
+        "x-route-contract-level": "inventory-only",
+        "x-implementation-source": "src/routes.ts",
+        "x-implementation-signature": "url.pathname === '/api/cache/translation'",
+        "responses": {
+          "200": {
+            "description": "Successful response; endpoint-specific response schema not yet documented.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericSuccess"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "500": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        }
+      }
+    },
+    "/api/documents/session/summary": {
+      "parameters": [],
+      "post": {
+        "operationId": "post_api_documents_session_summary",
+        "summary": "POST /api/documents/session/summary",
+        "x-route-contract-level": "inventory-only",
+        "x-implementation-source": "src/routes.ts",
+        "x-implementation-signature": "url.pathname === '/api/documents/session/summary'",
+        "responses": {
+          "200": {
+            "description": "Successful response; endpoint-specific response schema not yet documented.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericSuccess"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "500": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        },
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GenericRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/documents/session/get": {
+      "parameters": [],
+      "post": {
+        "operationId": "post_api_documents_session_get",
+        "summary": "POST /api/documents/session/get",
+        "x-route-contract-level": "inventory-only",
+        "x-implementation-source": "src/routes.ts",
+        "x-implementation-signature": "url.pathname === '/api/documents/session/get'",
+        "responses": {
+          "200": {
+            "description": "Successful response; endpoint-specific response schema not yet documented.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericSuccess"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "500": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        },
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GenericRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/documents/session/save": {
+      "parameters": [],
+      "post": {
+        "operationId": "post_api_documents_session_save",
+        "summary": "POST /api/documents/session/save",
+        "x-route-contract-level": "inventory-only",
+        "x-implementation-source": "src/routes.ts",
+        "x-implementation-signature": "url.pathname === '/api/documents/session/save'",
+        "responses": {
+          "200": {
+            "description": "Successful response; endpoint-specific response schema not yet documented.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericSuccess"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "500": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        },
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GenericRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/documents/session/{sessionId}": {
+      "parameters": [
+        {
+          "name": "sessionId",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      ],
+      "delete": {
+        "operationId": "delete_api_documents_session_sessionId",
+        "summary": "DELETE /api/documents/session/{sessionId}",
+        "x-route-contract-level": "inventory-only",
+        "x-implementation-source": "src/routes.ts",
+        "x-implementation-signature": "url.pathname.startsWith('/api/documents/session/')",
+        "responses": {
+          "200": {
+            "description": "Successful response; endpoint-specific response schema not yet documented.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericSuccess"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "500": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        }
+      }
+    },
+    "/api/documents/batches": {
+      "parameters": [],
+      "post": {
+        "operationId": "post_api_documents_batches",
+        "summary": "POST /api/documents/batches",
+        "x-route-contract-level": "inventory-only",
+        "x-implementation-source": "src/routes.ts",
+        "x-implementation-signature": "url.pathname === '/api/documents/batches'",
+        "responses": {
+          "200": {
+            "description": "Successful response; endpoint-specific response schema not yet documented.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericSuccess"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "500": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        },
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GenericRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/config/task-prompts": {
+      "parameters": [],
+      "get": {
+        "operationId": "get_api_config_task_prompts",
+        "summary": "GET /api/config/task-prompts",
+        "x-route-contract-level": "inventory-only",
+        "x-implementation-source": "src/routes.ts",
+        "x-implementation-signature": "url.pathname === '/api/config/task-prompts'",
+        "responses": {
+          "200": {
+            "description": "Successful response; endpoint-specific response schema not yet documented.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericSuccess"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "500": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        }
+      }
+    },
+    "/v1/chat/completions": {
+      "parameters": [],
+      "post": {
+        "operationId": "post_v1_chat_completions",
+        "summary": "POST /v1/chat/completions",
+        "x-route-contract-level": "inventory-only",
+        "x-implementation-source": "src/routes.ts",
+        "x-implementation-signature": "url.pathname === '/v1/chat/completions'",
+        "responses": {
+          "200": {
+            "description": "Successful response; endpoint-specific response schema not yet documented.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericSuccess"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "500": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        },
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GenericRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/translate/document/literary/analyze": {
+      "parameters": [],
+      "post": {
+        "operationId": "post_api_translate_document_literary_analyze",
+        "summary": "POST /api/translate/document/literary/analyze",
+        "x-route-contract-level": "inventory-only",
+        "x-implementation-source": "src/routes.ts",
+        "x-implementation-signature": "url.pathname.endsWith('/analyze')",
+        "responses": {
+          "200": {
+            "description": "Successful response; endpoint-specific response schema not yet documented.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericSuccess"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "500": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        },
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GenericRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/translate/document/literary/review": {
+      "parameters": [],
+      "post": {
+        "operationId": "post_api_translate_document_literary_review",
+        "summary": "POST /api/translate/document/literary/review",
+        "x-route-contract-level": "inventory-only",
+        "x-implementation-source": "src/routes.ts",
+        "x-implementation-signature": "'POST /api/translate/document/literary/review'",
+        "responses": {
+          "200": {
+            "description": "Successful response; endpoint-specific response schema not yet documented.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericSuccess"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "500": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        },
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GenericRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/documents/projects": {
+      "parameters": [],
+      "get": {
+        "operationId": "get_api_documents_projects",
+        "summary": "GET /api/documents/projects",
+        "x-route-contract-level": "inventory-only",
+        "x-implementation-source": "src/documents/projectRoutes.ts",
+        "x-implementation-signature": "pathParts.length === 3 && method === 'GET'",
+        "responses": {
+          "200": {
+            "description": "Successful response; endpoint-specific response schema not yet documented.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericSuccess"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "500": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        }
+      },
+      "post": {
+        "operationId": "post_api_documents_projects",
+        "summary": "POST /api/documents/projects",
+        "x-route-contract-level": "inventory-only",
+        "x-implementation-source": "src/documents/projectRoutes.ts",
+        "x-implementation-signature": "pathParts.length === 3 && method === 'POST'",
+        "responses": {
+          "200": {
+            "description": "Successful response; endpoint-specific response schema not yet documented.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericSuccess"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "500": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        },
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GenericRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/documents/projects/{projectId}/resolve": {
+      "parameters": [
+        {
+          "name": "projectId",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      ],
+      "post": {
+        "operationId": "post_api_documents_projects_projectId_resolve",
+        "summary": "POST /api/documents/projects/{projectId}/resolve",
+        "x-route-contract-level": "inventory-only",
+        "x-implementation-source": "src/documents/projectRoutes.ts",
+        "x-implementation-signature": "pathParts[3] === 'resolve' && method === 'POST'",
+        "responses": {
+          "200": {
+            "description": "Successful response; endpoint-specific response schema not yet documented.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericSuccess"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "500": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        },
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GenericRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/documents/projects/{projectId}/import-file": {
+      "parameters": [
+        {
+          "name": "projectId",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      ],
+      "post": {
+        "operationId": "post_api_documents_projects_projectId_import_file",
+        "summary": "POST /api/documents/projects/{projectId}/import-file",
+        "x-route-contract-level": "inventory-only",
+        "x-implementation-source": "src/documents/projectRoutes.ts",
+        "x-implementation-signature": "pathParts[3] === 'import-file' && method === 'POST'",
+        "responses": {
+          "200": {
+            "description": "Successful response; endpoint-specific response schema not yet documented.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericSuccess"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "500": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        },
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GenericRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/documents/projects/{projectId}": {
+      "parameters": [
+        {
+          "name": "projectId",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      ],
+      "get": {
+        "operationId": "get_api_documents_projects_projectId",
+        "summary": "GET /api/documents/projects/{projectId}",
+        "x-route-contract-level": "inventory-only",
+        "x-implementation-source": "src/documents/projectRoutes.ts",
+        "x-implementation-signature": "pathParts.length === 4 && method === 'GET'",
+        "responses": {
+          "200": {
+            "description": "Successful response; endpoint-specific response schema not yet documented.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericSuccess"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "500": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        }
+      },
+      "delete": {
+        "operationId": "delete_api_documents_projects_projectId",
+        "summary": "DELETE /api/documents/projects/{projectId}",
+        "x-route-contract-level": "inventory-only",
+        "x-implementation-source": "src/documents/projectRoutes.ts",
+        "x-implementation-signature": "pathParts.length === 4 && method === 'DELETE'",
+        "responses": {
+          "200": {
+            "description": "Successful response; endpoint-specific response schema not yet documented.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericSuccess"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "500": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        }
+      }
+    },
+    "/api/documents/projects/{projectId}/source-file": {
+      "parameters": [
+        {
+          "name": "projectId",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      ],
+      "post": {
+        "operationId": "post_api_documents_projects_projectId_source_file",
+        "summary": "POST /api/documents/projects/{projectId}/source-file",
+        "x-route-contract-level": "inventory-only",
+        "x-implementation-source": "src/documents/projectRoutes.ts",
+        "x-implementation-signature": "pathParts[4] === 'source-file' && method === 'POST'",
+        "responses": {
+          "200": {
+            "description": "Successful response; endpoint-specific response schema not yet documented.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericSuccess"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "500": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        },
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GenericRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/documents/projects/{projectId}/source": {
+      "parameters": [
+        {
+          "name": "projectId",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      ],
+      "post": {
+        "operationId": "post_api_documents_projects_projectId_source",
+        "summary": "POST /api/documents/projects/{projectId}/source",
+        "x-route-contract-level": "inventory-only",
+        "x-implementation-source": "src/documents/projectRoutes.ts",
+        "x-implementation-signature": "pathParts[4] === 'source' && method === 'POST'",
+        "responses": {
+          "200": {
+            "description": "Successful response; endpoint-specific response schema not yet documented.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericSuccess"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "500": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        },
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GenericRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/documents/projects/{projectId}/translations/import": {
+      "parameters": [
+        {
+          "name": "projectId",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      ],
+      "post": {
+        "operationId": "post_api_documents_projects_projectId_translations_import",
+        "summary": "POST /api/documents/projects/{projectId}/translations/import",
+        "x-route-contract-level": "inventory-only",
+        "x-implementation-source": "src/documents/projectRoutes.ts",
+        "x-implementation-signature": "pathParts[4] === 'translations' && pathParts[5] === 'import'",
+        "responses": {
+          "200": {
+            "description": "Successful response; endpoint-specific response schema not yet documented.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericSuccess"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "500": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        },
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GenericRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/documents/projects/{projectId}/segments": {
+      "parameters": [
+        {
+          "name": "projectId",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      ],
+      "get": {
+        "operationId": "get_api_documents_projects_projectId_segments",
+        "summary": "GET /api/documents/projects/{projectId}/segments",
+        "x-route-contract-level": "inventory-only",
+        "x-implementation-source": "src/documents/projectRoutes.ts",
+        "x-implementation-signature": "pathParts[4] === 'segments' && method === 'GET'",
+        "responses": {
+          "200": {
+            "description": "Successful response; endpoint-specific response schema not yet documented.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericSuccess"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "500": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        }
+      }
+    },
+    "/api/documents/projects/{projectId}/segments/{segmentId}/translation": {
+      "parameters": [
+        {
+          "name": "projectId",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        {
+          "name": "segmentId",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      ],
+      "put": {
+        "operationId": "put_api_documents_projects_projectId_segments_segmentId_translation",
+        "summary": "PUT /api/documents/projects/{projectId}/segments/{segmentId}/translation",
+        "x-route-contract-level": "inventory-only",
+        "x-implementation-source": "src/documents/projectRoutes.ts",
+        "x-implementation-signature": "pathParts[6] === 'translation' && method === 'PUT'",
+        "responses": {
+          "200": {
+            "description": "Successful response; endpoint-specific response schema not yet documented.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericSuccess"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "500": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        },
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GenericRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/documents/projects/{projectId}/prompts": {
+      "parameters": [
+        {
+          "name": "projectId",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      ],
+      "get": {
+        "operationId": "get_api_documents_projects_projectId_prompts",
+        "summary": "GET /api/documents/projects/{projectId}/prompts",
+        "x-route-contract-level": "inventory-only",
+        "x-implementation-source": "src/documents/projectRoutes.ts",
+        "x-implementation-signature": "pathParts[4] === 'prompts' && method === 'GET'",
+        "responses": {
+          "200": {
+            "description": "Successful response; endpoint-specific response schema not yet documented.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericSuccess"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "500": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        }
+      },
+      "post": {
+        "operationId": "post_api_documents_projects_projectId_prompts",
+        "summary": "POST /api/documents/projects/{projectId}/prompts",
+        "x-route-contract-level": "inventory-only",
+        "x-implementation-source": "src/documents/projectRoutes.ts",
+        "x-implementation-signature": "pathParts[4] === 'prompts' && method === 'POST'",
+        "responses": {
+          "200": {
+            "description": "Successful response; endpoint-specific response schema not yet documented.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericSuccess"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "500": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        },
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GenericRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/documents/projects/{projectId}/context-graph/status": {
+      "parameters": [
+        {
+          "name": "projectId",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      ],
+      "get": {
+        "operationId": "get_api_documents_projects_projectId_context_graph_status",
+        "summary": "GET /api/documents/projects/{projectId}/context-graph/status",
+        "x-route-contract-level": "inventory-only",
+        "x-implementation-source": "src/documents/projectRoutes.ts",
+        "x-implementation-signature": "pathParts[5] === 'status' && method === 'GET'",
+        "responses": {
+          "200": {
+            "description": "Successful response; endpoint-specific response schema not yet documented.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericSuccess"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "500": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        }
+      }
+    },
+    "/api/documents/projects/{projectId}/context-graph": {
+      "parameters": [
+        {
+          "name": "projectId",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      ],
+      "get": {
+        "operationId": "get_api_documents_projects_projectId_context_graph",
+        "summary": "GET /api/documents/projects/{projectId}/context-graph",
+        "x-route-contract-level": "inventory-only",
+        "x-implementation-source": "src/documents/projectRoutes.ts",
+        "x-implementation-signature": "pathParts[4] === 'context-graph' && method === 'GET'",
+        "responses": {
+          "200": {
+            "description": "Successful response; endpoint-specific response schema not yet documented.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericSuccess"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "500": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        }
+      }
+    },
+    "/api/documents/projects/{projectId}/context-graph/analyze": {
+      "parameters": [
+        {
+          "name": "projectId",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      ],
+      "post": {
+        "operationId": "post_api_documents_projects_projectId_context_graph_analyze",
+        "summary": "POST /api/documents/projects/{projectId}/context-graph/analyze",
+        "x-route-contract-level": "inventory-only",
+        "x-implementation-source": "src/documents/projectRoutes.ts",
+        "x-implementation-signature": "pathParts[5] === 'analyze' && method === 'POST'",
+        "responses": {
+          "200": {
+            "description": "Successful response; endpoint-specific response schema not yet documented.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericSuccess"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "500": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        },
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GenericRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/documents/projects/{projectId}/context-graph/review": {
+      "parameters": [
+        {
+          "name": "projectId",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      ],
+      "post": {
+        "operationId": "post_api_documents_projects_projectId_context_graph_review",
+        "summary": "POST /api/documents/projects/{projectId}/context-graph/review",
+        "x-route-contract-level": "inventory-only",
+        "x-implementation-source": "src/documents/projectRoutes.ts",
+        "x-implementation-signature": "pathParts[5] === 'review' && method === 'POST'",
+        "responses": {
+          "200": {
+            "description": "Successful response; endpoint-specific response schema not yet documented.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericSuccess"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "500": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        },
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GenericRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/documents/projects/{projectId}/literary-memory": {
+      "parameters": [
+        {
+          "name": "projectId",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      ],
+      "get": {
+        "operationId": "get_api_documents_projects_projectId_literary_memory",
+        "summary": "GET /api/documents/projects/{projectId}/literary-memory",
+        "x-route-contract-level": "inventory-only",
+        "x-implementation-source": "src/documents/projectRoutes.ts",
+        "x-implementation-signature": "pathParts[4] === 'literary-memory' && method === 'GET'",
+        "responses": {
+          "200": {
+            "description": "Successful response; endpoint-specific response schema not yet documented.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericSuccess"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "500": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        }
+      },
+      "post": {
+        "operationId": "post_api_documents_projects_projectId_literary_memory",
+        "summary": "POST /api/documents/projects/{projectId}/literary-memory",
+        "x-route-contract-level": "inventory-only",
+        "x-implementation-source": "src/documents/projectRoutes.ts",
+        "x-implementation-signature": "pathParts[4] === 'literary-memory' && method === 'POST'",
+        "responses": {
+          "200": {
+            "description": "Successful response; endpoint-specific response schema not yet documented.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericSuccess"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "500": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        },
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GenericRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/documents/projects/{projectId}/runs/{runId}/translation-briefs": {
+      "parameters": [
+        {
+          "name": "projectId",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        {
+          "name": "runId",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      ],
+      "get": {
+        "operationId": "get_api_documents_projects_projectId_runs_runId_translation_briefs",
+        "summary": "GET /api/documents/projects/{projectId}/runs/{runId}/translation-briefs",
+        "x-route-contract-level": "inventory-only",
+        "x-implementation-source": "src/documents/projectRoutes.ts",
+        "x-implementation-signature": "pathParts[6] === 'translation-briefs' && method === 'GET'",
+        "responses": {
+          "200": {
+            "description": "Successful response; endpoint-specific response schema not yet documented.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericSuccess"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "500": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        }
+      }
+    },
+    "/api/documents/projects/{projectId}/runs/{runId}/accept": {
+      "parameters": [
+        {
+          "name": "projectId",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        {
+          "name": "runId",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      ],
+      "post": {
+        "operationId": "post_api_documents_projects_projectId_runs_runId_accept",
+        "summary": "POST /api/documents/projects/{projectId}/runs/{runId}/accept",
+        "x-route-contract-level": "inventory-only",
+        "x-implementation-source": "src/documents/projectRoutes.ts",
+        "x-implementation-signature": "pathParts[6] === 'accept' && method === 'POST'",
+        "responses": {
+          "200": {
+            "description": "Successful response; endpoint-specific response schema not yet documented.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericSuccess"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "500": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        },
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GenericRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/documents/projects/{projectId}/runs/{runId}/findings/{findingId}": {
+      "parameters": [
+        {
+          "name": "projectId",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        {
+          "name": "runId",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        {
+          "name": "findingId",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      ],
+      "post": {
+        "operationId": "post_api_documents_projects_projectId_runs_runId_findings_findingId",
+        "summary": "POST /api/documents/projects/{projectId}/runs/{runId}/findings/{findingId}",
+        "x-route-contract-level": "inventory-only",
+        "x-implementation-source": "src/documents/projectRoutes.ts",
+        "x-implementation-signature": "pathParts[6] === 'findings' && method === 'POST'",
+        "responses": {
+          "200": {
+            "description": "Successful response; endpoint-specific response schema not yet documented.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericSuccess"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "500": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        },
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GenericRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/documents/projects/{projectId}/quality-audit": {
+      "parameters": [
+        {
+          "name": "projectId",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      ],
+      "get": {
+        "operationId": "get_api_documents_projects_projectId_quality_audit",
+        "summary": "GET /api/documents/projects/{projectId}/quality-audit",
+        "x-route-contract-level": "inventory-only",
+        "x-implementation-source": "src/documents/projectRoutes.ts",
+        "x-implementation-signature": "pathParts[4] === 'quality-audit' && method === 'GET'",
+        "responses": {
+          "200": {
+            "description": "Successful response; endpoint-specific response schema not yet documented.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericSuccess"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "500": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        }
+      },
+      "post": {
+        "operationId": "post_api_documents_projects_projectId_quality_audit",
+        "summary": "POST /api/documents/projects/{projectId}/quality-audit",
+        "x-route-contract-level": "inventory-only",
+        "x-implementation-source": "src/documents/projectRoutes.ts",
+        "x-implementation-signature": "pathParts[4] === 'quality-audit' && method === 'POST'",
+        "responses": {
+          "200": {
+            "description": "Successful response; endpoint-specific response schema not yet documented.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericSuccess"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "500": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        },
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GenericRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/documents/projects/{projectId}/quality-audit/repair": {
+      "parameters": [
+        {
+          "name": "projectId",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      ],
+      "post": {
+        "operationId": "post_api_documents_projects_projectId_quality_audit_repair",
+        "summary": "POST /api/documents/projects/{projectId}/quality-audit/repair",
+        "x-route-contract-level": "inventory-only",
+        "x-implementation-source": "src/documents/projectRoutes.ts",
+        "x-implementation-signature": "pathParts[5] === 'repair' && method === 'POST'",
+        "responses": {
+          "200": {
+            "description": "Successful response; endpoint-specific response schema not yet documented.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericSuccess"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "500": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        },
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GenericRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/documents/projects/{projectId}/quality-evaluations": {
+      "parameters": [
+        {
+          "name": "projectId",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      ],
+      "post": {
+        "operationId": "post_api_documents_projects_projectId_quality_evaluations",
+        "summary": "POST /api/documents/projects/{projectId}/quality-evaluations",
+        "x-route-contract-level": "inventory-only",
+        "x-implementation-source": "src/documents/projectRoutes.ts",
+        "x-implementation-signature": "pathParts[4] === 'quality-evaluations' && method === 'POST'",
+        "responses": {
+          "200": {
+            "description": "Successful response; endpoint-specific response schema not yet documented.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericSuccess"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "500": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        },
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GenericRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/documents/projects/{projectId}/quality-evaluations/{evaluationId}": {
+      "parameters": [
+        {
+          "name": "projectId",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        {
+          "name": "evaluationId",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      ],
+      "get": {
+        "operationId": "get_api_documents_projects_projectId_quality_evaluations_evaluationId",
+        "summary": "GET /api/documents/projects/{projectId}/quality-evaluations/{evaluationId}",
+        "x-route-contract-level": "inventory-only",
+        "x-implementation-source": "src/documents/projectRoutes.ts",
+        "x-implementation-signature": "pathParts[4] === 'quality-evaluations' && method === 'GET'",
+        "responses": {
+          "200": {
+            "description": "Successful response; endpoint-specific response schema not yet documented.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericSuccess"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "500": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        }
+      }
+    },
+    "/api/documents/projects/{projectId}/quality-evaluations/{evaluationId}/reviews": {
+      "parameters": [
+        {
+          "name": "projectId",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        {
+          "name": "evaluationId",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      ],
+      "post": {
+        "operationId": "post_api_documents_projects_projectId_quality_evaluations_evaluationId_reviews",
+        "summary": "POST /api/documents/projects/{projectId}/quality-evaluations/{evaluationId}/reviews",
+        "x-route-contract-level": "inventory-only",
+        "x-implementation-source": "src/documents/projectRoutes.ts",
+        "x-implementation-signature": "pathParts[6] === 'reviews' && method === 'POST'",
+        "responses": {
+          "200": {
+            "description": "Successful response; endpoint-specific response schema not yet documented.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericSuccess"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "500": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        },
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GenericRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/documents/projects/{projectId}/verify": {
+      "parameters": [
+        {
+          "name": "projectId",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      ],
+      "get": {
+        "operationId": "get_api_documents_projects_projectId_verify",
+        "summary": "GET /api/documents/projects/{projectId}/verify",
+        "x-route-contract-level": "inventory-only",
+        "x-implementation-source": "src/documents/projectRoutes.ts",
+        "x-implementation-signature": "pathParts[4] === 'verify' && method === 'GET'",
+        "responses": {
+          "200": {
+            "description": "Successful response; endpoint-specific response schema not yet documented.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericSuccess"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "500": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        }
+      }
+    },
+    "/api/documents/projects/{projectId}/events": {
+      "parameters": [
+        {
+          "name": "projectId",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      ],
+      "get": {
+        "operationId": "get_api_documents_projects_projectId_events",
+        "summary": "GET /api/documents/projects/{projectId}/events",
+        "x-route-contract-level": "inventory-only",
+        "x-implementation-source": "src/documents/projectRoutes.ts",
+        "x-implementation-signature": "pathParts[4] === 'events' && method === 'GET'",
+        "responses": {
+          "200": {
+            "description": "Successful response; endpoint-specific response schema not yet documented.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericSuccess"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "500": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        }
+      }
+    },
+    "/api/documents/projects/{projectId}/runs/{runId}": {
+      "parameters": [
+        {
+          "name": "projectId",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        {
+          "name": "runId",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      ],
+      "get": {
+        "operationId": "get_api_documents_projects_projectId_runs_runId",
+        "summary": "GET /api/documents/projects/{projectId}/runs/{runId}",
+        "x-route-contract-level": "inventory-only",
+        "x-implementation-source": "src/documents/projectRoutes.ts",
+        "x-implementation-signature": "pathParts.length === 6 && pathParts[4] === 'runs' && method === 'GET'",
+        "responses": {
+          "200": {
+            "description": "Successful response; endpoint-specific response schema not yet documented.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericSuccess"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "500": {
             "$ref": "#/components/responses/ApiError"
           }
         }
@@ -335,6 +2367,16 @@
           }
         },
         "additionalProperties": true
+      },
+      "GenericRequest": {
+        "type": "object",
+        "additionalProperties": true,
+        "description": "Inventory-only placeholder. Replace with endpoint-specific request properties."
+      },
+      "GenericSuccess": {
+        "type": "object",
+        "additionalProperties": true,
+        "description": "Inventory-only placeholder. Replace with endpoint-specific response properties."
       }
     },
     "responses": {
