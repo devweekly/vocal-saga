@@ -172,8 +172,8 @@ function normalizeFormat(value: string): DocumentFormat {
   throw Object.assign(new Error('不支持的文档格式：' + value), { status: 400 });
 }
 function validateSegments(input: unknown): ProjectSegment[] {
-  if (!Array.isArray(input) || input.length < 1 || input.length > 20000) {
-    throw Object.assign(new Error('segments 必须是 1-20000 个片段的数组'), { status: 400 });
+  if (!Array.isArray(input) || input.length < 1 || input.length > 100_000) {
+    throw Object.assign(new Error('segments 必须是 1-100000 个片段的数组'), { status: 400 });
   }
   const seen = new Set<string>();
   const result: ProjectSegment[] = [];
