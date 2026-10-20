@@ -71,6 +71,8 @@ function logModelFailure(
 export interface AgentRunResult<T> {
   result: T;
   usage: TurnUsage | null;
+  /** Present for persistent CodeBuddy query() sessions used by resumable workflows. */
+  sessionId?: string;
 }
 
 /** Unified model invocation; document tasks can supply immutable per-task settings. */
@@ -176,7 +178,6 @@ export async function runAgentStructured(
       result = r.parsed;
       usage = r.usage;
       sessionId = r.sessionId;
-      const sessionId = r.sessionId;
     } else if (effectiveAgent.provider === 'opencode') {
       const output = await runOpenCode(effectiveAgent, effective.prompt, effective.systemPrompt);
       const value = parseJsonValue(output);
