@@ -123,3 +123,20 @@ assert.ok(openapi.paths['/api/documents/projects/{projectId}/runs'], 'Run collec
 assert.ok(openapi.paths['/api/documents/projects/{projectId}/runs/{runId}/resume'], 'Run resume contract is required');
 assert.ok(openapi.paths['/api/documents/projects/{projectId}/runs/{runId}/cancel'], 'Run cancel contract is required');
 console.log(`OpenAPI contract check passed: ${Object.keys(openapi.paths).length} paths; local refs resolve; coverage remains explicitly partial.`);
+
+
+// Every route inventory entry must have a matching OpenAPI path + method. Operations
+// with only generic request/response placeholders are explicitly labelled inventory-only.
+const openapiMethod = { GET: 'get', POST: 'post', PUT: 'put', PATCH: 'patch', DELETE: 'delete' };
+assert.equal(openapi['x-contract-coverage']?.routeCount, manifest.routes.length,
+  'OpenAPI routeCount must match the route manifest');
+for (const route of manifest.routes) {
+  const operation = openapi.paths?.[route.path]?.[openapiMethod[route.method]];
+  assert.ok(operation, `OpenAPI is missing manifest route: ${route.method} ${route.path}`);
+  if (operation['x-route-contract-level'] === 'inventory-only') {
+    assert.equal(operation['x-implementation-source'], route.source,
+      `OpenAPI implementation source drift: ${route.method} ${route.path}`);
+    assert.equal(operation['x-implementation-signature'], route.signature,
+      `OpenAPI implementation signature drift: ${route.method} ${route.path}`);
+  }
+}
