@@ -9,6 +9,7 @@ process.env.LOCAL_AGENT_DATA_DIR = testDataDir;
 process.env.LOCAL_AGENT_DATABASE = path.join(testDataDir, 'service.sqlite');
 
 const { getDocumentProjectStore } = await import('../src/documents/projectStore.ts');
+const { CONTEXT_GRAPH_ANALYSIS_VERSION } = await import('../src/documents/contextGraph.ts');
 const {
   autoAcceptFinishedRunCandidates,
   isContextGraphReadyForTranslationRun,
@@ -18,7 +19,7 @@ test('literary Run readiness is tied to source revision, analysis version and la
   const run = { sourceRevisionId: 'revision-1', sourceLang: 'en', targetLang: 'zh', translationMode: 'literary' };
   const ready = {
     sourceRevisionId: 'revision-1', status: 'completed',
-    progress: { analysisVersion: 'context-graph-v5-language-pinned', sourceLang: 'en', targetLang: 'zh' },
+    progress: { analysisVersion: CONTEXT_GRAPH_ANALYSIS_VERSION, sourceLang: 'en', targetLang: 'zh' },
   };
   assert.equal(isContextGraphReadyForTranslationRun(ready, run), true);
   assert.equal(isContextGraphReadyForTranslationRun({ ...ready, sourceRevisionId: 'revision-2' }, run), false);
