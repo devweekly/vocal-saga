@@ -19,7 +19,7 @@
       "/api/documents/projects/{projectId}/runs/{runId}/cancel"
     ],
     "inventory": "api-route-manifest.json",
-    "followUp": "All manifest routes are listed. Project identity, segment editing, Prompt revision, Context Graph review, and durable Run lifecycle routes are documented beyond inventory level; remaining inventory-only operations must be documented before claiming full contract coverage."
+    "followUp": "All manifest routes are listed. Only the durable Run lifecycle endpoints currently have endpoint-specific request/response schemas. Project identity, segment editing, Prompt revision, Context Graph review, and other inventory-only operations remain follow-up work."
   },
   "paths": {
     "/api/documents/projects/{projectId}/runs": {
@@ -925,7 +925,10 @@
           "500": {
             "$ref": "#/components/responses/ApiError"
           }
-        }
+        },
+        "x-route-contract-level": "inventory-only",
+        "x-implementation-source": "src/documents/projectRoutes.ts",
+        "x-implementation-signature": "pathParts.length === 3 && method === 'GET'"
       },
       "post": {
         "operationId": "post_api_documents_projects",
@@ -957,7 +960,10 @@
               }
             }
           }
-        }
+        },
+        "x-route-contract-level": "inventory-only",
+        "x-implementation-source": "src/documents/projectRoutes.ts",
+        "x-implementation-signature": "pathParts.length === 3 && method === 'POST'"
       }
     },
     "/api/documents/projects/{projectId}/resolve": {
@@ -1002,7 +1008,10 @@
               }
             }
           }
-        }
+        },
+        "x-route-contract-level": "inventory-only",
+        "x-implementation-source": "src/documents/projectRoutes.ts",
+        "x-implementation-signature": "pathParts[3] === 'resolve' && method === 'POST'"
       }
     },
     "/api/documents/projects/{projectId}/import-file": {
@@ -1085,7 +1094,10 @@
           "500": {
             "$ref": "#/components/responses/ApiError"
           }
-        }
+        },
+        "x-route-contract-level": "inventory-only",
+        "x-implementation-source": "src/documents/projectRoutes.ts",
+        "x-implementation-signature": "pathParts.length === 4 && method === 'GET'"
       },
       "delete": {
         "operationId": "delete_api_documents_projects_projectId",
@@ -1107,7 +1119,10 @@
           "500": {
             "$ref": "#/components/responses/ApiError"
           }
-        }
+        },
+        "x-route-contract-level": "inventory-only",
+        "x-implementation-source": "src/documents/projectRoutes.ts",
+        "x-implementation-signature": "pathParts.length === 4 && method === 'DELETE'"
       }
     },
     "/api/documents/projects/{projectId}/source-file": {
@@ -1286,7 +1301,10 @@
           "500": {
             "$ref": "#/components/responses/ApiError"
           }
-        }
+        },
+        "x-route-contract-level": "inventory-only",
+        "x-implementation-source": "src/documents/projectRoutes.ts",
+        "x-implementation-signature": "pathParts[4] === 'segments' && method === 'GET'"
       }
     },
     "/api/documents/projects/{projectId}/segments/{segmentId}/translation": {
@@ -1340,7 +1358,10 @@
               }
             }
           }
-        }
+        },
+        "x-route-contract-level": "inventory-only",
+        "x-implementation-source": "src/documents/projectRoutes.ts",
+        "x-implementation-signature": "pathParts[6] === 'translation' && method === 'PUT'"
       }
     },
     "/api/documents/projects/{projectId}/prompts": {
@@ -1375,7 +1396,10 @@
           "500": {
             "$ref": "#/components/responses/ApiError"
           }
-        }
+        },
+        "x-route-contract-level": "inventory-only",
+        "x-implementation-source": "src/documents/projectRoutes.ts",
+        "x-implementation-signature": "pathParts[4] === 'prompts' && method === 'GET'"
       },
       "post": {
         "operationId": "post_api_documents_projects_projectId_prompts",
@@ -1407,7 +1431,10 @@
               }
             }
           }
-        }
+        },
+        "x-route-contract-level": "inventory-only",
+        "x-implementation-source": "src/documents/projectRoutes.ts",
+        "x-implementation-signature": "pathParts[4] === 'prompts' && method === 'POST'"
       }
     },
     "/api/documents/projects/{projectId}/context-graph/status": {
@@ -1576,7 +1603,10 @@
               }
             }
           }
-        }
+        },
+        "x-route-contract-level": "inventory-only",
+        "x-implementation-source": "src/documents/projectRoutes.ts",
+        "x-implementation-signature": "pathParts[5] === 'review' && method === 'POST'"
       }
     },
     "/api/documents/projects/{projectId}/literary-memory": {
@@ -1646,7 +1676,10 @@
               }
             }
           }
-        }
+        },
+        "x-route-contract-level": "inventory-only",
+        "x-implementation-source": "src/documents/projectRoutes.ts",
+        "x-implementation-signature": "pathParts[4] === 'literary-memory' && method === 'POST'"
       }
     },
     "/api/documents/projects/{projectId}/runs/{runId}/translation-briefs": {
