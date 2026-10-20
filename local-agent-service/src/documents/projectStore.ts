@@ -582,22 +582,115 @@ export class DocumentProjectStore {
       try {
         const db = this.openProjectDb(row.project_id);
         db.exec('BEGIN IMMEDIATE');
-        // 重启孤儿直接标为 failed：paused 会命中「翻译任务运行中」保护（预处理 guard、
-        // 原文版本切换 guard），而孤儿运行永远不会自行结束，会把整本书锁死。
-        // failed 仍可从 Agent 面板恢复（resume 接受 failed），用户主动暂停才保留 paused。
-        db.prepare("UPDATE translation_runs SET status = 'failed', error = '服务重启中断了这次运行；可在 Agent 面板恢复或放弃' WHERE status IN ('running','queued')").run();
-        // 旧版本把重启孤儿标成了 paused，这里幂等迁移，避免存量数据继续阻塞预处理。
-        db.prepare("UPDATE translation_runs SET status = 'failed', error = '服务重启中断了这次运行；可在 Agent 面板恢复或放弃' WHERE status = 'paused' AND error = '服务重启后等待恢复'").run();
-        db.prepare("UPDATE run_segments SET status = 'pending', updated_at = ? WHERE status = 'running'").run(isoNow());
+        const now = isoNow();
+        let recoveredTranslations = 0;
+        let recoveredContextGraphs = 0;
+
+        // A terminal event is part of the durable state transition. If it already exists,
+        // reconcile the row from that event instead of creating a contradictory second ending.
+        const translationRuns = db.prepare(
+          "SELECT run_id FROM translation_runs WHERE status IN ('running','queued')"
+        ).all() as Array<{ run_id: string }>;
+        for (const run of translationRuns) {
+          const terminal = db.prepare(
+            "SELECT event_type, payload_json, created_at FROM project_events WHERE run_id = ? AND event_type IN ('run.finished','run.failed','run.completed') ORDER BY event_id DESC LIMIT 1"
+          ).get(run.run_id) as { event_type: string; payload_json?: string; created_at?: string } | undefined;
+
+          if (terminal) {
+            const payload = parseJson<Record<string, any>>(terminal.payload_json, {});
+            const reported = String(payload.status || '');
+            const status = terminal.event_type === 'run.failed' ? 'failed'
+              : terminal.event_type === 'run.completed' ? 'completed'
+                : ['completed', 'failed', 'partial', 'cancelled', 'paused', 'awaiting_acceptance'].includes(reported)
+                  ? reported : 'failed';
+            const error = status === 'completed' ? null
+              : String(payload.error || '服务重启时根据已有终态事件恢复运行状态').slice(0, 2000);
+            db.prepare(
+              "UPDATE translation_runs SET status = ?, finished_at = COALESCE(finished_at, ?), error = ? WHERE run_id = ? AND status IN ('running','queued')"
+            ).run(status, terminal.created_at || now, error, run.run_id);
+            continue;
+          }
+
+          const error = '服务重启中断了这次运行；可在 Agent 面板恢复或放弃';
+          const changed = db.prepare(
+            "UPDATE translation_runs SET status = 'failed', finished_at = COALESCE(finished_at, ?), error = ? WHERE run_id = ? AND status IN ('running','queued')"
+          ).run(now, error, run.run_id);
+          if (changed.changes > 0) {
+            this.appendEvent(row.project_id, run.run_id, 'run.finished', {
+              status: 'failed', error, recovery: 'service-restart',
+              counts: { candidate: 0, accepted: 0, failed: 0, total: 0 },
+            });
+            recoveredTranslations++;
+          }
+        }
+
+        // Migrate legacy restart-orphans that an older version incorrectly left as paused.
+        const legacyPausedRuns = db.prepare(
+          "SELECT run_id FROM translation_runs WHERE status = 'paused' AND error = '服务重启后等待恢复'"
+        ).all() as Array<{ run_id: string }>;
+        for (const run of legacyPausedRuns) {
+          const terminal = db.prepare(
+            "SELECT 1 FROM project_events WHERE run_id = ? AND event_type IN ('run.finished','run.failed','run.completed') LIMIT 1"
+          ).get(run.run_id);
+          const error = '服务重启中断了这次运行；可在 Agent 面板恢复或放弃';
+          db.prepare(
+            "UPDATE translation_runs SET status = 'failed', finished_at = COALESCE(finished_at, ?), error = ? WHERE run_id = ? AND status = 'paused'"
+          ).run(now, error, run.run_id);
+          if (!terminal) {
+            this.appendEvent(row.project_id, run.run_id, 'run.finished', {
+              status: 'failed', error, recovery: 'legacy-restart-orphan',
+              counts: { candidate: 0, accepted: 0, failed: 0, total: 0 },
+            });
+            recoveredTranslations++;
+          }
+        }
+        // Segments left in 'running' by an interrupted worker are retryable after the Run is failed.
+        db.prepare("UPDATE run_segments SET status = 'pending', updated_at = ? WHERE status = 'running'").run(now);
+
         const graphSchemaExists = db.prepare(
           "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'context_graph_runs'"
         ).get();
         if (graphSchemaExists) {
-          db.prepare(
-            "UPDATE context_graph_runs SET status = 'failed', phase = 'failed', error = '服务重启后分析中断；请重新运行 context-analyze', finished_at = ? WHERE status IN ('running','queued')"
-          ).run(isoNow());
+          const graphRuns = db.prepare(
+            "SELECT run_id FROM context_graph_runs WHERE status IN ('running','queued')"
+          ).all() as Array<{ run_id: string }>;
+          for (const run of graphRuns) {
+            const terminal = db.prepare(
+              "SELECT event_type, payload_json, created_at FROM project_events WHERE run_id = ? AND event_type IN ('context-graph.completed','context-graph.failed') ORDER BY event_id DESC LIMIT 1"
+            ).get(run.run_id) as { event_type: string; payload_json?: string; created_at?: string } | undefined;
+
+            if (terminal?.event_type === 'context-graph.completed') {
+              db.prepare(
+                "UPDATE context_graph_runs SET status = 'completed', phase = 'completed', finished_at = COALESCE(finished_at, ?), error = NULL WHERE run_id = ? AND status IN ('running','queued')"
+              ).run(terminal.created_at || now, run.run_id);
+              continue;
+            }
+            if (terminal?.event_type === 'context-graph.failed') {
+              const payload = parseJson<Record<string, any>>(terminal.payload_json, {});
+              db.prepare(
+                "UPDATE context_graph_runs SET status = 'failed', phase = 'failed', finished_at = COALESCE(finished_at, ?), error = COALESCE(error, ?) WHERE run_id = ? AND status IN ('running','queued')"
+              ).run(terminal.created_at || now, String(payload.error || '全书预处理已失败'), run.run_id);
+              continue;
+            }
+
+            const error = '服务重启后分析中断；请重新运行 context-analyze';
+            const changed = db.prepare(
+              "UPDATE context_graph_runs SET status = 'failed', phase = 'failed', error = ?, finished_at = COALESCE(finished_at, ?) WHERE run_id = ? AND status IN ('running','queued')"
+            ).run(error, now, run.run_id);
+            if (changed.changes > 0) {
+              this.appendEvent(row.project_id, run.run_id, 'context-graph.failed', {
+                error, recovery: 'service-restart', reason: 'process-interrupted',
+              });
+              recoveredContextGraphs++;
+            }
+          }
         }
         db.exec('COMMIT');
+
+        if (recoveredTranslations || recoveredContextGraphs) {
+          logWarn('document-projects', 'recovered interrupted runs · project=' + row.project_id +
+            ' · translation=' + recoveredTranslations + ' · context-graph=' + recoveredContextGraphs);
+        }
       } catch (error) {
         try { this.projectDbs.get(row.project_id)?.exec('ROLLBACK'); } catch { /* no active transaction */ }
         logWarn('document-projects', 'recovery check failed for ' + row.project_id + ': ' + (error instanceof Error ? error.message : String(error)));
@@ -1474,7 +1567,8 @@ export class DocumentProjectStore {
 
   getEvents(projectId: string, runId?: string, after = 0, limit = 200, latest = false): any[] {
     const db = this.openProjectDb(projectId);
-    const boundedLimit = Math.max(1, Math.min(1000, Math.floor(limit)));
+    const maxLimit = latest && after <= 0 ? 5000 : 1000;
+    const boundedLimit = Math.max(1, Math.min(maxLimit, Math.floor(limit)));
     // Show recent activity on an old project first. Follow-up polling uses after=eventId.
     const rows = latest && after <= 0
       ? runId
