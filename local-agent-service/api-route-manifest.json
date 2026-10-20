@@ -120,7 +120,7 @@
       "method": "POST",
       "path": "/api/translate/document/literary/review",
       "source": "src/routes.ts",
-      "signature": "url.pathname.endsWith('/review')"
+      "signature": "'POST /api/translate/document/literary/review'"
     },
     {
       "method": "GET",
