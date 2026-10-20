@@ -1638,11 +1638,9 @@ export function buildProjectContextGraphBundle(
       '不确定人物身份、说话人、性别、关系或称谓时，不要猜测。',
     ],
   };
-  while (JSON.stringify(result).length > 8500 && (result.nameMappings as any[]).length > 1) (result.nameMappings as any[]).pop();
-  while (JSON.stringify(result).length > 8500 && (result.characters as any[]).length > 1) (result.characters as any[]).pop();
-  while (JSON.stringify(result).length > 8500 && (result.entities as any[]).length > 2) (result.entities as any[]).pop();
-  while (JSON.stringify(result).length > 8500 && (result.chapterSummaries as any[]).length > 1) (result.chapterSummaries as any[]).shift();
-  while (JSON.stringify(result).length > 8500 && (result.relationships as any[]).length > 0) (result.relationships as any[]).pop();
+  // Do not prune graph evidence to an arbitrary serialized-character ceiling. Preserve all
+  // temporally eligible, relevant mappings/entities/relationships/summaries; the request runtime
+  // should handle genuine provider context-window failures rather than silently changing evidence.
   const _cgMappings = Array.isArray(result.nameMappings) ? result.nameMappings : [];
   logInfo('context-graph', 'bundle · firstOrdinal=' + firstOrdinal +
     ' · knowledgeBoundary=' + knowledgeBoundary +
