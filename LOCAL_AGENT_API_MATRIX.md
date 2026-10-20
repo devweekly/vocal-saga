@@ -284,3 +284,13 @@
 - 兼容规则：保留旧 `error` 字段原有类型；项目路由的领域错误还会保留 `run` 等附加数据。OpenAI 风格 `/v1/chat/completions` 继续使用其专用错误结构。
 - `server.test.mjs` 新增对 TTL 错误 envelope、未知端点 404 envelope 的断言，并保留分页非法值测试。
 - 尚未验证：本环境无法执行本地 `npm run typecheck` / `npm test`；GitHub workflow/status 查询没有返回测试任务，不能视为通过。完整 OpenAPI/manifest 漂移检测仍未实现。
+
+
+## 7. API 路由清单漂移检查（2026-10-20）
+
+- 新增 `local-agent-service/api-route-manifest.json`，当前登记 54 个 HTTP 方法/路径入口，覆盖通用路由和文档项目路由。
+- 新增 `local-agent-service/scripts/check-api-route-manifest.mjs` 与 npm 命令 `npm run check:api-contract`；检查 manifest 的方法/路径格式、重复项，以及声明的实现签名是否仍存在于对应源文件。
+- `.github/workflows/local-agent-service.yml` 已接入该检查，放在 TypeScript typecheck 之后。
+- **边界：** 这是源代码签名漂移检查，不是完整 OpenAPI；它不能证明所有路由均已登记，也不校验每个请求/响应 schema。下一步应通过 AST/路由注册结构或显式 route registry 做双向覆盖校验，再逐步补齐 schema 与 HTTP 契约测试。
+- 同步扩展了错误响应集成测试：非法 JSON 请求体应返回 400 和 `BAD_REQUEST`；拒绝的 Origin 应返回 403 和 `FORBIDDEN_ORIGIN`，旧 `error` 字段仍保留。
+- `server.ts` 的 Origin/Host 拒绝、JSON 解析失败及未处理异常现在也通过共享 `sendApiError` 输出顶层 `message` 和 `code`，并保留原来的字符串 `error`。
