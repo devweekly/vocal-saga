@@ -265,7 +265,7 @@ export async function handleRequest(req: Request, res: Response): Promise<void> 
     'POST /api/translate/document/literary/review',
   ]);
   if (!supported.has(req.method + ' ' + url.pathname)) {
-    sendJson(res, 404, { error: { message: '未知端点：' + req.method + ' ' + url.pathname } });
+    sendJson(res, 404, { error: { message: '未知端点：' + req.method + ' ' + url.pathname }, message: '未知端点：' + req.method + ' ' + url.pathname, code: 'NOT_FOUND' });
     return;
   }
 
