@@ -73,7 +73,7 @@ test('cancelled Run is terminal and late candidate writes are fenced by the Stor
   );
   assert.equal(store.setRunStatus(project.projectId, run.runId, 'running'), false);
   assert.equal(store.getRunStatus(project.projectId, run.runId), 'cancelled');
-  assert.equal(store.getSegments(project.projectId, { limit: 10 })
+  assert.equal(store.getSegments(project.projectId, { limit: 10, runId: run.runId })
     .find((item) => item.id === 'cancel-fence-1').candidateTranslation, null);
 });
 
