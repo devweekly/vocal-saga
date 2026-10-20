@@ -23,7 +23,12 @@ export function buildCombinedPrompt(prompt: string, systemPrompt: string): strin
  * V2 SessionOptions currently documents a narrower contract, so task profiles use query()
  * rather than silently passing unsupported fields to unstable_v2_createSession().
  */
-export function buildWorkbuddyOptions(agent: WorkbuddyAgent, schema?: Record<string, unknown>, taskProfile?: CodeBuddyTaskProfile) {
+export function buildWorkbuddyOptions(
+  agent: WorkbuddyAgent,
+  schema?: Record<string, unknown>,
+  taskProfile?: CodeBuddyTaskProfile,
+  workflowSession: { sessionId?: string; persistSession?: boolean } = {},
+) {
   const canUseTool = async (toolName: string) => {
     if (schema && toolName === STRUCTURED_OUTPUT_TOOL) return { behavior: 'allow' as const };
     return { behavior: 'deny' as const, message: '本机翻译 Provider 不允许执行工具：' + toolName };
@@ -34,7 +39,8 @@ export function buildWorkbuddyOptions(agent: WorkbuddyAgent, schema?: Record<str
     cwd: WORK_DIR,
     permissionMode: 'default' as const,
     settingSources: [],
-    persistSession: false,
+    persistSession: workflowSession.persistSession ?? false,
+    ...(workflowSession.sessionId ? { resume: workflowSession.sessionId } : {}),
     thinking: taskProfile ? codeBuddyThinkingOption(taskProfile) : schema
       ? { type: 'adaptive' as const }
       : { type: 'disabled' as const },
@@ -59,13 +65,15 @@ async function queryWorkbuddyRaw(
   options: Record<string, any>,
   _requestId = 'unknown',
   timeoutMs = REQUEST_TIMEOUT_MS,
-): Promise<{ text: string; structuredOutput: unknown; usage: TurnUsage | null }> {
+  onSessionId?: (sessionId: string) => void,
+): Promise<{ text: string; structuredOutput: unknown; usage: TurnUsage | null; sessionId?: string }> {
   const sdk = await import('@tencent-ai/agent-sdk');
   const query = sdk.query({ prompt: buildCombinedPrompt(prompt, systemPrompt), options });
   const startedAt = Date.now();
   let text = '';
   let structuredOutput: unknown;
   let usage: TurnUsage | null = null;
+  let sessionId: string | undefined;
   let timedOut = false;
   // 事件计数用于心跳：结构化输出只在结束时一次性返回，文本可能一直是 0 字，
   // 只看字数会让人误判成「没动静」。
@@ -87,6 +95,13 @@ async function queryWorkbuddyRaw(
     for await (const message of query) {
       const raw: any = message && typeof message === 'object' ? message : {};
       messageCount += 1;
+      // SDK init events carry the durable session_id needed to resume a later workflow stage.
+      const observedSessionId = [raw.session_id, raw.sessionId, raw.session?.id, raw.message?.session_id]
+        .find((value) => typeof value === 'string' && value.trim());
+      if (typeof observedSessionId === 'string' && observedSessionId !== sessionId) {
+        sessionId = observedSessionId;
+        onSessionId?.(sessionId);
+      }
       if (raw.type === 'assistant' && raw.message && Array.isArray(raw.message.content)) {
         for (const part of raw.message.content) {
           if (part?.type === 'text' && typeof part.text === 'string' && part.text.trim()) {
@@ -123,7 +138,7 @@ async function queryWorkbuddyRaw(
     if (heartbeat) clearInterval(heartbeat);
   }
   if (timedOut) throw new Error('Workbuddy 调用超时（' + (timeoutMs / 1000).toFixed(0) + 's 内未返回）');
-  return { text: text.trim(), structuredOutput, usage };
+  return { text: text.trim(), structuredOutput, usage, ...(sessionId ? { sessionId } : {}) };
 }
 
 export async function runWorkbuddy(
@@ -179,14 +194,23 @@ export async function runWorkbuddyStructured(
   requestId = 'unknown',
   sessionScope?: string,
   taskProfile?: CodeBuddyTaskProfile,
-  options: { timeoutMs?: number } = {},
-): Promise<{ parsed: Record<string, any> | any[]; usage: TurnUsage | null }> {
+  options: {
+    timeoutMs?: number;
+    sessionId?: string;
+    persistSession?: boolean;
+    onSessionId?: (sessionId: string) => void;
+  } = {},
+): Promise<{ parsed: Record<string, any> | any[]; usage: TurnUsage | null; sessionId?: string }> {
   let result: { text: string; structuredOutput: unknown; usage: TurnUsage | null };
   // 长任务（全书预处理）显式放宽上限；普通翻译批次沿用 REQUEST_TIMEOUT_MS。
   const timeoutMs = options.timeoutMs ?? REQUEST_TIMEOUT_MS;
   if (taskProfile) {
     // Query Options formally supports reasoning settings; SessionOptions does not expose them.
-    result = await queryWorkbuddyRaw(agent, prompt, systemPrompt, buildWorkbuddyOptions(agent, schema, taskProfile), requestId, timeoutMs);
+    result = await queryWorkbuddyRaw(
+      agent, prompt, systemPrompt,
+      buildWorkbuddyOptions(agent, schema, taskProfile, options),
+      requestId, timeoutMs, options.onSessionId,
+    );
   } else if (sessionScope) {
     const pool = getTextPool();
     const index = await pool.acquire(agent, sessionScope, schema);
@@ -198,9 +222,16 @@ export async function runWorkbuddyStructured(
       pool.release(index);
     }
   } else {
-    result = await queryWorkbuddyRaw(agent, prompt, systemPrompt, buildWorkbuddyOptions(agent, schema), requestId, timeoutMs);
+    result = await queryWorkbuddyRaw(
+      agent, prompt, systemPrompt, buildWorkbuddyOptions(agent, schema, undefined, options),
+      requestId, timeoutMs, options.onSessionId,
+    );
   }
-  return { parsed: resolveWorkbuddyStructured(result.structuredOutput, result.text), usage: result.usage };
+  return {
+    parsed: resolveWorkbuddyStructured(result.structuredOutput, result.text),
+    usage: result.usage,
+    ...(result.sessionId ? { sessionId: result.sessionId } : {}),
+  };
 }
 
 export async function runWorkbuddyJson(
