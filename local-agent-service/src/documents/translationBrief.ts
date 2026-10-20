@@ -1080,25 +1080,6 @@ export function buildTranslationBrief(
     contextChars: 0,
     contextHash: '',
   };
-  const budgetBaseline = {
-    graphNameMappings: Array.isArray((brief.contextGraph as any)?.nameMappings) ? (brief.contextGraph as any).nameMappings.length : 0,
-    strongNameMappings: Array.isArray((brief.contextGraph as any)?.nameMappings)
-      ? (brief.contextGraph as any).nameMappings.filter((mapping: any) =>
-          ['confirmed', 'confirmed-memory', 'auto'].includes(String(mapping.sourceStatus))).length : 0,
-    graphCharacters: Array.isArray((brief.contextGraph as any)?.characters) ? (brief.contextGraph as any).characters.length : 0,
-    graphEntities: Array.isArray((brief.contextGraph as any)?.entities) ? (brief.contextGraph as any).entities.length : 0,
-    graphRelationships: Array.isArray((brief.contextGraph as any)?.relationships) ? (brief.contextGraph as any).relationships.length : 0,
-    voiceEntities: Array.isArray((brief.voiceContext as any)?.entities) ? (brief.voiceContext as any).entities.length : 0,
-    voiceRelationships: Array.isArray((brief.voiceContext as any)?.relationships) ? (brief.voiceContext as any).relationships.length : 0,
-    characterVoices: Array.isArray((brief.voiceContext as any)?.characterVoices) ? (brief.voiceContext as any).characterVoices.length : 0,
-    relationshipVoiceRules: Array.isArray((brief.voiceContext as any)?.relationshipVoiceRules) ? (brief.voiceContext as any).relationshipVoiceRules.length : 0,
-    voiceAnchors: Array.isArray((brief.voiceContext as any)?.voiceAnchors) ? (brief.voiceContext as any).voiceAnchors.length : 0,
-    recentExamples: Array.isArray((brief.voiceContext as any)?.recentExamples) ? (brief.voiceContext as any).recentExamples.length : 0,
-    dialogueParticipants: Array.isArray((brief.voiceContext as any)?.dialogueParticipants) ? (brief.voiceContext as any).dialogueParticipants.length : 0,
-    chapterSummaries: Array.isArray((brief.voiceContext as any)?.chapterSummaries) ? (brief.voiceContext as any).chapterSummaries.length : 0,
-    precedingSegments: brief.precedingSegments.length,
-    glossaryTerms: Array.isArray((brief.glossary as any)?.document_terms) ? (brief.glossary as any).document_terms.length : 0,
-  };
   // Do not prune retrieved context to satisfy a configured character budget. In particular,
   // never erase glossary terms, voice profiles, accepted examples, preceding dialogue, or confirmed
   // name mappings as an indirect consequence of a prompt-size heuristic. The runtime/provider owns
