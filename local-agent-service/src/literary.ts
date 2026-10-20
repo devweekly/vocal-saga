@@ -427,11 +427,11 @@ export async function runLiteraryReview(body: any, requestId: string, sessionSco
   const segments = validateSegments(body.segments, 32, 'review');
   const memory = body.memory && typeof body.memory === 'object' ? body.memory : {};
   const suppliedPrecedingSegments = Array.isArray(body.precedingSegments)
-    ? body.precedingSegments.slice(-4).flatMap((item: any) => {
+    ? body.precedingSegments.flatMap((item: any) => {
         if (!item || typeof item !== 'object' || typeof item.id !== 'string' || typeof item.text !== 'string' || !item.text.trim()) return [];
         return [{
           id: item.id.slice(0, 160),
-          text: item.text.slice(0, 900),
+          text: item.text,
           contextPath: typeof item.contextPath === 'string' ? item.contextPath.slice(0, 160) : '',
         }];
       })
@@ -442,7 +442,7 @@ export async function runLiteraryReview(body: any, requestId: string, sessionSco
     ? body.translationBrief as Record<string, any>
     : null;
   const precedingSegments = Array.isArray(translationBrief?.precedingSegments)
-    ? translationBrief.precedingSegments.slice(-4).flatMap((item: any) => {
+    ? translationBrief.precedingSegments.flatMap((item: any) => {
         if (!item || typeof item !== 'object' || typeof item.id !== 'string' || typeof item.text !== 'string' || !item.text.trim()) return [];
         return [{
           id: item.id.slice(0, 160),
