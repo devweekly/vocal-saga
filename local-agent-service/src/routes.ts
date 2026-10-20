@@ -148,7 +148,12 @@ export async function handleRequest(req: Request, res: Response): Promise<void> 
     if (!cacheKey || cacheKey.length > 500 || !Object.prototype.hasOwnProperty.call(req.body || {}, 'value')) {
       sendJson(res, 400, { error: 'cacheKey 与 value 为必填字段' }); return;
     }
-    const ttlMs = Number.isFinite(req.body.ttlMs) ? req.body.ttlMs : 7 * 24 * 60 * 60 * 1000;
+    const defaultTtlMs = 7 * 24 * 60 * 60 * 1000;
+    const ttlMs = req.body.ttlMs === undefined ? defaultTtlMs : req.body.ttlMs;
+    // Keep cache lifetime bounded: zero expires immediately; negative/non-numeric values are invalid.
+    if (typeof ttlMs !== 'number' || !Number.isSafeInteger(ttlMs) || ttlMs < 0 || ttlMs > 365 * 24 * 60 * 60 * 1000) {
+      sendJson(res, 400, { error: 'ttlMs 必须是 0 到 365 天之间的整数' }); return;
+    }
     setTranslationCache(cacheKey, req.body.value, ttlMs);
     sendJson(res, 200, { saved: true });
     return;
@@ -169,7 +174,8 @@ export async function handleRequest(req: Request, res: Response): Promise<void> 
     return;
   }
   if (req.method === 'POST' && url.pathname === '/api/documents/session/summary') {
-    const sessionId = typeof req.body?.sessionId === 'string' ? req.body.sessionId : '';
+    const sessionId = typeof req.body?.sessionId === 'string' ? req.body.sessionId.trim() : '';
+    if (!sessionId || sessionId.length > 500) { sendJson(res, 400, { error: 'sessionId 必须是 1-500 字符' }); return; }
     const row = db.prepare('SELECT session_id, title, format, updated_at FROM document_sessions WHERE session_id = ?').get(sessionId) as any;
     if (!row) { sendJson(res, 200, { found: false }); return; }
     sendJson(res, 200, {
@@ -179,7 +185,8 @@ export async function handleRequest(req: Request, res: Response): Promise<void> 
     return;
   }
   if (req.method === 'POST' && url.pathname === '/api/documents/session/get') {
-    const sessionId = typeof req.body?.sessionId === 'string' ? req.body.sessionId : '';
+    const sessionId = typeof req.body?.sessionId === 'string' ? req.body.sessionId.trim() : '';
+    if (!sessionId || sessionId.length > 500) { sendJson(res, 400, { error: 'sessionId 必须是 1-500 字符' }); return; }
     const row = db.prepare('SELECT session_id, title, format, updated_at, payload_json FROM document_sessions WHERE session_id = ?').get(sessionId) as any;
     if (!row) { sendJson(res, 200, { found: false }); return; }
     try { sendJson(res, 200, { found: true, session: { sessionId: row.session_id, title: row.title, format: row.format, updatedAt: row.updated_at, payload: JSON.parse(row.payload_json) } }); }
@@ -193,7 +200,8 @@ export async function handleRequest(req: Request, res: Response): Promise<void> 
     return;
   }
   if (req.method === 'POST' && url.pathname === '/api/documents/session/save') {
-    const sessionId = typeof req.body?.sessionId === 'string' ? req.body.sessionId : '';
+    const sessionId = typeof req.body?.sessionId === 'string' ? req.body.sessionId.trim() : '';
+    if (!sessionId || sessionId.length > 500) { sendJson(res, 400, { error: 'sessionId 必须是 1-500 字符' }); return; }
     if (!Object.prototype.hasOwnProperty.call(req.body || {}, 'payload')) { sendJson(res, 400, { error: 'payload 为必填字段' }); return; }
     saveDocumentSession(sessionId, typeof req.body.title === 'string' ? req.body.title : '未命名文档',
       typeof req.body.format === 'string' ? req.body.format : 'txt', req.body.payload, req.body.mergeExisting === true);
@@ -201,7 +209,10 @@ export async function handleRequest(req: Request, res: Response): Promise<void> 
     return;
   }
   if (req.method === 'DELETE' && url.pathname.startsWith('/api/documents/session/')) {
-    const sessionId = decodeURIComponent(url.pathname.slice('/api/documents/session/'.length));
+    let sessionId = '';
+    try { sessionId = decodeURIComponent(url.pathname.slice('/api/documents/session/'.length)).trim(); }
+    catch { sendJson(res, 400, { error: 'sessionId 编码无效' }); return; }
+    if (!sessionId || sessionId.length > 500 || sessionId.includes('/')) { sendJson(res, 400, { error: 'sessionId 必须是有效的 1-500 字符路径参数' }); return; }
     db.prepare('DELETE FROM document_sessions WHERE session_id = ?').run(sessionId);
     sendJson(res, 200, { deleted: true });
     return;
