@@ -884,3 +884,39 @@ test('Run status transitions cannot revive cancelled or completed runs', async (
       'a stale resume/worker call must not reopen a completed Run');
   });
 });
+
+
+test('Run recovery after store re-open preserves candidate revisions and never reopens a terminal Run', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'vocal-doc-restart-'));
+  try {
+    const firstStore = new DocumentProjectStore(root);
+    const project = firstStore.createProject({
+      title: 'Restart recovery', format: 'epub', sourceFileName: 'restart.epub', segments,
+    });
+    ensureTestContextGraph(firstStore, project);
+    const run = firstStore.createRun(project.projectId, { scope: { type: 'all' } });
+    firstStore.saveCandidate(project.projectId, run.runId, 'ch1-p1', '门仍然开着。');
+    firstStore.markRunSegments(project.projectId, run.runId, ['ch1-p1'], 'completed');
+    firstStore.setRunStatus(project.projectId, run.runId, 'partial', '进程退出前仍有段落未处理');
+
+    // Simulate a fresh process: construct a new Store over the same durable project directory.
+    const restartedStore = new DocumentProjectStore(root);
+    const recovered = restartedStore.getRun(project.projectId, run.runId);
+    assert.equal(recovered.status, 'partial');
+    assert.equal(recovered.runId, run.runId);
+    assert.equal(recovered.counts.candidate, 1);
+    assert.equal(
+      restartedStore.getSegments(project.projectId, { limit: 10, runId: run.runId })
+        .find((item) => item.id === 'ch1-p1')?.candidateTranslation,
+      '门仍然开着。',
+      'candidate translation must remain available after service restart',
+    );
+
+    assert.equal(restartedStore.setRunStatus(project.projectId, run.runId, 'cancelled', 'user stop'), true);
+    const afterCancelRestart = new DocumentProjectStore(root);
+    assert.equal(afterCancelRestart.setRunStatus(project.projectId, run.runId, 'queued', null), false);
+    assert.equal(afterCancelRestart.getRunStatus(project.projectId, run.runId), 'cancelled');
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
