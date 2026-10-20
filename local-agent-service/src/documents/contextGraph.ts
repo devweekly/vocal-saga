@@ -1624,9 +1624,7 @@ export function buildProjectContextGraphBundle(
       diction: safeText(getMeta(db, revisionId, 'styleDiction'), 800),
       rules: uniqueStrings(getMeta(db, revisionId, 'styleRules'), 12, 180),
       avoid: uniqueStrings(getMeta(db, revisionId, 'styleAvoid'), 12, 180),
-      evidence: (getMeta(db, revisionId, 'styleEvidence') || []).filter((item: any) => item && typeof item.segmentId === 'string' &&
-        Number.isInteger(segmentOrdinal(db, revisionId, item.segmentId)) && Number.isInteger(segmentOrdinal(db, revisionId, item.segmentId)) &&
-        Number.isInteger(knowledgeBoundary) && segmentOrdinal(db, revisionId, item.segmentId) <= knowledgeBoundary).slice(0, 24),
+      evidence: (getMeta(db, revisionId, 'styleEvidence') || []).slice(0, 24),
     },
     currentChapter,
     chapterSummaries,
