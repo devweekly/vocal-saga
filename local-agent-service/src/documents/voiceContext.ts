@@ -8,7 +8,8 @@
 import { createHash } from 'node:crypto';
 import { logInfo } from '../log.ts';
 
-const MAX_MEMORY_BYTES = 120 * 1024;
+// Persistence safety ceiling, not a prompt budget. Keep enough room for long-book memory.
+const MAX_MEMORY_BYTES = 5 * 1024 * 1024;
 const MAX_CHARACTERS = 80;
 const MAX_RELATION_RULES = 160;
 const MAX_ANCHORS = 240;
@@ -322,11 +323,11 @@ export function sanitizeProjectLiteraryMemory(input: unknown): Record<string, an
       tags: list(item.tags, 8, 80),
     }];
   }) : [];
-  const chapterSummaries = Array.isArray(raw.chapterSummaries) ? raw.chapterSummaries.slice(-40).flatMap((item: any) => {
-    const chapter = text(item?.chapter, 120); const summary = text(item?.summary, 420);
+  const chapterSummaries = Array.isArray(raw.chapterSummaries) ? raw.chapterSummaries.flatMap((item: any) => {
+    const chapter = text(item?.chapter, 120); const summary = text(item?.summary, 5000);
     return chapter && summary ? [{ chapter, summary }] : [];
   }) : [];
-  const recentExamples = Array.isArray(raw.recentExamples) ? raw.recentExamples.slice(0, 8).flatMap((item: any) => {
+  const recentExamples = Array.isArray(raw.recentExamples) ? raw.recentExamples.flatMap((item: any) => {
     const source = text(item?.source, 260);
     const target = text(item?.target, 320);
     const chapter = text(item?.chapter, 120);
