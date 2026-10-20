@@ -411,8 +411,8 @@ export function buildProjectVoiceContext(
   precedingSegments: ProjectVoiceContextSegment[] = [],
 ): Record<string, unknown> {
   const memory = sanitizeProjectLiteraryMemory(memoryInput);
-  // The caller already applies the configured preceding-context boundary (up to six segments).
-  const visiblePreceding = precedingSegments.slice(-6);
+  // The caller applies the configured temporal boundary. Do not impose a second, smaller
+  // fixed window here: every supplied preceding segment may resolve a voice or relationship.
   const source = [...visiblePreceding, ...segments].map((item) => item.text).join('\n').toLocaleLowerCase();
   const precedingById = new Map(visiblePreceding.map((item) => [item.id, item]));
   const precedingIds = new Set(precedingById.keys());
@@ -486,7 +486,7 @@ export function buildProjectVoiceContext(
     // A profile needs a direct source-name hit or a source-linked participant attribution.
     .filter((profile: any) => hasDirectNameMatch(profile) || (participantScore.get(profile.characterId) || 0) > 0)
     .sort((a: any, b: any) => scoreProfile(b) - scoreProfile(a));
-  // Never insert arbitrary profiles just to fill the four-profile allowance.
+  // Include every profile supported by the current source or source-linked dialogue evidence.
   const chosen = matched;
   const ids = new Set(chosen.map((profile: any) => profile.characterId));
   const relationshipVoiceRules = memory.relationshipVoiceRules.filter((rule: any) =>
@@ -505,8 +505,7 @@ export function buildProjectVoiceContext(
       const aSameChapter = segments.some((segment) => segment.contextPath && segment.contextPath === a.chapter) ? 1 : 0;
       const bSameChapter = segments.some((segment) => segment.contextPath && segment.contextPath === b.chapter) ? 1 : 0;
       return bSameChapter - aSameChapter;
-    })
-    ;
+    });
   const entities = memory.entities.filter((entity: any) =>
     [entity.source, ...entity.aliases].some((name: string) => name && containsEntityName(source, name)))
     .sort((a: any, b: any) => {
