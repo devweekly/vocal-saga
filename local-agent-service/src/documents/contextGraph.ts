@@ -1391,10 +1391,71 @@ export function startContextGraphAnalysis(
   if (activeAnalyses.has(projectId)) {
     throw Object.assign(new Error('该项目的上一轮 Context Graph 分析仍在运行，请稍后重试。'), { status: 409 });
   }
+  const strategyMode = process.env.LOCAL_AGENT_CONTEXT_GRAPH_STRATEGY || 'ab';
+  let resume: { runId: string; progress: Record<string, any>; completedStages: string[] } | null = null;
+  if (String(strategyMode).trim().toLowerCase() !== 'a') {
+    const failedRows = db.prepare(
+      "SELECT run_id, progress_json FROM context_graph_runs WHERE source_revision_id = ? AND status = 'failed' ORDER BY started_at DESC, rowid DESC LIMIT 12"
+    ).all(revisionId) as Array<{ run_id: string; progress_json?: string }>;
+    for (const row of failedRows) {
+      let progress: Record<string, any> = {};
+      try { progress = JSON.parse(row.progress_json || '{}'); } catch { continue; }
+      if (progress.strategy !== 'B' ||
+          progress.workflowVersion !== CONTEXT_GRAPH_WORKFLOW_VERSION ||
+          progress.analysisVersion !== CONTEXT_GRAPH_ANALYSIS_VERSION ||
+          !Array.isArray(progress.completedStages)) continue;
+      const reusableStages = progress.completedStages.filter((stageId: unknown): stageId is string => {
+        if (typeof stageId !== 'string') return false;
+        const stage = CONTEXT_GRAPH_WORKFLOW_STAGES.find((candidate) => candidate.id === stageId);
+        if (!stage) return false;
+        const checkpoint = getMeta(db, revisionId, workflowCheckpointKey(row.run_id, stageId as ContextGraphWorkflowStageId));
+        return !!checkpoint && typeof checkpoint === 'object' && !Array.isArray(checkpoint) &&
+          stage.fields.every((field) => Object.prototype.hasOwnProperty.call(checkpoint, field));
+      });
+      if (reusableStages.length) {
+        resume = { runId: row.run_id, progress, completedStages: reusableStages };
+        break;
+      }
+    }
+  }
+
   const runId = randomUUID();
+  const strategy: ContextGraphAnalysisStrategy = resume
+    ? 'B'
+    : chooseContextGraphStrategy(strategyMode, readLatestStrategy(db, revisionId));
+  const initialRunProgress: Record<string, any> = resume ? {
+    ...resume.progress,
+    strategy: 'B',
+    workflowVersion: CONTEXT_GRAPH_WORKFLOW_VERSION,
+    analysisVersion: CONTEXT_GRAPH_ANALYSIS_VERSION,
+    resumedFromRunId: resume.runId,
+    completedStages: resume.completedStages,
+    stageResults: Array.isArray(resume.progress.stageResults)
+      ? resume.progress.stageResults.filter((item: any) => resume!.completedStages.includes(item.stage))
+      : [],
+    currentStage: null,
+  } : {
+    strategy,
+    workflowVersion: CONTEXT_GRAPH_WORKFLOW_VERSION,
+    analysisVersion: CONTEXT_GRAPH_ANALYSIS_VERSION,
+    completedStages: [],
+    stageResults: [],
+  };
   db.prepare(
     'INSERT INTO context_graph_runs(run_id, source_revision_id, status, phase, progress_json, started_at) VALUES (?, ?, \'queued\', \'queued\', ?, ?)'
-  ).run(runId, revisionId, JSON.stringify({}), new Date().toISOString());
+  ).run(runId, revisionId, JSON.stringify(initialRunProgress), new Date().toISOString());
+  if (resume) {
+    const previousSessionId = getMeta(db, revisionId, workflowSessionKey(resume.runId));
+    if (typeof previousSessionId === 'string' && previousSessionId.trim()) {
+      saveMeta(db, revisionId, workflowSessionKey(runId), previousSessionId);
+    }
+  }
+  getDocumentProjectStore().appendEvent(projectId, runId, 'context-graph.strategy.selected', {
+    strategy, workflowVersion: CONTEXT_GRAPH_WORKFLOW_VERSION,
+    analysisVersion: CONTEXT_GRAPH_ANALYSIS_VERSION,
+    ...(resume ? { resumedFromRunId: resume.runId, resumedStages: resume.completedStages } : {}),
+    assignment: ['a', 'b'].includes(String(strategyMode).trim().toLowerCase()) ? 'configured' : 'alternating-ab',
+  });
   activeAnalyses.set(projectId, runId);
   void runAnalysis(projectId, runId).catch((error) => {
     const message = (error instanceof Error ? error.message : String(error)).slice(0, 2000);
