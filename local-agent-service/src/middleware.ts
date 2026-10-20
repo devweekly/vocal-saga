@@ -36,6 +36,26 @@ export function sendJson(res: Response, status: number, body: unknown): void {
   res.status(status).set('Cache-Control', 'no-store').json(body);
 }
 
+/**
+ * Backward-compatible API error envelope. Keep the endpoint's legacy `error` value
+ * (string or object) while exposing a top-level message and stable machine-readable code.
+ */
+export function sendApiError(
+  res: Response,
+  status: number,
+  message: string,
+  legacyError: string | Record<string, unknown> = message,
+): void {
+  const code = status === 400 ? 'BAD_REQUEST'
+    : status === 401 ? 'UNAUTHENTICATED'
+      : status === 403 ? 'FORBIDDEN_ORIGIN'
+        : status === 404 ? 'NOT_FOUND'
+          : status === 409 ? 'CONFLICT'
+            : status === 413 ? 'PAYLOAD_TOO_LARGE'
+              : status >= 500 ? 'INTERNAL_ERROR' : 'REQUEST_FAILED';
+  sendJson(res, status, { error: legacyError, message, code });
+}
+
 export function addCors(req: Request, res: Response): boolean {
   // A loopback service can still be targeted by a webpage open in the browser.
   // Permit browser extension origins only; allow command-line clients with no Origin header.
