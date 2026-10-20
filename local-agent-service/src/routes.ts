@@ -84,7 +84,7 @@ export async function handleRequest(req: Request, res: Response): Promise<void> 
   }
   // authorize via middleware.ts
   if ((url.pathname.startsWith('/v1/') || url.pathname.startsWith('/api/')) && !authorize(req)) {
-    sendApiError(res, 401, '本机服务 Token 不正确或未提供', 'UNAUTHENTICATED');
+    sendJson(res, 401, { error: { message: '本机服务 Token 不正确或未提供', type: 'authentication_error' }, message: '本机服务 Token 不正确或未提供', code: 'UNAUTHENTICATED' });
     return;
   }
   if (req.method === 'GET' && url.pathname === '/api/settings/diagnostics') {
