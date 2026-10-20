@@ -1472,15 +1472,15 @@ export function buildProjectContextGraphBundle(
   // Only complete summaries for previous chapters are eligible. A full summary of the current
   // chapter can include its final paragraph, which is future context when translating early batches.
   const priorChapterSummaries = currentIndex >= 0
-    ? chapterRows.slice(Math.max(0, currentIndex - 2), currentIndex).map((chapter) => ({
-        chapter: chapter.chapter_title, summary: String(chapter.summary).slice(0, 520),
+    ? chapterRows.slice(0, currentIndex).map((chapter) => ({
+        chapter: chapter.chapter_title, summary: String(chapter.summary),
         summaryKind: chapter.summary_kind,
       }))
     : [];
   const currentPrefixRows = currentIndex >= 0 && currentChapter
     ? db.prepare(
         'SELECT segment_id, ordinal, text, kind FROM source_segments ' +
-        'WHERE source_revision_id = ? AND context_path = ? AND ordinal < ? ORDER BY ordinal DESC LIMIT 16'
+        'WHERE source_revision_id = ? AND context_path = ? AND ordinal < ? ORDER BY ordinal DESC'
       ).all(revisionId, currentChapter, firstOrdinal) as any[]
     : [];
   const currentPrefixSegments = currentPrefixRows.reverse().map((row) => ({
@@ -1494,7 +1494,7 @@ export function buildProjectContextGraphBundle(
     ...priorChapterSummaries,
     ...(currentPrefixSummary ? [{
       chapter: currentChapter,
-      summary: currentPrefixSummary.slice(0, 420),
+      summary: currentPrefixSummary,
       summaryKind: 'prefix-extractive',
     }] : []),
   ];
