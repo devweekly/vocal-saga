@@ -51,9 +51,12 @@ export function sendApiError(
     : status === 401 ? 'UNAUTHENTICATED'
       : status === 403 ? 'FORBIDDEN_ORIGIN'
         : status === 404 ? 'NOT_FOUND'
-          : status === 409 ? 'CONFLICT'
-            : status === 413 ? 'PAYLOAD_TOO_LARGE'
-              : status >= 500 ? 'INTERNAL_ERROR' : 'REQUEST_FAILED';
+          : status === 408 ? 'REQUEST_TIMEOUT'
+            : status === 409 ? 'CONFLICT'
+              : status === 413 ? 'PAYLOAD_TOO_LARGE'
+                : status === 422 ? 'VALIDATION_ERROR'
+                  : status === 429 ? 'RATE_LIMITED'
+                    : status >= 500 ? 'INTERNAL_ERROR' : 'REQUEST_FAILED';
   sendJson(res, status, { ...details, error: legacyError, message, code });
 }
 
