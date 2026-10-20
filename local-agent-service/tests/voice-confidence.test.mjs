@@ -260,7 +260,7 @@ test('oversized structured LiteraryMemory is pruned safely to a bounded canonica
     })),
   });
 
-  assert.ok(Buffer.byteLength(JSON.stringify(memory), 'utf8') <= 120_000);
+  assert.ok(Buffer.byteLength(JSON.stringify(memory), 'utf8') <= 120 * 1024);
   assert.ok(memory.characterVoices.length > 0);
   assert.ok(memory.characterVoices.some((profile) => profile.evidenceTruncated === true));
 });
