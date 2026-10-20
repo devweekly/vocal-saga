@@ -583,6 +583,15 @@ test('starts without LOCAL_AGENT_TOKEN, allows extension requests, and blocks we
     body: JSON.stringify({ sessionId: 'book-test', title: '测试书', format: 'epub', payload: sessionPayload }),
   });
   assert.equal(sessionSave.status, 200);
+  const invalidSessionId = await fetch(baseUrl + '/api/documents/session/get', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ sessionId: '   ' }),
+  });
+  assert.equal(invalidSessionId.status, 400);
+  const invalidSessionBody = await invalidSessionId.json();
+  assert.equal(invalidSessionBody.error, invalidSessionBody.message);
+  assert.equal(invalidSessionBody.code, 'BAD_REQUEST');
+
   const sessionGet = await fetch(baseUrl + '/api/documents/session/get', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ sessionId: 'book-test' }),
