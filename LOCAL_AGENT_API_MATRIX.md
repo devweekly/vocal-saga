@@ -270,3 +270,8 @@
 
 - 已添加 cache TTL 非法输入的 HTTP 集成测试。
 - 尚未在本次远程源码编辑环境执行 `npm run typecheck` 或 `npm test`；所有“已修改”项目均应以 CI 结果为最终验收依据。
+
+
+## 8. 后续契约与长任务策略
+
+新增 `local-agent-service/API_CONTRACT_AND_LIFECYCLE_POLICY.md`，记录错误 DTO 的分阶段兼容迁移原则、长任务 Run 生命周期的验收条件、遗留接口保留/弃用门槛，以及正式 OpenAPI 发布前的完整性要求。该文件明确区分当前已观察行为和目标契约，不把尚未实现的测试条件写成已完成能力。
