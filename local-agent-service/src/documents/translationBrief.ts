@@ -308,7 +308,7 @@ function buildTemporallyVisibleMemory(
         'WHERE latest.source_revision_id = s.source_revision_id AND latest.segment_id = s.segment_id ' +
           'AND latest.accepted = 1 AND latest.source_hash = s.source_hash ' +
         'ORDER BY COALESCE(latest.accepted_at, latest.created_at) DESC, latest.created_at DESC, latest.rowid DESC LIMIT 1) ' +
-    'ORDER BY s.ordinal DESC LIMIT 240'
+    'ORDER BY s.ordinal DESC'
   ).all(revisionId, firstOrdinal) as Array<{
     segmentId: string; ordinal: number; source: string; chapter: string; kind: string;
     target: string; origin: string; acceptedAt: string;
@@ -356,8 +356,8 @@ function buildTemporallyVisibleMemory(
       Number(b.ordinal) - Number(a.ordinal));
   const retrievedExamples = scoredExamples.map((row) => ({
     segmentId: String(row.segmentId),
-    source: String(row.source || '').slice(0, 260),
-    target: String(row.target || '').slice(0, 320),
+    source: String(row.source || ''),
+    target: String(row.target || ''),
     chapter: String(row.chapter || '').slice(0, 120),
     origin: ['manual', 'agent', 'imported'].includes(String(row.origin)) ? String(row.origin) : 'imported',
   })).filter((row) => row.source && row.target);
@@ -625,120 +625,6 @@ function serializedContext(brief: Pick<TranslationBrief,
     contextGraph: brief.contextGraph,
     voiceContext: brief.voiceContext,
   });
-}
-
-function removeLowestPriorityContext(brief: TranslationBrief): boolean {
-  const voice = brief.voiceContext as any;
-  const graph = brief.contextGraph as any;
-  if (Array.isArray(voice.recentExamples) && voice.recentExamples.length) {
-    voice.recentExamples.pop();
-    return true;
-  }
-  if (Array.isArray(voice.voiceAnchors) && voice.voiceAnchors.length) {
-    voice.voiceAnchors.pop();
-    return true;
-  }
-  if (Array.isArray(voice.relationshipVoiceRules) && voice.relationshipVoiceRules.length) {
-    voice.relationshipVoiceRules.pop();
-    return true;
-  }
-  if (graph && Array.isArray(graph.relationships) && graph.relationships.length) {
-    graph.relationships.pop();
-    return true;
-  }
-  if (Array.isArray(voice.relationships) && voice.relationships.length) {
-    voice.relationships.pop();
-    return true;
-  }
-  if (graph && Array.isArray(graph.entities) && graph.entities.length) {
-    graph.entities.pop();
-    return true;
-  }
-  if (Array.isArray(voice.entities) && voice.entities.length) {
-    voice.entities.pop();
-    return true;
-  }
-  if (graph && Array.isArray(graph.characters) && graph.characters.length > 1) {
-    graph.characters.pop();
-    return true;
-  }
-  if (Array.isArray(voice.characterVoices) && voice.characterVoices.length > 1) {
-    voice.characterVoices.pop();
-    return true;
-  }
-  if (graph && Array.isArray(graph.chapterSummaries) && graph.chapterSummaries.length > 1) {
-    graph.chapterSummaries.shift();
-    return true;
-  }
-  if (Array.isArray(voice.chapterSummaries) && voice.chapterSummaries.length > 1) {
-    voice.chapterSummaries.shift();
-    return true;
-  }
-  if (brief.precedingSegments.length > 2) {
-    brief.precedingSegments.shift();
-    return true;
-  }
-  if (brief.precedingSegments.some((item) => item.text.length > 400)) {
-    for (const item of brief.precedingSegments) item.text = item.text.slice(-400);
-    return true;
-  }
-  if (Array.isArray(graph?.styleGuide?.rules) && graph.styleGuide.rules.length) {
-    graph.styleGuide.rules.pop();
-    return true;
-  }
-  if (voice.styleGuide && typeof voice.styleGuide === 'object') {
-    for (const key of ['rules', 'avoid', 'diction', 'dialogue', 'rhythm', 'register', 'narrativeVoice']) {
-      const value = voice.styleGuide[key];
-      if (Array.isArray(value) && value.length) {
-        value.pop();
-        return true;
-      }
-      if (typeof value === 'string' && value.length > 120) {
-        voice.styleGuide[key] = value.slice(0, 120);
-        return true;
-      }
-    }
-  }
-  if (brief.precedingSegments.length) {
-    brief.precedingSegments.shift();
-    return true;
-  }
-  if (brief.contextGraph) {
-    const graph = brief.contextGraph as any;
-    const nameMappings = Array.isArray(graph.nameMappings) ? graph.nameMappings : [];
-    if (nameMappings.length) {
-      // Once lower-priority graph details have been exhausted, preserve canonical names as the
-      // final useful part of the graph. A subsequent call must stop pruning rather than silently
-      // discard these mappings; buildTranslationBrief will use its explicit 413 guard if the
-      // protected name table itself cannot fit the configured budget.
-      const compactGraph = {
-        ...(graph.policyVersion ? { policyVersion: graph.policyVersion } : {}),
-        knowledgeBoundaryOrdinal: graph.knowledgeBoundaryOrdinal ?? null,
-        currentChapter: graph.currentChapter || '',
-        nameMappings,
-        constraints: ['nameMappings contains only names visible in the current or preceding source.'],
-      };
-      if (JSON.stringify(graph) !== JSON.stringify(compactGraph)) {
-        brief.contextGraph = compactGraph;
-        return true;
-      }
-      // Keep the compact canonical-name table, then trim static glossary entries only after
-      // lower-priority memory/context has already been exhausted.
-    } else {
-      brief.contextGraph = null;
-      return true;
-    }
-  }
-  const glossary = brief.glossary as any;
-  if (glossary && Array.isArray(glossary.document_terms) && glossary.document_terms.length) {
-    glossary.document_terms.pop();
-    return true;
-  }
-  if (Array.isArray(voice.characterVoices) && voice.characterVoices.length) {
-    voice.characterVoices.pop();
-    return true;
-  }
-  return false;
 }
 
 export function buildTranslationBrief(
