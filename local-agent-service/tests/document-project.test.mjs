@@ -913,13 +913,15 @@ test('Run recovery after store re-open preserves candidate revisions and never r
     ensureTestContextGraph(firstStore, project);
     const run = firstStore.createRun(project.projectId, { scope: { type: 'all' } });
     firstStore.saveCandidate(project.projectId, run.runId, 'ch1-p1', '门仍然开着。');
-    firstStore.markRunSegments(project.projectId, run.runId, ['ch1-p1'], 'completed');
-    firstStore.setRunStatus(project.projectId, run.runId, 'partial', '进程退出前仍有段落未处理');
+    firstStore.markRunSegments(project.projectId, run.runId, ['ch1-p1'], 'running');
+    firstStore.setRunStatus(project.projectId, run.runId, 'running', null);
 
-    // Simulate a fresh process: construct a new Store over the same durable project directory.
+    // Simulate a fresh process: constructor recovery must fail the interrupted Run,
+    // return in-flight segments to retryable state, and retain durable candidate text.
     const restartedStore = new DocumentProjectStore(root);
     const recovered = restartedStore.getRun(project.projectId, run.runId);
-    assert.equal(recovered.status, 'partial');
+    assert.equal(recovered.status, 'failed',
+      'an interrupted running Run must be marked recoverable rather than left falsely running');
     assert.equal(recovered.runId, run.runId);
     const recoveredSegment = restartedStore.getSegments(project.projectId, { limit: 10, runId: run.runId })
       .find((item) => item.id === 'ch1-p1');
