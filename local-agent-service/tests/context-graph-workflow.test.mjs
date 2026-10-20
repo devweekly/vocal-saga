@@ -40,8 +40,8 @@ test('B defines five isolated stages with stage-specific required schemas', () =
   assert.equal(CONTEXT_GRAPH_WORKFLOW_VERSION, 'context-graph-workflow-v1');
 });
 
-test('A/B assignment alternates by previous run and supports forcing a strategy', () => {
-  assert.equal(chooseContextGraphStrategy('ab', null), 'A');
+test('A/B assignment starts with B for legacy projects, alternates, and supports forcing a strategy', () => {
+  assert.equal(chooseContextGraphStrategy('ab', null), 'B');
   assert.equal(chooseContextGraphStrategy('ab', 'A'), 'B');
   assert.equal(chooseContextGraphStrategy('ab', 'B'), 'A');
   assert.equal(chooseContextGraphStrategy('a', 'B'), 'A');
