@@ -458,22 +458,31 @@ export async function handleRequest(req: Request, res: Response): Promise<void> 
     }
     const { LOG_RESPONSE_PREVIEW: _ignored } = await import('./config.ts');
     void _ignored;
-    const payload = url.pathname === '/v1/chat/completions'
-      ? {
-          error: {
-            message,
-            type: 'local_agent_error',
-            request_id: requestId,
-            provider: agent.provider,
-            model: agent.model || null,
-            status,
-            duration_ms: durationMs,
-            output_chars: output.length,
-          },
-        }
-      : { error: message, message, code: status === 400 ? 'BAD_REQUEST' : status === 404 ? 'NOT_FOUND' : status === 409 ? 'CONFLICT' : status === 413 ? 'PAYLOAD_TOO_LARGE' : status >= 500 ? 'INTERNAL_ERROR' : 'REQUEST_FAILED', requestId, provider: agent.provider, model: agent.model || null, status, durationMs };
-    if (!res.headersSent) sendJson(res, status, payload);
-    else res.end();
+    if (res.headersSent) {
+      res.end();
+    } else if (url.pathname === '/v1/chat/completions') {
+      // Keep the OpenAI-compatible error envelope stable for SDK clients.
+      sendJson(res, status, {
+        error: {
+          message,
+          type: 'local_agent_error',
+          request_id: requestId,
+          provider: agent.provider,
+          model: agent.model || null,
+          status,
+          duration_ms: durationMs,
+          output_chars: output.length,
+        },
+      });
+    } else {
+      sendApiError(res, status, message, message, {
+        requestId,
+        provider: agent.provider,
+        model: agent.model || null,
+        status,
+        durationMs,
+      });
+    }
   }
 }
 
