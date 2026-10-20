@@ -1310,6 +1310,9 @@ async function runAnalysis(projectId: string, runId: string): Promise<void> {
     const now = new Date().toISOString();
     db.prepare('UPDATE context_graph_runs SET status = \'completed\', phase = \'completed\', progress_json = ?, finished_at = ?, error = NULL WHERE run_id = ?')
       .run(JSON.stringify({
+        ...readRunProgress(db, runId),
+        strategy,
+        workflowVersion: CONTEXT_GRAPH_WORKFLOW_VERSION,
         analysisVersion: CONTEXT_GRAPH_ANALYSIS_VERSION,
         sourceLang, targetLang,
         sampleCount: samples.length, chapterCount: chapters.length,
@@ -1351,6 +1354,13 @@ async function runAnalysis(projectId: string, runId: string): Promise<void> {
       modelCandidateCounts: outputAudit.rawCounts,
       droppedCandidateCounts: outputAudit.persistedCounts,
       sourceLang, targetLang,
+      strategy,
+      workflowVersion: CONTEXT_GRAPH_WORKFLOW_VERSION,
+      workflowElapsedMs: Date.now() - modelAnalysisStartedAt,
+      ...(strategy === 'B' ? {
+        completedStages: CONTEXT_GRAPH_WORKFLOW_STAGES.map((stage) => stage.id),
+        stageResults: readRunProgress(db, runId).stageResults || [],
+      } : {}),
       analysisVersion: CONTEXT_GRAPH_ANALYSIS_VERSION,
     });
     db.exec('COMMIT');
