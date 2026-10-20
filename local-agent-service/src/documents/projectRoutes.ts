@@ -6,7 +6,7 @@
 import type { Request, Response } from 'express';
 import { getDocumentProjectStore, MAX_DOCUMENT_SOURCE_BYTES } from './projectStore.ts';
 import { startProjectTranslationRun, isProjectRunActive } from './translationAgent.ts';
-import { sendJson } from '../middleware.ts';
+import { sendApiError, sendJson } from '../middleware.ts';
 import { parseDocumentFile } from './ingest.ts';
 import { startContextGraphAnalysis, getContextGraph, getContextGraphStatus, reviewContextGraphItem } from './contextGraph.ts';
 import {
@@ -28,14 +28,7 @@ function routeError(res: Response, error: unknown): void {
   const status = Number.isInteger(value?.status) && Number(value.status) >= 400 && Number(value.status) < 600
     ? Number(value.status) : 500;
   const message = value?.message || String(error);
-  // Transitional additive contract: preserve the legacy string-valued `error` field
-  // for existing extension clients, while exposing stable fields for new consumers.
-  const code = status === 400 ? 'BAD_REQUEST'
-    : status === 404 ? 'NOT_FOUND'
-      : status === 409 ? 'CONFLICT'
-        : status === 413 ? 'PAYLOAD_TOO_LARGE'
-          : status >= 500 ? 'INTERNAL_ERROR' : 'REQUEST_FAILED';
-  sendJson(res, status, { error: message, message, code });
+  sendApiError(res, status, message);
 }
 async function readRawSourceBody(req: Request, maxBytes: number): Promise<Buffer> {
   const chunks: Buffer[] = [];
