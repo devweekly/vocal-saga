@@ -275,3 +275,15 @@
 ## 8. 后续契约与长任务策略
 
 新增 `local-agent-service/API_CONTRACT_AND_LIFECYCLE_POLICY.md`，记录错误 DTO 的分阶段兼容迁移原则、长任务 Run 生命周期的验收条件、遗留接口保留/弃用门槛，以及正式 OpenAPI 发布前的完整性要求。该文件明确区分当前已观察行为和目标契约，不把尚未实现的测试条件写成已完成能力。
+
+
+## 9. 第二阶段错误响应兼容改造（2026-10-20）
+
+分支 `fix/api-error-contract-phase2-20261020` 对常见错误响应增加兼容字段：
+
+- 新增 `sendApiError`，为字符串错误响应提供 `message` 和稳定 `code`，保留既有 `error` 字段。
+- 项目路由统一复用该 helper；常见 cache/session 参数错误、Host/Origin 拒绝、JSON body-parser 错误和内部异常响应已接入。
+- Token 认证错误和未知端点错误保留既有对象型 `error`，只增加 `message` 与 `code`，避免破坏 OpenAI 风格客户端。
+- 新增测试断言验证 TTL 参数错误、Origin 拒绝、未知端点的字段和旧 `error` 类型。
+
+这不是全量统一：其他业务分支中的错误响应仍需扫描；目前未在仓库运行环境执行 typecheck 或测试。完整 OpenAPI/route manifest 与 Run 生命周期并发验收仍未完成。
