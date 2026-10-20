@@ -12,7 +12,7 @@ import {
   saveHistory, requestMetadata, getTranslationCache, setTranslationCache,
   normalizeDocumentSegments, saveDocumentSession,
 } from './db.ts';
-import { authorize, sendJson } from './middleware.ts';
+import { authorize, sendApiError, sendJson } from './middleware.ts';
 import { logError, logInfo, logWarn } from './log.ts';
 import { parseAgentModel, buildAgentPrompt, normalizeMessages, parseJsonValue } from './json.ts';
 import { runAgent, runAgentStructured } from './agents/runner.ts';
@@ -84,7 +84,7 @@ export async function handleRequest(req: Request, res: Response): Promise<void> 
   }
   // authorize via middleware.ts
   if ((url.pathname.startsWith('/v1/') || url.pathname.startsWith('/api/')) && !authorize(req)) {
-    sendJson(res, 401, { error: { message: '本机服务 Token 不正确或未提供', type: 'authentication_error' } });
+    sendApiError(res, 401, '本机服务 Token 不正确或未提供', { message: '本机服务 Token 不正确或未提供', type: 'authentication_error' });
     return;
   }
   if (req.method === 'GET' && url.pathname === '/api/settings/diagnostics') {
@@ -138,7 +138,7 @@ export async function handleRequest(req: Request, res: Response): Promise<void> 
 
   if (req.method === 'POST' && url.pathname === '/api/cache/translation/get') {
     const cacheKey = typeof req.body?.cacheKey === 'string' ? req.body.cacheKey : '';
-    if (!cacheKey || cacheKey.length > 500) { sendJson(res, 400, { error: 'cacheKey 必须是 1-500 字符' }); return; }
+    if (!cacheKey || cacheKey.length > 500) { sendApiError(res, 400, 'cacheKey 必须是 1-500 字符'); return; }
     const value = getTranslationCache(cacheKey);
     sendJson(res, 200, { hit: value !== null, value });
     return;
@@ -146,13 +146,13 @@ export async function handleRequest(req: Request, res: Response): Promise<void> 
   if (req.method === 'POST' && url.pathname === '/api/cache/translation/set') {
     const cacheKey = typeof req.body?.cacheKey === 'string' ? req.body.cacheKey : '';
     if (!cacheKey || cacheKey.length > 500 || !Object.prototype.hasOwnProperty.call(req.body || {}, 'value')) {
-      sendJson(res, 400, { error: 'cacheKey 与 value 为必填字段' }); return;
+      sendApiError(res, 400, 'cacheKey 与 value 为必填字段'); return;
     }
     const defaultTtlMs = 7 * 24 * 60 * 60 * 1000;
     const ttlMs = req.body.ttlMs === undefined ? defaultTtlMs : req.body.ttlMs;
     // Keep cache lifetime bounded: zero expires immediately; negative/non-numeric values are invalid.
     if (typeof ttlMs !== 'number' || !Number.isSafeInteger(ttlMs) || ttlMs < 0 || ttlMs > 365 * 24 * 60 * 60 * 1000) {
-      sendJson(res, 400, { error: 'ttlMs 必须是 0 到 365 天之间的整数' }); return;
+      sendApiError(res, 400, 'ttlMs 必须是 0 到 365 天之间的整数'); return;
     }
     setTranslationCache(cacheKey, req.body.value, ttlMs);
     sendJson(res, 200, { saved: true });
@@ -161,7 +161,7 @@ export async function handleRequest(req: Request, res: Response): Promise<void> 
   if (req.method === 'POST' && url.pathname === '/api/cache/translation/delete') {
     const cacheKey = typeof req.body?.cacheKey === 'string' ? req.body.cacheKey : '';
     if (!cacheKey || cacheKey.length > 500) {
-      sendJson(res, 400, { error: 'cacheKey 必须是 1-500 字符' });
+      sendApiError(res, 400, 'cacheKey 必须是 1-500 字符');
       return;
     }
     db.prepare('DELETE FROM translation_cache WHERE cache_key = ?').run(cacheKey);
@@ -175,7 +175,7 @@ export async function handleRequest(req: Request, res: Response): Promise<void> 
   }
   if (req.method === 'POST' && url.pathname === '/api/documents/session/summary') {
     const sessionId = typeof req.body?.sessionId === 'string' ? req.body.sessionId.trim() : '';
-    if (!sessionId || sessionId.length > 500) { sendJson(res, 400, { error: 'sessionId 必须是 1-500 字符' }); return; }
+    if (!sessionId || sessionId.length > 500) { sendApiError(res, 400, 'sessionId 必须是 1-500 字符'); return; }
     const row = db.prepare('SELECT session_id, title, format, updated_at FROM document_sessions WHERE session_id = ?').get(sessionId) as any;
     if (!row) { sendJson(res, 200, { found: false }); return; }
     sendJson(res, 200, {
@@ -186,7 +186,7 @@ export async function handleRequest(req: Request, res: Response): Promise<void> 
   }
   if (req.method === 'POST' && url.pathname === '/api/documents/session/get') {
     const sessionId = typeof req.body?.sessionId === 'string' ? req.body.sessionId.trim() : '';
-    if (!sessionId || sessionId.length > 500) { sendJson(res, 400, { error: 'sessionId 必须是 1-500 字符' }); return; }
+    if (!sessionId || sessionId.length > 500) { sendApiError(res, 400, 'sessionId 必须是 1-500 字符'); return; }
     const row = db.prepare('SELECT session_id, title, format, updated_at, payload_json FROM document_sessions WHERE session_id = ?').get(sessionId) as any;
     if (!row) { sendJson(res, 200, { found: false }); return; }
     try { sendJson(res, 200, { found: true, session: { sessionId: row.session_id, title: row.title, format: row.format, updatedAt: row.updated_at, payload: JSON.parse(row.payload_json) } }); }
@@ -201,8 +201,8 @@ export async function handleRequest(req: Request, res: Response): Promise<void> 
   }
   if (req.method === 'POST' && url.pathname === '/api/documents/session/save') {
     const sessionId = typeof req.body?.sessionId === 'string' ? req.body.sessionId.trim() : '';
-    if (!sessionId || sessionId.length > 500) { sendJson(res, 400, { error: 'sessionId 必须是 1-500 字符' }); return; }
-    if (!Object.prototype.hasOwnProperty.call(req.body || {}, 'payload')) { sendJson(res, 400, { error: 'payload 为必填字段' }); return; }
+    if (!sessionId || sessionId.length > 500) { sendApiError(res, 400, 'sessionId 必须是 1-500 字符'); return; }
+    if (!Object.prototype.hasOwnProperty.call(req.body || {}, 'payload')) { sendApiError(res, 400, 'payload 为必填字段'); return; }
     saveDocumentSession(sessionId, typeof req.body.title === 'string' ? req.body.title : '未命名文档',
       typeof req.body.format === 'string' ? req.body.format : 'txt', req.body.payload, req.body.mergeExisting === true);
     sendJson(res, 200, { saved: true, updatedAt: new Date().toISOString() });
@@ -211,8 +211,8 @@ export async function handleRequest(req: Request, res: Response): Promise<void> 
   if (req.method === 'DELETE' && url.pathname.startsWith('/api/documents/session/')) {
     let sessionId = '';
     try { sessionId = decodeURIComponent(url.pathname.slice('/api/documents/session/'.length)).trim(); }
-    catch { sendJson(res, 400, { error: 'sessionId 编码无效' }); return; }
-    if (!sessionId || sessionId.length > 500 || sessionId.includes('/')) { sendJson(res, 400, { error: 'sessionId 必须是有效的 1-500 字符路径参数' }); return; }
+    catch { sendApiError(res, 400, 'sessionId 编码无效'); return; }
+    if (!sessionId || sessionId.length > 500 || sessionId.includes('/')) { sendApiError(res, 400, 'sessionId 必须是有效的 1-500 字符路径参数'); return; }
     db.prepare('DELETE FROM document_sessions WHERE session_id = ?').run(sessionId);
     sendJson(res, 200, { deleted: true });
     return;
@@ -265,7 +265,7 @@ export async function handleRequest(req: Request, res: Response): Promise<void> 
     'POST /api/translate/document/literary/review',
   ]);
   if (!supported.has(req.method + ' ' + url.pathname)) {
-    sendJson(res, 404, { error: { message: '未知端点：' + req.method + ' ' + url.pathname } });
+    sendApiError(res, 404, '未知端点：' + req.method + ' ' + url.pathname, { message: '未知端点：' + req.method + ' ' + url.pathname, type: 'not_found_error' });
     return;
   }
 
@@ -471,7 +471,7 @@ export async function handleRequest(req: Request, res: Response): Promise<void> 
             output_chars: output.length,
           },
         }
-      : { error: message, requestId, provider: agent.provider, model: agent.model || null, status, durationMs };
+      : { error: message, message, code: status === 400 ? 'BAD_REQUEST' : status === 404 ? 'NOT_FOUND' : status === 409 ? 'CONFLICT' : status === 413 ? 'PAYLOAD_TOO_LARGE' : status >= 500 ? 'INTERNAL_ERROR' : 'REQUEST_FAILED', requestId, provider: agent.provider, model: agent.model || null, status, durationMs };
     if (!res.headersSent) sendJson(res, status, payload);
     else res.end();
   }
