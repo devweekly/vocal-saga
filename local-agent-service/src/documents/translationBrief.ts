@@ -9,7 +9,8 @@ import { buildProjectContextGraphBundle } from './contextGraph.ts';
 import { getDocumentProjectStore, normalizeDocumentTranslationStrategy } from './projectStore.ts';
 
 export const TRANSLATION_BRIEF_POLICY_VERSION = 'translation-brief-v5-evidence-ranked-context';
-export const MAX_TRANSLATION_BRIEF_CHARS = 18_000;
+// Safety ceiling only; this is not a retrieval target. Prefer complete relevant context over silent pruning.
+export const MAX_TRANSLATION_BRIEF_CHARS = 1_000_000;
 
 export interface BriefSegment {
   id: string;
@@ -714,7 +715,7 @@ function removeLowestPriorityContext(brief: TranslationBrief): boolean {
         ...(graph.policyVersion ? { policyVersion: graph.policyVersion } : {}),
         knowledgeBoundaryOrdinal: graph.knowledgeBoundaryOrdinal ?? null,
         currentChapter: graph.currentChapter || '',
-        nameMappings: nameMappings.slice(0, 16),
+        nameMappings,
         constraints: ['nameMappings contains only names visible in the current or preceding source.'],
       };
       if (JSON.stringify(graph) !== JSON.stringify(compactGraph)) {
@@ -779,7 +780,10 @@ export function buildTranslationBrief(
       });
     }
   }
-  const maxBriefChars = Math.min(MAX_TRANSLATION_BRIEF_CHARS, strategy.contextBudgetChars);
+  // strategy.contextBudgetChars remains a legacy preference, not a hard ceiling. Context must not
+  // be silently discarded just to satisfy an arbitrary character budget; provider limits are handled
+  // by the runtime/model request layer, which can report a genuine provider rejection explicitly.
+  const maxBriefChars = MAX_TRANSLATION_BRIEF_CHARS;
   const glossary = filterGlossaryForBatch(context, items);
   const temporalMemory = context?.run?.translationMode === 'literary'
     ? buildTemporallyVisibleMemory(context, items, visiblePrecedingSegments)
@@ -938,7 +942,8 @@ export function buildTranslationBrief(
       return statusRank + inCurrent + inPreceding;
     };
     graph.nameMappings.sort((a: any, b: any) => mappingRelevance(b) - mappingRelevance(a));
-    graph.nameMappings = graph.nameMappings.slice(0, 16);
+    // Keep every source-visible mapping; relevance ordering is useful, but a fixed count can
+    // discard a confirmed name needed later in the same batch.
   }
   const voiceContext = context?.run?.translationMode === 'literary'
     ? buildProjectVoiceContext(
@@ -1021,7 +1026,8 @@ export function buildTranslationBrief(
       };
       return rank(b) - rank(a);
     });
-    graph.nameMappings = graph.nameMappings.slice(0, 16);
+    // Keep every source-visible mapping; relevance ordering is useful, but a fixed count can
+    // discard a confirmed name needed later in the same batch.
     if (characterProfileMappingConflictCount) {
       logInfo('translation-brief', 'confirmed character profile mapping conflicts=' + characterProfileMappingConflictCount);
     }
@@ -1093,77 +1099,41 @@ export function buildTranslationBrief(
     precedingSegments: brief.precedingSegments.length,
     glossaryTerms: Array.isArray((brief.glossary as any)?.document_terms) ? (brief.glossary as any).document_terms.length : 0,
   };
-  let serialized = serializedContext(brief);
-  while (serialized.length > maxBriefChars && removeLowestPriorityContext(brief)) {
-    (brief.contextDiagnostics as any).budgetTrimCount =
-      Number((brief.contextDiagnostics as any).budgetTrimCount || 0) + 1;
-    serialized = serializedContext(brief);
-  }
-  if (serialized.length > maxBriefChars) {
-    (brief.contextDiagnostics as any).budgetFallbackUsed = true;
-    // Last-resort safe fallback: keep the batch IDs, only current/previous-source canonical
-    // name mappings, and minimal source-near context. Dropping the whole graph here used to
-    // silently disable deterministic glossary enforcement for large books.
-    const graph = brief.contextGraph as any;
-    const canonicalNameMappings = Array.isArray(graph?.nameMappings) ? graph.nameMappings : [];
-    brief.contextGraph = canonicalNameMappings.length ? {
-      policyVersion: graph?.policyVersion,
-      knowledgeBoundaryOrdinal: graph?.knowledgeBoundaryOrdinal ?? null,
-      currentChapter: graph?.currentChapter || '',
-      nameMappings: canonicalNameMappings.slice(0, 16),
-      constraints: ['nameMappings contains only evidence-backed names visible in the current or preceding source.'],
-    } : null;
-    brief.glossary = { document_terms: [] };
-    brief.voiceContext = {
-      version: 1,
-      policyVersion: TRANSLATION_BRIEF_POLICY_VERSION,
-      chapterSummaries: [],
-      entities: [],
-      relationships: [],
-      characterVoices: [],
-      relationshipVoiceRules: [],
-      voiceAnchors: [],
-      constraints: [
-        '原文优先；不得泄漏后续章节事实。',
-        '不得覆盖原文或把未确认候选当成事实。',
-      ],
-    };
-    brief.precedingSegments = brief.precedingSegments.slice(-2).map((item) => ({
-      ...item, text: item.text.slice(-300),
-    }));
-    serialized = serializedContext(brief);
-  }
-  if (serialized.length > maxBriefChars) {
-    throw Object.assign(new Error('TranslationBrief 超过当前上下文预算（' + maxBriefChars + ' 字符），已拒绝发送不受限上下文。'), { status: 413 });
-  }
+  // Do not prune retrieved context to satisfy a configured character budget. In particular,
+  // never erase glossary terms, voice profiles, accepted examples, preceding dialogue, or confirmed
+  // name mappings as an indirect consequence of a prompt-size heuristic. The runtime/provider owns
+  // the actual model context-window check and should surface a real limit error without mutating evidence.
+  const serialized = serializedContext(brief);
+  (brief.contextDiagnostics as any).budgetTrimCount = 0;
+  (brief.contextDiagnostics as any).budgetFallbackUsed = false;
+  (brief.contextDiagnostics as any).contextBudgetPolicy = 'preserve-retrieved-context';
   const finalGraph = brief.contextGraph as any;
   const finalVoice = brief.voiceContext as any;
   const finalMappings = Array.isArray(finalGraph?.nameMappings) ? finalGraph.nameMappings : [];
   const finalCount = (value: unknown) => Array.isArray(value) ? value.length : 0;
   const diagnostic = brief.contextDiagnostics as any;
   diagnostic.graphNameMappingsAfterBudget = finalMappings.length;
-  diagnostic.graphNameMappingsTrimmedByBudget = Math.max(0, budgetBaseline.graphNameMappings - finalMappings.length);
+  diagnostic.graphNameMappingsTrimmedByBudget = 0;
   diagnostic.strongNameMappingsAfterBudget = finalMappings.filter((mapping: any) =>
     ['confirmed', 'confirmed-memory', 'auto'].includes(String(mapping.sourceStatus))).length;
-  diagnostic.strongNameMappingsTrimmedByBudget = Math.max(0,
-    budgetBaseline.strongNameMappings - diagnostic.strongNameMappingsAfterBudget);
-  diagnostic.graphCharactersTrimmedByBudget = Math.max(0, budgetBaseline.graphCharacters - finalCount(finalGraph?.characters));
-  diagnostic.graphEntitiesTrimmedByBudget = Math.max(0, budgetBaseline.graphEntities - finalCount(finalGraph?.entities));
-  diagnostic.graphRelationshipsTrimmedByBudget = Math.max(0, budgetBaseline.graphRelationships - finalCount(finalGraph?.relationships));
-  diagnostic.voiceEntitiesTrimmedByBudget = Math.max(0, budgetBaseline.voiceEntities - finalCount(finalVoice?.entities));
-  diagnostic.voiceRelationshipsTrimmedByBudget = Math.max(0, budgetBaseline.voiceRelationships - finalCount(finalVoice?.relationships));
-  diagnostic.characterVoicesTrimmedByBudget = Math.max(0, budgetBaseline.characterVoices - finalCount(finalVoice?.characterVoices));
-  diagnostic.relationshipVoiceRulesTrimmedByBudget = Math.max(0, budgetBaseline.relationshipVoiceRules - finalCount(finalVoice?.relationshipVoiceRules));
-  diagnostic.voiceAnchorsTrimmedByBudget = Math.max(0, budgetBaseline.voiceAnchors - finalCount(finalVoice?.voiceAnchors));
+  diagnostic.strongNameMappingsTrimmedByBudget = 0;
+  diagnostic.graphCharactersTrimmedByBudget = 0;
+  diagnostic.graphEntitiesTrimmedByBudget = 0;
+  diagnostic.graphRelationshipsTrimmedByBudget = 0;
+  diagnostic.voiceEntitiesTrimmedByBudget = 0;
+  diagnostic.voiceRelationshipsTrimmedByBudget = 0;
+  diagnostic.characterVoicesTrimmedByBudget = 0;
+  diagnostic.relationshipVoiceRulesTrimmedByBudget = 0;
+  diagnostic.voiceAnchorsTrimmedByBudget = 0;
   diagnostic.acceptedExamplesAfterBudget = finalCount(finalVoice?.recentExamples);
-  diagnostic.acceptedExamplesTrimmedByBudget = Math.max(0, budgetBaseline.recentExamples - diagnostic.acceptedExamplesAfterBudget);
+  diagnostic.acceptedExamplesTrimmedByBudget = 0;
   diagnostic.dialogueParticipantsAfterBudget = finalCount(finalVoice?.dialogueParticipants);
-  diagnostic.dialogueParticipantsTrimmedByBudget = Math.max(0, budgetBaseline.dialogueParticipants - diagnostic.dialogueParticipantsAfterBudget);
-  diagnostic.chapterSummariesTrimmedByBudget = Math.max(0, budgetBaseline.chapterSummaries - finalCount(finalVoice?.chapterSummaries));
+  diagnostic.dialogueParticipantsTrimmedByBudget = 0;
+  diagnostic.chapterSummariesTrimmedByBudget = 0;
   diagnostic.precedingSegmentsAfterBudget = brief.precedingSegments.length;
-  diagnostic.precedingSegmentsTrimmedByBudget = Math.max(0, budgetBaseline.precedingSegments - brief.precedingSegments.length);
+  diagnostic.precedingSegmentsTrimmedByBudget = 0;
   diagnostic.glossaryTermsAfterBudget = finalCount((brief.glossary as any)?.document_terms);
-  diagnostic.glossaryTermsTrimmedByBudget = Math.max(0, budgetBaseline.glossaryTerms - diagnostic.glossaryTermsAfterBudget);
+  diagnostic.glossaryTermsTrimmedByBudget = 0;
   diagnostic.contextDeltaCandidatesAvailable = Math.max(0, Number(brief.contextDeltaCount || 0));
   brief.contextChars = serialized.length;
   brief.contextHash = createHash('sha256').update(serialized, 'utf8').digest('hex');
