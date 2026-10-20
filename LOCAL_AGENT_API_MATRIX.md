@@ -90,7 +90,7 @@
 |---|---|---|
 | 路由登记 | 已新增 `local-agent-service/api-route-manifest.json`（当前为 inventory）与 `check:api-contract` 源码漂移检查，覆盖通用路由和项目路由的双向登记检查 | 继续为端点补齐请求/成功响应/错误响应 schema；当前检查不是完整 OpenAPI，也不是 AST 级解析 |
 | 方法错误 | 未匹配方法/路径可能落到统一 404 分支 | 区分未知路径与已知路径不支持的方法；考虑 405/Allow，同时防止资源枚举 |
-| 错误 DTO | 共享 `sendApiError` 已覆盖通用参数错误、鉴权/未知端点、项目路由失败、Origin/Host 拒绝、JSON 解析 400/413 与未处理请求异常；保留旧 `error` 字段并增加 `message`/`code` | 继续覆盖模型调用失败路径和 requestId/脱敏规范；OpenAI `/v1/chat/completions` 维持专用错误 envelope |
+| 错误 DTO | 共享 `sendApiError` 已覆盖通用参数错误、鉴权/未知端点、项目路由失败、Origin/Host 拒绝、JSON 解析 400/413 与未处理请求异常；保留旧 `error` 字段并增加 `message`/`code` | 非 OpenAI 模型调用失败已改用共享 `sendApiError`，保留 requestId/provider/model/status/duration 元数据；继续规范 requestId 和敏感信息脱敏；OpenAI `/v1/chat/completions` 维持专用错误 envelope |
 | 输入校验 | 多处使用动态 JSON、`String(...)`、`Number(...)` 或宽泛对象 | 高风险写操作先补运行时 schema 与范围校验 |
 | 分页 | segments/events/runs/history 等使用分页或列表参数 | 统一 limit/offset/cursor 的范围、默认值、排序与响应元数据 |
 | 长任务 | Context Graph、Run、质量审计/返工有长任务或状态迁移 | 明确同步/异步、幂等、终态、并发冲突、恢复与取消边界 |
