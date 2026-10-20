@@ -33,11 +33,15 @@ test('sendApiError maps standard HTTP statuses without changing legacy string er
     [401, 'UNAUTHENTICATED'],
     [403, 'FORBIDDEN_ORIGIN'],
     [404, 'NOT_FOUND'],
+    [408, 'REQUEST_TIMEOUT'],
     [409, 'CONFLICT'],
     [413, 'PAYLOAD_TOO_LARGE'],
+    [422, 'VALIDATION_ERROR'],
+    [429, 'RATE_LIMITED'],
+    [500, 'INTERNAL_ERROR'],
     [502, 'INTERNAL_ERROR'],
     [503, 'INTERNAL_ERROR'],
-    [429, 'REQUEST_FAILED'],
+    [504, 'INTERNAL_ERROR'],
   ];
 
   for (const [status, code] of cases) {
