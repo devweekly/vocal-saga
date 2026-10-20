@@ -51,6 +51,32 @@ test('literary Run is persisted as queued before service-owned Context Graph pre
   assert.equal(store.getRun(project.projectId, run.runId).status, 'queued');
 });
 
+test('cancelled Run is terminal and late candidate writes are fenced by the Store transaction', () => {
+  const store = getDocumentProjectStore();
+  const project = store.createProject({
+    title: 'Cancellation write fence',
+    format: 'txt',
+    sourceFileName: 'cancel-write-fence.txt',
+    prompt: { translationMode: 'technical', sourceLang: 'en', targetLang: 'zh' },
+    segments: [
+      { id: 'cancel-fence-1', text: 'A late result must not be committed.', kind: 'paragraph' },
+    ],
+  });
+  const run = store.createRun(project.projectId, { scope: { type: 'all' } });
+
+  assert.equal(store.setRunStatus(project.projectId, run.runId, 'cancelled', 'user requested stop'), true);
+  assert.equal(
+    store.saveCandidates(project.projectId, run.runId, [
+      { segmentId: 'cancel-fence-1', text: '迟到的结果不得提交。' },
+    ]),
+    false,
+  );
+  assert.equal(store.setRunStatus(project.projectId, run.runId, 'running'), false);
+  assert.equal(store.getRunStatus(project.projectId, run.runId), 'cancelled');
+  assert.equal(store.getSegments(project.projectId, { limit: 10, runId: run.runId })
+    .find((item) => item.id === 'cancel-fence-1').candidateTranslation, null);
+});
+
 test('service automatically accepts finished candidates through the guarded Store transaction', () => {
   const store = getDocumentProjectStore();
   const project = store.createProject({
