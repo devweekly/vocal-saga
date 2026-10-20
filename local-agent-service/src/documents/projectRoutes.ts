@@ -98,7 +98,7 @@ export async function handleDocumentProjectRequest(req: Request, res: Response, 
     }
 
     if (pathParts.length < 4) {
-      sendJson(res, 404, { error: '未知文档项目端点' });
+      sendApiError(res, 404, '未知文档项目端点');
       return true;
     }
     const store = getDocumentProjectStore();
@@ -213,13 +213,13 @@ export async function handleDocumentProjectRequest(req: Request, res: Response, 
     // Every nested route, including run resume/accept/cancel, must reject archived projects.
     // The per-process SQLite connection cache must not turn an archived project into a live one.
     if (!store.getProject(projectId)) {
-      sendJson(res, 404, { error: '找不到文档项目或项目已归档' });
+      sendApiError(res, 404, '找不到文档项目或项目已归档');
       return true;
     }
 
     if (pathParts.length === 4 && method === 'GET') {
       const project = store.getProject(projectId);
-      if (!project) { sendJson(res, 404, { error: '找不到文档项目' }); return true; }
+      if (!project) { sendApiError(res, 404, '找不到文档项目'); return true; }
       sendJson(res, 200, { project, verification: store.verifyProject(projectId), runs: store.listRuns(projectId, 10) });
       return true;
     }
@@ -399,7 +399,7 @@ export async function handleDocumentProjectRequest(req: Request, res: Response, 
         return true;
       }
       if (!['paused', 'queued', 'failed', 'partial'].includes(run.status)) {
-        sendJson(res, 409, { error: '当前运行状态不允许恢复：' + run.status, run });
+        sendApiError(res, 409, '当前运行状态不允许恢复：' + run.status, '当前运行状态不允许恢复：' + run.status, { run });
         return true;
       }
       if (isProjectRunActive(runId)) {
@@ -407,7 +407,7 @@ export async function handleDocumentProjectRequest(req: Request, res: Response, 
         return true;
       }
       if (!store.setRunStatus(projectId, runId, 'queued', null)) {
-        sendJson(res, 409, { error: '运行已结束，不能继续恢复：' + store.getRunStatus(projectId, runId), run: store.getRun(projectId, runId) });
+        sendApiError(res, 409, '运行已结束，不能继续恢复：' + store.getRunStatus(projectId, runId), '运行已结束，不能继续恢复：' + store.getRunStatus(projectId, runId), { run: store.getRun(projectId, runId) });
         return true;
       }
       const started = startProjectTranslationRun(projectId, runId);
@@ -418,12 +418,12 @@ export async function handleDocumentProjectRequest(req: Request, res: Response, 
       const runId = pathParts[5]!;
       const run = store.getRun(projectId, runId);
       if (['completed', 'cancelled', 'failed'].includes(run.status)) {
-        sendJson(res, 409, { error: '运行已经结束：' + run.status, run });
+        sendApiError(res, 409, '运行已经结束：' + run.status, '运行已经结束：' + run.status, { run });
         return true;
       }
       if (!store.setRunStatus(projectId, runId, 'cancelled', '用户请求停止')) {
         const latest = store.getRun(projectId, runId);
-        sendJson(res, 409, { error: '运行已结束，不能取消：' + latest.status, run: latest });
+        sendApiError(res, 409, '运行已结束，不能取消：' + latest.status, '运行已结束，不能取消：' + latest.status, { run: latest });
         return true;
       }
       store.markRunSegments(projectId, runId, run.segments.filter((item: any) => ['pending', 'running'].includes(item.status)).map((item: any) => item.id), 'cancelled');
@@ -453,7 +453,7 @@ export async function handleDocumentProjectRequest(req: Request, res: Response, 
     if (pathParts.length === 5 && pathParts[4] === 'quality-audit' && method === 'GET') {
       const auditId = url.searchParams.get('auditId') || undefined;
       const report = store.getQualityAudit(projectId, auditId);
-      if (!report) { sendJson(res, 404, { error: '尚无质量审计报告，请先执行 POST /quality-audit' }); return true; }
+      if (!report) { sendApiError(res, 404, '尚无质量审计报告，请先执行 POST /quality-audit'); return true; }
       sendJson(res, 200, { report });
       return true;
     }
@@ -520,7 +520,7 @@ export async function handleDocumentProjectRequest(req: Request, res: Response, 
       return true;
     }
 
-    sendJson(res, 404, { error: '未知文档项目端点：' + method + ' ' + url.pathname });
+    sendApiError(res, 404, '未知文档项目端点：' + method + ' ' + url.pathname);
     return true;
   } catch (error) {
     routeError(res, error);
