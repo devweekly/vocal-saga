@@ -36,6 +36,26 @@ export function sendJson(res: Response, status: number, body: unknown): void {
   res.status(status).set('Cache-Control', 'no-store').json(body);
 }
 
+/**
+ * Transitional API error envelope. Keep the legacy `error` field as a string;
+ * `message` and `code` are additive until all supported clients are verified.
+ */
+export function sendApiError(
+  res: Response,
+  status: number,
+  message: string,
+  code?: string,
+): void {
+  const stableCode = code || (status === 400 ? 'BAD_REQUEST'
+    : status === 401 ? 'UNAUTHENTICATED'
+      : status === 403 ? 'FORBIDDEN'
+        : status === 404 ? 'NOT_FOUND'
+          : status === 409 ? 'CONFLICT'
+            : status === 413 ? 'PAYLOAD_TOO_LARGE'
+              : status >= 500 ? 'INTERNAL_ERROR' : 'REQUEST_FAILED');
+  sendJson(res, status, { error: message, message, code: stableCode });
+}
+
 export function addCors(req: Request, res: Response): boolean {
   // A loopback service can still be targeted by a webpage open in the browser.
   // Permit browser extension origins only; allow command-line clients with no Origin header.
