@@ -114,5 +114,7 @@ export function chooseContextGraphStrategy(
   const configured = String(mode ?? 'ab').trim().toLowerCase();
   if (configured === 'a') return 'A';
   if (configured === 'b') return 'B';
-  return lastStrategy === 'A' ? 'B' : 'A';
+  // Prefer the checkpointed path on rollout so legacy projects benefit immediately.
+  // Subsequent runs alternate B/A for a practical control comparison.
+  return lastStrategy === 'B' ? 'A' : 'B';
 }
