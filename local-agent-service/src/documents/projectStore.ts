@@ -629,7 +629,7 @@ export class DocumentProjectStore {
         ).all() as Array<{ run_id: string }>;
         for (const run of legacyPausedRuns) {
           const terminal = db.prepare(
-            "SELECT 1 FROM project_events WHERE run_id = ? AND event_type IN ('run.finished','run.failed','run.completed','run.partial','run.cancelled','run.paused','run.awaiting_acceptance') LIMIT 1"
+            "SELECT 1 FROM project_events WHERE run_id = ? AND event_type IN ('run.finished','run.failed','run.completed','run.partial','run.cancelled','run.awaiting_acceptance') LIMIT 1"
           ).get(run.run_id);
           const error = '服务重启中断了这次运行；可在 Agent 面板恢复或放弃';
           db.prepare(
@@ -649,7 +649,7 @@ export class DocumentProjectStore {
           "SELECT r.run_id, r.status, r.error FROM translation_runs r " +
           "WHERE r.status IN ('failed','completed','partial','cancelled','awaiting_acceptance') " +
           "AND NOT EXISTS (SELECT 1 FROM project_events e WHERE e.run_id = r.run_id " +
-          "AND e.event_type IN ('run.finished','run.failed','run.completed','run.partial','run.cancelled','run.paused','run.awaiting_acceptance'))"
+          "AND e.event_type IN ('run.finished','run.failed','run.completed','run.partial','run.cancelled','run.awaiting_acceptance'))"
         ).all() as Array<{ run_id: string; status: string; error?: string | null }>;
         for (const run of terminalTranslationRows) {
           this.appendEvent(row.project_id, run.run_id, 'run.finished', {
