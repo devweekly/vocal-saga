@@ -294,3 +294,11 @@
 - **边界：** 这是源代码签名漂移检查，不是完整 OpenAPI；它不能证明所有路由均已登记，也不校验每个请求/响应 schema。下一步应通过 AST/路由注册结构或显式 route registry 做双向覆盖校验，再逐步补齐 schema 与 HTTP 契约测试。
 - 同步扩展了错误响应集成测试：非法 JSON 请求体应返回 400 和 `BAD_REQUEST`；拒绝的 Origin 应返回 403 和 `FORBIDDEN_ORIGIN`，旧 `error` 字段仍保留。
 - `server.ts` 的 Origin/Host 拒绝、JSON 解析失败及未处理异常现在也通过共享 `sendApiError` 输出顶层 `message` 和 `code`，并保留原来的字符串 `error`。
+
+
+## 8. 后续生命周期与错误响应收尾（2026-10-20）
+
+- 增加 Store 级回归测试：Run 取消后拒绝迟到的候选译文写入，取消终态不能回到 running，并验证没有候选译文落库。
+- 项目路由剩余两个 415（导入/上传 Content-Type 不匹配）和旧原文 Run 恢复时的 409，改用共享 `sendApiError`；保留字符串类型 `error`，并在 409 中保留 `run` 详情。
+- 之前 CI 暴露的 Context Graph readiness 测试 fixture 过期问题已在当前 `main` 修复：测试现在导入 `CONTEXT_GRAPH_ANALYSIS_VERSION`，不再硬编码旧的 v5 字符串。
+- 路由清单的签名漂移检查已在当前 `main` 存在；它仍不是完整 OpenAPI，也不能证明所有路由双向覆盖或校验请求/响应 schema。
