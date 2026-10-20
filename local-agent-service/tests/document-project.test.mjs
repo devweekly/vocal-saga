@@ -904,13 +904,15 @@ test('Run recovery after store re-open preserves candidate revisions and never r
     const recovered = restartedStore.getRun(project.projectId, run.runId);
     assert.equal(recovered.status, 'partial');
     assert.equal(recovered.runId, run.runId);
-    assert.equal(recovered.counts.candidate, 1);
+    const recoveredSegment = restartedStore.getSegments(project.projectId, { limit: 10, runId: run.runId })
+      .find((item) => item.id === 'ch1-p1');
     assert.equal(
-      restartedStore.getSegments(project.projectId, { limit: 10, runId: run.runId })
-        .find((item) => item.id === 'ch1-p1')?.candidateTranslation,
+      recoveredSegment?.candidateTranslation,
       '门仍然开着。',
       'candidate translation must remain available after service restart',
     );
+    assert.equal(recoveredSegment?.status, 'completed',
+      'a completed segment must not be returned to pending/running after restart');
 
     assert.equal(restartedStore.setRunStatus(project.projectId, run.runId, 'cancelled', 'user stop'), true);
     const afterCancelRestart = new DocumentProjectStore(root);
