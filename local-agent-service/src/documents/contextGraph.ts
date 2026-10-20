@@ -1130,9 +1130,15 @@ async function runAnalysis(projectId: string, runId: string): Promise<void> {
       );
     }
   }
+  const styleFieldCoverage = Object.fromEntries(
+    styleDimensions.map((field) => [field, !!safeText(data[field], 1000)]),
+  ) as Record<string, boolean>;
+  const styleRuleCount = uniqueStrings(data.styleRules, 24, 240).length;
+  const styleAvoidCount = uniqueStrings(data.styleAvoid, 16, 240).length;
+  const styleEvidenceCount = Array.isArray(data.styleEvidence) ? data.styleEvidence.length : 0;
   patchRunProgress(db, runId, {
     workflowElapsedMs: Date.now() - modelAnalysisStartedAt,
-    styleRepairUsed,
+    styleRepairUsed, styleFieldCoverage, styleRuleCount, styleAvoidCount, styleEvidenceCount,
   });
   const sourceById = new Map(segments.map((segment) => [segment.id, segment]));
   const allowedEvidence = new Map<string, Segment>();
@@ -1356,6 +1362,13 @@ async function runAnalysis(projectId: string, runId: string): Promise<void> {
         relationships: Array.isArray(data.relationships) ? data.relationships.length : 0,
         chapterSummaries: Array.isArray(data.chapterSummaries) ? data.chapterSummaries.length : 0,
       },
+      styleMetrics: {
+        fieldCoverage: styleFieldCoverage,
+        rules: styleRuleCount,
+        avoidRules: styleAvoidCount,
+        evidenceItems: styleEvidenceCount,
+        repaired: styleRepairUsed,
+      },
       persistedCounts: {
         characters: persistedNodes.filter((node) => node.kind === 'character').length,
         entities: persistedNodes.filter((node) => node.kind === 'entity').length,
@@ -1423,6 +1436,7 @@ async function runAnalysis(projectId: string, runId: string): Promise<void> {
       strategy,
       workflowVersion: CONTEXT_GRAPH_WORKFLOW_VERSION,
       workflowElapsedMs: Date.now() - modelAnalysisStartedAt,
+      styleRepairUsed, styleFieldCoverage, styleRuleCount, styleAvoidCount, styleEvidenceCount,
       ...(strategy === 'B' ? {
         completedStages: CONTEXT_GRAPH_WORKFLOW_STAGES.map((stage) => stage.id),
         stageResults: readRunProgress(db, runId).stageResults || [],
