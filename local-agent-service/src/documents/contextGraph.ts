@@ -514,6 +514,102 @@ function getMeta(db: DatabaseSync, revisionId: string, key: string): any {
   try { return JSON.parse(row.value); } catch { return null; }
 }
 
+type ContextGraphRunProgress = Record<string, any>;
+
+function readRunProgress(db: DatabaseSync, runId: string): ContextGraphRunProgress {
+  const row = db.prepare('SELECT progress_json FROM context_graph_runs WHERE run_id = ?').get(runId) as { progress_json?: string } | undefined;
+  try {
+    const value = row?.progress_json ? JSON.parse(row.progress_json) : {};
+    return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+  } catch { return {}; }
+}
+
+/** Merge a durable checkpoint into progress_json without deleting strategy or earlier stage results. */
+function patchRunProgress(db: DatabaseSync, runId: string, patch: Record<string, unknown>): ContextGraphRunProgress {
+  const next = { ...readRunProgress(db, runId), ...patch };
+  db.prepare('UPDATE context_graph_runs SET progress_json = ? WHERE run_id = ?').run(JSON.stringify(next), runId);
+  return next;
+}
+
+function workflowCheckpointKey(runId: string, stageId: ContextGraphWorkflowStageId): string {
+  return 'contextGraphCheckpoint:' + runId + ':' + stageId;
+}
+
+function workflowSessionKey(runId: string): string {
+  return 'contextGraphSession:' + runId;
+}
+
+function readLatestStrategy(db: DatabaseSync, revisionId: string): ContextGraphAnalysisStrategy | null {
+  const rows = db.prepare(
+    'SELECT progress_json FROM context_graph_runs WHERE source_revision_id = ? ORDER BY started_at DESC, rowid DESC LIMIT 30'
+  ).all(revisionId) as Array<{ progress_json?: string }>;
+  for (const row of rows) {
+    try {
+      const progress = JSON.parse(row.progress_json || '{}');
+      if (progress?.strategy === 'A' || progress?.strategy === 'B') return progress.strategy;
+    } catch { /* ignore old/malformed run metadata */ }
+  }
+  return null;
+}
+
+function persistWorkflowStageCheckpoint(
+  db: DatabaseSync,
+  revisionId: string,
+  runId: string,
+  stageId: ContextGraphWorkflowStageId,
+  output: Record<string, any>,
+  elapsedMs: number,
+  sampleIds: Set<string>,
+  samples: Segment[],
+  resumedFromRunId?: string,
+): void {
+  db.exec('BEGIN IMMEDIATE');
+  try {
+    saveMeta(db, revisionId, workflowCheckpointKey(runId, stageId), output);
+    // Keep a second durable pointer to outputs inherited from a prior interrupted B run.
+    if (resumedFromRunId) saveMeta(db, revisionId, workflowCheckpointKey(runId, stageId), output);
+    if (stageId === 'style') {
+      saveMeta(db, revisionId, 'bookSummary', safeText(output.bookSummary, 4000));
+      saveMeta(db, revisionId, 'narrativeStyle', safeText(output.narrativeStyle, 1200));
+      saveMeta(db, revisionId, 'styleRegister', safeText(output.styleRegister, 1000));
+      saveMeta(db, revisionId, 'styleRhythm', safeText(output.styleRhythm, 1000));
+      saveMeta(db, revisionId, 'styleDialogue', safeText(output.styleDialogue, 1000));
+      saveMeta(db, revisionId, 'styleDiction', safeText(output.styleDiction, 1000));
+      saveMeta(db, revisionId, 'styleRules', uniqueStrings(output.styleRules, 24, 240));
+      saveMeta(db, revisionId, 'styleAvoid', uniqueStrings(output.styleAvoid, 16, 240));
+      saveMeta(db, revisionId, 'styleEvidence', Array.isArray(output.styleEvidence) ? output.styleEvidence.filter((item: any) =>
+        item && typeof item.segmentId === 'string' && sampleIds.has(item.segmentId) &&
+        typeof item.quote === 'string' && item.quote.trim().length >= 8 &&
+        samples.some((sample) => sample.id === item.segmentId && sample.text.includes(item.quote.trim()))
+      ).slice(0, 40).map((item: any) => ({
+        dimension: safeText(item.dimension, 40), segmentId: item.segmentId,
+        quote: safeText(item.quote, 240), observation: safeText(item.observation, 300),
+      })) : []);
+    }
+    const progress = readRunProgress(db, runId);
+    const completedStages = Array.isArray(progress.completedStages) ? progress.completedStages as string[] : [];
+    const stageResults = Array.isArray(progress.stageResults) ? progress.stageResults as Array<Record<string, any>> : [];
+    const counts: Record<string, number> = {};
+    for (const [key, value] of Object.entries(output)) {
+      if (Array.isArray(value)) counts[key] = value.length;
+      else if (typeof value === 'string') counts[key] = value.length;
+    }
+    const stage = CONTEXT_GRAPH_WORKFLOW_STAGES.find((item) => item.id === stageId);
+    const resultSummary = { stage: stageId, label: stage?.label || stageId, elapsedMs, outputCounts: counts, completedAt: new Date().toISOString() };
+    const nextCompleted = Array.from(new Set([...completedStages, stageId]));
+    const nextResults = [...stageResults.filter((item) => item.stage !== stageId), resultSummary];
+    db.prepare('UPDATE context_graph_runs SET progress_json = ? WHERE run_id = ?').run(JSON.stringify({
+      ...progress, strategy: 'B', workflowVersion: CONTEXT_GRAPH_WORKFLOW_VERSION,
+      currentStage: null, completedStages: nextCompleted, stageResults: nextResults,
+    }), runId);
+    db.exec('COMMIT');
+  } catch (error) {
+    try { db.exec('ROLLBACK'); } catch { /* preserve checkpoint error */ }
+    throw error;
+  }
+}
+
+
 function validateEvidence(
   raw: unknown,
   samplesById: Map<string, Segment>,
