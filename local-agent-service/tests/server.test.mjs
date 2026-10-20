@@ -531,6 +531,13 @@ test('starts without LOCAL_AGENT_TOKEN, allows extension requests, and blocks we
 
   // SQLite cache survives independent requests and is cleared by its dedicated endpoint.
   const cacheKey = 'test-translation-cache-v1';
+  for (const ttlMs of [-1, 366 * 24 * 60 * 60 * 1000, 1.5, '60000']) {
+    const invalidTtl = await fetch(baseUrl + '/api/cache/translation/set', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ cacheKey: cacheKey + '-invalid', value: 'bad', ttlMs }),
+    });
+    assert.equal(invalidTtl.status, 400, 'invalid ttlMs must be rejected');
+  }
   const cacheSet = await fetch(baseUrl + '/api/cache/translation/set', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ cacheKey, value: { b1: '你好', b2: '世界' }, ttlMs: 60000 }),
