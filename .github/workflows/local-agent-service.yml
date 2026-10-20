@@ -28,6 +28,9 @@ jobs:
       - name: TypeScript typecheck
         working-directory: local-agent-service
         run: npm run typecheck
+      - name: Check API route manifest drift
+        working-directory: local-agent-service
+        run: npm run check:api-contract
       - name: Benchmark deterministic book scan (synthetic)
         working-directory: local-agent-service
         run: npm run benchmark:book-scan -- 20000 4
