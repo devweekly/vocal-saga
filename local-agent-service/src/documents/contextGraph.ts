@@ -1296,8 +1296,8 @@ export function getContextGraph(projectId: string): Record<string, unknown> {
   const nodes = db.prepare('SELECT * FROM context_graph_nodes WHERE source_revision_id = ? ORDER BY kind, name LIMIT 500').all(revisionId) as any[];
   const edges = db.prepare('SELECT * FROM context_graph_edges WHERE source_revision_id = ? ORDER BY kind LIMIT 800').all(revisionId) as any[];
   const runs = db.prepare('SELECT * FROM context_graph_runs WHERE source_revision_id = ? ORDER BY started_at DESC, rowid DESC LIMIT 10').all(revisionId) as any[];
-  // The completion event is written only after the analysis transaction commits. If a stale
-  // running status survives a crash/restart, reconcile it when the UI refreshes the graph.
+  // The completion event is committed with the graph transaction. This read still reconciles
+  // databases created by older versions, where the row and terminal event could diverge.
   for (const run of runs) {
     if (!['queued', 'running'].includes(String(run.status))) continue;
     const completion = db.prepare(
