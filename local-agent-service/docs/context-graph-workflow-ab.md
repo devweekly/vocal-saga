@@ -8,7 +8,7 @@
 
 ## 策略选择与 A/B 交替
 
-默认 `LOCAL_AGENT_CONTEXT_GRAPH_STRATEGY=ab`。新 Run 按最近一次策略交替：首次 A，之后 B、A、B……。策略与工作流版本写入 Run 的 `progress_json`，并追加 `context-graph.strategy.selected` 事件。完成事件记录策略、模型分析耗时、每个 B 阶段的耗时和输出计数，便于比较运行耗时、阶段成功率和产出质量。
+默认 `LOCAL_AGENT_CONTEXT_GRAPH_STRATEGY=ab`。为让旧版本升级后的第一次重分析直接获得阶段检查点，首次新 Run 采用 B；之后按最近一次策略交替：B、A、B、A……。策略与工作流版本写入 Run 的 `progress_json`，并追加 `context-graph.strategy.selected` 事件。完成事件记录策略、模型分析耗时、文风完整度、规则/证据计数以及每个 B 阶段的耗时和输出计数，便于比较运行耗时、阶段成功率和产出质量。
 
 | 配置 | 行为 |
 | --- | --- |
