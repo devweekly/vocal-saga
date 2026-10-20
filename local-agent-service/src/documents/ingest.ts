@@ -117,7 +117,7 @@ function zipDirectory(buffer: Buffer): Map<string, ZipEntry> {
     const name = path.posix.normalize(rawName);
     if (name.startsWith('../') || name === '..' || name.startsWith('/')) fail('ZIP 包含不安全的文件路径。');
     expandedTotal += size;
-    if (expandedTotal > MAX_EXPANDED_BYTES) fail('解压后的文档超过 80 MiB 安全上限。', 413);
+    if (expandedTotal > MAX_EXPANDED_BYTES) fail('解压后的文档超过 ' + Math.round(MAX_EXPANDED_BYTES / 1024 / 1024) + ' MiB 安全上限。', 413);
     if (!rawName.endsWith('/')) entries.set(name, { name, method, compressedSize, size, localOffset });
     offset = end;
   }
@@ -393,7 +393,7 @@ function parseEpub(bytes: Buffer, fileName: string): ProjectSegment[] {
         });
         localIndex++;
       });
-      if (segments.length > MAX_SEGMENTS) fail('EPUB 正文片段超过 20000 项上限；请拆分 EPUB 后分项目导入。', 413);
+      if (segments.length > MAX_SEGMENTS) fail('EPUB 正文片段超过 ' + MAX_SEGMENTS + ' 项上限；请调整服务端解析策略或拆分文档。', 413);
     }
   }
   if (!segments.length) fail('EPUB spine 中没有可提取的 XHTML 正文。', 415);
