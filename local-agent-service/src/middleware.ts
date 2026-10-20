@@ -45,6 +45,7 @@ export function sendApiError(
   status: number,
   message: string,
   legacyError: string | Record<string, unknown> = message,
+  details: Record<string, unknown> = {},
 ): void {
   const code = status === 400 ? 'BAD_REQUEST'
     : status === 401 ? 'UNAUTHENTICATED'
@@ -53,7 +54,7 @@ export function sendApiError(
           : status === 409 ? 'CONFLICT'
             : status === 413 ? 'PAYLOAD_TOO_LARGE'
               : status >= 500 ? 'INTERNAL_ERROR' : 'REQUEST_FAILED';
-  sendJson(res, status, { error: legacyError, message, code });
+  sendJson(res, status, { ...details, error: legacyError, message, code });
 }
 
 export function addCors(req: Request, res: Response): boolean {
