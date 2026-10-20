@@ -1,0 +1,336 @@
+{
+  "version": 1,
+  "status": "inventory",
+  "generatedFrom": [
+    "src/routes.ts",
+    "src/documents/projectRoutes.ts",
+    "src/server.ts"
+  ],
+  "note": "Route inventory and source-drift guard; not a complete OpenAPI schema. Request/response schemas and parameter-level coverage remain follow-up work.",
+  "routes": [
+    {
+      "method": "GET",
+      "path": "/health",
+      "source": "src/routes.ts",
+      "signature": "url.pathname === '/health'"
+    },
+    {
+      "method": "GET",
+      "path": "/api/settings/diagnostics",
+      "source": "src/routes.ts",
+      "signature": "url.pathname === '/api/settings/diagnostics'"
+    },
+    {
+      "method": "GET",
+      "path": "/v1/models",
+      "source": "src/routes.ts",
+      "signature": "url.pathname === '/v1/models'"
+    },
+    {
+      "method": "GET",
+      "path": "/api/codebuddy/models",
+      "source": "src/routes.ts",
+      "signature": "url.pathname === '/api/codebuddy/models'"
+    },
+    {
+      "method": "GET",
+      "path": "/api/history",
+      "source": "src/routes.ts",
+      "signature": "url.pathname === '/api/history'"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/history",
+      "source": "src/routes.ts",
+      "signature": "url.pathname === '/api/history'"
+    },
+    {
+      "method": "POST",
+      "path": "/api/cache/translation/get",
+      "source": "src/routes.ts",
+      "signature": "url.pathname === '/api/cache/translation/get'"
+    },
+    {
+      "method": "POST",
+      "path": "/api/cache/translation/set",
+      "source": "src/routes.ts",
+      "signature": "url.pathname === '/api/cache/translation/set'"
+    },
+    {
+      "method": "POST",
+      "path": "/api/cache/translation/delete",
+      "source": "src/routes.ts",
+      "signature": "url.pathname === '/api/cache/translation/delete'"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/cache/translation",
+      "source": "src/routes.ts",
+      "signature": "url.pathname === '/api/cache/translation'"
+    },
+    {
+      "method": "POST",
+      "path": "/api/documents/session/summary",
+      "source": "src/routes.ts",
+      "signature": "url.pathname === '/api/documents/session/summary'"
+    },
+    {
+      "method": "POST",
+      "path": "/api/documents/session/get",
+      "source": "src/routes.ts",
+      "signature": "url.pathname === '/api/documents/session/get'"
+    },
+    {
+      "method": "POST",
+      "path": "/api/documents/session/save",
+      "source": "src/routes.ts",
+      "signature": "url.pathname === '/api/documents/session/save'"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/documents/session/{sessionId}",
+      "source": "src/routes.ts",
+      "signature": "url.pathname.startsWith('/api/documents/session/')"
+    },
+    {
+      "method": "POST",
+      "path": "/api/documents/batches",
+      "source": "src/routes.ts",
+      "signature": "url.pathname === '/api/documents/batches'"
+    },
+    {
+      "method": "GET",
+      "path": "/api/config/task-prompts",
+      "source": "src/routes.ts",
+      "signature": "url.pathname === '/api/config/task-prompts'"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/chat/completions",
+      "source": "src/routes.ts",
+      "signature": "url.pathname === '/v1/chat/completions'"
+    },
+    {
+      "method": "POST",
+      "path": "/api/translate/document/literary/analyze",
+      "source": "src/routes.ts",
+      "signature": "url.pathname.endsWith('/analyze')"
+    },
+    {
+      "method": "POST",
+      "path": "/api/translate/document/literary/review",
+      "source": "src/routes.ts",
+      "signature": "url.pathname.endsWith('/review')"
+    },
+    {
+      "method": "GET",
+      "path": "/api/documents/projects",
+      "source": "src/documents/projectRoutes.ts",
+      "signature": "pathParts.length === 3 && method === 'GET'"
+    },
+    {
+      "method": "POST",
+      "path": "/api/documents/projects",
+      "source": "src/documents/projectRoutes.ts",
+      "signature": "pathParts.length === 3 && method === 'POST'"
+    },
+    {
+      "method": "POST",
+      "path": "/api/documents/projects/{projectId}/resolve",
+      "source": "src/documents/projectRoutes.ts",
+      "signature": "pathParts[3] === 'resolve' && method === 'POST'"
+    },
+    {
+      "method": "POST",
+      "path": "/api/documents/projects/{projectId}/import-file",
+      "source": "src/documents/projectRoutes.ts",
+      "signature": "pathParts[3] === 'import-file' && method === 'POST'"
+    },
+    {
+      "method": "GET",
+      "path": "/api/documents/projects/{projectId}",
+      "source": "src/documents/projectRoutes.ts",
+      "signature": "pathParts.length === 4 && method === 'GET'"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/documents/projects/{projectId}",
+      "source": "src/documents/projectRoutes.ts",
+      "signature": "pathParts.length === 4 && method === 'DELETE'"
+    },
+    {
+      "method": "POST",
+      "path": "/api/documents/projects/{projectId}/source-file",
+      "source": "src/documents/projectRoutes.ts",
+      "signature": "pathParts[4] === 'source-file' && method === 'POST'"
+    },
+    {
+      "method": "POST",
+      "path": "/api/documents/projects/{projectId}/source",
+      "source": "src/documents/projectRoutes.ts",
+      "signature": "pathParts[4] === 'source' && method === 'POST'"
+    },
+    {
+      "method": "POST",
+      "path": "/api/documents/projects/{projectId}/translations/import",
+      "source": "src/documents/projectRoutes.ts",
+      "signature": "pathParts[4] === 'translations' && pathParts[5] === 'import'"
+    },
+    {
+      "method": "GET",
+      "path": "/api/documents/projects/{projectId}/segments",
+      "source": "src/documents/projectRoutes.ts",
+      "signature": "pathParts[4] === 'segments' && method === 'GET'"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/documents/projects/{projectId}/segments/{segmentId}/translation",
+      "source": "src/documents/projectRoutes.ts",
+      "signature": "pathParts[6] === 'translation' && method === 'PUT'"
+    },
+    {
+      "method": "GET",
+      "path": "/api/documents/projects/{projectId}/prompts",
+      "source": "src/documents/projectRoutes.ts",
+      "signature": "pathParts[4] === 'prompts' && method === 'GET'"
+    },
+    {
+      "method": "POST",
+      "path": "/api/documents/projects/{projectId}/prompts",
+      "source": "src/documents/projectRoutes.ts",
+      "signature": "pathParts[4] === 'prompts' && method === 'POST'"
+    },
+    {
+      "method": "GET",
+      "path": "/api/documents/projects/{projectId}/context-graph/status",
+      "source": "src/documents/projectRoutes.ts",
+      "signature": "pathParts[5] === 'status' && method === 'GET'"
+    },
+    {
+      "method": "GET",
+      "path": "/api/documents/projects/{projectId}/context-graph",
+      "source": "src/documents/projectRoutes.ts",
+      "signature": "pathParts[4] === 'context-graph' && method === 'GET'"
+    },
+    {
+      "method": "POST",
+      "path": "/api/documents/projects/{projectId}/context-graph/analyze",
+      "source": "src/documents/projectRoutes.ts",
+      "signature": "pathParts[5] === 'analyze' && method === 'POST'"
+    },
+    {
+      "method": "POST",
+      "path": "/api/documents/projects/{projectId}/context-graph/review",
+      "source": "src/documents/projectRoutes.ts",
+      "signature": "pathParts[5] === 'review' && method === 'POST'"
+    },
+    {
+      "method": "GET",
+      "path": "/api/documents/projects/{projectId}/literary-memory",
+      "source": "src/documents/projectRoutes.ts",
+      "signature": "pathParts[4] === 'literary-memory' && method === 'GET'"
+    },
+    {
+      "method": "POST",
+      "path": "/api/documents/projects/{projectId}/literary-memory",
+      "source": "src/documents/projectRoutes.ts",
+      "signature": "pathParts[4] === 'literary-memory' && method === 'POST'"
+    },
+    {
+      "method": "GET",
+      "path": "/api/documents/projects/{projectId}/runs/{runId}/translation-briefs",
+      "source": "src/documents/projectRoutes.ts",
+      "signature": "pathParts[6] === 'translation-briefs' && method === 'GET'"
+    },
+    {
+      "method": "GET",
+      "path": "/api/documents/projects/{projectId}/runs",
+      "source": "src/documents/projectRoutes.ts",
+      "signature": "pathParts[4] === 'runs' && method === 'GET'"
+    },
+    {
+      "method": "POST",
+      "path": "/api/documents/projects/{projectId}/runs",
+      "source": "src/documents/projectRoutes.ts",
+      "signature": "pathParts[4] === 'runs' && method === 'POST'"
+    },
+    {
+      "method": "POST",
+      "path": "/api/documents/projects/{projectId}/runs/{runId}/resume",
+      "source": "src/documents/projectRoutes.ts",
+      "signature": "pathParts[6] === 'resume' && method === 'POST'"
+    },
+    {
+      "method": "POST",
+      "path": "/api/documents/projects/{projectId}/runs/{runId}/cancel",
+      "source": "src/documents/projectRoutes.ts",
+      "signature": "pathParts[6] === 'cancel' && method === 'POST'"
+    },
+    {
+      "method": "POST",
+      "path": "/api/documents/projects/{projectId}/runs/{runId}/accept",
+      "source": "src/documents/projectRoutes.ts",
+      "signature": "pathParts[6] === 'accept' && method === 'POST'"
+    },
+    {
+      "method": "POST",
+      "path": "/api/documents/projects/{projectId}/runs/{runId}/findings/{findingId}",
+      "source": "src/documents/projectRoutes.ts",
+      "signature": "pathParts[6] === 'findings' && method === 'POST'"
+    },
+    {
+      "method": "GET",
+      "path": "/api/documents/projects/{projectId}/quality-audit",
+      "source": "src/documents/projectRoutes.ts",
+      "signature": "pathParts[4] === 'quality-audit' && method === 'GET'"
+    },
+    {
+      "method": "POST",
+      "path": "/api/documents/projects/{projectId}/quality-audit",
+      "source": "src/documents/projectRoutes.ts",
+      "signature": "pathParts[4] === 'quality-audit' && method === 'POST'"
+    },
+    {
+      "method": "POST",
+      "path": "/api/documents/projects/{projectId}/quality-audit/repair",
+      "source": "src/documents/projectRoutes.ts",
+      "signature": "pathParts[5] === 'repair' && method === 'POST'"
+    },
+    {
+      "method": "POST",
+      "path": "/api/documents/projects/{projectId}/quality-evaluations",
+      "source": "src/documents/projectRoutes.ts",
+      "signature": "pathParts[4] === 'quality-evaluations' && method === 'POST'"
+    },
+    {
+      "method": "GET",
+      "path": "/api/documents/projects/{projectId}/quality-evaluations/{evaluationId}",
+      "source": "src/documents/projectRoutes.ts",
+      "signature": "pathParts[4] === 'quality-evaluations' && method === 'GET'"
+    },
+    {
+      "method": "POST",
+      "path": "/api/documents/projects/{projectId}/quality-evaluations/{evaluationId}/reviews",
+      "source": "src/documents/projectRoutes.ts",
+      "signature": "pathParts[6] === 'reviews' && method === 'POST'"
+    },
+    {
+      "method": "GET",
+      "path": "/api/documents/projects/{projectId}/verify",
+      "source": "src/documents/projectRoutes.ts",
+      "signature": "pathParts[4] === 'verify' && method === 'GET'"
+    },
+    {
+      "method": "GET",
+      "path": "/api/documents/projects/{projectId}/events",
+      "source": "src/documents/projectRoutes.ts",
+      "signature": "pathParts[4] === 'events' && method === 'GET'"
+    },
+    {
+      "method": "GET",
+      "path": "/api/documents/projects/{projectId}/runs/{runId}",
+      "source": "src/documents/projectRoutes.ts",
+      "signature": "pathParts.length === 6 && pathParts[4] === 'runs' && method === 'GET'"
+    }
+  ]
+}
