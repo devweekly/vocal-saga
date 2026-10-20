@@ -11,7 +11,7 @@ import {
   ALLOWED_HOSTS, LOCAL_TOKEN, WORKBUDDY_FREE_MODELS, REQUEST_TIMEOUT_MS, ANALYSIS_TIMEOUT_MS,
 } from './config.ts';
 import { initDatabase } from './db.ts';
-import { sendJson, addCors, isAllowedHost, assertExposureIsSafe, requestHostname } from './middleware.ts';
+import { sendApiError, sendJson, addCors, isAllowedHost, assertExposureIsSafe, requestHostname } from './middleware.ts';
 import { handleRequest } from './routes.ts';
 import { getTextPool } from './agents/workbuddyPool.ts';
 import { getDocumentProjectStore } from './documents/projectStore.ts';
@@ -67,12 +67,12 @@ export function startLocalAgentServer() {
   // Run the origin/Host checks before parsing potentially large request bodies.
   app.use((req: Request, res: Response, next: NextFunction) => {
     if (!addCors(req, res)) {
-      sendJson(res, 403, { error: '本机服务不接受普通网页来源；请从浏览器扩展或本机命令行调用' });
+      sendApiError(res, 403, '本机服务不接受普通网页来源；请从浏览器扩展或本机命令行调用');
       return;
     }
     const hostname = requestHostname(req);
     if (!isAllowedHost(hostname, ALLOWED_HOSTS)) {
-      sendJson(res, 403, { error: '此服务只允许通过 localhost/127.0.0.1 或已配置的隧道域名访问' });
+      sendApiError(res, 403, '此服务只允许通过 localhost/127.0.0.1 或已配置的隧道域名访问');
       return;
     }
     if (req.method === 'OPTIONS') {
@@ -91,7 +91,7 @@ export function startLocalAgentServer() {
       // 之前这里直接回 500、终端什么都不打印：故障现场只剩浏览器里的一句错误。
       const tail = errorStackTail(error);
       logError('http', req.method + ' ' + requestPath(req.originalUrl) + ' 未处理异常 · ' + summarizeError(error) + (tail ? ' · ' + tail : ''));
-      if (!res.headersSent) sendJson(res, 500, { error: error instanceof Error ? error.message : String(error) });
+      if (!res.headersSent) sendApiError(res, 500, error instanceof Error ? error.message : String(error));
       else res.end();
     });
   });
@@ -101,13 +101,12 @@ export function startLocalAgentServer() {
       (req.originalUrl.split('?')[0]!.startsWith('/api/documents') ? MAX_DOCUMENT_BODY_BYTES : MAX_BODY_BYTES) / 1024 / 1024,
     );
     logWarn('http', req.method + ' ' + requestPath(req.originalUrl) + ' 请求被拒绝 → ' + status + ' · ' + summarizeError(error));
-    sendJson(res, status, {
-      error: status === 413
-        ? '请求体超过 ' + limitMb + ' MiB 上限'
-        : status === 400
-          ? '请求体不是有效的 JSON'
-          : '本机服务内部错误',
-    });
+    const message = status === 413
+      ? '请求体超过 ' + limitMb + ' MiB 上限'
+      : status === 400
+        ? '请求体不是有效的 JSON'
+        : '本机服务内部错误';
+    sendApiError(res, status, message);
   });
 
   const server = app.listen(PORT, HOST, () => {
