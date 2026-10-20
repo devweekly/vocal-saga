@@ -830,9 +830,14 @@ async function runAnalysis(projectId: string, runId: string): Promise<void> {
   const store = getDocumentProjectStore();
   const { db, revisionId, segments } = readSegments(projectId);
   const startedAt = new Date().toISOString();
+  const initialProgress = readRunProgress(db, runId);
+  const strategy: ContextGraphAnalysisStrategy = initialProgress.strategy === 'B' ? 'B' : 'A';
   db.prepare('UPDATE context_graph_runs SET status = \'running\', phase = \'sample\', started_at = ?, progress_json = ? WHERE run_id = ?')
-    .run(startedAt, JSON.stringify({ segmentCount: segments.length }), runId);
-  store.appendEvent(projectId, runId, 'context-graph.phase', { phase: 'sample', segmentCount: segments.length });
+    .run(startedAt, JSON.stringify({ ...initialProgress, segmentCount: segments.length }), runId);
+  store.appendEvent(projectId, runId, 'context-graph.phase', {
+    phase: 'sample', segmentCount: segments.length, strategy,
+    ...(initialProgress.resumedFromRunId ? { resumedFromRunId: initialProgress.resumedFromRunId } : {}),
+  });
   writeChapterSnapshots(db, revisionId, segments);
 
   const scanStartedAt = Date.now();
@@ -918,12 +923,12 @@ async function runAnalysis(projectId: string, runId: string): Promise<void> {
     samples, chapters, scan, sampleReasons,
   );
 
-  db.prepare('UPDATE context_graph_runs SET phase = \'model-analysis\', progress_json = ? WHERE run_id = ?')
-    .run(JSON.stringify({
-      sampleCount: samples.length, chapterCount: chapters.length,
-      sourceLang, targetLang,
-      provider: agent.provider, model: agent.model, scan: scanSummary,
-    }), runId);
+  patchRunProgress(db, runId, {
+    sampleCount: samples.length, chapterCount: chapters.length,
+    sourceLang, targetLang, provider: agent.provider, model: agent.model, scan: scanSummary,
+    scanDurationMs, sampleIds: samples.map((sample) => sample.id),
+  });
+  db.prepare('UPDATE context_graph_runs SET phase = \'model-analysis\' WHERE run_id = ?').run(runId);
   const latestPrompt = store.listPrompts(projectId)[0];
   const taskProfile = getCodeBuddyTaskProfile({ taskProfiles: latestPrompt?.config?.taskProfiles || {} }, 'contextGraph');
   store.appendEvent(projectId, runId, 'context-graph.phase', {
@@ -940,23 +945,129 @@ async function runAnalysis(projectId: string, runId: string): Promise<void> {
       dialogueSegmentCount: scan.dialogueSegmentCount, targetedNameCount: samplePlan.diagnostics.targetedNameCount,
     },
   });
-  const analysisRun = await runAgentStructured(
-    { provider: agent.provider, model: agent.model },
-    prompt,
-    DEFAULT_CONTEXT_GRAPH_SYSTEM_PROMPT,
-    ANALYSIS_SCHEMA,
-    runId,
-    'context-graph:' + projectId + ':' + revisionId + ':' + runId,
-    taskProfile,
-    // 全书分析在一次调用里处理数十段样本，输出人物/实体/关系/章节摘要，
-    // 用翻译批次的 180s 阈值会把正常的慢分析误判为超时。
-    { timeoutMs: ANALYSIS_TIMEOUT_MS },
-  );
-  // 每轮 token 计量只进日志（预处理非计费重点）；形状校验逻辑保持不变。
-  if (analysisRun.usage) logInfo('context-graph', formatTurnUsageLog(analysisRun.usage));
-  const output = analysisRun.result;
-  if (!output || Array.isArray(output)) throw new Error('Context Graph 分析返回了非对象结果。');
-  const data = output as Record<string, any>;
+  const modelAnalysisStartedAt = Date.now();
+  let data: Record<string, any>;
+  let workflowSessionId = safeText(getMeta(db, revisionId, workflowSessionKey(runId)), 500);
+  if (!workflowSessionId && initialProgress.resumedFromRunId) {
+    workflowSessionId = safeText(getMeta(db, revisionId, workflowSessionKey(String(initialProgress.resumedFromRunId))), 500);
+    if (workflowSessionId) saveMeta(db, revisionId, workflowSessionKey(runId), workflowSessionId);
+  }
+
+  if (strategy === 'B') {
+    const resumeFromRunId = typeof initialProgress.resumedFromRunId === 'string' ? initialProgress.resumedFromRunId : '';
+    const checkpointSourceRunId = resumeFromRunId || runId;
+    const completedBefore = new Set<string>(Array.isArray(initialProgress.completedStages) ? initialProgress.completedStages : []);
+    const aggregate: Record<string, any> = {};
+    const stageTimeoutConfigured = Number(process.env.LOCAL_AGENT_CONTEXT_GRAPH_STAGE_TIMEOUT_MS);
+    const stageTimeoutMs = Number.isFinite(stageTimeoutConfigured) && stageTimeoutConfigured > 0
+      ? Math.min(ANALYSIS_TIMEOUT_MS, stageTimeoutConfigured)
+      : Math.min(ANALYSIS_TIMEOUT_MS, 5 * 60 * 1000);
+
+    for (const stage of CONTEXT_GRAPH_WORKFLOW_STAGES) {
+      const checkpoint = completedBefore.has(stage.id)
+        ? getMeta(db, revisionId, workflowCheckpointKey(checkpointSourceRunId, stage.id))
+        : null;
+      const validCheckpoint = checkpoint && typeof checkpoint === 'object' && !Array.isArray(checkpoint) &&
+        stage.fields.every((field) => Object.prototype.hasOwnProperty.call(checkpoint, field));
+      if (validCheckpoint) {
+        Object.assign(aggregate, checkpoint);
+        if (checkpointSourceRunId !== runId) saveMeta(db, revisionId, workflowCheckpointKey(runId, stage.id), checkpoint);
+        logInfo('context-graph', '恢复已保存阶段 · ' + stage.id + ' · run=' + runId.slice(0, 8));
+        continue;
+      }
+
+      const prior = readRunProgress(db, runId);
+      const completedStages = Array.isArray(prior.completedStages) ? prior.completedStages : [];
+      patchRunProgress(db, runId, {
+        strategy: 'B', workflowVersion: CONTEXT_GRAPH_WORKFLOW_VERSION,
+        currentStage: stage.id, completedStages,
+      });
+      db.prepare('UPDATE context_graph_runs SET phase = ? WHERE run_id = ?').run(stage.phase, runId);
+      store.appendEvent(projectId, runId, 'context-graph.phase', {
+        phase: stage.phase, strategy: 'B', stage: stage.id, stageLabel: stage.label,
+        stageIndex: CONTEXT_GRAPH_WORKFLOW_STAGES.findIndex((item) => item.id === stage.id) + 1,
+        stageCount: CONTEXT_GRAPH_WORKFLOW_STAGES.length, completedStageCount: completedStages.length,
+      });
+
+      const stagePrompt = buildContextGraphWorkflowPrompt(
+        stage.id, prompt, aggregate,
+        agent.provider === 'workbuddy' && !!workflowSessionId,
+      );
+      const stageSchema = buildContextGraphWorkflowSchema(ANALYSIS_SCHEMA, stage.id);
+      const stageStartedAt = Date.now();
+      const stageRun = await runAgentStructured(
+        { provider: agent.provider, model: agent.model },
+        stagePrompt,
+        DEFAULT_CONTEXT_GRAPH_SYSTEM_PROMPT,
+        stageSchema,
+        runId + ':' + stage.id,
+        'context-graph:' + projectId + ':' + revisionId + ':' + runId,
+        taskProfile,
+        {
+          timeoutMs: stageTimeoutMs,
+          ...(agent.provider === 'workbuddy' ? {
+            persistSession: true,
+            ...(workflowSessionId ? { sessionId: workflowSessionId } : {}),
+            onSessionId: (sessionId: string) => {
+              workflowSessionId = sessionId;
+              saveMeta(db, revisionId, workflowSessionKey(runId), sessionId);
+            },
+          } : {}),
+        },
+      );
+      if (stageRun.usage) logInfo('context-graph', 'B 阶段 ' + stage.id + ' · ' + formatTurnUsageLog(stageRun.usage));
+      if (!stageRun.result || Array.isArray(stageRun.result)) {
+        throw new Error('Context Graph 工作流阶段 ' + stage.id + ' 返回了非对象结果。');
+      }
+      const stageOutput = stageRun.result as Record<string, any>;
+      const missingFields = stage.fields.filter((field) => !Object.prototype.hasOwnProperty.call(stageOutput, field));
+      if (missingFields.length) {
+        throw new Error('Context Graph 工作流阶段 ' + stage.id + ' 缺少结构化字段：' + missingFields.join(', '));
+      }
+      if (stageRun.sessionId && agent.provider === 'workbuddy') {
+        workflowSessionId = stageRun.sessionId;
+        saveMeta(db, revisionId, workflowSessionKey(runId), workflowSessionId);
+      }
+      persistWorkflowStageCheckpoint(
+        db, revisionId, runId, stage.id, stageOutput, Date.now() - stageStartedAt,
+        sampleIds, samples,
+      );
+      Object.assign(aggregate, stageOutput);
+    }
+
+    data = aggregate;
+    patchRunProgress(db, runId, {
+      strategy: 'B', workflowVersion: CONTEXT_GRAPH_WORKFLOW_VERSION,
+      currentStage: null, workflowElapsedMs: Date.now() - modelAnalysisStartedAt,
+      completedStages: CONTEXT_GRAPH_WORKFLOW_STAGES.map((stage) => stage.id),
+    });
+  } else {
+    const analysisRun = await runAgentStructured(
+      { provider: agent.provider, model: agent.model },
+      prompt,
+      DEFAULT_CONTEXT_GRAPH_SYSTEM_PROMPT,
+      ANALYSIS_SCHEMA,
+      runId,
+      'context-graph:' + projectId + ':' + revisionId + ':' + runId,
+      taskProfile,
+      { timeoutMs: ANALYSIS_TIMEOUT_MS },
+    );
+    if (analysisRun.usage) logInfo('context-graph', formatTurnUsageLog(analysisRun.usage));
+    const output = analysisRun.result;
+    if (!output || Array.isArray(output)) throw new Error('Context Graph 分析返回了非对象结果。');
+    data = output as Record<string, any>;
+    patchRunProgress(db, runId, {
+      strategy: 'A', workflowVersion: CONTEXT_GRAPH_WORKFLOW_VERSION,
+      currentStage: null, workflowElapsedMs: Date.now() - modelAnalysisStartedAt,
+    });
+  }
+
+  const missingStyleDimensions = ['narrativeStyle', 'styleRegister', 'styleRhythm', 'styleDialogue', 'styleDiction']
+    .filter((field) => !safeText(data[field], 1000));
+  if (missingStyleDimensions.length) {
+    throw new Error('Context Graph 分析响应缺少有效的文风维度（' + missingStyleDimensions.join('、') +
+      '）。本轮未标记为完成；可重试，系统会保留 B 方案已保存的阶段结果。');
+  }
   const sourceById = new Map(segments.map((segment) => [segment.id, segment]));
   const allowedEvidence = new Map<string, Segment>();
   for (const id of sampleIds) {
