@@ -44,7 +44,7 @@ const commonRoutes = manifestBySource.get('src/routes.ts') || [];
 const commonConditions = commonSource.matchAll(/if\s*\(([\s\S]*?)\)\s*\{/g);
 for (const match of commonConditions) {
   const condition = match[1];
-  if (!condition.includes('req.method') || !condition.includes('url.pathname')) continue;
+  if (!/req\.method\s*===/.test(condition) || !condition.includes('url.pathname')) continue;
   const method = condition.match(/req\.method\s*===\s*'([A-Z]+)'/)?.[1];
   assert.ok(method, `could not determine HTTP method from route condition: ${condition}`);
   assert.ok(
