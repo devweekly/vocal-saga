@@ -531,6 +531,13 @@ test('starts without LOCAL_AGENT_TOKEN, allows extension requests, and blocks we
 
   // SQLite cache survives independent requests and is cleared by its dedicated endpoint.
   const cacheKey = 'test-translation-cache-v1';
+  for (const ttlMs of [-1, 366 * 24 * 60 * 60 * 1000, 1.5, '60000']) {
+    const invalidTtl = await fetch(baseUrl + '/api/cache/translation/set', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ cacheKey: cacheKey + '-invalid', value: 'bad', ttlMs }),
+    });
+    assert.equal(invalidTtl.status, 400, 'invalid ttlMs must be rejected');
+  }
   const cacheSet = await fetch(baseUrl + '/api/cache/translation/set', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ cacheKey, value: { b1: '你好', b2: '世界' }, ttlMs: 60000 }),
@@ -632,6 +639,27 @@ test('starts without LOCAL_AGENT_TOKEN, allows extension requests, and blocks we
   assert.equal(deltaReload.session.payload.snapshot.total, 4);
   assert.equal(deltaReload.session.payload.snapshot.done, 2);
   assert.equal(Object.hasOwn(deltaReload.session.payload, 'translationDelta'), false);
+
+  // Project-route contract: malformed pagination is rejected before Store access.
+  // The legacy string-valued `error` field stays intact; additive message/code fields
+  // provide a migration path for clients without breaking the existing extension.
+  const createdProjectResponse = await fetch(baseUrl + '/api/documents/projects', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      title: 'API contract validation', format: 'txt', sourceFileName: 'api-contract.txt',
+      allowDuplicate: true, segments: [{ id: 'p1', text: 'A sentence.', kind: 'paragraph' }],
+    }),
+  });
+  assert.equal(createdProjectResponse.status, 201);
+  const createdProject = await createdProjectResponse.json();
+  const invalidPagination = await fetch(
+    baseUrl + '/api/documents/projects/' + encodeURIComponent(createdProject.project.projectId) + '/segments?limit=1.5',
+  );
+  assert.equal(invalidPagination.status, 400);
+  const invalidPaginationBody = await invalidPagination.json();
+  assert.equal(typeof invalidPaginationBody.error, 'string', 'legacy error field must remain a string');
+  assert.equal(invalidPaginationBody.message, invalidPaginationBody.error);
+  assert.equal(invalidPaginationBody.code, 'BAD_REQUEST');
 
   const deniedOrigin = await fetch(baseUrl + '/v1/models', {
     method: 'OPTIONS',

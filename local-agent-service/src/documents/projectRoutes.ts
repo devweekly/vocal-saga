@@ -27,7 +27,15 @@ function routeError(res: Response, error: unknown): void {
   const value = error as { status?: number; message?: string };
   const status = Number.isInteger(value?.status) && Number(value.status) >= 400 && Number(value.status) < 600
     ? Number(value.status) : 500;
-  sendJson(res, status, { error: value?.message || String(error) });
+  const message = value?.message || String(error);
+  // Transitional additive contract: preserve the legacy string-valued `error` field
+  // for existing extension clients, while exposing stable fields for new consumers.
+  const code = status === 400 ? 'BAD_REQUEST'
+    : status === 404 ? 'NOT_FOUND'
+      : status === 409 ? 'CONFLICT'
+        : status === 413 ? 'PAYLOAD_TOO_LARGE'
+          : status >= 500 ? 'INTERNAL_ERROR' : 'REQUEST_FAILED';
+  sendJson(res, status, { error: message, message, code });
 }
 async function readRawSourceBody(req: Request, maxBytes: number): Promise<Buffer> {
   const chunks: Buffer[] = [];
@@ -273,20 +281,31 @@ export async function handleDocumentProjectRequest(req: Request, res: Response, 
       return true;
     }
     if (pathParts.length === 5 && pathParts[4] === 'segments' && method === 'GET') {
-      const limit = Number.parseInt(url.searchParams.get('limit') || '250', 10);
-      const offset = Number.parseInt(url.searchParams.get('offset') || '0', 10);
+      const rawLimit = url.searchParams.get('limit');
+      const rawOffset = url.searchParams.get('offset');
+      const parsedLimit = rawLimit === null ? 250 : Number(rawLimit);
+      const parsedOffset = rawOffset === null ? 0 : Number(rawOffset);
+      if (!Number.isSafeInteger(parsedLimit) || parsedLimit < 1 || parsedLimit > 1000) {
+        throw Object.assign(new Error('limit 必须是 1-1000 的整数'), { status: 400 });
+      }
+      if (!Number.isSafeInteger(parsedOffset) || parsedOffset < 0) {
+        throw Object.assign(new Error('offset 必须是非负整数'), { status: 400 });
+      }
       const runId = url.searchParams.get('runId') || undefined;
       sendJson(res, 200, {
         project: store.getProject(projectId),
-        segments: store.getSegments(projectId, { limit, offset, runId }),
-        limit: Math.max(1, Math.min(1000, Number.isFinite(limit) ? limit : 250)),
-        offset: Math.max(0, Number.isFinite(offset) ? offset : 0),
+        segments: store.getSegments(projectId, { limit: parsedLimit, offset: parsedOffset, runId }),
+        limit: parsedLimit,
+        offset: parsedOffset,
       });
       return true;
     }
     if (pathParts.length === 7 && pathParts[4] === 'segments' && pathParts[6] === 'translation' && method === 'PUT') {
       const body = bodyObject(req.body);
-      const saved = store.saveManualEdit(projectId, pathParts[5]!, String(body.text ?? ''));
+      if (typeof body.text !== 'string') {
+        throw Object.assign(new Error('text 必须是字符串；如需清空译文，请显式传入空字符串'), { status: 400 });
+      }
+      const saved = store.saveManualEdit(projectId, pathParts[5]!, body.text);
       sendJson(res, 200, saved);
       return true;
     }
@@ -356,7 +375,12 @@ export async function handleDocumentProjectRequest(req: Request, res: Response, 
       return true;
     }
     if (pathParts.length === 5 && pathParts[4] === 'runs' && method === 'GET') {
-      sendJson(res, 200, { runs: store.listRuns(projectId, Number.parseInt(url.searchParams.get('limit') || '50', 10)) });
+      const rawLimit = url.searchParams.get('limit');
+      const limit = rawLimit === null ? 50 : Number(rawLimit);
+      if (!Number.isSafeInteger(limit) || limit < 1 || limit > 200) {
+        throw Object.assign(new Error('limit 必须是 1-200 的整数'), { status: 400 });
+      }
+      sendJson(res, 200, { runs: store.listRuns(projectId, limit) });
       return true;
     }
     if (pathParts.length === 5 && pathParts[4] === 'runs' && method === 'POST') {
@@ -460,7 +484,11 @@ export async function handleDocumentProjectRequest(req: Request, res: Response, 
     }
     if (pathParts.length === 5 && pathParts[4] === 'quality-evaluations' && method === 'POST') {
       const body = bodyObject(req.body);
-      const evaluation = createProjectQualityEvaluation(projectId, String(body.beforeRunId || ''), String(body.afterRunId || ''));
+      if (typeof body.beforeRunId !== 'string' || !body.beforeRunId.trim() ||
+          typeof body.afterRunId !== 'string' || !body.afterRunId.trim()) {
+        throw Object.assign(new Error('beforeRunId 和 afterRunId 必须是非空字符串'), { status: 400 });
+      }
+      const evaluation = createProjectQualityEvaluation(projectId, body.beforeRunId.trim(), body.afterRunId.trim());
       sendJson(res, 201, { evaluation });
       return true;
     }
@@ -479,9 +507,17 @@ export async function handleDocumentProjectRequest(req: Request, res: Response, 
       return true;
     }
     if (pathParts.length === 5 && pathParts[4] === 'events' && method === 'GET') {
-      const after = Number.parseInt(url.searchParams.get('after') || '0', 10);
+      const rawAfter = url.searchParams.get('after');
+      const rawLimit = url.searchParams.get('limit');
+      const after = rawAfter === null ? 0 : Number(rawAfter);
+      const limit = rawLimit === null ? 200 : Number(rawLimit);
+      if (!Number.isSafeInteger(after) || after < 0) {
+        throw Object.assign(new Error('after 必须是非负整数'), { status: 400 });
+      }
+      if (!Number.isSafeInteger(limit) || limit < 1 || limit > 1000) {
+        throw Object.assign(new Error('limit 必须是 1-1000 的整数'), { status: 400 });
+      }
       const runId = url.searchParams.get('runId') || undefined;
-      const limit = Number.parseInt(url.searchParams.get('limit') || '200', 10);
       const latest = url.searchParams.get('latest') === 'true';
       sendJson(res, 200, { events: store.getEvents(projectId, runId, after, limit, latest) });
       return true;

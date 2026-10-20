@@ -246,3 +246,32 @@
 5. P2 对 `/api/documents/batches`、session get/delete 和 TranslationBrief 查询制定兼容/弃用策略。
 6. 所有接口删除前，必须完成 CLI/外部脚本/已发布旧版扩展的调用关系核实。
 
+
+
+## 7. P0/P1/P2 首轮修复记录（2026-10-20）
+
+代码修改位于分支 `fix/local-agent-api-contracts-20261020`，尚待 CI 验证：
+
+| 优先级 | 修复 | 状态 | 备注 |
+|---|---|---|---|
+| P0 | segments 分页参数先验证再查询，响应参数与实际查询参数一致 | 已修改，待 CI | limit 仅接受 1–1000 的整数；offset 必须为非负安全整数；非法值返回 400 |
+| P0 | cache TTL 校验 | 已修改，待 CI | 仅接受整数 0–365 天；负数、浮点、字符串、超上限值返回 400；未传时使用 7 天默认值 |
+| P0 | session ID 校验 | 已修改，待 CI | summary/get/save 要求 1–500 字符；DELETE 捕获 URI 解码错误并拒绝空值、超长值和包含斜杠的路径参数 |
+| P0 | 人工译文字段校验 | 已修改，待 CI | text 必须显式为字符串；允许显式空字符串表示清空译文，不再将缺失/null 隐式转换为空字符串 |
+| P0 | 质量评估 Run ID 校验 | 已修改，待 CI | beforeRunId、afterRunId 必须是非空字符串 |
+| P1 | Runs/events 分页参数 | 已修改，待 CI | Runs limit 为 1–200；events after 为非负整数、limit 为 1–1000；非法值返回 400 |
+| P1 | 错误 DTO 统一 | 未完成 | 当前通用路由与项目路由错误体仍存在差异。统一前需先核对扩展错误解析并引入兼容字段/契约测试，避免破坏当前客户端 |
+| P1 | OpenAPI/route manifest 与全端点契约测试 | 未完成 | 本次没有引入自动生成规范，避免在未核实所有 schema 的情况下发布不完整的契约 |
+| P1 | 长任务幂等、取消边界与并发状态 | 未完成 | 需要针对执行器与持久化状态机增加并发/集成测试，不能仅靠 HTTP 参数修补宣称完成 |
+| P2 | batches、session get/delete、TranslationBrief 的弃用策略 | 未完成最终决策 | 暂不删除；矩阵中的消费者证据与兼容性结论仍作为决策依据 |
+| P2 | 未定位消费者接口的弃用标记 | 未完成 | 尚未添加运行时 deprecation header；需先定义支持窗口和扩展最低兼容版本 |
+
+### 验证状态
+
+- 已添加 cache TTL 非法输入的 HTTP 集成测试。
+- 尚未在本次远程源码编辑环境执行 `npm run typecheck` 或 `npm test`；所有“已修改”项目均应以 CI 结果为最终验收依据。
+
+
+## 8. 后续契约与长任务策略
+
+新增 `local-agent-service/API_CONTRACT_AND_LIFECYCLE_POLICY.md`，记录错误 DTO 的分阶段兼容迁移原则、长任务 Run 生命周期的验收条件、遗留接口保留/弃用门槛，以及正式 OpenAPI 发布前的完整性要求。该文件明确区分当前已观察行为和目标契约，不把尚未实现的测试条件写成已完成能力。
