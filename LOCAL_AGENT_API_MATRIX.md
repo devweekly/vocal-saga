@@ -260,7 +260,7 @@
 | P0 | 人工译文字段校验 | 已修改，待 CI | text 必须显式为字符串；允许显式空字符串表示清空译文，不再将缺失/null 隐式转换为空字符串 |
 | P0 | 质量评估 Run ID 校验 | 已修改，待 CI | beforeRunId、afterRunId 必须是非空字符串 |
 | P1 | Runs/events 分页参数 | 已修改，待 CI | Runs limit 为 1–200；events after 为非负整数、limit 为 1–1000；非法值返回 400 |
-| P1 | 错误 DTO 统一 | 未完成 | 当前通用路由与项目路由错误体仍存在差异。统一前需先核对扩展错误解析并引入兼容字段/契约测试，避免破坏当前客户端 |
+| P1 | 错误 DTO 统一 | 部分完成 | 当前已引入共享 sendApiError，并在多类错误响应中增加 message/code，同时保留 legacy error 类型；仍需对照全部路由完成覆盖审计与契约测试 |
 | P1 | OpenAPI/route manifest 与全端点契约测试 | 未完成 | 本次没有引入自动生成规范，避免在未核实所有 schema 的情况下发布不完整的契约 |
 | P1 | 长任务幂等、取消边界与并发状态 | 未完成 | 需要针对执行器与持久化状态机增加并发/集成测试，不能仅靠 HTTP 参数修补宣称完成 |
 | P2 | batches、session get/delete、TranslationBrief 的弃用策略 | 未完成最终决策 | 暂不删除；矩阵中的消费者证据与兼容性结论仍作为决策依据 |
@@ -275,3 +275,12 @@
 ## 8. 后续契约与长任务策略
 
 新增 `local-agent-service/API_CONTRACT_AND_LIFECYCLE_POLICY.md`，记录错误 DTO 的分阶段兼容迁移原则、长任务 Run 生命周期的验收条件、遗留接口保留/弃用门槛，以及正式 OpenAPI 发布前的完整性要求。该文件明确区分当前已观察行为和目标契约，不把尚未实现的测试条件写成已完成能力。
+
+
+## 9. 当前 main 的错误响应迁移状态（2026-10-20）
+
+后续提交已将共享 `sendApiError` 合入 main：它保留每个端点既有的 `error` 值（字符串或对象），并附加顶层 `message` 与稳定的 `code`。缓存 TTL、常见 session 参数、项目路由异常、Host/Origin 拒绝、body-parser 错误和未知端点已有相关改造/测试。
+
+该工作属于兼容迁移而非“全路由契约已完成”。仍需扫描直接返回的业务错误、验证所有 status/code 映射，并建立 route manifest/OpenAPI 漂移检查。Run 生命周期的并发与取消验收也仍未完成。
+
+CI 曾暴露一个与本次错误响应无关的陈旧测试：`run-automation.test.mjs` 把 Context Graph 版本硬编码为 v5，而当前实现已升级。修复测试应引用 `CONTEXT_GRAPH_ANALYSIS_VERSION` 常量，避免下次版本升级再次失效。
