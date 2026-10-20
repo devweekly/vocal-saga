@@ -1135,7 +1135,7 @@ async function runAnalysis(projectId: string, runId: string): Promise<void> {
     });
     db.exec('COMMIT');
   } catch (error) {
-    db.exec('ROLLBACK');
+    try { db.exec('ROLLBACK'); } catch { /* preserve the original analysis error */ }
     throw error;
   }
 }
