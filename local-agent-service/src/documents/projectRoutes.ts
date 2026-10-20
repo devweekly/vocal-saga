@@ -27,7 +27,15 @@ function routeError(res: Response, error: unknown): void {
   const value = error as { status?: number; message?: string };
   const status = Number.isInteger(value?.status) && Number(value.status) >= 400 && Number(value.status) < 600
     ? Number(value.status) : 500;
-  sendJson(res, status, { error: value?.message || String(error) });
+  const message = value?.message || String(error);
+  // Transitional additive contract: preserve the legacy string-valued `error` field
+  // for existing extension clients, while exposing stable fields for new consumers.
+  const code = status === 400 ? 'BAD_REQUEST'
+    : status === 404 ? 'NOT_FOUND'
+      : status === 409 ? 'CONFLICT'
+        : status === 413 ? 'PAYLOAD_TOO_LARGE'
+          : status >= 500 ? 'INTERNAL_ERROR' : 'REQUEST_FAILED';
+  sendJson(res, status, { error: message, message, code });
 }
 async function readRawSourceBody(req: Request, maxBytes: number): Promise<Buffer> {
   const chunks: Buffer[] = [];
