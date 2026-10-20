@@ -413,6 +413,7 @@ export function buildProjectVoiceContext(
   const memory = sanitizeProjectLiteraryMemory(memoryInput);
   // The caller applies the configured temporal boundary. Do not impose a second, smaller
   // fixed window here: every supplied preceding segment may resolve a voice or relationship.
+  const visiblePreceding = precedingSegments;
   const source = [...visiblePreceding, ...segments].map((item) => item.text).join('\n').toLocaleLowerCase();
   const precedingById = new Map(visiblePreceding.map((item) => [item.id, item]));
   const precedingIds = new Set(precedingById.keys());
