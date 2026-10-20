@@ -552,7 +552,7 @@ export function planBookSamples(segmentsInput:BookScanSegment[],scanInput?:BookS
       add(byId.get(chapter.firstSegmentId),'chapter-distribution:first:'+chapter.key,baseLimit);
       add(byId.get(chapter.middleSegmentId),'chapter-distribution:middle:'+chapter.key,baseLimit);
     }
-    const entityPhaseLimit=Math.min(limit-10,62),nameCandidates=scan.nameCandidates.slice(0,MAX_NAME_CANDIDATES_FOR_SAMPLING);
+    const entityPhaseLimit=Math.min(limit-24,48),nameCandidates=scan.nameCandidates.slice(0,MAX_NAME_CANDIDATES_FOR_SAMPLING);
     for(const candidate of nameCandidates){
       if(picked.size>=entityPhaseLimit)break;
       add(byId.get(candidate.earlySegmentId||''),'entity-early:'+candidate.name,entityPhaseLimit);
