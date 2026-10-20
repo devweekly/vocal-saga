@@ -67,6 +67,10 @@ HTTP 入口在 `server.ts` 中统一完成 loopback 绑定、Host/Origin 检查�
 14. **缓存清理与单键删除端点需要核实调用方。** 已发现扩展调用 translation cache get；应继续确认 set、单键 delete、全量 delete 是否分别有消费者，不能只因它们是 CRUD 对称接口就认定无用。
 15. **`GET /api/settings/diagnostics`、`GET /api/codebuddy/models`、`GET /api/config/task-prompts`、`GET /api/history` 等工具型端点需要逐项记录消费者。** 有些可能只用于设置页/诊断，也可能是人工调试接口；无调用方不一定意味着应删除，需决定是否正式支持、仅限诊断或迁移到 CLI。
 
+## 3.1 API 资产矩阵
+
+第一轮静态清单已单独维护在根目录 [`LOCAL_AGENT_API_MATRIX.md`](./LOCAL_AGENT_API_MATRIX.md)。它记录当前已识别的 method/path、用途、调用方证据、初步风险和待确认事项。该矩阵尚不是最终 API 契约，也不把“未确认调用”直接判定为死接口；整改时应先补齐精确消费者与请求/响应结构。
+
 ## 4. 执行计划
 
 ### Phase 0：建立完整 API 资产清单（只读）
