@@ -537,6 +537,9 @@ test('starts without LOCAL_AGENT_TOKEN, allows extension requests, and blocks we
       body: JSON.stringify({ cacheKey: cacheKey + '-invalid', value: 'bad', ttlMs }),
     });
     assert.equal(invalidTtl.status, 400, 'invalid ttlMs must be rejected');
+    const invalidTtlBody = await invalidTtl.json();
+    assert.equal(invalidTtlBody.error, invalidTtlBody.message);
+    assert.equal(invalidTtlBody.code, 'BAD_REQUEST');
   }
   const cacheSet = await fetch(baseUrl + '/api/cache/translation/set', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -660,6 +663,14 @@ test('starts without LOCAL_AGENT_TOKEN, allows extension requests, and blocks we
   assert.equal(typeof invalidPaginationBody.error, 'string', 'legacy error field must remain a string');
   assert.equal(invalidPaginationBody.message, invalidPaginationBody.error);
   assert.equal(invalidPaginationBody.code, 'BAD_REQUEST');
+
+  const unknownEndpoint = await fetch(baseUrl + '/api/not-a-real-route');
+  assert.equal(unknownEndpoint.status, 404);
+  const unknownEndpointBody = await unknownEndpoint.json();
+  assert.equal(unknownEndpointBody.code, 'NOT_FOUND');
+  assert.equal(typeof unknownEndpointBody.message, 'string');
+  assert.equal(unknownEndpointBody.error.message, unknownEndpointBody.message,
+    'legacy object-valued error for unknown endpoints must remain compatible');
 
   const deniedOrigin = await fetch(baseUrl + '/v1/models', {
     method: 'OPTIONS',
