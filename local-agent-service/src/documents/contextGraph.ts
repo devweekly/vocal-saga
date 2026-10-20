@@ -1065,7 +1065,9 @@ async function runAnalysis(projectId: string, runId: string): Promise<void> {
     ...(!Array.isArray(value.styleRules) || uniqueStrings(value.styleRules, 24, 240).length === 0 ? ['styleRules'] : []),
   ];
   let missingStyleDimensions = findMissingStyleFields(data);
+  let styleRepairUsed = false;
   if (missingStyleDimensions.length) {
+    styleRepairUsed = true;
     // Some providers treat a JSON schema as shape guidance and still emit empty strings.
     // Repair only these fields rather than falsely completing a run with an empty style guide.
     logWarn('context-graph', '文风字段为空，启动定向补全 · strategy=' + strategy + ' · fields=' + missingStyleDimensions.join(','));
@@ -1109,6 +1111,10 @@ async function runAnalysis(projectId: string, runId: string): Promise<void> {
       );
     }
   }
+  patchRunProgress(db, runId, {
+    workflowElapsedMs: Date.now() - modelAnalysisStartedAt,
+    styleRepairUsed,
+  });
   const sourceById = new Map(segments.map((segment) => [segment.id, segment]));
   const allowedEvidence = new Map<string, Segment>();
   for (const id of sampleIds) {
