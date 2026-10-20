@@ -166,7 +166,51 @@ export function readSourceFeatureIndex(db: DatabaseSync, revisionId: string): St
   return { sourceRevisionId: revisionId, indexVersion: BOOK_SCAN_INDEX_VERSION, sourceSegmentCount: rows.length, diagnostics: meta, segments: indexed };
 }
 
-const activeAnalyses = new Set<string>();
+// Track the exact live run; a project-level boolean cannot distinguish stale runs from another revision.
+const activeAnalyses = new Map<string, string>();
+
+function reconcileOrphanedContextGraphRun(projectId: string, db: DatabaseSync, runId: string, reason: string): void {
+  db.exec('BEGIN IMMEDIATE');
+  try {
+    const row = db.prepare(
+      "SELECT status FROM context_graph_runs WHERE run_id = ? AND status IN ('queued','running')"
+    ).get(runId) as { status?: string } | undefined;
+    if (!row) {
+      db.exec('COMMIT');
+      return;
+    }
+
+    const terminal = db.prepare(
+      "SELECT event_type, payload_json, created_at FROM project_events WHERE run_id = ? AND event_type IN ('context-graph.completed','context-graph.failed') ORDER BY event_id DESC LIMIT 1"
+    ).get(runId) as { event_type: string; payload_json?: string; created_at?: string } | undefined;
+    const now = new Date().toISOString();
+
+    if (terminal?.event_type === 'context-graph.completed') {
+      db.prepare(
+        "UPDATE context_graph_runs SET status = 'completed', phase = 'completed', finished_at = COALESCE(finished_at, ?), error = NULL WHERE run_id = ? AND status IN ('queued','running')"
+      ).run(terminal.created_at || now, runId);
+    } else if (terminal?.event_type === 'context-graph.failed') {
+      let payload: Record<string, any> = {};
+      try { payload = JSON.parse(terminal.payload_json || '{}'); } catch { payload = {}; }
+      db.prepare(
+        "UPDATE context_graph_runs SET status = 'failed', phase = 'failed', finished_at = COALESCE(finished_at, ?), error = COALESCE(error, ?) WHERE run_id = ? AND status IN ('queued','running')"
+      ).run(terminal.created_at || now, String(payload.error || reason), runId);
+    } else {
+      const changed = db.prepare(
+        "UPDATE context_graph_runs SET status = 'failed', phase = 'failed', error = ?, finished_at = COALESCE(finished_at, ?) WHERE run_id = ? AND status IN ('queued','running')"
+      ).run(reason, now, runId);
+      if (changed.changes > 0) {
+        getDocumentProjectStore().appendEvent(projectId, runId, 'context-graph.failed', {
+          error: reason, recovery: 'orphan-run', reason: 'no-live-analysis-in-current-process',
+        });
+      }
+    }
+    db.exec('COMMIT');
+  } catch (error) {
+    try { db.exec('ROLLBACK'); } catch { /* preserve the reconciliation error */ }
+    throw error;
+  }
+}
 
 const initializedDbs = new WeakSet<DatabaseSync>();
 
@@ -1069,7 +1113,6 @@ async function runAnalysis(projectId: string, runId: string): Promise<void> {
         },
         scan: scanSummary,
       }), now, runId);
-    db.exec('COMMIT');
     const canonicalNameMappingCount = persistedNodes.filter((node) => {
       const row = db.prepare('SELECT attributes_json FROM context_graph_nodes WHERE node_id = ?').get(node.id) as { attributes_json?: string } | undefined;
       try { return !!safeText(JSON.parse(row?.attributes_json || '{}').suggestedTranslation, 120); } catch { return false; }
@@ -1090,6 +1133,7 @@ async function runAnalysis(projectId: string, runId: string): Promise<void> {
       sourceLang, targetLang,
       analysisVersion: CONTEXT_GRAPH_ANALYSIS_VERSION,
     });
+    db.exec('COMMIT');
   } catch (error) {
     db.exec('ROLLBACK');
     throw error;
@@ -1110,9 +1154,19 @@ export function startContextGraphAnalysis(
   if (!segmentCount) throw Object.assign(new Error('当前来源版本没有可分析的文档片段。'), { status: 409 });
   assertNoActiveTranslation(projectId, db, options.ignoreQueuedRunId);
   const existing = db.prepare(
-    'SELECT run_id FROM context_graph_runs WHERE source_revision_id = ? AND status IN (\'queued\', \'running\') ORDER BY started_at DESC LIMIT 1'
+    "SELECT run_id FROM context_graph_runs WHERE source_revision_id = ? AND status IN ('queued','running') ORDER BY started_at DESC, rowid DESC LIMIT 1"
   ).get(revisionId) as { run_id?: string } | undefined;
-  if (existing?.run_id) return { accepted: true, alreadyRunning: true, runId: existing.run_id };
+  if (existing?.run_id && activeAnalyses.get(projectId) === existing.run_id) {
+    return { accepted: true, alreadyRunning: true, runId: existing.run_id };
+  }
+  if (existing?.run_id) {
+    // A database row alone is not proof that a live analysis still exists. Heal orphaned
+    // rows before accepting a new request, including force-reanalyze requests.
+    reconcileOrphanedContextGraphRun(
+      projectId, db, existing.run_id,
+      '检测到没有对应执行任务的陈旧预处理记录；旧任务已收敛为失败，可重新分析。',
+    );
+  }
   // Do not persist a queued run that cannot start while another source revision is being analyzed.
   if (activeAnalyses.has(projectId)) {
     throw Object.assign(new Error('该项目的上一轮 Context Graph 分析仍在运行，请稍后重试。'), { status: 409 });
@@ -1121,21 +1175,28 @@ export function startContextGraphAnalysis(
   db.prepare(
     'INSERT INTO context_graph_runs(run_id, source_revision_id, status, phase, progress_json, started_at) VALUES (?, ?, \'queued\', \'queued\', ?, ?)'
   ).run(runId, revisionId, JSON.stringify({}), new Date().toISOString());
-  activeAnalyses.add(projectId);
+  activeAnalyses.set(projectId, runId);
   void runAnalysis(projectId, runId).catch((error) => {
     const message = (error instanceof Error ? error.message : String(error)).slice(0, 2000);
     try {
       const context = getDocumentProjectStore().getProjectContext(projectId);
       ensureSchema(context.db);
-      context.db.prepare('UPDATE context_graph_runs SET status = \'failed\', phase = \'failed\', error = ?, finished_at = ? WHERE run_id = ?')
-        .run(message, new Date().toISOString(), runId);
-      getDocumentProjectStore().appendEvent(projectId, runId, 'context-graph.failed', { error: message });
+      context.db.exec('BEGIN IMMEDIATE');
+      try {
+        context.db.prepare("UPDATE context_graph_runs SET status = 'failed', phase = 'failed', error = ?, finished_at = ? WHERE run_id = ?")
+          .run(message, new Date().toISOString(), runId);
+        getDocumentProjectStore().appendEvent(projectId, runId, 'context-graph.failed', { error: message, recovery: 'analysis-error' });
+        context.db.exec('COMMIT');
+      } catch (writeError) {
+        try { context.db.exec('ROLLBACK'); } catch { /* preserve the persistence error */ }
+        throw writeError;
+      }
     } catch (persistError) {
       logError('context-graph', 'unable to persist failure · ' + (persistError instanceof Error ? persistError.message : String(persistError)));
     }
     // context-graph.failed already writes a concise terminal summary with the same error.
     // Avoid dumping the same Error object/stack a second time for ordinary failures.
-  }).finally(() => activeAnalyses.delete(projectId));
+  }).finally(() => { if (activeAnalyses.get(projectId) === runId) activeAnalyses.delete(projectId); });
   return { accepted: true, alreadyRunning: false, runId };
 }
 
@@ -1161,9 +1222,23 @@ export function getContextGraphStatus(projectId: string, runId?: string): Record
       'SELECT COUNT(DISTINCT node_id) AS count FROM context_graph_evidence WHERE source_revision_id = ? AND node_id IS NOT NULL'
     ).get(revisionId) as any)?.count || 0),
   };
+  const activeRows = db.prepare(
+    "SELECT run_id FROM context_graph_runs WHERE source_revision_id = ? AND status IN ('queued','running')"
+  ).all(revisionId) as Array<{ run_id: string }>;
+  for (const activeRow of activeRows) {
+    if (activeAnalyses.get(projectId) !== activeRow.run_id) {
+      reconcileOrphanedContextGraphRun(
+        projectId, db, activeRow.run_id,
+        '检测到没有对应执行任务的陈旧预处理记录；已收敛为失败，可重新分析。',
+      );
+    }
+  }
+  const recentRows = db.prepare(
+    "SELECT * FROM context_graph_runs WHERE source_revision_id = ? ORDER BY CASE WHEN status IN ('queued','running') THEN 0 ELSE 1 END, started_at DESC, rowid DESC LIMIT 10"
+  ).all(revisionId) as any[];
   const row = runId
     ? db.prepare('SELECT * FROM context_graph_runs WHERE source_revision_id = ? AND run_id = ?').get(revisionId, runId) as any
-    : db.prepare('SELECT * FROM context_graph_runs WHERE source_revision_id = ? ORDER BY started_at DESC, rowid DESC LIMIT 1').get(revisionId) as any;
+    : (recentRows[0] || null);
   if (row && ['queued', 'running'].includes(String(row.status))) {
     // Recover a stale active status if completion was committed before process exit.
     const completion = db.prepare(
@@ -1187,10 +1262,16 @@ export function getContextGraphStatus(projectId: string, runId?: string): Record
   let progress: Record<string, any> = {};
   try { progress = row ? JSON.parse(row.progress_json) : {}; } catch { progress = {}; }
   const status = String(row?.status || 'not-started');
-  const run = row ? {
-    runId: row.run_id, status, phase: row.phase,
-    progress, startedAt: row.started_at, finishedAt: row.finished_at, error: row.error,
-  } : null;
+  const rowsForResponse = runId ? (row ? [row] : []) : recentRows;
+  const runs = rowsForResponse.map((item: any) => {
+    let itemProgress: Record<string, any> = {};
+    try { itemProgress = JSON.parse(item.progress_json || '{}'); } catch { itemProgress = {}; }
+    return {
+      runId: item.run_id, status: String(item.status || 'not-started'), phase: item.phase,
+      progress: itemProgress, startedAt: item.started_at, finishedAt: item.finished_at, error: item.error,
+      active: activeAnalyses.get(projectId) === item.run_id && ['queued', 'running'].includes(String(item.status)),
+    };
+  });
   // UI/status DTO only: never return graph nodes, edges, evidence or chapter summaries while polling.
   return {
     sourceRevisionId: revisionId, segmentCount,
@@ -1205,7 +1286,7 @@ export function getContextGraphStatus(projectId: string, runId?: string): Record
     },
     counts, status, phase: row?.phase || 'not-started', runId: row?.run_id || null,
     progress, startedAt: row?.started_at || null, finishedAt: row?.finished_at || null,
-    error: row?.error || '', runs: run ? [run] : [],
+    error: row?.error || '', runs,
   };
 }
 
