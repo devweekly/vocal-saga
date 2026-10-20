@@ -103,3 +103,10 @@ Do not label a hand-written partial schema as complete OpenAPI. Before publishin
 - Generate OpenAPI from the reviewed manifest or validate the manifest against the OpenAPI document in CI.
 
 The manifest should not become a second, untested source of truth. The implementation and executable tests remain authoritative until drift validation is in CI.
+
+
+## 9. Provider failure envelope and helper-level tests (2026-10-20)
+
+Non-OpenAI API provider failures now use the shared `sendApiError` mapping so status-to-code behavior is consistent with validation and middleware errors. The payload continues to include `requestId`, `provider`, `model`, `status`, and `durationMs`, while the legacy string-valued `error` remains available. `/v1/chat/completions` retains its dedicated OpenAI-compatible `error` object and snake_case metadata.
+
+A focused `tests/middleware.test.mjs` suite covers the helper's legacy error preservation, no-store header, details merging, and status-code mapping. These are source changes only until the repository's GitHub Actions run reports success; do not infer passing tests from the presence of assertions.
