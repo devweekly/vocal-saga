@@ -506,14 +506,17 @@ export async function handleDocumentProjectRequest(req: Request, res: Response, 
       const rawLimit = url.searchParams.get('limit');
       const after = rawAfter === null ? 0 : Number(rawAfter);
       const limit = rawLimit === null ? 200 : Number(rawLimit);
+      const latest = url.searchParams.get('latest') === 'true';
       if (!Number.isSafeInteger(after) || after < 0) {
         throw Object.assign(new Error('after 必须是非负整数'), { status: 400 });
       }
-      if (!Number.isSafeInteger(limit) || limit < 1 || limit > 1000) {
-        throw Object.assign(new Error('limit 必须是 1-1000 的整数'), { status: 400 });
+      // Initial trajectory hydration needs the newest window, not the first 5,000 historical rows.
+      // Keep incremental polling bounded, while allowing a larger latest-only snapshot.
+      const maxLimit = latest && after === 0 ? 5000 : 1000;
+      if (!Number.isSafeInteger(limit) || limit < 1 || limit > maxLimit) {
+        throw Object.assign(new Error('limit 必须是 1-' + maxLimit + ' 的整数'), { status: 400 });
       }
       const runId = url.searchParams.get('runId') || undefined;
-      const latest = url.searchParams.get('latest') === 'true';
       sendJson(res, 200, { events: store.getEvents(projectId, runId, after, limit, latest) });
       return true;
     }
