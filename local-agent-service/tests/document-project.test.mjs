@@ -364,6 +364,23 @@ test('literary memory has immutable revisions and each run keeps its original sn
   });
 });
 
+test('simultaneous Run creation requests cannot both acquire the workspace lock', async () => {
+  await withStore(async (store) => {
+    const project = store.createProject({ title: 'Concurrent Run creation', format: 'epub', segments });
+    ensureTestContextGraph(store, project);
+    const attempts = await Promise.allSettled([
+      Promise.resolve().then(() => store.createRun(project.projectId, { scope: { type: 'all' } })),
+      Promise.resolve().then(() => store.createRun(project.projectId, { scope: { type: 'all' } })),
+    ]);
+    assert.equal(attempts.filter((item) => item.status === 'fulfilled').length, 1);
+    assert.equal(attempts.filter((item) => item.status === 'rejected').length, 1);
+    const failure = attempts.find((item) => item.status === 'rejected');
+    assert.match(String(failure?.reason?.message || failure?.reason), /已有运行中的翻译任务/);
+    assert.equal(store.listRuns(project.projectId, 10).length, 1,
+      'a rejected concurrent create must not leave an orphan Run record');
+  });
+});
+
 test('one workspace cannot run two translation jobs concurrently', async () => {
   await withStore((store) => {
     const project = store.createProject({ title: 'Single Run', format: 'epub', segments });
