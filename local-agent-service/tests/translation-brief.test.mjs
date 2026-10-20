@@ -532,7 +532,7 @@ test('explicit confirmed glossary mappings without AI evidence activate on first
     'aliases present in the current source batch must remain available for exact name protection');
 });
 
-test('canonical mappings survive the TranslationBrief last-resort budget fallback', () => {
+test('canonical mappings and relevant context survive a legacy character budget preference', () => {
   const store = getDocumentProjectStore();
   const entities = [];
   const sourceParts = [];
@@ -590,9 +590,10 @@ test('canonical mappings survive the TranslationBrief last-resort budget fallbac
     .map((item) => ({ id: item.id, text: item.text, contextPath: item.contextPath }));
   const brief = buildTranslationBrief(context, [source], preceding);
 
-  assert.ok(brief.contextChars <= 4000);
+  assert.ok(brief.contextChars > 4000,
+    'legacy contextBudgetChars is not a hard ceiling; relevant context should not be silently removed');
   assert.ok(brief.contextGraph?.nameMappings?.length,
-    'the compact fallback must retain deterministic name mappings rather than nulling the entire graph: ' + JSON.stringify({
+    'all relevant name mappings should remain available without budget fallback: ' + JSON.stringify({
       mode: context.run.translationMode,
       memoryEntityCount: context.memory.entities.length,
       contextChars: brief.contextChars,
@@ -601,7 +602,7 @@ test('canonical mappings survive the TranslationBrief last-resort budget fallbac
   assert.ok(brief.contextGraph.nameMappings.some((item) => item.target === '规范译名00固定称呼'));
   assert.ok(brief.glossary.document_terms.some((item) =>
     item.source === 'Character00CanonicalName' && item.target === '规范译名00固定称呼'),
-    'an explicit static glossary entry should survive budget trimming before lower-priority context is discarded');
+    'an explicit static glossary entry must remain available when the legacy budget is exceeded');
 });
 
 
