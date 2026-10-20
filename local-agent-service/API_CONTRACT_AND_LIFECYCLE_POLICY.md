@@ -115,3 +115,10 @@ A focused `tests/middleware.test.mjs` suite covers the helper's legacy error pre
 ## 10. Error-code mapping follow-up (2026-10-20)
 
 The shared error helper now assigns explicit machine codes for HTTP 408 (`REQUEST_TIMEOUT`), 422 (`VALIDATION_ERROR`), and 429 (`RATE_LIMITED`) instead of grouping 429 under the generic `REQUEST_FAILED` fallback. Helper-level regression cases cover these statuses as well as 500/502/503/504. The assertions have been committed; their execution status must be taken from the matching GitHub Actions run, not inferred from source presence.
+
+
+## 11. Run lifecycle verification and OpenAPI coverage (2026-10-20)
+
+The document-project test suite now includes a durable-store reopen test for a partially completed Run: it verifies the Run remains discoverable, the candidate translation survives process-style Store reconstruction, and a cancelled Run cannot be queued again after another reconstruction. A concurrent-create regression test asserts that two simultaneous attempts cannot both acquire the workspace Run lock or leave an orphan Run.
+
+`openapi.json` introduces an OpenAPI 3.1 contract for the highest-risk Run collection/create, resume, and cancel endpoints, plus shared error DTO and Run schemas. `scripts/check-api-route-manifest.mjs` validates local OpenAPI references and required lifecycle operations in addition to the existing source/manifest drift checks. Coverage is intentionally marked `partial`: the 54-entry route manifest remains the route inventory, not a claim that every endpoint has a complete request/response schema. Remaining schema work is to expand the OpenAPI document route-by-route and make its validation mandatory in CI (the existing route-manifest CI step now performs the reference/coverage checks too).
