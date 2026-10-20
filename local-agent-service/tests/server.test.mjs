@@ -537,6 +537,9 @@ test('starts without LOCAL_AGENT_TOKEN, allows extension requests, and blocks we
       body: JSON.stringify({ cacheKey: cacheKey + '-invalid', value: 'bad', ttlMs }),
     });
     assert.equal(invalidTtl.status, 400, 'invalid ttlMs must be rejected');
+    const body = await invalidTtl.json();
+    assert.equal(body.message, body.error, 'validation error must expose the additive message field');
+    assert.equal(body.code, 'BAD_REQUEST');
   }
   const cacheSet = await fetch(baseUrl + '/api/cache/translation/set', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -670,6 +673,9 @@ test('starts without LOCAL_AGENT_TOKEN, allows extension requests, and blocks we
     },
   });
   assert.equal(deniedOrigin.status, 403, 'ordinary webpage origins must not access the local service');
+  const deniedOriginBody = await deniedOrigin.json();
+  assert.equal(deniedOriginBody.code, 'FORBIDDEN_ORIGIN');
+  assert.equal(deniedOriginBody.message, deniedOriginBody.error);
 
   const extensionOrigin = 'chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
   const allowedOrigin = await fetch(baseUrl + '/v1/models', {
