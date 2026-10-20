@@ -19,7 +19,7 @@
       "/api/documents/projects/{projectId}/runs/{runId}/cancel"
     ],
     "inventory": "api-route-manifest.json",
-    "followUp": "All manifest routes are listed, but only the durable Run lifecycle endpoints currently have endpoint-specific request/response schemas. Operations marked x-route-contract-level=inventory-only must be replaced with endpoint-specific schemas before claiming full contract coverage."
+    "followUp": "All manifest routes are listed. Project identity, segment editing, Prompt revision, Context Graph review, and durable Run lifecycle routes are documented beyond inventory level; remaining inventory-only operations must be documented before claiming full contract coverage."
   },
   "paths": {
     "/api/documents/projects/{projectId}/runs": {
@@ -907,10 +907,7 @@
       "parameters": [],
       "get": {
         "operationId": "get_api_documents_projects",
-        "summary": "GET /api/documents/projects",
-        "x-route-contract-level": "inventory-only",
-        "x-implementation-source": "src/documents/projectRoutes.ts",
-        "x-implementation-signature": "pathParts.length === 3 && method === 'GET'",
+        "summary": "List document projects",
         "responses": {
           "200": {
             "description": "Successful response; endpoint-specific response schema not yet documented.",
@@ -932,10 +929,7 @@
       },
       "post": {
         "operationId": "post_api_documents_projects",
-        "summary": "POST /api/documents/projects",
-        "x-route-contract-level": "inventory-only",
-        "x-implementation-source": "src/documents/projectRoutes.ts",
-        "x-implementation-signature": "pathParts.length === 3 && method === 'POST'",
+        "summary": "Create or resolve an existing document project",
         "responses": {
           "200": {
             "description": "Successful response; endpoint-specific response schema not yet documented.",
@@ -980,10 +974,7 @@
       ],
       "post": {
         "operationId": "post_api_documents_projects_projectId_resolve",
-        "summary": "POST /api/documents/projects/{projectId}/resolve",
-        "x-route-contract-level": "inventory-only",
-        "x-implementation-source": "src/documents/projectRoutes.ts",
-        "x-implementation-signature": "pathParts[3] === 'resolve' && method === 'POST'",
+        "summary": "Resolve a project by source identity",
         "responses": {
           "200": {
             "description": "Successful response; endpoint-specific response schema not yet documented.",
@@ -1076,10 +1067,7 @@
       ],
       "get": {
         "operationId": "get_api_documents_projects_projectId",
-        "summary": "GET /api/documents/projects/{projectId}",
-        "x-route-contract-level": "inventory-only",
-        "x-implementation-source": "src/documents/projectRoutes.ts",
-        "x-implementation-signature": "pathParts.length === 4 && method === 'GET'",
+        "summary": "Get project, verification and recent Runs",
         "responses": {
           "200": {
             "description": "Successful response; endpoint-specific response schema not yet documented.",
@@ -1101,10 +1089,7 @@
       },
       "delete": {
         "operationId": "delete_api_documents_projects_projectId",
-        "summary": "DELETE /api/documents/projects/{projectId}",
-        "x-route-contract-level": "inventory-only",
-        "x-implementation-source": "src/documents/projectRoutes.ts",
-        "x-implementation-signature": "pathParts.length === 4 && method === 'DELETE'",
+        "summary": "Archive a document project",
         "responses": {
           "200": {
             "description": "Successful response; endpoint-specific response schema not yet documented.",
@@ -1283,10 +1268,7 @@
       ],
       "get": {
         "operationId": "get_api_documents_projects_projectId_segments",
-        "summary": "GET /api/documents/projects/{projectId}/segments",
-        "x-route-contract-level": "inventory-only",
-        "x-implementation-source": "src/documents/projectRoutes.ts",
-        "x-implementation-signature": "pathParts[4] === 'segments' && method === 'GET'",
+        "summary": "List project segments",
         "responses": {
           "200": {
             "description": "Successful response; endpoint-specific response schema not yet documented.",
@@ -1330,10 +1312,7 @@
       ],
       "put": {
         "operationId": "put_api_documents_projects_projectId_segments_segmentId_translation",
-        "summary": "PUT /api/documents/projects/{projectId}/segments/{segmentId}/translation",
-        "x-route-contract-level": "inventory-only",
-        "x-implementation-source": "src/documents/projectRoutes.ts",
-        "x-implementation-signature": "pathParts[6] === 'translation' && method === 'PUT'",
+        "summary": "Save a manual segment translation",
         "responses": {
           "200": {
             "description": "Successful response; endpoint-specific response schema not yet documented.",
@@ -1378,10 +1357,7 @@
       ],
       "get": {
         "operationId": "get_api_documents_projects_projectId_prompts",
-        "summary": "GET /api/documents/projects/{projectId}/prompts",
-        "x-route-contract-level": "inventory-only",
-        "x-implementation-source": "src/documents/projectRoutes.ts",
-        "x-implementation-signature": "pathParts[4] === 'prompts' && method === 'GET'",
+        "summary": "List project Prompt revisions",
         "responses": {
           "200": {
             "description": "Successful response; endpoint-specific response schema not yet documented.",
@@ -1403,10 +1379,7 @@
       },
       "post": {
         "operationId": "post_api_documents_projects_projectId_prompts",
-        "summary": "POST /api/documents/projects/{projectId}/prompts",
-        "x-route-contract-level": "inventory-only",
-        "x-implementation-source": "src/documents/projectRoutes.ts",
-        "x-implementation-signature": "pathParts[4] === 'prompts' && method === 'POST'",
+        "summary": "Create a Prompt revision",
         "responses": {
           "200": {
             "description": "Successful response; endpoint-specific response schema not yet documented.",
@@ -1575,10 +1548,7 @@
       ],
       "post": {
         "operationId": "post_api_documents_projects_projectId_context_graph_review",
-        "summary": "POST /api/documents/projects/{projectId}/context-graph/review",
-        "x-route-contract-level": "inventory-only",
-        "x-implementation-source": "src/documents/projectRoutes.ts",
-        "x-implementation-signature": "pathParts[5] === 'review' && method === 'POST'",
+        "summary": "Review a Context Graph node or edge",
         "responses": {
           "200": {
             "description": "Successful response; endpoint-specific response schema not yet documented.",
@@ -1648,10 +1618,7 @@
       },
       "post": {
         "operationId": "post_api_documents_projects_projectId_literary_memory",
-        "summary": "POST /api/documents/projects/{projectId}/literary-memory",
-        "x-route-contract-level": "inventory-only",
-        "x-implementation-source": "src/documents/projectRoutes.ts",
-        "x-implementation-signature": "pathParts[4] === 'literary-memory' && method === 'POST'",
+        "summary": "Save a Literary Memory revision",
         "responses": {
           "200": {
             "description": "Successful response; endpoint-specific response schema not yet documented.",
