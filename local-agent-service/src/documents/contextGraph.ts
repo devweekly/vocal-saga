@@ -1062,11 +1062,55 @@ async function runAnalysis(projectId: string, runId: string): Promise<void> {
     });
   }
 
-  const missingStyleDimensions = ['narrativeStyle', 'styleRegister', 'styleRhythm', 'styleDialogue', 'styleDiction']
-    .filter((field) => !safeText(data[field], 1000));
+  const styleDimensions = ['narrativeStyle', 'styleRegister', 'styleRhythm', 'styleDialogue', 'styleDiction'];
+  const findMissingStyleFields = (value: Record<string, any>) => [
+    ...styleDimensions.filter((field) => !safeText(value[field], 1000)),
+    ...(!Array.isArray(value.styleRules) || uniqueStrings(value.styleRules, 24, 240).length === 0 ? ['styleRules'] : []),
+  ];
+  let missingStyleDimensions = findMissingStyleFields(data);
   if (missingStyleDimensions.length) {
-    throw new Error('Context Graph 分析响应缺少有效的文风维度（' + missingStyleDimensions.join('、') +
-      '）。本轮未标记为完成；可重试，系统会保留 B 方案已保存的阶段结果。');
+    // Some providers treat a JSON schema as shape guidance and still emit empty strings.
+    // Repair only these fields rather than falsely completing a run with an empty style guide.
+    logWarn('context-graph', '文风字段为空，启动定向补全 · strategy=' + strategy + ' · fields=' + missingStyleDimensions.join(','));
+    const repairStartedAt = Date.now();
+    const repairRun = await runAgentStructured(
+      { provider: agent.provider, model: agent.model },
+      buildContextGraphWorkflowPrompt(
+        'style', prompt, data, strategy === 'B' && agent.provider === 'workbuddy' && !!workflowSessionId,
+      ) + '\n\n上次结构化响应中的以下字段为空：' + missingStyleDimensions.join('、') +
+        '。请重新分析并全部填写这些字段；不能返回空字符串或空规则数组。保持其他字段的证据边界，不要编造原文证据。',
+      DEFAULT_CONTEXT_GRAPH_SYSTEM_PROMPT,
+      buildContextGraphWorkflowSchema(ANALYSIS_SCHEMA, 'style'),
+      runId + ':style-repair',
+      'context-graph:' + projectId + ':' + revisionId + ':' + runId,
+      taskProfile,
+      {
+        timeoutMs: Math.min(ANALYSIS_TIMEOUT_MS, 5 * 60 * 1000),
+        ...(strategy === 'B' && agent.provider === 'workbuddy' ? {
+          persistSession: true,
+          ...(workflowSessionId ? { sessionId: workflowSessionId } : {}),
+          onSessionId: (sessionId: string) => {
+            workflowSessionId = sessionId;
+            saveMeta(db, revisionId, workflowSessionKey(runId), sessionId);
+          },
+        } : {}),
+      },
+    );
+    if (!repairRun.result || Array.isArray(repairRun.result)) throw new Error('Context Graph 文风补全返回了非对象结果。');
+    const repairedStyle = repairRun.result as Record<string, any>;
+    Object.assign(data, repairedStyle);
+    missingStyleDimensions = findMissingStyleFields(data);
+    if (missingStyleDimensions.length) {
+      throw new Error('Context Graph 文风补全后仍缺少有效字段（' + missingStyleDimensions.join('、') +
+        '）。本轮未标记为完成；B 方案已保存的其他阶段结果会在重试时复用。');
+    }
+    if (strategy === 'B') {
+      persistWorkflowStageCheckpoint(
+        db, revisionId, runId, 'style',
+        Object.fromEntries(CONTEXT_GRAPH_WORKFLOW_STAGES[0].fields.map((field) => [field, data[field]])),
+        Date.now() - repairStartedAt, sampleIds, samples,
+      );
+    }
   }
   const sourceById = new Map(segments.map((segment) => [segment.id, segment]));
   const allowedEvidence = new Map<string, Segment>();
