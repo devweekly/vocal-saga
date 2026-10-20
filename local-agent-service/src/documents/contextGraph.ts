@@ -1609,7 +1609,7 @@ export function buildProjectContextGraphBundle(
       // proposal remains advisory even when earlier accepted prose contains the same target.
       sourceStatus: row.status === 'confirmed' ? 'confirmed' : 'candidate',
     }];
-  }).slice(0, 16);
+  });
 
   const result = {
     policyVersion: 'context-graph-v6-target-evidence-guard',
