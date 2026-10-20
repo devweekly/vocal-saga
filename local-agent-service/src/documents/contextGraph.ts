@@ -969,6 +969,13 @@ async function runAnalysis(projectId: string, runId: string): Promise<void> {
       if (validCheckpoint) {
         Object.assign(aggregate, checkpoint);
         if (checkpointSourceRunId !== runId) saveMeta(db, revisionId, workflowCheckpointKey(runId, stage.id), checkpoint);
+        const restoredProgress = readRunProgress(db, runId);
+        store.appendEvent(projectId, runId, 'context-graph.stage.restored', {
+          strategy: 'B', stage: stage.id, stageLabel: stage.label,
+          sourceRunId: checkpointSourceRunId,
+          completedStageCount: Array.isArray(restoredProgress.completedStages) ? restoredProgress.completedStages.length : 0,
+          stageCount: CONTEXT_GRAPH_WORKFLOW_STAGES.length,
+        });
         logInfo('context-graph', '恢复已保存阶段 · ' + stage.id + ' · run=' + runId.slice(0, 8));
         continue;
       }
@@ -1025,10 +1032,22 @@ async function runAnalysis(projectId: string, runId: string): Promise<void> {
         workflowSessionId = stageRun.sessionId;
         saveMeta(db, revisionId, workflowSessionKey(runId), workflowSessionId);
       }
+      const stageElapsedMs = Date.now() - stageStartedAt;
       persistWorkflowStageCheckpoint(
-        db, revisionId, runId, stage.id, stageOutput, Date.now() - stageStartedAt,
+        db, revisionId, runId, stage.id, stageOutput, stageElapsedMs,
         sampleIds, samples,
       );
+      const stageProgress = readRunProgress(db, runId);
+      const stageSummary = Array.isArray(stageProgress.stageResults)
+        ? stageProgress.stageResults.find((item: any) => item.stage === stage.id)
+        : null;
+      store.appendEvent(projectId, runId, 'context-graph.stage.completed', {
+        strategy: 'B', stage: stage.id, stageLabel: stage.label,
+        stageIndex: CONTEXT_GRAPH_WORKFLOW_STAGES.findIndex((item) => item.id === stage.id) + 1,
+        stageCount: CONTEXT_GRAPH_WORKFLOW_STAGES.length,
+        completedStageCount: Array.isArray(stageProgress.completedStages) ? stageProgress.completedStages.length : 0,
+        elapsedMs: stageElapsedMs, outputCounts: stageSummary?.outputCounts || {},
+      });
       Object.assign(aggregate, stageOutput);
     }
 
