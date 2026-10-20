@@ -561,13 +561,10 @@ function persistWorkflowStageCheckpoint(
   elapsedMs: number,
   sampleIds: Set<string>,
   samples: Segment[],
-  resumedFromRunId?: string,
 ): void {
   db.exec('BEGIN IMMEDIATE');
   try {
     saveMeta(db, revisionId, workflowCheckpointKey(runId, stageId), output);
-    // Keep a second durable pointer to outputs inherited from a prior interrupted B run.
-    if (resumedFromRunId) saveMeta(db, revisionId, workflowCheckpointKey(runId, stageId), output);
     if (stageId === 'style') {
       saveMeta(db, revisionId, 'bookSummary', safeText(output.bookSummary, 4000));
       saveMeta(db, revisionId, 'narrativeStyle', safeText(output.narrativeStyle, 1200));
