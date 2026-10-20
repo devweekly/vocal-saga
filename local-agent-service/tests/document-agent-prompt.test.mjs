@@ -70,7 +70,7 @@ test('literary Project Agent separates preceding context from translatable segme
   assert.deepEqual(payload.voiceContext.voiceAnchors.map((anchor) => anchor.anchorId), ['alice-cross-chapter']);
   assert.deepEqual(
     payload.voiceContext.chapterSummaries.map((item) => item.chapter),
-    ['Chapter 2', 'Chapter 3', 'Chapter 4'],
+    ['Chapter 1', 'Chapter 2', 'Chapter 3', 'Chapter 4'],
     'literary translation receives the current and preceding chapter summaries, but not future chapters',
   );
   assert.equal(payload.voiceContext.policyVersion, 'character-voice-v4-dialogue-participants');
