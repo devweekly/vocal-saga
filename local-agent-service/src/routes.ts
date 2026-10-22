@@ -119,7 +119,7 @@ export async function handleRequest(req: Request, res: Response): Promise<void> 
     return;
   }
   if (req.method === 'GET' && url.pathname === '/api/codebuddy/models') {
-    const catalog = readModelCatalog();
+    const catalog = readModelCatalog({ projectRoot: WORK_DIR });
     sendJson(res, 200, {
       object: 'list',
       data: catalog.map((item) => ({ id: item.id, object: 'model', owned_by: 'codebuddy', credits: item.credits })),
@@ -129,7 +129,7 @@ export async function handleRequest(req: Request, res: Response): Promise<void> 
   // Context-window tiers are config options, not model-list metadata. Clients should refresh
   // this endpoint whenever the selected model changes and display a selector only when one exists.
   if (req.method === 'GET' && url.pathname === '/api/codebuddy/config-options') {
-    const catalog = readModelCatalog();
+    const catalog = readModelCatalog({ projectRoot: WORK_DIR });
     const requestedModel = (url.searchParams.get('model') || '').trim();
     const modelId = requestedModel && requestedModel.toLowerCase() !== 'auto'
       ? requestedModel

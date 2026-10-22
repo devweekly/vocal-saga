@@ -38,7 +38,7 @@ export const DEFAULT_PROVIDER = (process.env.LOCAL_AGENT_PROVIDER || 'workbuddy'
 // 显式配置优先；没配（或写成 auto）时从 CodeBuddy 模型目录里挑「确认免费」的模型。
 // 目录读不到或没有任何 credits=0 的模型就留空，交给 CLI 运行时默认模型 —— 不猜、不硬编码。
 const explicitWorkbuddyModel = (process.env.LOCAL_WORKBUDDY_MODEL || process.env.WORKBUDDY_MODEL || process.env.CODEBUDDY_DEFAULT_MODEL || '').trim();
-const workbuddyCatalog = readModelCatalog();
+const workbuddyCatalog = readModelCatalog({ projectRoot: WORK_DIR });
 export const DEFAULT_WORKBUDDY_MODEL = resolveWorkbuddyModel(explicitWorkbuddyModel, workbuddyCatalog);
 /** 目录里 credits 明确为 0 的模型，启动日志用来说明「为什么没选上」以及可手动指定什么。 */
 export const WORKBUDDY_FREE_MODELS = workbuddyCatalog

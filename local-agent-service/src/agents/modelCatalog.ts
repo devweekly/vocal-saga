@@ -246,10 +246,48 @@ function readFromLocalStorage(dirOverride?: string): CatalogModel[] {
  * 读取模型目录；拿不到时返回空数组（不抛错，调用方据此回退）。
  * `localStorageDir` 仅供测试注入，生产调用不传。
  */
-export function readModelCatalog(options: { localStorageDir?: string } = {}): CatalogModel[] {
+function readModelsJson(filePath: string | undefined): CatalogModel[] {
+  if (!filePath) return [];
+  try {
+    return modelsFromConfig(JSON.parse(fs.readFileSync(filePath, 'utf8')));
+  } catch {
+    // Missing or malformed optional models.json must not break the model catalog.
+    return [];
+  }
+}
+
+function mergeCatalog(base: readonly CatalogModel[], overrides: readonly CatalogModel[]): CatalogModel[] {
+  const merged = new Map(base.map((model) => [model.id, model]));
+  for (const override of overrides) {
+    const previous = merged.get(override.id);
+    merged.set(override.id, {
+      ...previous,
+      ...override,
+      // models.json commonly omits credits; preserve the product-catalog price in that case.
+      credits: override.credits ?? previous?.credits ?? null,
+    });
+  }
+  return [...merged.values()];
+}
+
+/**
+ * Read the product catalog, then apply models.json in CodeBuddy's documented priority:
+ * built-in/product defaults < user ~/.codebuddy/models.json < project .codebuddy/models.json.
+ * projectRoot is the cwd passed to the SDK; paths are injectable in tests.
+ */
+export function readModelCatalog(options: {
+  localStorageDir?: string;
+  userModelsPath?: string;
+  projectRoot?: string;
+} = {}): CatalogModel[] {
   const fromEnv = readFromEnvPath();
-  if (fromEnv.length) return fromEnv;
-  return readFromLocalStorage(options.localStorageDir);
+  const base = fromEnv.length ? fromEnv : readFromLocalStorage(options.localStorageDir);
+  const userModelsPath = options.userModelsPath ?? path.join(os.homedir(), '.codebuddy', 'models.json');
+  const userModels = readModelsJson(userModelsPath);
+  const projectModels = options.projectRoot
+    ? readModelsJson(path.join(options.projectRoot, '.codebuddy', 'models.json'))
+    : [];
+  return mergeCatalog(mergeCatalog(base, userModels), projectModels);
 }
 
 /**

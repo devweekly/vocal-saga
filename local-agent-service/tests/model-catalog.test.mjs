@@ -339,3 +339,58 @@ test('model catalog preserves token metadata from the CLI model product config',
     await rm(dir, { recursive: true, force: true });
   }
 });
+
+test('models.json overlays user then project metadata without dropping product-catalog credits', async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), 'model-catalog-models-json-'));
+  const productFile = path.join(dir, 'product.json');
+  const userModelsPath = path.join(dir, 'user-models.json');
+  const projectRoot = path.join(dir, 'project');
+  const projectConfigDir = path.join(projectRoot, '.codebuddy');
+  await import('node:fs/promises').then(({ mkdir }) => mkdir(projectConfigDir, { recursive: true }));
+  await writeFile(productFile, JSON.stringify({
+    models: [{
+      id: 'deepseek-v4.1-flash',
+      credits: 'x0.00',
+      maxInputTokens: 1_000_000,
+      contextWindow: { supportedLengths: [300_000, 1_000_000], defaultLength: 300_000 },
+    }],
+  }));
+  await writeFile(userModelsPath, JSON.stringify({
+    models: [{
+      id: 'deepseek-v4.1-flash',
+      maxInputTokens: 1_000_000,
+      contextWindow: { supportedLengths: [250_000, 1_000_000], defaultLength: 250_000 },
+    }, {
+      id: 'user-custom',
+      maxInputTokens: 400_000,
+      contextWindow: { supportedLengths: [100_000, 400_000], defaultLength: 100_000 },
+    }],
+  }));
+  await writeFile(path.join(projectConfigDir, 'models.json'), JSON.stringify({
+    models: [{
+      id: 'deepseek-v4.1-flash',
+      maxInputTokens: 1_000_000,
+      contextWindow: { supportedLengths: [300_000, 1_000_000], defaultLength: 1_000_000 },
+    }, {
+      id: 'project-custom',
+      maxInputTokens: 500_000,
+      contextWindow: { supportedLengths: [250_000, 500_000], defaultLength: 250_000 },
+    }],
+  }));
+  const previous = process.env.ACC_PRODUCT_CONFIG_PATH;
+  process.env.ACC_PRODUCT_CONFIG_PATH = productFile;
+  try {
+    const catalog = readModelCatalog({ userModelsPath, projectRoot });
+    assert.equal(catalog.find((model) => model.id === 'deepseek-v4.1-flash')?.credits, 0);
+    assert.deepEqual(catalog.find((model) => model.id === 'deepseek-v4.1-flash')?.contextWindow, {
+      supportedLengths: [300_000, 1_000_000],
+      defaultLength: 1_000_000,
+    });
+    assert.equal(catalog.find((model) => model.id === 'user-custom')?.credits, null);
+    assert.equal(getCodeBuddyContextWindowOption(catalog.find((model) => model.id === 'project-custom'))?.currentValue, '250000');
+  } finally {
+    if (previous === undefined) delete process.env.ACC_PRODUCT_CONFIG_PATH;
+    else process.env.ACC_PRODUCT_CONFIG_PATH = previous;
+    await rm(dir, { recursive: true, force: true });
+  }
+});
