@@ -81,7 +81,7 @@ async function queryWorkbuddyRaw(
   let effectiveOptions = options;
   let contextWorkspace: { cwd: string; cleanup: () => void } | undefined;
   if (contextWindow !== undefined) {
-    const catalog = readModelCatalog();
+    const catalog = readModelCatalog({ projectRoot: WORK_DIR });
     const effectiveModel = resolveWorkbuddyModel(agent.model, catalog) || agent.model;
     const model = catalog.find((item) => item.id === effectiveModel);
     const validTier = resolveCodeBuddyContextWindow(model, contextWindow);
