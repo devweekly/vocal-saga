@@ -2,6 +2,7 @@ import type { Request, Response } from 'express';
 import { randomUUID } from 'node:crypto';
 import {
   DEFAULT_PROVIDER,
+  DEFAULT_WORKBUDDY_MODEL,
   LOG_RESPONSE_PREVIEW,
   MAX_BODY_BYTES as _MAX_BODY_BYTES,
   STORE_CONTENT,
@@ -17,7 +18,11 @@ import { logError, logInfo, logWarn } from './log.ts';
 import { parseAgentModel, buildAgentPrompt, normalizeMessages, parseJsonValue } from './json.ts';
 import { runAgent, runAgentStructured } from './agents/runner.ts';
 import { getCodeBuddyTaskProfile } from './agents/taskProfiles.ts';
-import { readModelCatalog } from './agents/modelCatalog.ts';
+import {
+  getCodeBuddyContextWindowOption,
+  readModelCatalog,
+  resolveWorkbuddyModel,
+} from './agents/modelCatalog.ts';
 import { validateSegments, runLiteraryAnalysis, getDefaultLiteraryTaskPromptPreviews } from './literary.ts';
 import { DEFAULT_CONTEXT_GRAPH_SYSTEM_PROMPT, getDefaultContextGraphUserPromptTemplate } from './documents/contextGraph.ts';
 import path from 'node:path';
@@ -114,10 +119,29 @@ export async function handleRequest(req: Request, res: Response): Promise<void> 
     return;
   }
   if (req.method === 'GET' && url.pathname === '/api/codebuddy/models') {
-    const catalog = readModelCatalog();
+    const catalog = readModelCatalog({ projectRoot: WORK_DIR });
     sendJson(res, 200, {
       object: 'list',
       data: catalog.map((item) => ({ id: item.id, object: 'model', owned_by: 'codebuddy', credits: item.credits })),
+    });
+    return;
+  }
+  // Context-window tiers are config options, not model-list metadata. Clients should refresh
+  // this endpoint whenever the selected model changes and display a selector only when one exists.
+  if (req.method === 'GET' && url.pathname === '/api/codebuddy/config-options') {
+    const catalog = readModelCatalog({ projectRoot: WORK_DIR });
+    const requestedModel = (url.searchParams.get('model') || '').trim();
+    const modelId = requestedModel && requestedModel.toLowerCase() !== 'auto'
+      ? requestedModel
+      : DEFAULT_WORKBUDDY_MODEL || resolveWorkbuddyModel(undefined, catalog);
+    const model = catalog.find((item) => item.id === modelId);
+    const currentValue = url.searchParams.get('currentValue')
+      ?? url.searchParams.get('context_window')
+      ?? undefined;
+    const option = model ? getCodeBuddyContextWindowOption(model, currentValue) : undefined;
+    sendJson(res, 200, {
+      model: modelId,
+      configOptions: option ? [option] : [],
     });
     return;
   }

@@ -26,6 +26,9 @@ import {
   resolveWorkbuddyModel,
   PREFERRED_MODELS,
   PREFERRED_WORKBUDDY_MODEL,
+  getCodeBuddyContextWindowOption,
+  normalizeCodeBuddyContextWindow,
+  resolveCodeBuddyContextWindow,
 } from '../src/agents/modelCatalog.ts';
 
 test('parseCredits 覆盖三种真实形态', () => {
@@ -266,5 +269,128 @@ test('两个来源都不可用时返回空目录而不是抛错', () => {
   } finally {
     if (previous === undefined) delete process.env.ACC_PRODUCT_CONFIG_PATH;
     else process.env.ACC_PRODUCT_CONFIG_PATH = previous;
+  }
+});
+
+test('context-window options require multiple valid tiers bounded by maxInputTokens', () => {
+  const model = {
+    id: 'deepseek-v4.1-flash',
+    credits: 0,
+    maxInputTokens: 1_000_000,
+    contextWindow: { supportedLengths: [300_000, 1_000_000], defaultLength: 300_000 },
+  };
+  assert.deepEqual(normalizeCodeBuddyContextWindow(model), {
+    maxInputTokens: 1_000_000,
+    supportedLengths: [300_000, 1_000_000],
+    defaultLength: 300_000,
+  });
+  assert.deepEqual(getCodeBuddyContextWindowOption(model), {
+    type: 'select',
+    id: 'context_window',
+    name: 'Context window',
+    description: 'Select the context budget for this model. The model input-token limit remains unchanged.',
+    currentValue: '300000',
+    options: [
+      { value: '300000', name: '300K' },
+      { value: '1000000', name: '1M' },
+    ],
+  });
+  assert.equal(resolveCodeBuddyContextWindow(model, '1000000'), 1_000_000);
+  assert.equal(resolveCodeBuddyContextWindow(model, '1000001'), undefined);
+  assert.equal(getCodeBuddyContextWindowOption({ id: 'single', credits: 0, maxInputTokens: 1_000_000, contextWindow: { supportedLengths: [1_000_000] } }), undefined);
+  assert.equal(getCodeBuddyContextWindowOption({ id: 'above-cap', credits: 0, maxInputTokens: 300_000, contextWindow: { supportedLengths: [300_000, 1_000_000] } }), undefined);
+  assert.equal(getCodeBuddyContextWindowOption({ id: 'missing', credits: 0 }), undefined);
+});
+
+test('context-window missing default falls back to the smallest tier', () => {
+  const option = getCodeBuddyContextWindowOption({
+    id: 'deepseek-v4.1-flash',
+    credits: 0,
+    maxInputTokens: 1_000_000,
+    contextWindow: { supportedLengths: [1_000_000, 300_000] },
+  });
+  assert.equal(option?.currentValue, '300000');
+});
+
+test('model catalog preserves token metadata from the CLI model product config', async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), 'model-catalog-context-window-'));
+  const file = path.join(dir, 'acc-product-config-v3.json');
+  await writeFile(file, JSON.stringify({
+    models: [{
+      id: 'deepseek-v4.1-flash',
+      credits: 'x0.00',
+      maxInputTokens: 1_000_000,
+      contextWindow: { supportedLengths: [300_000, 1_000_000], defaultLength: 300_000 },
+    }],
+  }));
+  const previous = process.env.ACC_PRODUCT_CONFIG_PATH;
+  process.env.ACC_PRODUCT_CONFIG_PATH = file;
+  try {
+    const catalog = readModelCatalog();
+    assert.equal(catalog[0]?.maxInputTokens, 1_000_000);
+    assert.deepEqual(catalog[0]?.contextWindow, {
+      supportedLengths: [300_000, 1_000_000],
+      defaultLength: 300_000,
+    });
+    // Deliberately no context fields were added to the OpenAI-compatible model DTO.
+  } finally {
+    if (previous === undefined) delete process.env.ACC_PRODUCT_CONFIG_PATH;
+    else process.env.ACC_PRODUCT_CONFIG_PATH = previous;
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('models.json overlays user then project metadata without dropping product-catalog credits', async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), 'model-catalog-models-json-'));
+  const productFile = path.join(dir, 'product.json');
+  const userModelsPath = path.join(dir, 'user-models.json');
+  const projectRoot = path.join(dir, 'project');
+  const projectConfigDir = path.join(projectRoot, '.codebuddy');
+  await import('node:fs/promises').then(({ mkdir }) => mkdir(projectConfigDir, { recursive: true }));
+  await writeFile(productFile, JSON.stringify({
+    models: [{
+      id: 'deepseek-v4.1-flash',
+      credits: 'x0.00',
+      maxInputTokens: 1_000_000,
+      contextWindow: { supportedLengths: [300_000, 1_000_000], defaultLength: 300_000 },
+    }],
+  }));
+  await writeFile(userModelsPath, JSON.stringify({
+    models: [{
+      id: 'deepseek-v4.1-flash',
+      maxInputTokens: 1_000_000,
+      contextWindow: { supportedLengths: [250_000, 1_000_000], defaultLength: 250_000 },
+    }, {
+      id: 'user-custom',
+      maxInputTokens: 400_000,
+      contextWindow: { supportedLengths: [100_000, 400_000], defaultLength: 100_000 },
+    }],
+  }));
+  await writeFile(path.join(projectConfigDir, 'models.json'), JSON.stringify({
+    models: [{
+      id: 'deepseek-v4.1-flash',
+      maxInputTokens: 1_000_000,
+      contextWindow: { supportedLengths: [300_000, 1_000_000], defaultLength: 1_000_000 },
+    }, {
+      id: 'project-custom',
+      maxInputTokens: 500_000,
+      contextWindow: { supportedLengths: [250_000, 500_000], defaultLength: 250_000 },
+    }],
+  }));
+  const previous = process.env.ACC_PRODUCT_CONFIG_PATH;
+  process.env.ACC_PRODUCT_CONFIG_PATH = productFile;
+  try {
+    const catalog = readModelCatalog({ userModelsPath, projectRoot });
+    assert.equal(catalog.find((model) => model.id === 'deepseek-v4.1-flash')?.credits, 0);
+    assert.deepEqual(catalog.find((model) => model.id === 'deepseek-v4.1-flash')?.contextWindow, {
+      supportedLengths: [300_000, 1_000_000],
+      defaultLength: 1_000_000,
+    });
+    assert.equal(catalog.find((model) => model.id === 'user-custom')?.credits, null);
+    assert.equal(getCodeBuddyContextWindowOption(catalog.find((model) => model.id === 'project-custom'))?.currentValue, '250000');
+  } finally {
+    if (previous === undefined) delete process.env.ACC_PRODUCT_CONFIG_PATH;
+    else process.env.ACC_PRODUCT_CONFIG_PATH = previous;
+    await rm(dir, { recursive: true, force: true });
   }
 });
