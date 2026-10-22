@@ -6,6 +6,25 @@
 
 这是 vocal-saga 中独立的本机 Express + TypeScript Provider，供 fanyi-extension 使用。 默认优先 Workbuddy/CodeBuddy SDK；OpenCode 保留为可选运行时。它把 OpenAI-compatible Chat Completions 请求转交给本机 Workbuddy（@tencent-ai/agent-sdk）或 OpenCode CLI，并使用 Node 内置 SQLite 记录本机请求历史。扩展启用本机 Provider 后，网页翻译、文档翻译、侧栏对话以及 EPUB/PDF 的文学分析和 Reviewer 都走这个本机进程。
 
+
+## WorkBuddy / CodeBuddy context-window 档位
+
+上下文窗口配置是**可选覆盖**，不更改现有默认行为。没有在 task profile 中指定 `contextWindow` 时，继续使用模型本身的 `defaultLength`，或 CLI 既有默认值。
+
+`GET /api/codebuddy/models` 仍只用于列出模型，不返回 `supportedLengths`。客户端应在模型选择/切换后请求新的配置项：
+
+```http
+GET /api/codebuddy/config-options?model=deepseek-v4.1-flash
+```
+
+仅当模型元数据同时包含合法的 `maxInputTokens` 和至少两个不同的 `contextWindow.supportedLengths`，且每个档位不超过 `maxInputTokens` 时，响应才包含 `context_window` 选择项。档位值是 token 数本身，例如 `"300000"` / `"1000000"`，标签分别是 `300K` / `1M`。单档、缺少元数据或超出物理上限的配置会返回空的 `configOptions`，UI 不显示选择器。没有 `defaultLength` 或默认值不属于有效档位时，初始值取最小档。
+
+选定档位后，调用方可将数值放在相应任务的 `metadata.taskProfiles.<task>.contextWindow` 中，例如 `metadata.taskProfiles.translation.contextWindow = 1000000`。这是按请求/任务显式应用的设置，不会写回用户的全局默认配置。服务端会重新检查当前模型的支持档位和 `maxInputTokens`；若选项已过期或不支持，会拒绝该覆盖并提示刷新配置，而不会悄悄忽略设置。
+
+当前集成的 TypeScript `query()` API 不暴露 `contextWindow` 直接参数，因此显式选择时，服务端用隔离的临时工作目录提供 CodeBuddy 的 `.codebuddy/settings.json` `contextWindow` 种子，并在调用结束后清理；此路径只加载临时 project settings，不导入用户 settings、Skills 或 MCP。未设置 `contextWindow` 时不会创建临时目录，仍沿用原来的 `settingSources: []` 与原会话路径。
+
+注意：`autoCompactWindow`、`/autocompact` 等控制压缩触发点，不提供窗口档位，也不替代上下文窗口选择。
+
 ## 环境要求
 
 - macOS 与 Node.js >= 22.13（使用 Node 内置 `node:sqlite`，不需要另外安装 sqlite3）。

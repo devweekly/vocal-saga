@@ -16,6 +16,8 @@ export type CodeBuddyEffort = 'low' | 'medium' | 'high' | 'xhigh';
 export interface CodeBuddyTaskProfile {
   /** Optional SDK model ID override for this task. */
   model: string;
+  /** Optional context-window tier (token count), omitted to preserve model defaultLength. */
+  contextWindow?: number;
   /** Optional SDK fallbackModel used when the preferred model is unavailable. */
   fallbackModel: string;
   thinkingMode: CodeBuddyThinkingMode;
@@ -106,8 +108,18 @@ export function normalizeCodeBuddyTaskProfile(
   const thinkingBudgetTokens = Number.isFinite(budgetValue)
     ? Math.max(1024, Math.min(65536, Math.round(budgetValue)))
     : defaults.thinkingBudgetTokens;
+  const contextWindowRaw = raw.contextWindow;
+  const contextWindowValue = typeof contextWindowRaw === 'number'
+    ? contextWindowRaw
+    : typeof contextWindowRaw === 'string' && /^\\d+$/.test(contextWindowRaw.trim())
+      ? Number(contextWindowRaw.trim())
+      : Number.NaN;
+  const contextWindow = Number.isSafeInteger(contextWindowValue) && contextWindowValue > 0
+    ? contextWindowValue
+    : undefined;
   return {
     model: text(raw.model, 200),
+    ...(contextWindow !== undefined ? { contextWindow } : {}),
     fallbackModel: text(raw.fallbackModel, 200),
     thinkingMode,
     thinkingBudgetTokens,

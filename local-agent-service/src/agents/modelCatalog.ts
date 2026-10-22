@@ -19,6 +19,86 @@ export interface CatalogModel {
   id: string;
   /** 每单位用量消耗的 credits；0 表示免费，无法解析时为 null。 */
   credits: number | null;
+  /** 物理输入 token 上限；不代表当前选择的上下文环预算。 */
+  maxInputTokens?: number;
+  /** 原样保留模型级档位元数据，由 config-options helper 做严格验证。 */
+  contextWindow?: { supportedLengths?: unknown; defaultLength?: unknown };
+}
+
+export interface CodeBuddyContextWindowOption {
+  type: 'select';
+  id: 'context_window';
+  name: 'Context window';
+  description: string;
+  currentValue: string;
+  options: Array<{ value: string; name: string }>;
+}
+
+function positiveInteger(value: unknown): number | undefined {
+  const parsed = typeof value === 'number'
+    ? value
+    : typeof value === 'string' && /^\\d+$/.test(value.trim())
+      ? Number(value.trim())
+      : Number.NaN;
+  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : undefined;
+}
+
+export function formatCodeBuddyContextWindow(tokens: number): string {
+  if (tokens % 1_000_000 === 0) return String(tokens / 1_000_000) + 'M';
+  if (tokens % 1_000 === 0) return String(tokens / 1_000) + 'K';
+  return tokens.toLocaleString('en-US') + ' tokens';
+}
+
+/** A selector only exists for >=2 valid tiers, all bounded by the model's physical limit. */
+export function normalizeCodeBuddyContextWindow(model: CatalogModel | null | undefined): {
+  maxInputTokens: number; supportedLengths: number[]; defaultLength: number;
+} | undefined {
+  const maxInputTokens = positiveInteger(model?.maxInputTokens);
+  const rawLengths = model?.contextWindow && typeof model.contextWindow === 'object'
+    ? model.contextWindow.supportedLengths
+    : undefined;
+  if (!maxInputTokens || !Array.isArray(rawLengths)) return undefined;
+  const parsed = rawLengths.map(positiveInteger);
+  if (parsed.some((value) => value === undefined)) return undefined;
+  const supportedLengths = [...new Set(parsed as number[])].sort((a, b) => a - b);
+  if (supportedLengths.length < 2 || supportedLengths.some((length) => length > maxInputTokens)) return undefined;
+  const configuredDefault = positiveInteger(model?.contextWindow?.defaultLength);
+  const defaultLength = configuredDefault !== undefined && supportedLengths.includes(configuredDefault)
+    ? configuredDefault
+    : supportedLengths[0]!;
+  return { maxInputTokens, supportedLengths, defaultLength };
+}
+
+export function resolveCodeBuddyContextWindow(
+  model: CatalogModel | null | undefined,
+  requested: unknown,
+): number | undefined {
+  const config = normalizeCodeBuddyContextWindow(model);
+  const value = positiveInteger(requested);
+  if (!config || value === undefined || !config.supportedLengths.includes(value) || value > config.maxInputTokens) {
+    return undefined;
+  }
+  return value;
+}
+
+export function getCodeBuddyContextWindowOption(
+  model: CatalogModel | null | undefined,
+  currentValue?: unknown,
+): CodeBuddyContextWindowOption | undefined {
+  const config = normalizeCodeBuddyContextWindow(model);
+  if (!config) return undefined;
+  const selected = resolveCodeBuddyContextWindow(model, currentValue) ?? config.defaultLength;
+  return {
+    type: 'select',
+    id: 'context_window',
+    name: 'Context window',
+    description: 'Select the context budget for this model. The model input-token limit remains unchanged.',
+    currentValue: String(selected),
+    options: config.supportedLengths.map((tokens) => ({
+      value: String(tokens),
+      name: formatCodeBuddyContextWindow(tokens),
+    })),
+  };
 }
 
 /**
@@ -76,7 +156,16 @@ function modelsFromConfig(raw: unknown): CatalogModel[] {
   return list.flatMap((item: any) => {
     const id = typeof item?.id === 'string' ? item.id.trim() : '';
     if (!id) return [];
-    return [{ id, credits: parseCredits(item.credits) }];
+    const maxInputTokens = positiveInteger(item.maxInputTokens);
+    const contextWindow = item.contextWindow && typeof item.contextWindow === 'object' && !Array.isArray(item.contextWindow)
+      ? { supportedLengths: item.contextWindow.supportedLengths, defaultLength: item.contextWindow.defaultLength }
+      : undefined;
+    return [{
+      id,
+      credits: parseCredits(item.credits),
+      ...(maxInputTokens ? { maxInputTokens } : {}),
+      ...(contextWindow ? { contextWindow } : {}),
+    }];
   });
 }
 
