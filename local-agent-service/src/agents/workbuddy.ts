@@ -1,8 +1,17 @@
 import { REQUEST_TIMEOUT_MS, WORK_DIR } from '../config.ts';
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import { parseJsonValue } from '../json.ts';
 import { getTextPool } from './workbuddyPool.ts';
 import { parseTurnUsage, type TurnUsage } from './usage.ts';
 import { codeBuddyThinkingOption, type CodeBuddyTaskProfile } from './taskProfiles.ts';
+import {
+  getCodeBuddyContextWindowOption,
+  readModelCatalog,
+  resolveCodeBuddyContextWindow,
+  resolveWorkbuddyModel,
+} from './modelCatalog.ts';
 import { logInfo, logWarn } from '../log.ts';
 
 const STRUCTURED_OUTPUT_TOOL = 'StructuredOutput';
@@ -66,9 +75,35 @@ async function queryWorkbuddyRaw(
   _requestId = 'unknown',
   timeoutMs = REQUEST_TIMEOUT_MS,
   onSessionId?: (sessionId: string) => void,
+  contextWindow?: number,
 ): Promise<{ text: string; structuredOutput: unknown; usage: TurnUsage | null; sessionId?: string }> {
   const sdk = await import('@tencent-ai/agent-sdk');
-  const query = sdk.query({ prompt: buildCombinedPrompt(prompt, systemPrompt), options });
+  let effectiveOptions = options;
+  let contextWorkspace: { cwd: string; cleanup: () => void } | undefined;
+  if (contextWindow !== undefined) {
+    const catalog = readModelCatalog({ projectRoot: WORK_DIR });
+    const effectiveModel = resolveWorkbuddyModel(agent.model, catalog) || agent.model;
+    const model = catalog.find((item) => item.id === effectiveModel);
+    const validTier = resolveCodeBuddyContextWindow(model, contextWindow);
+    const option = getCodeBuddyContextWindowOption(model, contextWindow);
+    if (validTier === undefined || !option?.options.some((item) => item.value === String(contextWindow))) {
+      throw new Error('当前 Workbuddy 模型不支持指定的 context window 档位；请刷新配置选项后重试');
+    }
+    contextWorkspace = createCodeBuddyContextWindowWorkspace(validTier);
+    effectiveOptions = {
+      ...options,
+      cwd: contextWorkspace.cwd,
+      // Only the temporary project seed is loaded. Host settings/Skills/MCP remain disabled.
+      settingSources: ['project'],
+    };
+  }
+  let query: ReturnType<typeof sdk.query>;
+  try {
+    query = sdk.query({ prompt: buildCombinedPrompt(prompt, systemPrompt), options: effectiveOptions });
+  } catch (error) {
+    contextWorkspace?.cleanup();
+    throw error;
+  }
   const startedAt = Date.now();
   let text = '';
   let structuredOutput: unknown;
@@ -136,9 +171,33 @@ async function queryWorkbuddyRaw(
   } finally {
     clearTimeout(timer);
     if (heartbeat) clearInterval(heartbeat);
+    contextWorkspace?.cleanup();
   }
   if (timedOut) throw new Error('Workbuddy 调用超时（' + (timeoutMs / 1000).toFixed(0) + 's 内未返回）');
   return { text: text.trim(), structuredOutput, usage, ...(sessionId ? { sessionId } : {}) };
+}
+
+function createCodeBuddyContextWindowWorkspace(contextWindow: number): { cwd: string; cleanup: () => void } {
+  const cwd = mkdtempSync(path.join(tmpdir(), 'vocal-saga-codebuddy-context-window-'));
+  try {
+    const configDir = path.join(cwd, '.codebuddy');
+    mkdirSync(configDir, { recursive: true });
+    // Preserve only project-level model definitions. The file may contain an API key,
+    // so the temporary copy is owner-readable only and removed with the workspace.
+    const sourceModels = path.join(WORK_DIR, '.codebuddy', 'models.json');
+    if (existsSync(sourceModels)) {
+      writeFileSync(path.join(configDir, 'models.json'), readFileSync(sourceModels), { mode: 0o600 });
+    }
+    writeFileSync(
+      path.join(configDir, 'settings.json'),
+      JSON.stringify({ contextWindow }, null, 2) + '\n',
+      { encoding: 'utf8', mode: 0o600 },
+    );
+  } catch (error) {
+    rmSync(cwd, { recursive: true, force: true });
+    throw error;
+  }
+  return { cwd, cleanup: () => rmSync(cwd, { recursive: true, force: true }) };
 }
 
 export async function runWorkbuddy(
@@ -151,7 +210,10 @@ export async function runWorkbuddy(
 ): Promise<{ text: string; usage: TurnUsage | null }> {
   // Task profiles must go through query() so thinking/effort/fallbackModel are honored.
   if (taskProfile) {
-    const result = await queryWorkbuddyRaw(agent, prompt, systemPrompt, buildWorkbuddyOptions(agent, undefined, taskProfile), requestId);
+    const result = await queryWorkbuddyRaw(
+      agent, prompt, systemPrompt, buildWorkbuddyOptions(agent, undefined, taskProfile), requestId,
+      REQUEST_TIMEOUT_MS, undefined, taskProfile.contextWindow,
+    );
     if (!result.text) throw new Error('Workbuddy 已结束，但没有返回译文');
     return { text: result.text, usage: result.usage };
   }
@@ -210,7 +272,7 @@ export async function runWorkbuddyStructured(
     result = await queryWorkbuddyRaw(
       agent, prompt, systemPrompt,
       buildWorkbuddyOptions(agent, schema, taskProfile, options),
-      requestId, timeoutMs, options.onSessionId,
+      requestId, timeoutMs, options.onSessionId, taskProfile?.contextWindow,
     );
   } else if (sessionScope) {
     const pool = getTextPool();

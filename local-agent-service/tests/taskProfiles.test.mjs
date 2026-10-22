@@ -76,3 +76,13 @@ test('old or partial profiles are filled with explicit per-task defaults', () =>
   assert.equal(profiles.styleReview.effort, 'high');
   assert.equal(profiles.contextGraph.thinkingMode, 'adaptive');
 });
+
+test('contextWindow is opt-in and normalized without changing task defaults', () => {
+  const defaults = normalizeCodeBuddyTaskProfiles({});
+  assert.equal(defaults.translation.contextWindow, undefined);
+  assert.equal(DEFAULT_CODEBUDDY_TASK_PROFILES.translation.contextWindow, undefined);
+
+  const explicit = normalizeCodeBuddyTaskProfile({ contextWindow: '1000000' }, 'translation');
+  assert.equal(explicit.contextWindow, 1_000_000);
+  assert.equal(normalizeCodeBuddyTaskProfile({ contextWindow: '1M' }, 'translation').contextWindow, undefined);
+});

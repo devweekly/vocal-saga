@@ -34,6 +34,12 @@
     },
     {
       "method": "GET",
+      "path": "/api/codebuddy/config-options",
+      "source": "src/routes.ts",
+      "signature": "url.pathname === '/api/codebuddy/config-options'"
+    },
+    {
+      "method": "GET",
       "path": "/api/history",
       "source": "src/routes.ts",
       "signature": "url.pathname === '/api/history'"
