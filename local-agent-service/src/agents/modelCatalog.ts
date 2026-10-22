@@ -257,7 +257,7 @@ function readModelsJson(filePath: string | undefined): CatalogModel[] {
 }
 
 function mergeCatalog(base: readonly CatalogModel[], overrides: readonly CatalogModel[]): CatalogModel[] {
-  const merged = new Map(base.map((model) => [model.id, model]));
+  const merged = new Map<string, CatalogModel>(base.map((model): [string, CatalogModel] => [model.id, model]));
   for (const override of overrides) {
     const previous = merged.get(override.id);
     merged.set(override.id, {
