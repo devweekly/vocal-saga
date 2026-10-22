@@ -11,7 +11,7 @@
 
 上下文窗口配置是**可选覆盖**，不更改现有默认行为。没有在 task profile 中指定 `contextWindow` 时，继续使用模型本身的 `defaultLength`，或 CLI 既有默认值。
 
-`GET /api/codebuddy/models` 仍只用于列出模型，不返回 `supportedLengths`。客户端应在模型选择/切换后请求新的配置项：
+`GET /api/codebuddy/models` 仍只用于列出模型，不返回 `supportedLengths`。模型目录按 CodeBuddy 优先级叠加产品默认目录、`~/.codebuddy/models.json` 和当前工作目录的 `.codebuddy/models.json`，项目级同 ID 配置优先。客户端应在模型选择/切换后请求新的配置项：
 
 ```http
 GET /api/codebuddy/config-options?model=deepseek-v4.1-flash
@@ -21,7 +21,7 @@ GET /api/codebuddy/config-options?model=deepseek-v4.1-flash
 
 选定档位后，调用方可将数值放在相应任务的 `metadata.taskProfiles.<task>.contextWindow` 中，例如 `metadata.taskProfiles.translation.contextWindow = 1000000`。这是按请求/任务显式应用的设置，不会写回用户的全局默认配置。服务端会重新检查当前模型的支持档位和 `maxInputTokens`；若选项已过期或不支持，会拒绝该覆盖并提示刷新配置，而不会悄悄忽略设置。
 
-当前集成的 TypeScript `query()` API 不暴露 `contextWindow` 直接参数，因此显式选择时，服务端用隔离的临时工作目录提供 CodeBuddy 的 `.codebuddy/settings.json` `contextWindow` 种子，并在调用结束后清理；此路径只加载临时 project settings，不导入用户 settings、Skills 或 MCP。未设置 `contextWindow` 时不会创建临时目录，仍沿用原来的 `settingSources: []` 与原会话路径。
+当前集成的 TypeScript `query()` API 不暴露 `contextWindow` 直接参数，因此显式选择时，服务端用隔离的临时工作目录提供 CodeBuddy 的 `.codebuddy/settings.json` `contextWindow` 种子，并在调用结束后清理。若原工作目录有项目级 `models.json`，只复制该文件到权限受限的临时目录，以便 SDK 看到与选项查询一致的模型定义；不会复制项目 settings、Skills 或 MCP 配置，也不会修改源文件。未设置 `contextWindow` 时不会创建临时目录，仍沿用原来的 `settingSources: []` 与原会话路径。
 
 注意：`autoCompactWindow`、`/autocompact` 等控制压缩触发点，不提供窗口档位，也不替代上下文窗口选择。
 

@@ -1,5 +1,5 @@
 import { REQUEST_TIMEOUT_MS, WORK_DIR } from '../config.ts';
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { parseJsonValue } from '../json.ts';
@@ -182,6 +182,12 @@ function createCodeBuddyContextWindowWorkspace(contextWindow: number): { cwd: st
   try {
     const configDir = path.join(cwd, '.codebuddy');
     mkdirSync(configDir, { recursive: true });
+    // Preserve only project-level model definitions. The file may contain an API key,
+    // so the temporary copy is owner-readable only and removed with the workspace.
+    const sourceModels = path.join(WORK_DIR, '.codebuddy', 'models.json');
+    if (existsSync(sourceModels)) {
+      writeFileSync(path.join(configDir, 'models.json'), readFileSync(sourceModels), { mode: 0o600 });
+    }
     writeFileSync(
       path.join(configDir, 'settings.json'),
       JSON.stringify({ contextWindow }, null, 2) + '\n',
