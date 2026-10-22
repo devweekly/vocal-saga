@@ -111,7 +111,7 @@ export function normalizeCodeBuddyTaskProfile(
   const contextWindowRaw = raw.contextWindow;
   const contextWindowValue = typeof contextWindowRaw === 'number'
     ? contextWindowRaw
-    : typeof contextWindowRaw === 'string' && /^\\d+$/.test(contextWindowRaw.trim())
+    : typeof contextWindowRaw === 'string' && /^\d+$/.test(contextWindowRaw.trim())
       ? Number(contextWindowRaw.trim())
       : Number.NaN;
   const contextWindow = Number.isSafeInteger(contextWindowValue) && contextWindowValue > 0

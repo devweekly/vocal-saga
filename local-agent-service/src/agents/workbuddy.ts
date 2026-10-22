@@ -184,7 +184,7 @@ function createCodeBuddyContextWindowWorkspace(contextWindow: number): { cwd: st
     mkdirSync(configDir, { recursive: true });
     writeFileSync(
       path.join(configDir, 'settings.json'),
-      JSON.stringify({ contextWindow }, null, 2) + '\\n',
+      JSON.stringify({ contextWindow }, null, 2) + '\n',
       { encoding: 'utf8', mode: 0o600 },
     );
   } catch (error) {

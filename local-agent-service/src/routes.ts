@@ -2,6 +2,7 @@ import type { Request, Response } from 'express';
 import { randomUUID } from 'node:crypto';
 import {
   DEFAULT_PROVIDER,
+  DEFAULT_WORKBUDDY_MODEL,
   LOG_RESPONSE_PREVIEW,
   MAX_BODY_BYTES as _MAX_BODY_BYTES,
   STORE_CONTENT,
@@ -130,7 +131,9 @@ export async function handleRequest(req: Request, res: Response): Promise<void> 
   if (req.method === 'GET' && url.pathname === '/api/codebuddy/config-options') {
     const catalog = readModelCatalog();
     const requestedModel = (url.searchParams.get('model') || '').trim();
-    const modelId = resolveWorkbuddyModel(requestedModel || undefined, catalog) || requestedModel;
+    const modelId = requestedModel && requestedModel.toLowerCase() !== 'auto'
+      ? requestedModel
+      : DEFAULT_WORKBUDDY_MODEL || resolveWorkbuddyModel(undefined, catalog);
     const model = catalog.find((item) => item.id === modelId);
     const currentValue = url.searchParams.get('currentValue')
       ?? url.searchParams.get('context_window')

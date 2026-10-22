@@ -37,7 +37,7 @@ export interface CodeBuddyContextWindowOption {
 function positiveInteger(value: unknown): number | undefined {
   const parsed = typeof value === 'number'
     ? value
-    : typeof value === 'string' && /^\\d+$/.test(value.trim())
+    : typeof value === 'string' && /^\d+$/.test(value.trim())
       ? Number(value.trim())
       : Number.NaN;
   return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : undefined;
