@@ -176,7 +176,19 @@ export async function fetchPage(
   }
 
   if (!response.ok) {
-    throw new Error(`fetch ${url} failed: HTTP ${response.status}`);
+    const diagnosticUrl = (value: string): string => {
+      try {
+        const parsed = new URL(value);
+        return parsed.origin + parsed.pathname;
+      } catch {
+        return '(invalid URL)';
+      }
+    };
+    const redirectSummary = redirectChain.map(diagnosticUrl).join(' -> ');
+    throw new Error(
+      `fetch ${diagnosticUrl(url)} failed: HTTP ${response.status}; ` +
+      `finalUrl=${diagnosticUrl(finalUrl)}; redirectChain=${redirectSummary}`,
+    );
   }
 
   // 把外联样式表抓下来内联进 <style>，让翻译结果页自包含。
