@@ -37,7 +37,7 @@ import { buildLiteraryReviewInstructions } from './document/literary';
 import { matchSiteRule } from './rules';
 import { parseHTML } from 'linkedom';
 import { inlineExternalStylesheets } from './cssInliner';
-import { assertNotDomainParkingPage } from './pageGuard';
+import { assertNotDomainParkingPage, looksLikeDomainParkingHtml } from './pageGuard';
 
 // =============================================================================
 // 性能日志
@@ -1053,6 +1053,13 @@ export async function translateHtml(input: TranslateHtmlInput): Promise<Translat
   const sourceLang = input.source || 'auto';
   const targetLang = input.target || 'zh';
   const mode = input.mode || 'bilingual';
+
+  // Fast path: recognize the common parking template before downloading any external CSS.
+  // Parse only suspicious HTML to produce the same diagnostic as the post-inline guard.
+  if (looksLikeDomainParkingHtml(input.html)) {
+    const { document: suspiciousDoc } = parseHTML(input.html) as unknown as { document: Document };
+    assertNotDomainParkingPage(suspiciousDoc, input.url, input.url);
+  }
 
   // 扩展传来的 HTML 里，样式表仍然是外链且多为内容哈希文件名（/assets/app-XXXX.css）。
   // 存进 D1 后原站一发版就 404，页面布局类全部失效。这里和 translateUrl 一样
