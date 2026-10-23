@@ -77,104 +77,126 @@ async function queryWorkbuddyRaw(
   onSessionId?: (sessionId: string) => void,
   contextWindow?: number,
 ): Promise<{ text: string; structuredOutput: unknown; usage: TurnUsage | null; sessionId?: string }> {
-  const sdk = await import('@tencent-ai/agent-sdk');
+  const startedAt = Date.now();
   let effectiveOptions = options;
   let contextWorkspace: { cwd: string; cleanup: () => void } | undefined;
-  if (contextWindow !== undefined) {
-    const catalog = readModelCatalog({ projectRoot: WORK_DIR });
-    const effectiveModel = resolveWorkbuddyModel(agent.model, catalog) || agent.model;
-    const model = catalog.find((item) => item.id === effectiveModel);
-    const validTier = resolveCodeBuddyContextWindow(model, contextWindow);
-    const option = getCodeBuddyContextWindowOption(model, contextWindow);
-    if (validTier === undefined || !option?.options.some((item) => item.value === String(contextWindow))) {
-      throw new Error('当前 Workbuddy 模型不支持指定的 context window 档位；请刷新配置选项后重试');
-    }
-    contextWorkspace = createCodeBuddyContextWindowWorkspace(validTier);
-    effectiveOptions = {
-      ...options,
-      cwd: contextWorkspace.cwd,
-      // Only the temporary project seed is loaded. Host settings/Skills/MCP remain disabled.
-      settingSources: ['project'],
-    };
-  }
-  let query: ReturnType<typeof sdk.query>;
-  try {
-    query = sdk.query({ prompt: buildCombinedPrompt(prompt, systemPrompt), options: effectiveOptions });
-  } catch (error) {
-    contextWorkspace?.cleanup();
-    throw error;
-  }
-  const startedAt = Date.now();
+  let query: (AsyncIterable<unknown> & { interrupt?: () => unknown }) | undefined;
+  let timedOut = false;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let heartbeat: ReturnType<typeof setInterval> | undefined;
+  let rejectTimeout!: (error: Error) => void;
+  const timeoutPromise = new Promise<never>((_resolve, reject) => { rejectTimeout = reject; });
+  const requestInterrupt = (): void => {
+    if (!query) return;
+    try { Promise.resolve(query.interrupt?.()).catch(() => {}); } catch { /* timeout remains authoritative */ }
+  };
+  const timeoutError = () => new Error('Workbuddy 调用超时（' + (timeoutMs / 1000).toFixed(0) + 's 内未返回）');
+  timer = setTimeout(() => {
+    timedOut = true;
+    logWarn('agent', '一次性调用超时 · ' + (timeoutMs / 1000).toFixed(0) + 's · request=' + String(_requestId).slice(0, 40)
+      + ' · 上限可用 LOCAL_AGENT_TIMEOUT_MS（单次调用）/ LOCAL_AGENT_ANALYSIS_TIMEOUT_MS（全书预处理）调整');
+    requestInterrupt();
+    rejectTimeout(timeoutError());
+  }, timeoutMs);
+  timer.unref?.();
+
   let text = '';
   let structuredOutput: unknown;
   let usage: TurnUsage | null = null;
   let sessionId: string | undefined;
-  let timedOut = false;
-  // 事件计数用于心跳：结构化输出只在结束时一次性返回，文本可能一直是 0 字，
-  // 只看字数会让人误判成「没动静」。
   let messageCount = 0;
-  // 与池化会话同理：interrupt() 不保证让事件流结束，超时必须由竞速来判定，
-  // 否则 CLI 卡住时这里会永久挂着，调用方（例如全书预处理）永远停在「运行中」。
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  const timeoutPromise = new Promise<never>((_resolve, reject) => {
-    timer = setTimeout(() => {
-      timedOut = true;
-      logWarn('agent', '一次性调用超时 · ' + (timeoutMs / 1000).toFixed(0) + 's · request=' + String(_requestId).slice(0, 40)
-        + ' · 上限可用 LOCAL_AGENT_TIMEOUT_MS（单次调用）/ LOCAL_AGENT_ANALYSIS_TIMEOUT_MS（全书预处理）调整');
-      try { Promise.resolve(query.interrupt?.()).catch(() => {}); } catch { /* timeout is handled below */ }
-      reject(new Error('Workbuddy 调用超时（' + (timeoutMs / 1000).toFixed(0) + 's 内未返回）'));
-    }, timeoutMs);
-    timer.unref?.();
-  });
-  const consume = (async () => {
-    for await (const message of query) {
-      const raw: any = message && typeof message === 'object' ? message : {};
-      messageCount += 1;
-      // SDK init events carry the durable session_id needed to resume a later workflow stage.
-      const observedSessionId = [raw.session_id, raw.sessionId, raw.session?.id, raw.message?.session_id]
-        .find((value) => typeof value === 'string' && value.trim());
-      if (typeof observedSessionId === 'string' && observedSessionId !== sessionId) {
-        sessionId = observedSessionId;
-        onSessionId?.(sessionId);
+  let iterator: AsyncIterator<unknown> | undefined;
+
+  try {
+    // Start the deadline before the dynamic SDK import so a stalled initialization also fails visibly.
+    const sdk = await Promise.race([import('@tencent-ai/agent-sdk'), timeoutPromise]);
+    if (contextWindow !== undefined) {
+      const catalog = readModelCatalog({ projectRoot: WORK_DIR });
+      const effectiveModel = resolveWorkbuddyModel(agent.model, catalog) || agent.model;
+      const model = catalog.find((item) => item.id === effectiveModel);
+      const validTier = resolveCodeBuddyContextWindow(model, contextWindow);
+      const option = getCodeBuddyContextWindowOption(model, contextWindow);
+      if (validTier === undefined || !option?.options.some((item) => item.value === String(contextWindow))) {
+        throw new Error('当前 Workbuddy 模型不支持指定的 context window 档位；请刷新配置选项后重试');
       }
-      if (raw.type === 'assistant' && raw.message && Array.isArray(raw.message.content)) {
-        for (const part of raw.message.content) {
-          if (part?.type === 'text' && typeof part.text === 'string' && part.text.trim()) {
-            text += (text ? '\n' : '') + part.text;
+      contextWorkspace = createCodeBuddyContextWindowWorkspace(validTier);
+      effectiveOptions = {
+        ...options,
+        cwd: contextWorkspace.cwd,
+        // Only the temporary project seed is loaded. Host settings/Skills/MCP remain disabled.
+        settingSources: ['project'],
+      };
+    }
+
+    query = sdk.query({ prompt: buildCombinedPrompt(prompt, systemPrompt), options: effectiveOptions });
+    if (timedOut) requestInterrupt();
+
+    const consume = (async () => {
+      try {
+        for (;;) {
+          // Interrupt alone may not end stream(); the race makes the request deadline authoritative.
+          const next = await Promise.race([iterator!.next(), timeoutPromise]);
+          if (next.done) break;
+          const message = next.value;
+          const raw: any = message && typeof message === 'object' ? message : {};
+          messageCount += 1;
+          // SDK init events carry the durable session_id needed to resume a later workflow stage.
+          const observedSessionId = [raw.session_id, raw.sessionId, raw.session?.id, raw.message?.session_id]
+            .find((value) => typeof value === 'string' && value.trim());
+          if (typeof observedSessionId === 'string' && observedSessionId !== sessionId) {
+            sessionId = observedSessionId;
+            onSessionId?.(sessionId);
+          }
+          if (raw.type === 'assistant' && raw.message && Array.isArray(raw.message.content)) {
+            for (const part of raw.message.content) {
+              if (part?.type === 'text' && typeof part.text === 'string' && part.text.trim()) {
+                text += (text ? '\n' : '') + part.text;
+              }
+            }
+          }
+          if (raw.type === 'result') {
+            if (raw.subtype && raw.subtype !== 'success') {
+              throw new Error('Workbuddy 执行失败：' + String(raw.error?.message || raw.error || raw.subtype));
+            }
+            if (raw.structured_output !== undefined) structuredOutput = raw.structured_output;
+            usage = parseTurnUsage(raw);
           }
         }
-      }
-      if (raw.type === 'result') {
-        if (raw.subtype && raw.subtype !== 'success') {
-          throw new Error('Workbuddy 执行失败：' + String(raw.error?.message || raw.error || raw.subtype));
+      } finally {
+        // Stop local consumption after timeout; late messages must not mutate the host run.
+        if (timedOut && iterator?.return) {
+          void Promise.resolve(iterator.return()).catch(() => {});
         }
-        if (raw.structured_output !== undefined) structuredOutput = raw.structured_output;
-        usage = parseTurnUsage(raw);
       }
+    })();
+
+    iterator = query[Symbol.asyncIterator]();
+    // Long tasks may be quiet for minutes; heartbeats are telemetry, not a progress guarantee.
+    if (timeoutMs > 60_000) {
+      heartbeat = setInterval(() => {
+        logInfo('agent', '调用仍在进行 · 已等待 ' + ((Date.now() - startedAt) / 1000).toFixed(0) + 's'
+          + ' · 事件 ' + messageCount + ' 条 · 已收文本 ' + text.length + ' 字 · request=' + String(_requestId).slice(0, 40));
+      }, 30_000);
+      heartbeat.unref?.();
     }
-  })();
-  // 长任务（全书预处理）动辄十几分钟：中途没有任何输出时，终端无法区分「在跑」和「卡死」。
-  // 心跳只在放宽了上限的长调用上开，普通翻译批次保持安静。
-  let heartbeat: ReturnType<typeof setInterval> | undefined;
-  if (timeoutMs > 60_000) {
-    heartbeat = setInterval(() => {
-      logInfo('agent', '调用仍在进行 · 已等待 ' + ((Date.now() - startedAt) / 1000).toFixed(0) + 's'
-        + ' · 事件 ' + messageCount + ' 条 · 已收文本 ' + text.length + ' 字 · request=' + String(_requestId).slice(0, 40));
-    }, 30_000);
-    heartbeat.unref?.();
-  }
-  try {
+
     await Promise.race([consume, timeoutPromise]);
+    if (timedOut) throw timeoutError();
+    return { text: text.trim(), structuredOutput, usage, ...(sessionId ? { sessionId } : {}) };
   } catch (error) {
-    if (timedOut) throw new Error('Workbuddy 调用超时（' + (timeoutMs / 1000).toFixed(0) + 's 内未返回）');
-    throw new Error('Workbuddy Agent SDK 调用失败：' + (error instanceof Error ? error.message : String(error)));
+    if (timedOut) throw timeoutError();
+    if (query) {
+      requestInterrupt();
+      if (iterator?.return) void Promise.resolve(iterator.return()).catch(() => {});
+      throw new Error('Workbuddy Agent SDK 调用失败：' + (error instanceof Error ? error.message : String(error)));
+    }
+    // Keep configuration/input validation errors readable when no SDK query was created.
+    throw error;
   } finally {
-    clearTimeout(timer);
+    if (timer) clearTimeout(timer);
     if (heartbeat) clearInterval(heartbeat);
     contextWorkspace?.cleanup();
   }
-  if (timedOut) throw new Error('Workbuddy 调用超时（' + (timeoutMs / 1000).toFixed(0) + 's 内未返回）');
-  return { text: text.trim(), structuredOutput, usage, ...(sessionId ? { sessionId } : {}) };
 }
 
 function createCodeBuddyContextWindowWorkspace(contextWindow: number): { cwd: string; cleanup: () => void } {
