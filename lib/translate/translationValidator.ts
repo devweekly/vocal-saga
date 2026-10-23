@@ -58,6 +58,8 @@ export function validateTranslationCompleteness(
     'fanyi-translation',
     'data-fanyi-translated',
     'fanyi-original',
+    'fanyi-inline-translation',
+    'fanyi-inline-original',
   ];
 
   let hasTranslationMarker = false;
@@ -78,8 +80,8 @@ export function validateTranslationCompleteness(
   }
 
   // 3. 统计翻译的 block 数量
-  const translationCount = (html.match(/fanyi-translation/g) || []).length;
-  const originalCount = (html.match(/fanyi-original/g) || []).length;
+  const translationCount = (html.match(/fanyi-(?:inline-)?translation/g) || []).length;
+  const originalCount = (html.match(/fanyi-(?:inline-)?original/g) || []).length;
   const blockCount = Math.max(translationCount, originalCount);
 
   // 4. 如果传了预期数量，检查是否足够（允许 10% 误差）
@@ -100,7 +102,7 @@ export function validateTranslationCompleteness(
   // 用 [^<]*（零个或多个）而非 [^<]+（一个或多个），
   // 这样空译文（<span class="fanyi-translation"></span>）也会被计入 totalTranslations，
   // 才能让 50% 非空校验真正生效。
-  const translationRegex = /class="[^"]*fanyi-translation[^"]*"[^>]*>([^<]*)</g;
+  const translationRegex = /class="[^"]*fanyi-(?:inline-)?translation[^"]*"[^>]*>([^<]*)</g;
   let totalTranslations = 0;
   let nonEmptyTranslations = 0;
   let match: RegExpExecArray | null;
