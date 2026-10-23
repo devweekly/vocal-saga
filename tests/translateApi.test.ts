@@ -38,6 +38,15 @@ describe('processTranslationResult', () => {
     expect(result.get('b2')).toBe('世界');
   });
 
+  it('accepts a single translation object returned without the array wrapper', () => {
+    const result = processTranslationResult(JSON.stringify({
+      id: 'b1',
+      translated_text: '单块译文',
+    }));
+    expect(result.size).toBe(1);
+    expect(result.get('b1')).toBe('单块译文');
+  });
+
 
 
 
@@ -313,6 +322,17 @@ describe('processTranslationWithCheck', () => {
     const result = processTranslationWithCheck(json, original);
     expect(result.get('b1')).toBe('你好');
     expect(result.get('b2')).toBe('世界');
+  });
+
+  it('accepts a singleton translation object and checks its block id', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const result = processTranslationWithCheck(
+      JSON.stringify({ id: 'b1', translated_text: '你好' }),
+      [{ id: 'b1', text: 'hello' }],
+    );
+    expect(result.get('b1')).toBe('你好');
+    expect(warn).not.toHaveBeenCalled();
+    warn.mockRestore();
   });
 
 
