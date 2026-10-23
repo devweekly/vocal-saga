@@ -71,6 +71,7 @@ import { setDefaultStorage, type StorageAdapter } from './storage';
 import { requireAuth } from './auth';
 import { extractClientInfo, formatClientLabel } from './clientInfo';
 import { normalizeUrl, cacheKeyUrl, assertPublicUrl } from './urlUtils';
+import { looksLikeDomainParkingHtml } from './translate/pageGuard';
 import { injectRedirectGuard } from './redirectGuard';
 import { stripDangerousScripts, stripNavigationScripts } from './spaGuard';
 import { devirtualizeLayout } from './devirtualize';
@@ -112,6 +113,13 @@ import {
  * 样式被清空，只剩 OneTrust / fanyi 样式，也要视为 miss 重新翻译。
  */
 export function isHealthyCachedHtml(html: string): boolean {
+  // Structural completeness is not enough: a registrar parking page can have
+  // valid HTML, CSS, and translated spans. Never serve it as a healthy translation.
+  if (looksLikeDomainParkingHtml(html)) {
+    console.warn('[isHealthyCachedHtml] rejecting likely domain-parking page');
+    return false;
+  }
+
   // ── 结构检查（保留原有逻辑） ──
   // 旧版 pipeline 曾输出缺少 <html> 标签、<head> 被吞掉的损坏 HTML，
   // 导致页面 CSS 全部丢失。某些损坏缓存虽保留 <html>，但原页面内联
@@ -1037,13 +1045,29 @@ ${pager}
           'X-Translate-Blocks': String(result.blocks),
           'X-Translate-Chunks': String(result.chunks),
           'X-Translate-Duration-Ms': String(result.duration_ms),
+          // Expose the destination path for redirect troubleshooting; omit query/hash values.
+          'X-Translate-Final-Url': (() => {
+            try {
+              const finalUrl = new URL(result.finalUrl);
+              return finalUrl.origin + finalUrl.pathname;
+            } catch {
+              return '';
+            }
+          })(),
           // save 失败时透出错误信息，让扩展端能 toast 提示
           ...(saveError ? { 'X-Translate-Warning': sanitizeHeaderValue(saveError) } : {}),
         },
       });
     } catch (err) {
-      console.error(`[fanyi/page] error: ${(err as Error).message} | client=${clientLabel} sid=${sid}`);
-      return c.json({ error: (err as Error).message, client: clientInfo, sessionId: sid }, 500);
+      const message = (err as Error)?.message || String(err);
+      const rejectedParkingPage = message.includes('likely domain-parking page');
+      console.error(`[fanyi/page] error: ${message} | client=${clientLabel} sid=${sid}`);
+      return c.json({
+        error: message,
+        client: clientInfo,
+        sessionId: sid,
+        ...(rejectedParkingPage ? { code: 'DOMAIN_PARKING_PAGE' } : {}),
+      }, rejectedParkingPage ? 422 : 500);
     }
   });
 
@@ -1347,12 +1371,12 @@ ${pager}
         },
       });
     } catch (err) {
-      console.error('[translate/url-page] error:', err);
-      // 兜底：源站抓取/翻译失败（典型是 openai.com 这类现在直接 403 的站点）时，
-      // 只要 D1 里还存着上一次的译文，就把它返回给用户 —— 旧译文远好过 500 报错页。
-      // 不做 isHealthyCachedHtml 校验：这里已经是最后一道防线，宁可给一份"可能样式
-      // 有损"的译文，也不要让用户什么都看不到。
-      if (cachedRow?.html) {
+      const message = (err as Error)?.message || String(err);
+      const rejectedParkingPage = message.includes('likely domain-parking page');
+      console.error(`[translate/url-page] error url=${url}:`, message);
+      // A stale-cache fallback must not resurrect the same parking page that caused
+      // the live fetch to be rejected.
+      if (cachedRow?.html && !looksLikeDomainParkingHtml(cachedRow.html)) {
         console.warn(`[translate/url-page] serving stale D1 cache for ${url} after failure`);
         return new Response(await renderCachedTranslationHtml(cachedRow.html, url, db, cachedRow.id), {
           status: 200,
@@ -1360,11 +1384,14 @@ ${pager}
             'Content-Type': 'text/html; charset=utf-8',
             'Cache-Control': 'public, max-age=600',
             'X-Translate-Source': 'd1-stale-fallback',
-            'X-Translate-Warning': sanitizeHeaderValue((err as Error).message),
+            'X-Translate-Warning': sanitizeHeaderValue(message),
           },
         });
       }
-      return c.json({ error: (err as Error).message }, 500);
+      return c.json({
+        error: message,
+        ...(rejectedParkingPage ? { code: 'DOMAIN_PARKING_PAGE' } : {}),
+      }, rejectedParkingPage ? 422 : 500);
     }
   }
 
