@@ -1113,6 +1113,66 @@ ${pager}
   });
 
   /**
+   * POST /api/translate/url
+   *
+   * UI endpoint for URL translation. Reuses the same validated/cached URL handler
+   * as the public /translate/* routes, but wraps the resulting HTML and metrics as JSON.
+   */
+  app.post('/api/translate/url', async (c) => {
+    const body = await c.req.json().catch(() => ({} as any));
+    if (typeof body?.url !== 'string' || !body.url.trim() || body.url.length > 4096) {
+      return c.json({ error: 'url is required and must be at most 4096 characters' }, 400);
+    }
+
+    let parsedUrl: URL;
+    try {
+      parsedUrl = new URL(body.url.trim());
+    } catch {
+      return c.json({ error: 'url must be a valid http(s) URL' }, 400);
+    }
+    if (!['http:', 'https:'].includes(parsedUrl.protocol) || parsedUrl.username || parsedUrl.password) {
+      return c.json({ error: 'url must be a valid http(s) URL without embedded credentials' }, 400);
+    }
+    try {
+      assertPublicUrl(parsedUrl.toString());
+    } catch (error) {
+      return c.json({ error: (error as Error).message }, 400);
+    }
+
+    const supportedProviders = ['deepseek', 'openrouter', 'nvidia', 'cloudflare', 'mimo', 'gemini', 'opencode'];
+    if (body.provider !== undefined && !supportedProviders.includes(body.provider)) {
+      return c.json({ error: 'provider is not supported', supportedProviders }, 400);
+    }
+    const validStyles = ['default', 'jinyong', 'acheng', 'wangxiaobo', 'ja-source-natural'];
+    const promptStyle = typeof body.promptStyle === 'string' && validStyles.includes(body.promptStyle)
+      ? body.promptStyle as PromptStyle
+      : undefined;
+    const translationMode: TranslationMode = body.translationMode === 'literary' ? 'literary' : 'technical';
+    const source = typeof body.source === 'string' && body.source.trim() ? body.source.trim() : 'auto';
+    const target = typeof body.target === 'string' && body.target.trim() ? body.target.trim() : 'zh';
+    const model = typeof body.model === 'string' && body.model.trim() ? body.model.trim().slice(0, 200) : undefined;
+
+    const response = await handleTranslateRequest(c, parsedUrl.toString(), false, body.provider || 'deepseek', model, {
+      source, target, promptStyle, translationMode,
+    });
+    if (response.status !== 200) {
+      const payload = await response.json().catch(async () => ({ error: await response.text() }));
+      return c.json(payload, response.status as 400);
+    }
+
+    const html = await response.text();
+    const headers = response.headers;
+    return c.json({
+      html,
+      blocks: Number(headers.get('X-Translate-Blocks') || 0),
+      chunks: Number(headers.get('X-Translate-Chunks') || 0),
+      duration_ms: Number(headers.get('X-Translate-Duration-Ms') || 0),
+      finalUrl: headers.get('X-Translate-Final-Url') || parsedUrl.toString(),
+      cacheSource: headers.get('X-Translate-Source') || 'fresh',
+    });
+  });
+
+  /**
    * POST /api/translate/document/segments
    *
    * 只接受扩展已解析好的结构化片段，并对本次请求做一次有界翻译。
@@ -1235,7 +1295,14 @@ ${pager}
    * @param provider LLM 提供方：'deepseek'（默认）、'openrouter'、'nvidia'、'cloudflare'、'mimo'、'gemini'、'opencode'
    * @param model 可选模型名（用于 NVIDIA / Gemini 等多模型服务）
    */
-  async function handleTranslateRequest(c: any, rawPath: string, force = false, provider: 'deepseek' | 'openrouter' | 'nvidia' | 'cloudflare' | 'mimo' | 'gemini' | 'opencode' = 'deepseek', model?: string) {
+  async function handleTranslateRequest(
+    c: any,
+    rawPath: string,
+    force = false,
+    provider: 'deepseek' | 'openrouter' | 'nvidia' | 'cloudflare' | 'mimo' | 'gemini' | 'opencode' = 'deepseek',
+    model?: string,
+    options?: { source?: string; target?: string; promptStyle?: PromptStyle; translationMode?: TranslationMode },
+  ) {
     if (!rawPath) {
       return c.json({ error: 'target url is required in path' }, 400);
     }
@@ -1246,17 +1313,21 @@ ${pager}
     }
     const url = `https://${normalized}`;
 
-    const source = c.req.query('source');
-    const target = c.req.query('target') || 'zh';
-    // 全局只支持双语对照模式
+    const source = options?.source ?? c.req.query('source');
+    const target = options?.target ?? c.req.query('target') ?? 'zh';
+    // URL translation supports bilingual rendering only. Literary/technical is a prompt mode.
     const mode = 'bilingual' as const;
+    const requestedStyle = options?.promptStyle ?? c.req.query('style');
+    const validStyles = ['default', 'jinyong', 'acheng', 'wangxiaobo', 'ja-source-natural'];
+    const promptStyle = typeof requestedStyle === 'string' && validStyles.includes(requestedStyle)
+      ? requestedStyle as PromptStyle
+      : undefined;
+    const requestedTranslationMode = options?.translationMode ?? c.req.query('translationMode');
+    const translationMode: TranslationMode = requestedTranslationMode === 'literary' ? 'literary' : 'technical';
 
-    // 翻译文风：从 query param `style` 读取，不传时下游默认 'default'（向后兼容）
-    const promptStyle = c.req.query('style') as PromptStyle | undefined;
-
-    // source / target 必须是合法语言代码（auto、ISO 639-1/2 字母码、或带区域子标签）
+    // Use the same normalized language values for cache identity and the actual model call.
     const VALID_LANG_RE = /^(auto|[a-zA-Z]{2,3})(-[a-zA-Z]{2,3})?$/;
-    const sourceStored = source && VALID_LANG_RE.test(source) ? source : 'en';
+    const sourceStored = source && VALID_LANG_RE.test(source) ? source : 'auto';
     const targetStored = VALID_LANG_RE.test(target) ? target : 'zh';
 
     let parsed: URL;
@@ -1275,20 +1346,21 @@ ${pager}
     } catch (e) {
       return c.json({ error: (e as Error).message }, 400);
     }
-    console.log(`[translate/url-page] url=${url} src=${sourceStored} tgt=${targetStored} mode=${mode} force=${force}`);
+    console.log(`[translate/url-page] url=${url} src=${sourceStored} tgt=${targetStored} mode=${mode} promptStyle=${promptStyle || 'default'} translationMode=${translationMode} provider=${provider} force=${force}`);
 
-    // ── D1 去重：同 URL+source+target 已存在则直接返回（force 模式跳过） ──
-    // 用 cacheKeyUrl 标准化：www.example.com 和 example.com 命中同一缓存
+    // A URL result is reusable only when provider/model/style/mode/site rules/prompt revision match.
+    // The previous empty content_hash allowed every provider and style to overwrite the same D1 row.
     const db = (c.env as any)?.DB999;
     const cacheKey = cacheKeyUrl(url);
+    const contentHash = buildPageCacheFingerprint('url-direct-v1', url, provider, promptStyle, translationMode, model);
     // 缓存行提升到 try 之外：源站抓取失败（403 / 超时）时用它兜底返回旧译文，
     // 而不是给用户一个 500。见下方 catch 分支。
     let cachedRow: any = null;
     if (db && !force) {
       try {
         const existing: any = await db.prepare(
-          'SELECT id, html FROM translations WHERE url = ? AND source_lang = ? AND target_lang = ? ORDER BY created_at DESC LIMIT 1'
-        ).bind(cacheKey, sourceStored, targetStored).first();
+          'SELECT id, html, content_hash FROM translations WHERE url = ? AND source_lang = ? AND target_lang = ? AND content_hash = ? ORDER BY created_at DESC LIMIT 1'
+        ).bind(cacheKey, sourceStored, targetStored, contentHash).first();
         cachedRow = existing || null;
         if (existing && isHealthyCachedHtml(existing.html)) {
           console.log(`[translate/url-page] D1 cache hit for ${url}`);
@@ -1313,12 +1385,13 @@ ${pager}
     try {
       const result = await translateUrl({
         url,
-        source,
-        target,
+        source: sourceStored,
+        target: targetStored,
         mode,
         provider,
         model,
         promptStyle,
+        translationMode,
         skipCache: force,
       });
       console.log(`[translate/url-page] blocks=${result.blocks} translated=${result.translatedBlocks} chunks=${result.chunks} duration=${result.duration_ms}ms`);
@@ -1347,7 +1420,7 @@ ${pager}
               title = excluded.title,
               html = excluded.html,
               created_at = CURRENT_TIMESTAMP
-          `).bind(cacheKey, result.title || '', sourceStored, targetStored, result.html, '').run();
+          `).bind(cacheKey, result.title || '', sourceStored, targetStored, result.html, contentHash).run();
         } catch (e) {
           saveError = (e as Error)?.message || String(e);
           console.error('[D1] save error:', e);
