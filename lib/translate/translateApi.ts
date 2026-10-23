@@ -74,8 +74,8 @@ export function logUnchangedBlocks(
 ): string {
   try {
     const parsed = JSON.parse(rawJson);
-    const translations = parsed.translations || parsed;
-    if (!Array.isArray(translations)) return rawJson;
+    const translations = normalizeTranslationItems(parsed);
+    if (translations.length === 0) return rawJson;
 
     const byId = new Map(originalBlocks.map((b) => [b.id, b.text]));
     const seenIds = new Set<string>();
@@ -180,7 +180,7 @@ export function processTranslationWithCheck(
       }
     }
   }
-  const translations = parsed.translations || parsed;
+  const translations = normalizeTranslationItems(parsed);
   const result = new Map<string, string>();
 
   // 用于 unchanged 检测
