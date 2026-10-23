@@ -29,6 +29,8 @@ import { inlineExternalStylesheets } from './cssInliner';
 export interface FetchedPage {
   url: string;
   finalUrl: string;
+  /** Every URL visited in order, including the initial URL and final destination. */
+  redirectChain: string[];
   doc: Document;
   html: string;
   status: number;
@@ -72,8 +74,9 @@ async function fetchWithGuardedRedirects(
   init: RequestInit,
   signal: AbortSignal,
   guard: (url: string) => void,
-): Promise<{ response: Response; finalUrl: string }> {
+): Promise<{ response: Response; finalUrl: string; redirectChain: string[] }> {
   let currentUrl = startUrl;
+  const redirectChain = [startUrl];
 
   for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
     // 每一跳都校验：首跳校验链首，后续跳校验解析后的 Location 绝对地址
@@ -82,9 +85,9 @@ async function fetchWithGuardedRedirects(
     const response = await fetch(currentUrl, { ...init, redirect: 'manual', signal });
 
     // 非重定向（或 3xx 但没有 Location，无法继续跟随）：原样返回给调用方处理
-    if (!isRedirectStatus(response.status)) return { response, finalUrl: currentUrl };
+    if (!isRedirectStatus(response.status)) return { response, finalUrl: currentUrl, redirectChain };
     const location = response.headers.get('location');
-    if (!location) return { response, finalUrl: currentUrl };
+    if (!location) return { response, finalUrl: currentUrl, redirectChain };
 
     // 丢弃重定向响应的 body，避免占用连接与内存
     try {
@@ -100,6 +103,7 @@ async function fetchWithGuardedRedirects(
       throw new Error(`invalid redirect location: ${location}`);
     }
     currentUrl = next.href;
+    redirectChain.push(currentUrl);
   }
 
   throw new Error(`too many redirects (> ${MAX_REDIRECTS})`);
@@ -136,6 +140,7 @@ export async function fetchPage(
 
   let response: Response;
   let finalUrl: string;
+  let redirectChain: string[];
   try {
     const guarded = await fetchWithGuardedRedirects(
       url,
@@ -165,6 +170,7 @@ export async function fetchPage(
     );
     response = guarded.response;
     finalUrl = guarded.finalUrl;
+    redirectChain = guarded.redirectChain;
   } finally {
     clearTimeout(timer);
   }
@@ -200,6 +206,7 @@ export async function fetchPage(
   return {
     url,
     finalUrl,
+    redirectChain,
     doc: document,
     html: finalHtml,
     status: response.status,
