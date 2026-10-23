@@ -10,7 +10,6 @@ import { logInfo } from '../log.ts';
 
 // Persistence safety ceiling, not a prompt budget. Keep enough room for long-book memory.
 const MAX_MEMORY_BYTES = 5 * 1024 * 1024;
-const MAX_CHARACTERS = 80;
 const MAX_RELATION_RULES = 160;
 const MAX_ANCHORS = 240;
 
@@ -225,7 +224,7 @@ export function sanitizeProjectLiteraryMemory(input: unknown): Record<string, an
   };
   const styleGuideStatus = raw.styleGuideStatus === 'confirmed' ? 'confirmed' : 'candidate';
   const styleGuideConfirmationSource = confirmationSource(raw.styleGuideConfirmationSource, styleGuideStatus === 'confirmed');
-  const characterVoices = Array.isArray(raw.characterVoices) ? raw.characterVoices.slice(0, MAX_CHARACTERS).flatMap((item: any) => {
+  const characterVoices = Array.isArray(raw.characterVoices) ? raw.characterVoices.flatMap((item: any) => {
     if (!item || typeof item !== 'object' || Array.isArray(item)) return [];
     const canonicalSourceName = text(item.canonicalSourceName || item.source || item.name, 120);
     const characterId = text(item.characterId, 100);
