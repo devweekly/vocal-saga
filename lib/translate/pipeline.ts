@@ -1002,9 +1002,6 @@ export async function translateUrl(input: TranslateUrlInput): Promise<TranslateU
     ...(input.ssrfGuard ? { ssrfGuard: input.ssrfGuard } : {}),
   });
 
-  // Redirects are valid, but registrar parking pages are not article content.
-  // Reject them before invoking the model or allowing the result into D1.
-  assertNotDomainParkingPage(page.doc, input.url, page.finalUrl);
   const redirectTrace = page.redirectChain.map((value) => {
     try {
       const parsed = new URL(value);
@@ -1013,9 +1010,14 @@ export async function translateUrl(input: TranslateUrlInput): Promise<TranslateU
       return '(invalid URL)';
     }
   }).join(' -> ');
+  // Log redirects before validation so rejected parking/challenge pages remain diagnosable.
   console.log(
     `[Pipeline] Fetched ${input.url} → ${page.finalUrl} (${page.status}, ${page.html.length} bytes); redirects=${redirectTrace}`,
   );
+
+  // Redirects are valid, but registrar parking pages are not article content.
+  // Reject them before invoking the model or allowing the result into D1.
+  assertNotDomainParkingPage(page.doc, input.url, page.finalUrl);
 
   const result = await runTranslationPipeline(
     page.doc,
