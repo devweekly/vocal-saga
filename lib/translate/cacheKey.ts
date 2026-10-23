@@ -28,7 +28,7 @@ export function generateTranslationCacheKey(
   const base = provider || promptStyle ? `${provider ?? ''}:${promptStyle ?? ''}` : '';
   // Bump this revision when translation instructions change, so bad older translations cannot be reused.
   const extra =
-    'translation-prompt-v3|' + base +
+    'translation-prompt-v4|' + base +
     (glossary?.document_terms?.length
       ? `|g${simpleHash(JSON.stringify(glossary.document_terms))}`
       : '') +
