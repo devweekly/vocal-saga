@@ -10,6 +10,7 @@ process.env.LOCAL_AGENT_DATA_DIR = testDataDir;
 process.env.LOCAL_AGENT_DATABASE = path.join(testDataDir, 'service.sqlite');
 
 const { getDocumentProjectStore } = await import('../src/documents/projectStore.ts');
+const { buildProjectVoiceContext } = await import('../src/documents/voiceContext.ts');
 const { buildProjectContextGraphBundle } = await import('../src/documents/contextGraph.ts');
 const { buildTranslationBrief, summarizeTranslationBrief, MAX_TRANSLATION_BRIEF_CHARS } = await import('../src/documents/translationBrief.ts');
 const { buildBatches, buildUserPrompt } = await import('../src/documents/translationAgent.ts');
@@ -1020,4 +1021,33 @@ test('conflicting confirmed character profile and entity targets are not arbitra
   assert.ok(brief.contextGraph.constraints.some((item) => String(item).includes('canonicalNameMappingConflicts')));
   assert.deepEqual(brief.contextGraph.canonicalNameMappingConflicts.map((item) =>
     new Set([item.existingTarget, item.profileTarget])), [new Set(['矢部', '薮'])]);
+});
+
+test('voice retrieval keeps relevant profiles beyond the former first-80 persistence cap', () => {
+  const profiles = Array.from({ length: 100 }, (_, index) => ({
+    characterId: `character-${index}`,
+    canonicalSourceName: `Character ${index}`,
+    targetName: `人物${index}`,
+    aliases: [],
+    status: 'confirmed',
+    confidence: 0.9,
+    voiceCore: {
+      register: 'measured', syntaxRhythm: [], lexicalPreferences: [],
+      discourseHabits: [], stanceModality: [], humorIrony: '', disfluency: '', avoid: [],
+    },
+    evidence: [],
+    contrastRules: [],
+    openQuestions: [],
+  }));
+  const context = buildProjectVoiceContext(
+    { version: 2, characterVoices: profiles, entities: [], relationships: [], relationshipVoiceRules: [], voiceAnchors: [], chapterSummaries: [], recentExamples: [] },
+    [{ id: 'current', text: 'Character 99 spoke quietly.', contextPath: 'Chapter 1', kind: 'dialogue' }],
+    'Chapter 1',
+  );
+
+  assert.deepEqual(
+    context.characterVoices.map((profile) => profile.characterId),
+    ['character-99'],
+    'relevant later profiles must remain eligible for retrieval instead of being discarded by input order',
+  );
 });
