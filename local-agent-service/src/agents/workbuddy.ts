@@ -131,6 +131,7 @@ async function queryWorkbuddyRaw(
     query = sdk.query({ prompt: buildCombinedPrompt(prompt, systemPrompt), options: effectiveOptions });
     if (timedOut) requestInterrupt();
 
+    iterator = query[Symbol.asyncIterator]();
     const consume = (async () => {
       try {
         for (;;) {
@@ -170,7 +171,6 @@ async function queryWorkbuddyRaw(
       }
     })();
 
-    iterator = query[Symbol.asyncIterator]();
     // Long tasks may be quiet for minutes; heartbeats are telemetry, not a progress guarantee.
     if (timeoutMs > 60_000) {
       heartbeat = setInterval(() => {
