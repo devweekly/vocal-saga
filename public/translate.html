@@ -38,6 +38,17 @@
   <label data-page-node-id="KbtnjCzeWpOMuNPQjxhF8N">Bearer Token: <input type="password" id="auth" placeholder="AUTH_KEY" data-page-node-id="qql1sUGt4umpiM7hJVp6Eu"></label>
   <label data-page-node-id="TTwIlHTHC9ia9Fko9fPgbx">源: <select id="source" data-page-node-id="rzKQcySNfMjwyvyhf8CH2A"><option value="auto" data-page-node-id="5DCXOwWlNXhdK8LvI8crl5">auto</option><option value="en" data-page-node-id="PmpwL6K2kq32FRzZ8FIUud">en</option><option value="zh" data-page-node-id="FMIGADGKbM7VbofoolhHFg">zh</option><option value="ja" data-page-node-id="5m3uoV65B1LOhm83JFEVbT">ja</option></select></label>
   <label data-page-node-id="qMdxSgothPHU8kGyVIpF4j">目标: <select id="target" data-page-node-id="kX61BE0lF4pDpfj9J6S5r7"><option value="zh" data-page-node-id="M0bhTlnJqe4QnDgZZXj9lB">zh</option><option value="en" data-page-node-id="4HcLgsAMXziiHl723JzBxt">en</option><option value="ja" data-page-node-id="w27imivkRrayGXwbGVXSUm">ja</option></select></label>
+  <label>文风: <select id="promptStyle">
+    <option value="default">通用</option>
+    <option value="wangxiaobo">理性、机智、克制</option>
+    <option value="jinyong">雅致、从容、有节奏</option>
+    <option value="acheng">白描、具体、克制</option>
+    <option value="ja-source-natural">日语原文自然表达</option>
+  </select></label>
+  <label>翻译模式: <select id="translationMode">
+    <option value="technical">忠实 / 技术</option>
+    <option value="literary">文学翻译</option>
+  </select></label>
 </div>
 
 <h2 data-page-node-id="dTOgdQVM6jPWm2z0c1bgyr">输入</h2>
@@ -51,13 +62,7 @@
 <div class="panel" data-panel="url" data-page-node-id="sgWfFjUM1xBPxJpkLb5gPH">
   <input type="text" id="inputUrl" placeholder="https://example.com/article" style="width: 100%; margin-bottom: 8px" data-page-node-id="pdbJahKR94ITP5pIpthlNw">
   <input type="text" id="inputTitle" placeholder="文章标题（可选）" style="width: 100%; margin-bottom: 8px" aria-label="Instapaper 文章标题">
-  <div class="row" data-page-node-id="gukDoMMFyOqYjnDyA4hQW1">
-    <label data-page-node-id="GOBgcMJQuJTO6ASYT6jr7v">模式: <select id="urlMode" data-page-node-id="ZKn2yX9GKoBjN26usHkGUr">
-      <option value="bilingual" data-page-node-id="KoQnyShbK8B2JPzmWO8OE7">bilingual</option>
-      <option value="replace" data-page-node-id="Kf7DayAoCT2jlPOvrGA2Cv">replace</option>
-    </select></label>
-  </div>
-  <div class="hint" data-page-node-id="ta2zagGyQjm16RY7ItEQLG">返回的 html 字段为完整 HTML，可单独查看 blocks 数组。</div>
+  <div class="hint" data-page-node-id="ta2zagGyQjm16RY7ItEQLG">URL 翻译返回完整双语 HTML。文风只调整表达，不应改动原文事实、技术含义或逻辑关系。</div>
 </div>
 
 <div class="row" style="margin-top: 12px" data-page-node-id="o2ctZUG9BmPCkETzYG8avB">
@@ -78,7 +83,8 @@
   const target = $('target');
   const inputText = $('inputText');
   const inputUrl = $('inputUrl');
-  const urlMode = $('urlMode');
+  const promptStyle = $('promptStyle');
+  const translationMode = $('translationMode');
   const output = $('output');
   const meta = $('meta');
   const outMeta = $('outMeta');
@@ -160,6 +166,8 @@
             text: inputText.value,
             source: source.value,
             target: target.value,
+            promptStyle: promptStyle.value,
+            translationMode: translationMode.value,
           }),
         });
         const txt = (r.translations || []).map((t) => t.text).join('\n');
@@ -172,7 +180,8 @@
             url: inputUrl.value,
             source: source.value,
             target: target.value,
-            mode: urlMode.value,
+            promptStyle: promptStyle.value,
+            translationMode: translationMode.value,
           }),
         });
         output.textContent = r.html || '(空)';
