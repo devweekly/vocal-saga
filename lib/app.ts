@@ -1157,7 +1157,10 @@ ${pager}
     });
     if (response.status !== 200) {
       const payload = await response.json().catch(async () => ({ error: await response.text() }));
-      return c.json(payload, response.status as 400);
+      return new Response(JSON.stringify(payload), {
+        status: response.status,
+        headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' },
+      });
     }
 
     const html = await response.text();
