@@ -1156,7 +1156,13 @@ ${pager}
       source, target, promptStyle, translationMode,
     });
     if (response.status !== 200) {
-      const payload = await response.json().catch(async () => ({ error: await response.text() }));
+      const responseText = await response.text();
+      let payload: unknown;
+      try {
+        payload = JSON.parse(responseText);
+      } catch {
+        payload = { error: responseText || `URL translation failed with status ${response.status}` };
+      }
       return new Response(JSON.stringify(payload), {
         status: response.status,
         headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' },
