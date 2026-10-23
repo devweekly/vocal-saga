@@ -99,6 +99,11 @@ async function runSessionTurn(
 export class WorkbuddySessionPool {
   private slots: Slot[];
   private waiters: Array<() => void> = [];
+  private closed = false;
+
+  private assertOpen(): void {
+    if (this.closed) throw new Error('Workbuddy session pool is closed');
+  }
 
   constructor(
     private readonly size: number,
@@ -121,12 +126,14 @@ export class WorkbuddySessionPool {
     scopeKey = 'shared-text-translation',
     schema?: Record<string, unknown>,
   ): Promise<number> {
+    this.assertOpen();
     // Shared text requests reuse a bounded slot; tasks needing explicit thinking/effort use query() instead.
     if (scopeKey === 'shared-text-translation' && !schema) return this.acquireSharedTextSlot(agent);
 
     const schemaKey = schema ? JSON.stringify(schema) : '';
     const requestedKey = JSON.stringify([scopeKey, agent.model || '<runtime-default>', schemaKey]);
     for (;;) {
+      this.assertOpen();
       // A scoped conversation has exactly one slot. Do not create a second copy while its
       // first copy is busy: parallel sends would split history and make turn order nondeterministic.
       const existingIndex = this.slots.findIndex((slot) => slot.scopeKey === requestedKey);
@@ -139,6 +146,7 @@ export class WorkbuddySessionPool {
         slot.busy = true;
         try {
           await this.ensureSession(existingIndex, agent, requestedKey, schema);
+          this.assertOpen();
         } catch (error) {
           slot.busy = false;
           this.wakeNext();
@@ -169,6 +177,7 @@ export class WorkbuddySessionPool {
       slot.schemaKey = schemaKey;
       try {
         await this.ensureSession(index, agent, requestedKey, schema);
+        this.assertOpen();
       } catch (error) {
         slot.busy = false;
         this.wakeNext();
@@ -181,6 +190,7 @@ export class WorkbuddySessionPool {
 
   private async acquireSharedTextSlot(agent: WorkbuddyAgent): Promise<number> {
     for (;;) {
+      this.assertOpen();
       const reusable = this.slots.findIndex((slot) =>
         !slot.busy && !!slot.session && slot.schemaKey === '' && slot.scopeKey.startsWith('shared-slot:'),
       );
@@ -189,6 +199,7 @@ export class WorkbuddySessionPool {
         slot.busy = true;
         try {
           await this.ensureSession(reusable, agent, slot.scopeKey || ('shared-slot:' + reusable));
+          this.assertOpen();
         } catch (error) {
           slot.busy = false;
           this.wakeNext();
@@ -218,6 +229,7 @@ export class WorkbuddySessionPool {
       slot.scopeKey = slotKey;
       try {
         await this.ensureSession(index, agent, slotKey);
+        this.assertOpen();
       } catch (error) {
         slot.busy = false;
         this.wakeNext();
@@ -313,6 +325,10 @@ export class WorkbuddySessionPool {
    * 用于服务关闭、测试隔离和故障恢复；关闭后不得继续使用旧 Slot 中的 session 引用。
    */
   closeAll(): void {
+    if (this.closed) return;
+    // Closing is terminal for this pool instance. Wake queued acquire() calls so they
+    // reject instead of looping back and creating new CLI sessions after shutdown.
+    this.closed = true;
     for (let i = 0; i < this.slots.length; i++) this.dropSession(i, '关闭池');
     this.waiters.splice(0).forEach((wake) => { wake(); });
   }
@@ -350,15 +366,22 @@ export class WorkbuddySessionPool {
     requestedKey: string,
     schema?: Record<string, unknown>,
   ): Promise<void> {
+    this.assertOpen();
     const slot = this.slots[index];
     const create = async (reason: string) => {
       const startedAt = Date.now();
+      let created: PooledSession;
       try {
-        slot.session = await this.factory(buildTextSessionOptions(agent, schema));
+        created = await this.factory(buildTextSessionOptions(agent, schema));
       } catch (error) {
         logWarn('pool', '新建会话失败 · slot=' + index + ' · ' + reason + ' · ' + summarizeError(error));
         throw error;
       }
+      if (this.closed) {
+        try { created.close(); } catch { /* shutdown already invalidated this slot */ }
+        throw new Error('Workbuddy session pool is closed');
+      }
+      slot.session = created;
       logInfo('pool', '新建会话 · slot=' + index + ' · ' + reason + ' · scope=' + describeScope(requestedKey) +
         ' · model=' + (agent.model || '<运行时默认>') + ' · ' + (Date.now() - startedAt) + 'ms');
       slot.model = agent.model || '';
@@ -376,7 +399,20 @@ export class WorkbuddySessionPool {
       return;
     }
     if ((agent.model || '') !== slot.model) {
-      await slot.session.setModel?.(agent.model);
+      if (!slot.session.setModel) {
+        // Do not update the cached model label when this SDK Session cannot actually switch models.
+        // Recreate it instead, otherwise telemetry claims one model while the CLI still uses another.
+        this.dropSession(index, 'Session API 不支持 setModel，重建以应用模型');
+        await create('切换模型（Session 不支持 setModel）');
+        return;
+      }
+      try {
+        await slot.session.setModel(agent.model);
+      } catch (error) {
+        this.dropSession(index, 'setModel 失败');
+        throw error;
+      }
+      this.assertOpen();
       logInfo('pool', '会话换模型 · slot=' + index + ' · ' + (slot.model || '<运行时默认>') + ' → ' + (agent.model || '<运行时默认>'));
       slot.model = agent.model || '';
     }
