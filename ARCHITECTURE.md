@@ -303,6 +303,8 @@ translateChunksWithRetry (全并行 + 缺失重试)
 - `shouldRetryMissing` 判断是否需要重试（缺失比例 + 非重试 chunk）
 - `buildRetryChunk` 构建只含缺失 block 的新 chunk
 
+网页抓取与扩展提交 HTML 共用域名停放页检查。直抓路径记录请求 URL、最终 URL 和重定向链，并在调用模型前拒绝常见注册商停放页；扩展提交的 HTML 也会在翻译前检查。旧缓存的健康检查会排除同类页面，避免失效缓存和 stale-cache fallback 再次展示错误内容。拒绝时返回 `422` 和 `DOMAIN_PARKING_PAGE`，不写入新翻译缓存。
+
 ### 内容抽取 Extraction
 
 [lib/translate/extraction/](file:///Users/saga/code-repos/vocal-saga/lib/translate/extraction/) 采用**多策略候选 + 统一评分**架构：
