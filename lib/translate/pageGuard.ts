@@ -9,7 +9,7 @@ const PARKING_TITLE_PATTERN =
   /^\s*[^<>]{1,160}\s[-|·–—]\s[^<>]{1,100}\s+resources and information\.?\s*$/i;
 
 const PARKING_BODY_PATTERN =
-  /\b(?:this domain (?:is|may be) for sale|domain (?:is|has been) parked|domain parking|buy this domain|related searches)\b/i;
+  /\b(?:this domain (?:is|may be) for sale|domain (?:is|has been) parked|buy this domain|this web page is parked|domain name.{0,80}for sale)\b/i;
 
 function normalizeText(value: string): string {
   return value
@@ -41,6 +41,15 @@ export function getDomainParkingPageReason(title: string, bodyText: string): str
   }
   if (normalizedBody.length < 20_000 && PARKING_BODY_PATTERN.test(normalizedBody)) {
     return 'page body contains a domain-parking or domain-for-sale signature';
+  }
+  // Some parking providers use only generic "Related searches" copy. Require the
+  // companion privacy link and a short body to avoid rejecting search results/articles.
+  if (
+    normalizedBody.length < 5_000 &&
+    /\brelated searches\b/i.test(normalizedBody) &&
+    /\bprivacy policy\b/i.test(normalizedBody)
+  ) {
+    return 'short page contains the common parking-template combination of related searches and privacy policy';
   }
   return null;
 }
