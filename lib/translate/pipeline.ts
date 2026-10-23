@@ -37,6 +37,7 @@ import { buildLiteraryReviewInstructions } from './document/literary';
 import { matchSiteRule } from './rules';
 import { parseHTML } from 'linkedom';
 import { inlineExternalStylesheets } from './cssInliner';
+import { assertNotDomainParkingPage } from './pageGuard';
 
 // =============================================================================
 // 性能日志
@@ -1001,7 +1002,20 @@ export async function translateUrl(input: TranslateUrlInput): Promise<TranslateU
     ...(input.ssrfGuard ? { ssrfGuard: input.ssrfGuard } : {}),
   });
 
-  console.log(`[Pipeline] Fetched ${input.url} → ${page.finalUrl} (${page.status}, ${page.html.length} bytes)`);
+  // Redirects are valid, but registrar parking pages are not article content.
+  // Reject them before invoking the model or allowing the result into D1.
+  assertNotDomainParkingPage(page.doc, input.url, page.finalUrl);
+  const redirectTrace = page.redirectChain.map((value) => {
+    try {
+      const parsed = new URL(value);
+      return parsed.origin + parsed.pathname;
+    } catch {
+      return '(invalid URL)';
+    }
+  }).join(' -> ');
+  console.log(
+    `[Pipeline] Fetched ${input.url} → ${page.finalUrl} (${page.status}, ${page.html.length} bytes); redirects=${redirectTrace}`,
+  );
 
   const result = await runTranslationPipeline(
     page.doc,
@@ -1045,6 +1059,10 @@ export async function translateHtml(input: TranslateHtmlInput): Promise<Translat
 
   // 用 linkedom 解析扩展传来的 HTML
   const { document: doc } = parseHTML(selfContainedHtml) as unknown as { document: Document };
+
+  // The browser may itself have landed on a parking page before submitting HTML.
+  // Apply the same guard as the server-fetch route; do not translate or cache the page.
+  assertNotDomainParkingPage(doc, input.url, input.url);
 
   // 设置 baseURI，让相对 URL 能正确解析
   try {
