@@ -385,7 +385,11 @@ export class WorkbuddySessionPool {
       logInfo('pool', '新建会话 · slot=' + index + ' · ' + reason + ' · scope=' + describeScope(requestedKey) +
         ' · model=' + (agent.model || '<运行时默认>') + ' · ' + (Date.now() - startedAt) + 'ms');
       slot.model = agent.model || '';
-      slot.scopeKey = requestedKey;
+      // Shared text slots have a model-qualified key; keep it aligned after a hot switch
+      // or a rebuild, otherwise diagnostics and subsequent scope checks retain stale model data.
+      slot.scopeKey = requestedKey.startsWith('shared-slot:')
+        ? 'shared-slot:' + index + ':' + (agent.model || '<runtime-default>')
+        : requestedKey;
       slot.schemaKey = schema ? JSON.stringify(schema) : '';
       slot.uses = 0;
     };
