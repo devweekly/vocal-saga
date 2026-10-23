@@ -419,6 +419,9 @@ export class WorkbuddySessionPool {
       this.assertOpen();
       logInfo('pool', '会话换模型 · slot=' + index + ' · ' + (slot.model || '<运行时默认>') + ' → ' + (agent.model || '<运行时默认>'));
       slot.model = agent.model || '';
+      if (slot.scopeKey.startsWith('shared-slot:')) {
+        slot.scopeKey = 'shared-slot:' + index + ':' + (agent.model || '<runtime-default>');
+      }
     }
   }
 
