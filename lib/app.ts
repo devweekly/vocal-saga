@@ -1366,6 +1366,15 @@ ${pager}
           'X-Translate-Blocks': String(result.blocks),
           'X-Translate-Chunks': String(result.chunks),
           'X-Translate-Duration-Ms': String(result.duration_ms),
+          // Expose final destination on fresh server-fetch responses; strip query/hash values.
+          'X-Translate-Final-Url': (() => {
+            try {
+              const finalUrl = new URL(result.finalUrl);
+              return finalUrl.origin + finalUrl.pathname;
+            } catch {
+              return '';
+            }
+          })(),
           // save 失败时透出错误信息，前端可程序化感知
           ...(saveError ? { 'X-Translate-Warning': sanitizeHeaderValue(saveError) } : {}),
         },
