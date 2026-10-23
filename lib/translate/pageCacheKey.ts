@@ -2,7 +2,7 @@ import { simpleHash } from './cacheKey';
 import { matchSiteRule } from './rules';
 
 // Bump whenever shared translation contracts, style prompts, or review instructions change.
-export const TRANSLATION_PROMPT_REVISION = 'web-translation-prompts-2026-10-23-r3';
+export const TRANSLATION_PROMPT_REVISION = 'web-translation-prompts-2026-10-23-r4';
 
 /**
  * 用于 /fanyi/page 的整页缓存指纹。
