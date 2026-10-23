@@ -2,6 +2,17 @@ import { translationCache } from './cacheManager';
 import { cleanJsonString, repairJson, extractJsonContainer } from './service/shared';
 import { validateBlockMapping } from './mappingValidator';
 
+/** Normalize the response shapes commonly returned by translation models. */
+function normalizeTranslationItems(parsed: unknown): any[] {
+  if (Array.isArray(parsed)) return parsed;
+  if (!parsed || typeof parsed !== 'object') return [];
+  const value = parsed as Record<string, unknown>;
+  if (Array.isArray(value.translations)) return value.translations;
+  // Some providers ignore the requested wrapper when translating a single block.
+  if (typeof value.id === 'string') return [value];
+  return [];
+}
+
 export async function getCachedTranslation(cacheKey: string): Promise<Map<string, string> | null> {
   const raw = await translationCache.get<Record<string, string>>(cacheKey);
   if (!raw) {
@@ -27,7 +38,7 @@ export async function cacheTranslation(cacheKey: string, data: Map<string, strin
 
 export function processTranslationResult(jsonResult: string): Map<string, string> {
   const parsed = JSON.parse(jsonResult);
-  const translations = parsed.translations || parsed;
+  const translations = normalizeTranslationItems(parsed);
   const result = new Map<string, string>();
   for (const item of translations) {
     if (typeof item?.id !== 'string') continue;
@@ -80,6 +91,7 @@ export function logUnchangedBlocks(
           : typeof item.translation === 'string'
           ? item.translation
           : null;
+      if (typeof item.id !== 'string') continue;
       seenIds.add(item.id);
       const original = byId.get(item.id);
       if (original === undefined) {
