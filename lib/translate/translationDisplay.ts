@@ -184,8 +184,8 @@ export function toggleBlockTranslation(node: HTMLElement): void {
   const inlineOriginal = node.querySelector('.fanyi-inline-original') as HTMLElement | null;
   const inlineTranslation = node.querySelector('.fanyi-inline-translation') as HTMLElement | null;
   if (inlineOriginal && inlineTranslation) {
-    const isHidden = inlineOriginal.style.display === 'none';
-    inlineOriginal.style.display = isHidden ? '' : 'none';
+    const isHidden = inlineTranslation.style.display === 'none';
+    inlineTranslation.style.display = isHidden ? '' : 'none';
     return;
   }
 
