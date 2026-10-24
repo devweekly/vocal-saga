@@ -13,6 +13,7 @@ const { getDocumentProjectStore } = await import('../src/documents/projectStore.
 const { buildProjectVoiceContext } = await import('../src/documents/voiceContext.ts');
 const { buildProjectContextGraphBundle } = await import('../src/documents/contextGraph.ts');
 const { selectRecentPriorChapterSummaries } = await import('../src/documents/contextGraph.ts');
+const { contextGraphCandidateDisposition } = await import('../src/documents/contextGraph.ts');
 const { buildTranslationBrief, summarizeTranslationBrief, MAX_TRANSLATION_BRIEF_CHARS } = await import('../src/documents/translationBrief.ts');
 const { buildBatches, buildUserPrompt } = await import('../src/documents/translationAgent.ts');
 
@@ -1112,5 +1113,21 @@ test('chapter summary retrieval includes only the two immediately preceding chap
     { chapter: 'Chapter 1', summary: 'Summary 1', summaryKind: 'model' },
   ]);
   assert.deepEqual(selectRecentPriorChapterSummaries(chapters, -1), []);
+});
+
+test('invalid leading candidates do not consume the evidence-backed persistence quota', () => {
+  const candidates = Array.from({ length: 41 }, (_, index) => ({
+    name: 'Candidate ' + index,
+    evidenceCount: index === 40 ? 1 : 0,
+  }));
+  const persisted = [];
+  for (const candidate of candidates) {
+    const disposition = contextGraphCandidateDisposition(candidate.evidenceCount, persisted.length, 40);
+    if (disposition === 'persist') persisted.push(candidate.name);
+  }
+
+  assert.deepEqual(persisted, ['Candidate 40']);
+  assert.equal(contextGraphCandidateDisposition(0, 39, 40), 'no-evidence');
+  assert.equal(contextGraphCandidateDisposition(1, 40, 40), 'valid-limit');
 });
 
