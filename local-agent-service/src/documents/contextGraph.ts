@@ -1784,6 +1784,21 @@ export function reviewContextGraphItem(
  * 这里按固定 source revision 的 ordinal 校验节点、别名、关系证据与目标语言；模型产生的全书候选
  * 不能因为名称出现在当前片段就自动成为规范译名。该函数只检索上下文，不修改图谱事实。
  */
+export function selectRecentPriorChapterSummaries(
+  chapterRows: Array<{ chapter_title: string; summary: string; summary_kind: string }>,
+  currentIndex: number,
+): Array<{ chapter: string; summary: string; summaryKind: string }> {
+  if (!Number.isInteger(currentIndex) || currentIndex < 0) return [];
+  // Complete summaries are useful continuity context, but older chapters dilute the active
+  // scene and grow every downstream translator/reviewer prompt. The current chapter is handled
+  // separately by an extractive prefix summary bounded to the current batch ordinal.
+  return chapterRows.slice(Math.max(0, currentIndex - 2), currentIndex).map((chapter) => ({
+    chapter: chapter.chapter_title,
+    summary: String(chapter.summary),
+    summaryKind: chapter.summary_kind,
+  }));
+}
+
 export function buildProjectContextGraphBundle(
   projectId: string,
   items: Array<{ id: string; text: string; contextPath?: string }>,
@@ -1923,12 +1938,7 @@ export function buildProjectContextGraphBundle(
     normalize(chapter.chapter_key) === normalize(currentChapter) || normalize(chapter.chapter_title) === normalize(currentChapter));
   // Only complete summaries for previous chapters are eligible. A full summary of the current
   // chapter can include its final paragraph, which is future context when translating early batches.
-  const priorChapterSummaries = currentIndex >= 0
-    ? chapterRows.slice(0, currentIndex).map((chapter) => ({
-        chapter: chapter.chapter_title, summary: String(chapter.summary),
-        summaryKind: chapter.summary_kind,
-      }))
-    : [];
+  const priorChapterSummaries = selectRecentPriorChapterSummaries(chapterRows, currentIndex);
   const currentPrefixRows = currentIndex >= 0 && currentChapter
     ? db.prepare(
         'SELECT segment_id, ordinal, text, kind FROM source_segments ' +
