@@ -349,15 +349,15 @@ function buildTemporallyVisibleMemory(
           'AND latest.accepted = 1 AND latest.source_hash = s.source_hash ' +
         'ORDER BY COALESCE(latest.accepted_at, latest.created_at) DESC, latest.created_at DESC, latest.rowid DESC LIMIT 1) ' +
       'AND (' + candidateClauses.join(' OR ') + ') ' +
-    'ORDER BY CASE WHEN tr.origin = \\'manual\\' THEN 0 ' +
+    "ORDER BY CASE WHEN tr.origin = 'manual' THEN 0 " +
       (currentChapterParams.length ? 'WHEN s.context_path IN (' + currentChapterParams.map(() => '?').join(',') + ') THEN 1 ' : '') +
       'ELSE 2 END, s.ordinal DESC LIMIT 1200'
   ).all(
     revisionId, firstOrdinal,
     recentOrdinalBoundary,
-    ...currentChapterParams,
+    ...(currentChapterParams.length ? currentChapterParams : []),
     ...candidateTerms,
-    ...currentChapterParams,
+    ...(currentChapterParams.length ? currentChapterParams : []),
   ) as Array<{
     segmentId: string; ordinal: number; source: string; chapter: string; kind: string;
     target: string; origin: string; acceptedAt: string;
@@ -400,7 +400,7 @@ function buildTemporallyVisibleMemory(
       const intersection = Array.from(tokens).filter((token) => selected.has(token)).length;
       return intersection / Math.max(1, Math.min(tokens.size, selected.size)) >= 0.85;
     });
-    if (redundant && row.sharedNamedEntity === 0 && row.exactPhrase === 0 && row.origin !== 'manual') continue;
+    if (redundant && row.sharedNamedEntity === 0 && row.exactPhrase === 0) continue;
     retrievedExamples.push({
       segmentId: String(row.segmentId),
       source,
