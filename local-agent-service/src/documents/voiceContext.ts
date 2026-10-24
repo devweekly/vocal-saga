@@ -351,26 +351,42 @@ export function sanitizeProjectLiteraryMemory(input: unknown): Record<string, an
   // never slice serialized JSON (which could corrupt the memory schema).
   const serializedBytes = () => Buffer.byteLength(JSON.stringify(memory), 'utf8');
   while (serializedBytes() > MAX_MEMORY_BYTES) {
+    // Trim low-value historical arrays in batches. Re-serializing a multi-megabyte memory
+    // once per entry made worst-case normalization quadratic and could stall document startup.
     if (memory.recentExamples.length) {
-      memory.recentExamples.shift();
+      memory.recentExamples.splice(0, Math.max(1, Math.ceil(memory.recentExamples.length / 2)));
       continue;
     }
     if (memory.chapterSummaries.length) {
-      memory.chapterSummaries.shift();
+      memory.chapterSummaries.splice(0, Math.max(1, Math.ceil(memory.chapterSummaries.length / 2)));
       continue;
     }
     if (memory.voiceAnchors.length) {
-      memory.voiceAnchors.shift();
+      memory.voiceAnchors.splice(0, Math.max(1, Math.ceil(memory.voiceAnchors.length / 2)));
       continue;
     }
 
-    // Keep profiles/names, but progressively reduce source excerpts. Mark a profile incomplete
-    // whenever source evidence is pruned so downstream voice retrieval can fail closed.
-    const profileWithEvidence = [...memory.characterVoices].find((profile: any) => profile.evidence.length > 1);
-    if (profileWithEvidence) {
-      profileWithEvidence.evidence.shift();
-      profileWithEvidence.evidenceTruncated = true;
-      continue;
+    // Keep profiles/names, but progressively reduce source excerpts. Preserve at least one
+    // recent evidence item per profile, and prune evidence in a round-robin pass so input order
+    // does not cause one early character to lose every quote before later profiles are touched.
+    const bytesToFree = serializedBytes() - MAX_MEMORY_BYTES + 16 * 1024;
+    let freedBytes = 0;
+    const profilesWithEvidence = memory.characterVoices.filter((profile: any) => profile.evidence.length > 1);
+    if (profilesWithEvidence.length) {
+      while (freedBytes < bytesToFree) {
+        let removedInRound = false;
+        for (const profile of profilesWithEvidence) {
+          if (profile.evidence.length <= 1 || freedBytes >= bytesToFree) continue;
+          const removed = profile.evidence.shift();
+          if (removed !== undefined) {
+            freedBytes += Buffer.byteLength(JSON.stringify(removed), 'utf8') + 8;
+            profile.evidenceTruncated = true;
+            removedInRound = true;
+          }
+        }
+        if (!removedInRound) break;
+      }
+      if (freedBytes > 0) continue;
     }
     if (memory.relationshipVoiceRules.length) {
       memory.relationshipVoiceRules.pop();
@@ -394,7 +410,7 @@ export function sanitizeProjectLiteraryMemory(input: unknown): Record<string, an
     }
     // All collection fields are exhausted; bounded scalar/style fields should keep this
     // unreachable, but fail with a precise error instead of storing over-cap data.
-    throw Object.assign(new Error('结构化文学记忆本身超过 120 KiB 上限，已达到可裁剪边界'), { status: 413 });
+    throw Object.assign(new Error('结构化文学记忆本身超过 5 MiB 上限，已达到可裁剪边界'), { status: 413 });
   }
   return memory;
 }
