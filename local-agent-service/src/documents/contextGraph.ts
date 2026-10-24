@@ -1189,7 +1189,7 @@ async function runAnalysis(projectId: string, runId: string): Promise<void> {
     ).slice(0, 40).map((item: any) => ({ dimension: safeText(item.dimension, 40), segmentId: item.segmentId, quote: safeText(item.quote, 240), observation: safeText(item.observation, 300) })) : []);
 
     const persistedNodes: Array<{ id: string; name: string; aliases: string[]; kind: string }> = [];
-    for (const raw of (Array.isArray(data.characters) ? data.characters : []).slice(0, 40)) {
+    for (const raw of (Array.isArray(data.characters) ? data.characters : []).slice(0, 200)) {
       const name = safeText(raw?.name, 120);
       const audit: CandidateAudit = {
         category: 'character', name,
@@ -1212,6 +1212,12 @@ async function runAnalysis(projectId: string, runId: string): Promise<void> {
         audit.disposition = 'dropped-no-valid-evidence';
         continue;
       }
+      // Invalid candidates do not consume the persistence quota. Keep examining a bounded
+      // candidate window so later evidence-backed characters can survive earlier model noise.
+      if (persistedNodes.filter((node) => node.kind === 'character').length >= 40) {
+        audit.disposition = 'dropped-valid-candidate-limit';
+        continue;
+      }
       const aliases = audit.aliases.filter((item) => normalize(item) !== normalize(name));
       const attributes = {
         aliases, suggestedTranslation: audit.suggestedTranslation || '', targetLang,
@@ -1223,7 +1229,7 @@ async function runAnalysis(projectId: string, runId: string): Promise<void> {
       audit.nodeId = id;
       persistedNodes.push({ id, name, aliases, kind: 'character' });
     }
-    for (const raw of (Array.isArray(data.entities) ? data.entities : []).slice(0, 120)) {
+    for (const raw of (Array.isArray(data.entities) ? data.entities : []).slice(0, 400)) {
       const name = safeText(raw?.name, 120);
       const audit: CandidateAudit = {
         category: 'entity', name,
@@ -1242,6 +1248,12 @@ async function runAnalysis(projectId: string, runId: string): Promise<void> {
       audit.acceptedEvidenceCount = evidence.length;
       if (!evidence.length) {
         audit.disposition = 'dropped-no-valid-evidence';
+        continue;
+      }
+      // The entity quota applies to successfully validated entities, not their position in
+      // the model response. Candidate scanning remains capped independently for resource safety.
+      if (persistedNodes.filter((node) => node.kind === 'entity').length >= 120) {
+        audit.disposition = 'dropped-valid-candidate-limit';
         continue;
       }
       const aliases = audit.aliases.filter((item) => normalize(item) !== normalize(name));
@@ -1376,6 +1388,10 @@ async function runAnalysis(projectId: string, runId: string): Promise<void> {
         relationshipDiagnostics: { ...relationshipDiagnostics, persistedEdges: savedEdges.size },
         characterCandidatesDroppedForEvidence: characterAudits.filter((audit) => audit.disposition === 'dropped-no-valid-evidence').length,
         entityCandidatesDroppedForEvidence: entityAudits.filter((audit) => audit.disposition === 'dropped-no-valid-evidence').length,
+        characterCandidatesDroppedAtValidLimit: characterAudits.filter((audit) => audit.disposition === 'dropped-valid-candidate-limit').length,
+        entityCandidatesDroppedAtValidLimit: entityAudits.filter((audit) => audit.disposition === 'dropped-valid-candidate-limit').length,
+        characterCandidatesOutsideScanWindow: Math.max(0, (Array.isArray(data.characters) ? data.characters.length : 0) - 200),
+        entityCandidatesOutsideScanWindow: Math.max(0, (Array.isArray(data.entities) ? data.entities.length : 0) - 400),
       },
       evidenceValidation: {
         invalidEvidenceCount,
