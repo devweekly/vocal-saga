@@ -228,7 +228,7 @@ test('LiteraryMemory drops unrelated full-book payloads before enforcing the can
 });
 
 test('oversized structured LiteraryMemory is pruned safely to a bounded canonical DTO', () => {
-  const characterVoices = Array.from({ length: 80 }, (_, index) => ({
+  const characterVoices = Array.from({ length: 900 }, (_, index) => ({
     characterId: 'char-' + index,
     canonicalSourceName: 'Character ' + index,
     status: 'candidate',
@@ -260,7 +260,8 @@ test('oversized structured LiteraryMemory is pruned safely to a bounded canonica
     })),
   });
 
-  assert.ok(Buffer.byteLength(JSON.stringify(memory), 'utf8') <= 120 * 1024);
-  assert.ok(memory.characterVoices.length > 0);
-  assert.ok(memory.characterVoices.some((profile) => profile.evidenceTruncated === true));
+  assert.ok(Buffer.byteLength(JSON.stringify(memory), 'utf8') <= 5 * 1024 * 1024);
+  assert.equal(memory.characterVoices.length, 900, 'the DTO byte ceiling must not silently cap the number of character profiles');
+  assert.ok(memory.characterVoices.some((profile) => profile.evidenceTruncated === true),
+    'overflow is handled by explicitly marking pruned source evidence instead of dropping profiles by input order');
 });
