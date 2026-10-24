@@ -1094,7 +1094,7 @@ test('historical example retrieval keeps distant relevant examples and bounds re
     brief.voiceContext.recentExamples.some((example) => example.source.includes('silver vault')),
     'distinctive source terms must retrieve a relevant accepted example older than the recent-window boundary',
   );
-  assert.ok(brief.voiceContext.recentExamples.length <= 8, 'only a compact diverse set is injected');
+  assert.equal(brief.voiceContext.recentExamples.length, 1, 'single-token overlaps in unrelated history are excluded by relevance filtering');
   assert.ok(brief.contextChars <= MAX_TRANSLATION_BRIEF_CHARS);
 });
 
