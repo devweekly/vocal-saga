@@ -298,21 +298,6 @@ function buildTemporallyVisibleMemory(
 
   // Never trust book-level recentExamples: retrieve examples from the accepted translation
   // ledger, pinned to this source revision and strictly before the current batch.
-  const acceptedExampleRows = projectContext.db.prepare(
-    'SELECT s.segment_id AS segmentId, s.ordinal, s.text AS source, s.context_path AS chapter, ' +
-      's.kind, tr.translation_text AS target, tr.origin, COALESCE(tr.accepted_at, tr.created_at) AS acceptedAt ' +
-    'FROM translation_results tr JOIN source_segments s ' +
-      'ON s.source_revision_id = tr.source_revision_id AND s.segment_id = tr.segment_id ' +
-    'WHERE tr.source_revision_id = ? AND tr.accepted = 1 AND tr.source_hash = s.source_hash AND s.ordinal < ? ' +
-      'AND tr.rowid = (SELECT latest.rowid FROM translation_results latest ' +
-        'WHERE latest.source_revision_id = s.source_revision_id AND latest.segment_id = s.segment_id ' +
-          'AND latest.accepted = 1 AND latest.source_hash = s.source_hash ' +
-        'ORDER BY COALESCE(latest.accepted_at, latest.created_at) DESC, latest.created_at DESC, latest.rowid DESC LIMIT 1) ' +
-    'ORDER BY s.ordinal DESC'
-  ).all(revisionId, firstOrdinal) as Array<{
-    segmentId: string; ordinal: number; source: string; chapter: string; kind: string;
-    target: string; origin: string; acceptedAt: string;
-  }>;
   const currentExampleSource = [...precedingSegments, ...items].map((item) => String(item.text || '')).join(' ');
   const stopWords = new Set([
     'about','after','again','against','almost','also','among','another','around','because','before','being',
@@ -336,12 +321,56 @@ function buildTemporallyVisibleMemory(
     ...(Array.isArray(rawMemory.characterVoices) ? rawMemory.characterVoices.flatMap((profile: any) =>
       [profile?.canonicalSourceName, ...(Array.isArray(profile?.aliases) ? profile.aliases : [])]) : []),
   ].filter((name: unknown) => typeof name === 'string' && appearedBefore(name));
+
+  // Keep retrieval bounded without relying on a fixed "last N examples" window alone:
+  // include recent accepted work, the current chapter, manually accepted examples, and rows
+  // matching a small set of distinctive current-source tokens. Scoring/ranking below remains
+  // authoritative. Query results are pinned to the immutable source revision and accepted row.
+  const currentChapterParams = Array.from(currentChapters);
+  const candidateTerms = Array.from(currentTokens)
+    .filter((token) => token.length >= 3)
+    .sort((a, b) => b.length - a.length || a.localeCompare(b))
+    .slice(0, 12);
+  const candidateClauses = [
+    's.ordinal >= ?',
+    ...(currentChapterParams.length ? ['s.context_path IN (' + currentChapterParams.map(() => '?').join(',') + ')'] : []),
+    "tr.origin = 'manual'",
+    ...candidateTerms.map(() => 'instr(lower(s.text), lower(?)) > 0'),
+  ];
+  const recentOrdinalBoundary = Math.max(0, firstOrdinal - 250);
+  const acceptedExampleRows = projectContext.db.prepare(
+    'SELECT s.segment_id AS segmentId, s.ordinal, s.text AS source, s.context_path AS chapter, ' +
+      's.kind, tr.translation_text AS target, tr.origin, COALESCE(tr.accepted_at, tr.created_at) AS acceptedAt ' +
+    'FROM translation_results tr JOIN source_segments s ' +
+      'ON s.source_revision_id = tr.source_revision_id AND s.segment_id = tr.segment_id ' +
+    'WHERE tr.source_revision_id = ? AND tr.accepted = 1 AND tr.source_hash = s.source_hash AND s.ordinal < ? ' +
+      'AND tr.rowid = (SELECT latest.rowid FROM translation_results latest ' +
+        'WHERE latest.source_revision_id = s.source_revision_id AND latest.segment_id = s.segment_id ' +
+          'AND latest.accepted = 1 AND latest.source_hash = s.source_hash ' +
+        'ORDER BY COALESCE(latest.accepted_at, latest.created_at) DESC, latest.created_at DESC, latest.rowid DESC LIMIT 1) ' +
+      'AND (' + candidateClauses.join(' OR ') + ') ' +
+    'ORDER BY CASE WHEN tr.origin = \\'manual\\' THEN 0 ' +
+      (currentChapterParams.length ? 'WHEN s.context_path IN (' + currentChapterParams.map(() => '?').join(',') + ') THEN 1 ' : '') +
+      'ELSE 2 END, s.ordinal DESC LIMIT 1200'
+  ).all(
+    revisionId, firstOrdinal,
+    recentOrdinalBoundary,
+    ...currentChapterParams,
+    ...candidateTerms,
+    ...currentChapterParams,
+  ) as Array<{
+    segmentId: string; ordinal: number; source: string; chapter: string; kind: string;
+    target: string; origin: string; acceptedAt: string;
+  }>;
+
   const scoredExamples = acceptedExampleRows.map((row) => {
     const tokens = sourceTokens(row.source);
     const shared = Array.from(tokens).filter((token) => currentTokens.has(token)).length;
     const overlap = shared / Math.max(1, Math.min(currentTokens.size, 12));
-    const exactPhrase = normalizedSourceText(row.source).length >= 12 &&
-      normalizedSourceText(currentExampleSource).includes(normalizedSourceText(row.source)) ? 1 : 0;
+    const normalizedRowSource = normalizedSourceText(row.source);
+    const normalizedCurrentSource = normalizedSourceText(currentExampleSource);
+    const exactPhrase = normalizedRowSource.length >= 12 &&
+      normalizedCurrentSource.includes(normalizedRowSource) ? 1 : 0;
     const sharedNamedEntity = visibleReferenceNames.some((name: unknown) =>
       sourceNameMatches(currentExampleSource, name) && sourceNameMatches(row.source, name)) ? 1 : 0;
     const sameChapter = currentChapters.has(String(row.chapter || '')) ? 0.8 : 0;
@@ -350,18 +379,38 @@ function buildTemporallyVisibleMemory(
     const recency = 0.5 / (1 + Math.max(0, firstOrdinal - Number(row.ordinal)) / 40);
     const score = overlap * 6 + Math.min(shared, 3) * 0.15 + exactPhrase * 2 +
       sharedNamedEntity * 3.2 + sameChapter + sameKind + manual + recency;
-    return { ...row, score, shared, exactPhrase, sharedNamedEntity };
+    return { ...row, score, shared, exactPhrase, sharedNamedEntity, tokens };
   }).filter((row) => row.shared >= 2 || row.exactPhrase > 0 || row.sharedNamedEntity > 0)
     .sort((a, b) => b.score - a.score || Number(b.origin === 'manual') - Number(a.origin === 'manual') ||
       Number(b.ordinal) - Number(a.ordinal));
-  const retrievedExamples = scoredExamples.map((row) => ({
-    segmentId: String(row.segmentId),
-    source: String(row.source || ''),
-    target: String(row.target || ''),
-    chapter: String(row.chapter || '').slice(0, 120),
-    origin: ['manual', 'agent', 'imported'].includes(String(row.origin)) ? String(row.origin) : 'imported',
-  })).filter((row) => row.source && row.target);
 
+  // Select a compact, diverse set rather than injecting every historical match. Highly
+  // overlapping examples usually repeat the same evidence and displace useful style variety.
+  const retrievedExamples: Array<{ segmentId: string; source: string; target: string; chapter: string; origin: string }> = [];
+  const selectedExampleTokens: Set<string>[] = [];
+  const MAX_ACCEPTED_EXAMPLES = 8;
+  const MAX_ACCEPTED_EXAMPLE_CHARS = 1800;
+  for (const row of scoredExamples) {
+    const source = String(row.source || '');
+    const target = String(row.target || '');
+    if (!source || !target || source.length + target.length > MAX_ACCEPTED_EXAMPLE_CHARS) continue;
+    const tokens = row.tokens as Set<string>;
+    const redundant = selectedExampleTokens.some((selected) => {
+      if (!tokens.size || !selected.size) return false;
+      const intersection = Array.from(tokens).filter((token) => selected.has(token)).length;
+      return intersection / Math.max(1, Math.min(tokens.size, selected.size)) >= 0.85;
+    });
+    if (redundant && row.sharedNamedEntity === 0 && row.exactPhrase === 0 && row.origin !== 'manual') continue;
+    retrievedExamples.push({
+      segmentId: String(row.segmentId),
+      source,
+      target,
+      chapter: String(row.chapter || '').slice(0, 120),
+      origin: ['manual', 'agent', 'imported'].includes(String(row.origin)) ? String(row.origin) : 'imported',
+    });
+    selectedExampleTokens.push(tokens);
+    if (retrievedExamples.length >= MAX_ACCEPTED_EXAMPLES) break;
+  }
   rawMemory.entities = (Array.isArray(rawMemory.entities) ? rawMemory.entities : []).flatMap((entity: any) => {
     const aliases = Array.isArray(entity?.aliases) ? entity.aliases : [];
     const evidenceRefs = Array.isArray(entity.evidenceRefs) ? entity.evidenceRefs : [];
