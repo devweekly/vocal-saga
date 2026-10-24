@@ -388,18 +388,20 @@ function buildTemporallyVisibleMemory(
   // overlapping examples usually repeat the same evidence and displace useful style variety.
   const retrievedExamples: Array<{ segmentId: string; source: string; target: string; chapter: string; origin: string }> = [];
   const selectedExampleTokens: Set<string>[] = [];
-  const MAX_ACCEPTED_EXAMPLES = 8;
-  const MAX_ACCEPTED_EXAMPLE_CHARS = 1800;
   for (const row of scoredExamples) {
     const source = String(row.source || '');
     const target = String(row.target || '');
-    if (!source || !target || source.length + target.length > MAX_ACCEPTED_EXAMPLE_CHARS) continue;
+    if (!source || !target) continue;
     const tokens = row.tokens as Set<string>;
     const redundant = selectedExampleTokens.some((selected) => {
       if (!tokens.size || !selected.size) return false;
       const intersection = Array.from(tokens).filter((token) => selected.has(token)).length;
-      return intersection / Math.max(1, Math.min(tokens.size, selected.size)) >= 0.85;
+      const union = tokens.size + selected.size - intersection;
+      return intersection / Math.max(1, union) >= 0.85;
     });
+    // Do not impose a fixed number/character budget on retrieved examples. Preserve every
+    // relevant, materially different accepted example; filter by relevance and source similarity,
+    // not by arbitrary context-size heuristics.
     if (redundant && row.sharedNamedEntity === 0 && row.exactPhrase === 0) continue;
     retrievedExamples.push({
       segmentId: String(row.segmentId),
@@ -409,7 +411,6 @@ function buildTemporallyVisibleMemory(
       origin: ['manual', 'agent', 'imported'].includes(String(row.origin)) ? String(row.origin) : 'imported',
     });
     selectedExampleTokens.push(tokens);
-    if (retrievedExamples.length >= MAX_ACCEPTED_EXAMPLES) break;
   }
   rawMemory.entities = (Array.isArray(rawMemory.entities) ? rawMemory.entities : []).flatMap((entity: any) => {
     const aliases = Array.isArray(entity?.aliases) ? entity.aliases : [];
