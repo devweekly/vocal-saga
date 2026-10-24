@@ -467,6 +467,60 @@ export function isOverlayElement(el: Element): boolean {
 // 上下文判定 (parent chain / child walk)
 // =============================================================================
 
+/** 与 aside 同级出现时，说明它夹在正文流里（而非布局侧栏）的块级标签。 */
+const PROSE_FLOW_TAGS = new Set([
+  'p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
+  'ul', 'ol', 'blockquote', 'pre', 'figure', 'table', 'picture',
+]);
+
+/**
+ * `<aside>` 是否其实是文章正文的一部分（Key takeaways / TL;DR / 结论卡）。
+ *
+ * 编辑类站点（cube.dev、多数 Next.js 博客）用 `<aside>` 承载正文内的要点框，
+ * 语义上不属于页面 chrome。无条件整棵拒绝会让这些卡片完全不翻译。
+ *
+ * 判定为正文需同时满足：
+ *   1. 不在 nav / footer / dialog 内；
+ *   2. 自身 class/id 不命中广告、推荐、分享、侧栏等噪声模式；
+ *   3. 处于文章区域（article/main/role，或祖先 class 含 article/post/story/content…）；
+ *   4. 夹在正文流中（同级存在 p/h2/ul 等正文块），或自身文本 ≥ 200 字符。
+ *
+ * 与 fanyi-extension 的 `isContentAside()` 保持同语义（两端非字节级同步文件）。
+ */
+export function isContentAside(el: Element): boolean {
+  if (el.tagName.toLowerCase() !== 'aside') return false;
+  if (el.closest('nav, footer, dialog')) return false;
+
+  // 噪声类名优先否决（aside 标签本身必然命中 LOW_PRIORITY_PATTERNS.tags，故只看 class/id）
+  const cls = (el.getAttribute('class') || '').toLowerCase();
+  const id = (el.getAttribute('id') || '').toLowerCase();
+  if (LOW_PRIORITY_PATTERNS.classTokens.test(cls)) return false;
+  if (LOW_PRIORITY_PATTERNS.idTokens.test(id)) return false;
+
+  let inArticleRegion =
+    el.closest('article, main, [role="main"], [role="article"]') !== null;
+  if (!inArticleRegion) {
+    let cur: Element | null = el.parentElement;
+    while (cur) {
+      if (hasContentTokens(cur)) {
+        inArticleRegion = true;
+        break;
+      }
+      cur = cur.parentElement;
+    }
+  }
+
+  const inProseFlow = Array.from(el.parentElement?.children ?? []).some(
+    (sib) => sib !== el && PROSE_FLOW_TAGS.has(sib.tagName.toLowerCase()),
+  );
+
+  if (!inArticleRegion && !inProseFlow) return false;
+
+  if (normalizeBlockText(el.textContent ?? '').length >= 200) return true;
+
+  return inProseFlow && el.querySelector('p, li, blockquote, h1, h2, h3, h4, h5, h6') !== null;
+}
+
 /**
  * 元素是否在文章容器内 (<article> 标签 / role=article / role=main /
  * 常见文章类名)。仅在 INLINE_SET 元素上调用 (判断 span/a/em 是否值得抓)。

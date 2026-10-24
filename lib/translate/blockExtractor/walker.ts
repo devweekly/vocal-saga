@@ -42,6 +42,7 @@ import {
   hasBlockLevelParent,
   hasContentTokens,
   hasTranslateBlockClass,
+  isContentAside,
   isContentEditable,
   isElementHidden,
   isInlineCandidate,
@@ -409,7 +410,13 @@ function acceptWalkerNode(
   }
 
   // 3) 其他语义噪声 (footer / aside / nav): 整棵拒绝
+  //    例外：正文内的 <aside>（Key takeaways / TL;DR / 结论卡）是内容而非 chrome，
+  //    跳过自身、继续下钻，让内部的 p/li 各自成块。
   if (SEMANTIC_SKIP_TAGS.has(tag)) {
+    if (tag === 'aside' && isContentAside(el)) {
+      counters.skipped++;
+      return FILTER_SKIP;
+    }
     cache.rejected.add(el);
     counters.skipped++;
     return FILTER_REJECT;
