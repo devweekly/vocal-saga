@@ -1208,14 +1208,12 @@ async function runAnalysis(projectId: string, runId: string): Promise<void> {
       }
       const evidence = evidenceFromModel(raw.evidence, 'character', audit);
       audit.acceptedEvidenceCount = evidence.length;
-      if (!evidence.length) {
-        audit.disposition = 'dropped-no-valid-evidence';
-        continue;
-      }
-      // Invalid candidates do not consume the persistence quota. Keep examining a bounded
-      // candidate window so later evidence-backed characters can survive earlier model noise.
-      if (persistedNodes.filter((node) => node.kind === 'character').length >= 40) {
-        audit.disposition = 'dropped-valid-candidate-limit';
+      const characterDecision = contextGraphCandidateDisposition(
+        evidence.length, persistedNodes.filter((node) => node.kind === 'character').length, 40,
+      );
+      if (characterDecision !== 'persist') {
+        audit.disposition = characterDecision === 'no-evidence'
+          ? 'dropped-no-valid-evidence' : 'dropped-valid-candidate-limit';
         continue;
       }
       const aliases = audit.aliases.filter((item) => normalize(item) !== normalize(name));
@@ -1246,14 +1244,12 @@ async function runAnalysis(projectId: string, runId: string): Promise<void> {
       }
       const evidence = evidenceFromModel(raw.evidence, 'entity', audit);
       audit.acceptedEvidenceCount = evidence.length;
-      if (!evidence.length) {
-        audit.disposition = 'dropped-no-valid-evidence';
-        continue;
-      }
-      // The entity quota applies to successfully validated entities, not their position in
-      // the model response. Candidate scanning remains capped independently for resource safety.
-      if (persistedNodes.filter((node) => node.kind === 'entity').length >= 120) {
-        audit.disposition = 'dropped-valid-candidate-limit';
+      const entityDecision = contextGraphCandidateDisposition(
+        evidence.length, persistedNodes.filter((node) => node.kind === 'entity').length, 120,
+      );
+      if (entityDecision !== 'persist') {
+        audit.disposition = entityDecision === 'no-evidence'
+          ? 'dropped-no-valid-evidence' : 'dropped-valid-candidate-limit';
         continue;
       }
       const aliases = audit.aliases.filter((item) => normalize(item) !== normalize(name));
@@ -1800,6 +1796,20 @@ export function reviewContextGraphItem(
  * 这里按固定 source revision 的 ordinal 校验节点、别名、关系证据与目标语言；模型产生的全书候选
  * 不能因为名称出现在当前片段就自动成为规范译名。该函数只检索上下文，不修改图谱事实。
  */
+export type ContextGraphCandidateDisposition = 'no-evidence' | 'persist' | 'valid-limit';
+
+export function contextGraphCandidateDisposition(
+  evidenceCount: number,
+  persistedCount: number,
+  limit: number,
+): ContextGraphCandidateDisposition {
+  // Evidence must be valid before a candidate consumes the quota. This prevents invalid
+  // early model outputs from crowding out later source-grounded characters and entities.
+  if (!Number.isFinite(evidenceCount) || evidenceCount <= 0) return 'no-evidence';
+  if (persistedCount >= Math.max(0, Math.floor(limit))) return 'valid-limit';
+  return 'persist';
+}
+
 export function selectRecentPriorChapterSummaries(
   chapterRows: Array<{ chapter_title: string; summary: string; summary_kind: string }>,
   currentIndex: number,
