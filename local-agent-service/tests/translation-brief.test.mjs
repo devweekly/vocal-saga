@@ -12,6 +12,7 @@ process.env.LOCAL_AGENT_DATABASE = path.join(testDataDir, 'service.sqlite');
 const { getDocumentProjectStore } = await import('../src/documents/projectStore.ts');
 const { buildProjectVoiceContext } = await import('../src/documents/voiceContext.ts');
 const { buildProjectContextGraphBundle } = await import('../src/documents/contextGraph.ts');
+const { selectRecentPriorChapterSummaries } = await import('../src/documents/contextGraph.ts');
 const { buildTranslationBrief, summarizeTranslationBrief, MAX_TRANSLATION_BRIEF_CHARS } = await import('../src/documents/translationBrief.ts');
 const { buildBatches, buildUserPrompt } = await import('../src/documents/translationAgent.ts');
 
@@ -1051,3 +1052,65 @@ test('voice retrieval keeps relevant profiles beyond the former first-80 persist
     'relevant later profiles must remain eligible for retrieval instead of being discarded by input order',
   );
 });
+
+test('historical example retrieval keeps distant relevant examples and bounds redundant context', () => {
+  const store = getDocumentProjectStore();
+  const segments = [];
+  for (let index = 0; index < 280; index++) {
+    segments.push({
+      id: 'example-' + index,
+      text: index === 0
+        ? 'Rhododendron concealed the silver vault beneath the mountain.'
+        : 'Rhododendron grows among warm garden stones number ' + index + '.',
+      kind: 'paragraph',
+      contextPath: 'Chapter ' + (Math.floor(index / 10) + 1),
+    });
+  }
+  segments.push({
+    id: 'current-example',
+    text: 'The rhododendron opened the silver vault beside the river.',
+    kind: 'paragraph',
+    contextPath: 'Chapter 29',
+  });
+  const project = store.createProject({
+    title: 'Bounded Historical Example Retrieval',
+    format: 'txt',
+    sourceFileName: 'historical-examples.txt',
+    prompt: { translationMode: 'literary', sourceLang: 'en', targetLang: 'zh' },
+    segments,
+  });
+  ensureTestContextGraph(store, project);
+  store.importAcceptedTranslations(project.projectId, segments.slice(0, -1).map((segment, index) => ({
+    id: segment.id,
+    text: index === 0 ? '杜鹃花藏起了银色地窖。' : '杜鹃花在温暖的花园石块间生长。',
+  })));
+  const run = store.createRun(project.projectId, { scope: { type: 'ids', ids: ['current-example'] } });
+  const context = store.getRunContext(project.projectId, run.runId);
+  const current = store.getSegments(project.projectId, { limit: 500 }).find((item) => item.id === 'current-example');
+  const brief = buildTranslationBrief(context, [current], []);
+
+  assert.ok(
+    brief.voiceContext.recentExamples.some((example) => example.source.includes('silver vault')),
+    'distinctive source terms must retrieve a relevant accepted example older than the recent-window boundary',
+  );
+  assert.ok(brief.voiceContext.recentExamples.length <= 8, 'only a compact diverse set is injected');
+  assert.ok(brief.contextChars <= MAX_TRANSLATION_BRIEF_CHARS);
+});
+
+test('chapter summary retrieval includes only the two immediately preceding chapters', () => {
+  const chapters = Array.from({ length: 6 }, (_, index) => ({
+    chapter_title: 'Chapter ' + (index + 1),
+    summary: 'Summary ' + (index + 1),
+    summary_kind: 'model',
+  }));
+
+  assert.deepEqual(selectRecentPriorChapterSummaries(chapters, 5), [
+    { chapter: 'Chapter 4', summary: 'Summary 4', summaryKind: 'model' },
+    { chapter: 'Chapter 5', summary: 'Summary 5', summaryKind: 'model' },
+  ]);
+  assert.deepEqual(selectRecentPriorChapterSummaries(chapters, 1), [
+    { chapter: 'Chapter 1', summary: 'Summary 1', summaryKind: 'model' },
+  ]);
+  assert.deepEqual(selectRecentPriorChapterSummaries(chapters, -1), []);
+});
+
