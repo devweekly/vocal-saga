@@ -1037,7 +1037,12 @@ test('voice retrieval keeps relevant profiles beyond the former first-80 persist
       register: 'measured', syntaxRhythm: [], lexicalPreferences: [],
       discourseHabits: [], stanceModality: [], humorIrony: '', disfluency: '', avoid: [],
     },
-    evidence: [],
+    evidence: [{
+      segmentId: 'current',
+      sourceQuote: 'Character 99 spoke quietly.',
+      observation: 'Uses a restrained declarative sentence.',
+      dimension: 'register',
+    }],
     contrastRules: [],
     openQuestions: [],
   }));
