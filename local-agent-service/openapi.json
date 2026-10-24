@@ -12,7 +12,7 @@
   ],
   "x-contract-coverage": {
     "status": "partial",
-    "routeCount": 54,
+    "routeCount": 55,
     "detailedPaths": [
       "/api/documents/projects/{projectId}/runs",
       "/api/documents/projects/{projectId}/runs/{runId}/resume",
@@ -328,6 +328,34 @@
         "x-route-contract-level": "inventory-only",
         "x-implementation-source": "src/routes.ts",
         "x-implementation-signature": "url.pathname === '/v1/models'",
+        "responses": {
+          "200": {
+            "description": "Successful response; endpoint-specific response schema not yet documented.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericSuccess"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ApiError"
+          },
+          "500": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        }
+      }
+    },
+    "/api/codebuddy/config-options": {
+      "parameters": [],
+      "get": {
+        "operationId": "get_api_codebuddy_config_options",
+        "summary": "GET /api/codebuddy/config-options",
+        "x-route-contract-level": "inventory-only",
+        "x-implementation-source": "src/routes.ts",
+        "x-implementation-signature": "url.pathname === '/api/codebuddy/config-options'",
         "responses": {
           "200": {
             "description": "Successful response; endpoint-specific response schema not yet documented.",
